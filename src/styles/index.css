@@ -1,0 +1,242 @@
+@import 'katex/dist/katex.min.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --grid-line: rgba(15, 23, 42, 0.05);
+  }
+  .dark {
+    color-scheme: dark;
+    --grid-line: rgba(255, 255, 255, 0.045);
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-[#fbfbfd] text-ink-800 antialiased dark:bg-ink-950 dark:text-ink-200;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+  }
+
+  ::selection {
+    @apply bg-brand-500/25;
+  }
+
+  /* 滚动条 */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(120, 130, 155, 0.35) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    @apply rounded-full border-4 border-solid border-transparent bg-ink-300/60 bg-clip-content dark:bg-ink-700/70;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink-400/70 dark:bg-ink-600;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-6xl px-5 sm:px-8;
+  }
+
+  .card {
+    @apply rounded-2xl border border-ink-200/70 bg-white/80 shadow-[0_1px_2px_rgba(16,24,40,.04),0_12px_32px_-12px_rgba(16,24,40,.12)] backdrop-blur
+           dark:border-white/10 dark:bg-white/[0.035] dark:shadow-[0_1px_2px_rgba(0,0,0,.4),0_18px_40px_-18px_rgba(0,0,0,.7)];
+  }
+
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium
+           transition-all duration-150 active:scale-[.97] disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-lg shadow-brand-600/25
+           hover:from-brand-400 hover:to-brand-600 hover:shadow-brand-600/35;
+  }
+  .btn-ghost {
+    @apply btn text-ink-600 hover:bg-ink-900/[.05] hover:text-ink-900 dark:text-ink-300 dark:hover:bg-white/10 dark:hover:text-white;
+  }
+  .btn-outline {
+    @apply btn border border-ink-200 bg-white/60 text-ink-700 hover:border-brand-300 hover:text-brand-700
+           dark:border-white/12 dark:bg-white/5 dark:text-ink-200 dark:hover:border-brand-400/50 dark:hover:text-white;
+  }
+  .btn-danger {
+    @apply btn border border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-400 dark:hover:bg-rose-500/10;
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-ink-200 bg-white px-3.5 py-2.5 text-sm text-ink-900 outline-none
+           transition placeholder:text-ink-400 focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12
+           dark:border-white/12 dark:bg-white/[0.04] dark:text-white dark:placeholder:text-ink-500 dark:focus:border-brand-400/60;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-ink-200/80 bg-white/70 px-2.5 py-0.5 text-xs font-medium
+           text-ink-600 transition hover:border-brand-300 hover:text-brand-700
+           dark:border-white/10 dark:bg-white/5 dark:text-ink-300 dark:hover:border-brand-400/40 dark:hover:text-brand-200;
+  }
+
+  .link-underline {
+    @apply bg-gradient-to-r from-brand-500 to-brand-500 bg-[length:0%_1.5px] bg-left-bottom bg-no-repeat
+           transition-[background-size] duration-300 hover:bg-[length:100%_1.5px];
+  }
+
+  /* 网格背景 */
+  .bg-grid {
+    background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+}
+
+/* ---------- 代码高亮（跟随深浅色） ---------- */
+:root {
+  --hl-bg: #f7f8fa;
+  --hl-text: #383a42;
+  --hl-comment: #9aa1ad;
+  --hl-keyword: #a626a4;
+  --hl-string: #35814a;
+  --hl-number: #b76b01;
+  --hl-func: #3563f6;
+  --hl-type: #c18401;
+  --hl-attr: #e45649;
+}
+.dark {
+  --hl-bg: #0f131c;
+  --hl-text: #c9d1d9;
+  --hl-comment: #6b7280;
+  --hl-keyword: #c792ea;
+  --hl-string: #7ee787;
+  --hl-number: #ffab70;
+  --hl-func: #79b8ff;
+  --hl-type: #ffd580;
+  --hl-attr: #ff7b72;
+}
+
+.prose pre {
+  background: var(--hl-bg) !important;
+  color: var(--hl-text);
+  @apply rounded-xl border border-ink-200/70 text-[13.5px] leading-relaxed dark:border-white/10;
+}
+.prose :where(pre) code {
+  @apply font-mono;
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--hl-comment);
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-formula {
+  color: var(--hl-keyword);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-meta-string {
+  color: var(--hl-string);
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: var(--hl-number);
+}
+.hljs-title,
+.hljs-section,
+.hljs-title.function_ {
+  color: var(--hl-func);
+}
+.hljs-type,
+.hljs-class .hljs-title,
+.hljs-built_in {
+  color: var(--hl-type);
+}
+.hljs-attribute,
+.hljs-attr,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: var(--hl-attr);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 700;
+}
+
+/* ---------- KaTeX ---------- */
+.katex-display {
+  @apply my-6 overflow-x-auto overflow-y-hidden py-1;
+}
+.katex {
+  font-size: 1.05em;
+}
+.katex-display > .katex {
+  font-size: 1.12em;
+}
+
+/* ---------- 文章排版细节 ---------- */
+.prose h2 {
+  @apply mt-12 scroll-mt-24 border-b border-ink-200/70 pb-2 dark:border-white/10;
+}
+.prose h3,
+.prose h4 {
+  @apply scroll-mt-24;
+}
+.prose blockquote {
+  @apply rounded-r-xl border-l-[3px] border-brand-400 bg-brand-50/50 py-1 pr-4 not-italic dark:bg-brand-500/[0.07];
+}
+.prose blockquote p:first-of-type::before,
+.prose blockquote p:last-of-type::after {
+  content: '';
+}
+.prose table {
+  @apply block w-full overflow-x-auto text-sm;
+}
+.prose thead th {
+  @apply bg-ink-100/60 dark:bg-white/5;
+}
+.prose img {
+  @apply mx-auto rounded-xl shadow-lg;
+}
+.prose hr {
+  @apply border-dashed dark:border-white/10;
+}
+.prose ul > li::marker {
+  @apply text-brand-500;
+}
+.prose :where(input[type='checkbox']) {
+  @apply mr-1 h-4 w-4 rounded accent-brand-500;
+}
+
+/* 编辑器滚动同步区域 */
+.editor-textarea {
+  tab-size: 2;
+  line-height: 1.75;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
