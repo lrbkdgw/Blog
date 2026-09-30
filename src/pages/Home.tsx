@@ -18,7 +18,7 @@ export default function Home() {
   return (
     <section id="posts" className="container-page scroll-mt-24 pb-8 pt-10 sm:pt-14">
       <div className="mb-6 flex items-baseline justify-between">
-        <h2 className="font-serif text-2xl font-semibold tracking-tight text-ink-900 dark:text-white">最新文章</h2>
+        <h1 className="font-serif text-2xl font-semibold tracking-tight text-ink-900 dark:text-white">最新文章</h1>
         <Link to="/archive" className="group flex items-center gap-1 text-sm text-ink-500 hover:text-brand-600 dark:hover:text-brand-300">
           全部归档
           <ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />

@@ -311,7 +311,7 @@ export default function Editor() {
   const previewPost = buildDraftPost()
 
   return (
-    <div className={fullscreen ? 'fixed inset-0 z-[80] overflow-auto bg-[#fbfbfd] dark:bg-ink-950' : ''}>
+    <div className={fullscreen ? 'fixed inset-0 z-[80] overflow-auto bg-transparent' : ''}>
       <div className={`${fullscreen ? 'px-4 py-4' : 'container-page pt-8'}`}>
         {/* ------------------------------ 顶部操作条 ----------------------------- */}
         <div className="card sticky top-[4.25rem] z-30 mb-4 flex flex-wrap items-center gap-2 p-2.5 !bg-white/90 dark:!bg-ink-900/85">

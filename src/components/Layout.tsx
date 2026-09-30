@@ -59,9 +59,10 @@ function Logo() {
     <Link to="/" className="group flex shrink-0 items-center" aria-label="回到首页">
       <img
         src={logoVenti}
-        alt="Venti"
+        alt="温迪"
         width={40}
         height={40}
+        fetchPriority="high"
         className="h-10 w-10 rounded-xl object-cover shadow-md shadow-brand-600/20 ring-1 ring-black/5 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105 dark:ring-white/10"
       />
     </Link>
@@ -171,7 +172,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
       <div className="container-page flex h-16 items-center gap-3">
         <Logo />
 
-        <nav className="ml-6 hidden items-center gap-1 md:flex">
+        <nav className="ml-3 hidden items-center gap-1 md:flex">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
@@ -289,10 +290,7 @@ function Footer() {
     <footer className="no-print mt-24 border-t border-ink-200/60 py-10 dark:border-white/[0.08]">
       <div className="container-page flex flex-col items-center justify-between gap-5 sm:flex-row">
         <div className="text-center sm:text-left">
-          <p className="font-serif text-sm font-medium text-ink-700 dark:text-ink-200">
-            {siteConfig.title} · {siteConfig.titleEn}
-          </p>
-          <p className="mt-1 text-xs text-ink-400">
+          <p className="text-xs text-ink-400">
             © {new Date().getFullYear()} {siteConfig.author.name}
             {siteConfig.footerNote ? ` · ${siteConfig.footerNote}` : ''} · 由 React + Vite 驱动，托管于 GitHub Pages
           </p>
@@ -343,12 +341,12 @@ export function Layout() {
     <div className="flex min-h-screen flex-col">
       {/* 背景装饰 */}
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute -left-40 -top-40 h-[32rem] w-[32rem] animate-float rounded-full bg-brand-400/20 blur-[110px] dark:bg-brand-600/15" />
+        <div className="site-background-glow-primary absolute -left-40 -top-40 h-[32rem] w-[32rem] animate-float rounded-full blur-[110px]" />
         <div
-          className="absolute -right-32 top-40 h-[26rem] w-[26rem] animate-float rounded-full bg-indigo-400/15 blur-[110px] dark:bg-indigo-600/15"
+          className="site-background-glow-secondary absolute -right-32 top-40 h-[26rem] w-[26rem] animate-float rounded-full blur-[110px]"
           style={{ animationDelay: '-4s' }}
         />
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-500/40 to-transparent" />
+        <div className="site-background-hairline absolute inset-x-0 top-0 h-px" />
       </div>
 
       <Header onSearch={() => setSearchOpen(true)} />
