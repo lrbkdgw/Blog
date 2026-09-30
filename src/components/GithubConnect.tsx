@@ -77,6 +77,14 @@ export default function GithubConnect({ onToken, label = '使用 GitHub 登录',
       if (controller.signal.aborted) return
       setFlow(info)
       setPhase('waiting')
+      // 优先自动复制验证码；权限受限时仍可点击验证码手动复制。
+      try {
+        await navigator.clipboard.writeText(info.userCode)
+        setCopied(true)
+        window.setTimeout(() => setCopied(false), 1600)
+      } catch {
+        /* 浏览器可能要求用户再次点击，保留手动复制入口 */
+      }
       // 自动打开 GitHub 验证页（若被浏览器拦截，界面里还有手动按钮）
       window.open(info.verificationUri, '_blank', 'noopener')
       const token = await pollDeviceToken(info, controller.signal)

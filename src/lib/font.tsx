@@ -35,12 +35,18 @@ const Ctx = createContext<FontCtx>({
 })
 
 function normalizeFamily(value: string): string {
-  const family = value.trim().replace(/\s+/g, ' ')
-  if (!family) return ''
-  if (family.length > 120 || /[{};<>\n\r]/.test(family)) {
-    throw new Error('字体名称格式不正确，请只填写一个字体名称')
+  const families = value
+    .split(/[,，\n]+/)
+    .map((item) => item.trim().replace(/\s+/g, ' '))
+    .filter(Boolean)
+  if (families.length > 8 || families.some((family) => family.length > 120 || /[{};<>\r]/.test(family))) {
+    throw new Error('字体列表格式不正确，最多可设置 8 个字体名称')
   }
-  return family
+  return [...new Set(families)].join(', ')
+}
+
+function familyList(value: string): string[] {
+  return normalizeFamily(value).split(',').map((item) => item.trim()).filter(Boolean)
 }
 
 function quoteFamily(family: string): string {
@@ -56,9 +62,9 @@ function applyToDocument(family: string) {
     return
   }
 
-  const quoted = quoteFamily(family)
-  root.style.setProperty('--font-sans', `${quoted}, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif`)
-  root.style.setProperty('--font-serif', `${quoted}, "Noto Serif SC", "Songti SC", STSong, SimSun, serif`)
+  const stack = familyList(family).map(quoteFamily).join(', ')
+  root.style.setProperty('--font-sans', `${stack}, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif`)
+  root.style.setProperty('--font-serif', `${stack}, "Noto Serif SC", "Songti SC", STSong, SimSun, serif`)
   root.dataset.fontFamily = family
 }
 
@@ -182,17 +188,28 @@ export function FontProvider({ children }: { children: ReactNode }) {
       }
 
       setStatus('checking-local')
-      if (knownLocal || localFontLikelyExists(family)) {
-        return commit({ family, source: 'local', updatedAt: Date.now() }, 'ready')
+      const families = familyList(family)
+      let localCount = 0
+      let cloudCount = 0
+
+      for (const candidate of families) {
+        if ((knownLocal && families.length === 1) || localFontLikelyExists(candidate)) {
+          localCount += 1
+          continue
+        }
+        setStatus('loading-cloud')
+        try {
+          await requestCloudFont(candidate)
+          cloudCount += 1
+        } catch {
+          // 按优先级继续尝试下一个字体，最终再回退到系统字体。
+        }
       }
 
-      setStatus('loading-cloud')
-      try {
-        await requestCloudFont(family)
-        return commit({ family, source: 'cloud', updatedAt: Date.now() }, 'ready')
-      } catch {
+      if (localCount + cloudCount === 0) {
         return commit({ ...DEFAULT_FONT, updatedAt: Date.now() }, 'fallback')
       }
+      return commit({ family, source: cloudCount > 0 ? 'cloud' : 'local', updatedAt: Date.now() }, 'ready')
     },
     [commit],
   )

@@ -19,6 +19,8 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 🚀 **一键发布** | 浏览器直接调用 GitHub API 提交 Markdown，Actions 自动部署 |
 | 🔍 **全文搜索** | <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>K</kbd> 唤起，支持方向键选择 |
 | 🏷️ **标签 / 归档** | 标签云、按年归档、置顶、草稿、阅读时长、自动目录 |
+| 💬 **文章评论** | GitHub 登录用户可评论，内容保存到仓库 Issue |
+| 🧩 **Markdown 扩展** | 支持 `^` / `<` 合并表格，以及 info / success / warning / error 折叠框 |
 | 🖼️ **图片上传** | 直接把本地图片提交到仓库 `public/uploads/` 并插入链接 |
 | 📱 **响应式** | 手机 / 平板 / 桌面均已适配，支持打印样式 |
 
@@ -199,6 +201,18 @@ pinned: false    # true 则置顶到首页
 | <kbd>Enter</kbd> | 列表内自动续行（空项自动结束列表） |
 
 全站快捷键：<kbd>⌘</kbd>+<kbd>K</kbd> 或 <kbd>/</kbd> 打开搜索。
+
+### Markdown 扩展语法
+
+表格中只写 `^` 会向上合并单元格，只写 `<` 会向左合并单元格。折叠框写法如下（类型可用 `info`、`success`、`warning`、`error`）：
+
+```markdown
+:::info[提示标题]{open}
+这里支持完整 Markdown。`{open}` 表示默认展开。
+:::
+```
+
+文章评论使用 GitHub Issue 保存；请确保目标仓库已启用 **Issues**。首条评论会自动创建与文章关联的 Issue。
 
 ---
 

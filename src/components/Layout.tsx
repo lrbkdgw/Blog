@@ -26,6 +26,7 @@ const NAV = [
   { to: '/archive', label: '归档' },
   { to: '/tags', label: '标签' },
   { to: '/about', label: '关于' },
+  { to: '/settings', label: '设置' },
 ]
 
 function ThemeToggle() {
