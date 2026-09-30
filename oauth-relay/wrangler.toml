@@ -1,0 +1,9 @@
+# Cloudflare Workers 配置（wrangler deploy 使用）
+# 部署步骤见 oauth-relay/README.md
+name = "starlog-oauth-relay"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# 可选：把 CORS 来源限制为你自己的站点域名
+# [vars]
+# ALLOWED_ORIGIN = "https://<user>.github.io"

@@ -1,4 +1,4 @@
-import { githubConfig, STORAGE_KEYS } from './config'
+import { githubConfig, oauthConfig, STORAGE_KEYS } from './config'
 
 export interface RepoTarget {
   owner: string
@@ -62,9 +62,9 @@ async function gh<T>(path: string, init: RequestInit = {}, token = getToken()): 
     } catch {
       /* ignore */
     }
-    if (res.status === 401) message = 'Token 无效或已过期，请重新登录'
+    if (res.status === 401) message = 'GitHub 授权已失效，请重新连接'
     if (res.status === 403 && /rate limit/i.test(message)) message = 'GitHub API 调用频率超限，请稍后再试'
-    if (res.status === 404) message = `找不到资源（${path}）。请检查仓库名、分支以及 Token 权限`
+    if (res.status === 404) message = `找不到资源（${path}）。请检查仓库名、分支以及 OAuth 授权范围`
     throw new Error(message)
   }
   if (res.status === 204) return undefined as T
@@ -75,6 +75,129 @@ async function gh<T>(path: string, init: RequestInit = {}, token = getToken()): 
 
 export function verifyToken(token: string): Promise<GhUser> {
   return gh<GhUser>('/user', {}, token)
+}
+
+/* --------------------------- OAuth Device Flow ---------------------------- */
+
+export interface DeviceAuthInfo {
+  /** 轮询换取 access_token 时使用的设备码（不展示给用户） */
+  deviceCode: string
+  /** 用户在 github.com/login/device 页面输入的验证码，如 XXXX-XXXX */
+  userCode: string
+  verificationUri: string
+  expiresIn: number
+  interval: number
+}
+
+function oauthRelay(path: string): string {
+  const relay = oauthConfig.relayUrl.trim()
+  if (!relay) {
+    throw new Error('尚未配置 OAuth 中转（oauthConfig.relayUrl），请按 README「配置 OAuth 登录」一节部署')
+  }
+  return `${relay.replace(/\/+$/, '')}${path}`
+}
+
+export async function requestDeviceCode(): Promise<DeviceAuthInfo> {
+  if (!oauthConfig.clientId.trim()) {
+    throw new Error('尚未配置 OAuth App Client ID（oauthConfig.clientId），请按 README「配置 OAuth 登录」一节设置')
+  }
+  let res: Response
+  try {
+    res = await fetch(oauthRelay('/login/device/code'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
+      body: new URLSearchParams({
+        client_id: oauthConfig.clientId.trim(),
+        scope: oauthConfig.scope,
+      }).toString(),
+    })
+  } catch {
+    throw new Error('无法连接 OAuth 中转服务，请检查网络或中转地址配置')
+  }
+  const data = await res.json().catch(() => ({} as Record<string, unknown>))
+  if (!res.ok || typeof data.device_code !== 'string') {
+    const msg = data.error_description || data.error
+    if (msg === 'device_flow_disabled' || /device flow/i.test(String(msg))) {
+      throw new Error('该 OAuth App 未启用 Device Flow：请到其设置页勾选 “Enable Device Flow”')
+    }
+    throw new Error(String(msg || `无法获取设备验证码（HTTP ${res.status}）`))
+  }
+  return {
+    deviceCode: data.device_code,
+    userCode: String(data.user_code || ''),
+    verificationUri: String(data.verification_uri || 'https://github.com/login/device'),
+    expiresIn: typeof data.expires_in === 'number' ? data.expires_in : 900,
+    interval: typeof data.interval === 'number' && data.interval > 0 ? data.interval : 5,
+  }
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+    if (signal?.aborted) onAbort()
+    else signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+/**
+ * 按 GitHub 指定的 interval 轮询，直到用户完成授权 / 取消 / 过期。
+ * 返回 OAuth access_token。取消时抛出 AbortError。
+ */
+export async function pollDeviceToken(info: DeviceAuthInfo, signal?: AbortSignal): Promise<string> {
+  let interval = info.interval
+  const deadline = Date.now() + info.expiresIn * 1000
+  for (;;) {
+    if (Date.now() >= deadline) throw new Error('验证码已过期，请重新开始授权')
+    await sleep(interval * 1000, signal)
+    let res: Response
+    try {
+      res = await fetch(oauthRelay('/login/oauth/access_token'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json',
+        },
+        signal,
+        body: new URLSearchParams({
+          client_id: oauthConfig.clientId.trim(),
+          device_code: info.deviceCode,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        }).toString(),
+      })
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err
+      // 网络抖动：继续按节奏轮询，直到过期
+      continue
+    }
+    const data = await res.json().catch(() => ({} as Record<string, unknown>))
+    if (typeof data.access_token === 'string' && data.access_token) return data.access_token
+    switch (data.error) {
+      case 'authorization_pending':
+        continue
+      case 'slow_down':
+        // 按要求放慢：GitHub 在响应里给出新的 interval，否则在旧值上加 5 秒
+        interval = typeof data.interval === 'number' ? data.interval : interval + 5
+        continue
+      case 'access_denied':
+        throw new Error('已取消授权')
+      case 'expired_token':
+        throw new Error('验证码已过期，请重新开始授权')
+      case 'device_flow_disabled':
+        throw new Error('该 OAuth App 未启用 Device Flow：请到其设置页勾选 “Enable Device Flow”')
+      default:
+        throw new Error(String(data.error_description || data.error || '授权失败，请重试'))
+    }
+  }
 }
 
 /* ------------------------------ Base64 编解码 ----------------------------- */

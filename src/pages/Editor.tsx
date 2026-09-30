@@ -262,7 +262,7 @@ export default function Editor() {
     }
     const post = save(true)
     if (!canPublish) {
-      toast('尚未连接 GitHub，请到「设置」里填写 Token', 'warning')
+      toast('尚未连接 GitHub，请到「设置」里完成 OAuth 授权', 'warning')
       return
     }
     setPublishing(true)

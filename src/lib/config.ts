@@ -43,11 +43,40 @@ export const githubConfig = {
 }
 
 /**
+ * GitHub OAuth 登录（Device Flow，RFC 8628）。
+ *
+ * 纯静态站点无法直接调用 GitHub 的 OAuth 接口：github.com 的 /login/* 端点
+ * 不支持跨域（CORS），浏览器读不到响应。因此登录需要两个小配置：
+ *
+ * 1. 一个启用了 Device Flow 的 OAuth App（免费，只需名字 + 主页地址）：
+ *      https://github.com/settings/developers → New OAuth App → 勾选
+ *      “Enable Device Flow”，把 Client ID 填到下面。
+ *
+ * 2. 一个极简 CORS 中转（Device Flow 不需要 client_secret，中转不含任何机密，
+ *    只做转发）：仓库自带 oauth-relay/worker.js，按 oauth-relay/README.md
+ *    部署到 Cloudflare Workers（免费额度足够），把它的 URL 填到下面。
+ *
+ * 两项也都可以用环境变量配置（本地 .env.local / Actions 变量，避免改代码）：
+ *    VITE_GITHUB_CLIENT_ID / VITE_OAUTH_RELAY_URL
+ */
+export const oauthConfig = {
+  /** OAuth App 的 Client ID */
+  clientId: import.meta.env.VITE_GITHUB_CLIENT_ID || '',
+  /**
+   * 申请权限范围：public_repo = 读写公开仓库；
+   * 若博客仓库是私有的，需要改成 'repo'。
+   */
+  scope: 'public_repo',
+  /** OAuth 中转（Cloudflare Worker）地址，例如 https://xxx.workers.dev */
+  relayUrl: import.meta.env.VITE_OAUTH_RELAY_URL || '',
+}
+
+/**
  * 本地登录密码的 SHA-256（十六进制小写）。
  * 默认密码为：starlog
  *
  * ⚠️ 前端密码只是一道「不让人随手点进后台」的门帘，并非真正的安全边界
- *   （静态站点的所有代码都是公开的）。真正的写权限由 GitHub Token 控制。
+ *   （静态站点的所有代码都是公开的）。真正的写权限由 GitHub OAuth 授权控制。
  *
  * 修改方法：在浏览器控制台执行下面这段，把输出替换到这里：
  *   crypto.subtle.digest('SHA-256', new TextEncoder().encode('你的新密码'))
@@ -64,6 +93,7 @@ export const STORAGE_KEYS = {
   background: 'starlog:background',
   backgroundAccounts: 'starlog:background-accounts',
   session: 'starlog:session',
+  /** GitHub OAuth 授权拿到的访问令牌（仅存于浏览器本地） */
   token: 'starlog:gh-token',
   ghUser: 'starlog:gh-user',
   ghRepo: 'starlog:gh-repo',
