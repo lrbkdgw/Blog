@@ -6,19 +6,11 @@ export default {
     extend: {
       // 允许任意整数透明度修饰符，例如 bg-white/12、border-white/65
       opacity: Object.fromEntries(Array.from({ length: 101 }, (_, i) => [i, String(i / 100)])),
+      // 字体栈由 FontProvider 写入 CSS 变量，管理员可在站内设置中即时切换。
       fontFamily: {
-        sans: [
-          'Inter',
-          'system-ui',
-          '-apple-system',
-          '"Segoe UI"',
-          '"PingFang SC"',
-          '"Hiragino Sans GB"',
-          '"Microsoft YaHei"',
-          'sans-serif',
-        ],
-        serif: ['"Noto Serif SC"', 'Georgia', '"Songti SC"', 'serif'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+        sans: ['var(--font-sans)'],
+        serif: ['var(--font-serif)'],
+        mono: ['var(--font-mono)'],
       },
       colors: {
         brand: {

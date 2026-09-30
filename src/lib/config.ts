@@ -59,6 +59,7 @@ export const AUTH_PASSWORD_SHA256 =
 
 export const STORAGE_KEYS = {
   theme: 'starlog:theme',
+  font: 'starlog:font',
   session: 'starlog:session',
   token: 'starlog:gh-token',
   ghUser: 'starlog:gh-user',

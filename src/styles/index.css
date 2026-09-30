@@ -5,6 +5,21 @@
 @layer base {
   :root {
     color-scheme: light;
+    --font-sans: Inter, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --font-serif: "Noto Serif SC", Georgia, "Songti SC", STSong, SimSun, serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  :root[data-font='modern'] {
+    --font-sans: Inter, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-serif: Inter, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  :root[data-font='serif'] {
+    --font-sans: "Noto Serif SC", "Songti SC", STSong, SimSun, Georgia, serif;
+    --font-serif: "Noto Serif SC", "Songti SC", STSong, SimSun, Georgia, serif;
+  }
+  :root[data-font='rounded'] {
+    --font-sans: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    --font-serif: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
   }
   .dark {
     color-scheme: dark;

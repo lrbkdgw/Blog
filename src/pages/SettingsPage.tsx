@@ -15,9 +15,11 @@ import {
   ShieldAlert,
   Sun,
   Trash2,
+  Type,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useTheme } from '../lib/theme'
+import { FONT_OPTIONS, useFont } from '../lib/font'
 import { useToast } from '../components/Toast'
 import { getRepoTarget, setRepoTarget } from '../lib/github'
 import { getLocalPosts, serializePost } from '../lib/posts'
@@ -53,6 +55,7 @@ function Section({
 export default function SettingsPage() {
   const { ghUser, canPublish, connectGithub, disconnectGithub, logout } = useAuth()
   const { theme, setTheme } = useTheme()
+  const { font, setFont } = useFont()
   const toast = useToast()
 
   const [token, setToken] = useState('')
@@ -234,6 +237,50 @@ export default function SettingsPage() {
               </button>
             ))}
           </div>
+        </Section>
+
+        {/* -------------------------------- 字体 --------------------------------- */}
+        <Section
+          title="字体"
+          desc="以本地管理员密码登录后可在此切换站点字体；选择会立即生效，并保存在当前浏览器。"
+          icon={Type}
+        >
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            {FONT_OPTIONS.map((option) => {
+              const selected = font === option.id
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => {
+                    setFont(option.id)
+                    toast(`已切换为「${option.label}」`, 'success')
+                  }}
+                  className={`rounded-xl border-2 p-4 text-left transition ${
+                    selected
+                      ? 'border-brand-500 bg-brand-500/[0.07] shadow-sm dark:bg-brand-500/[0.12]'
+                      : 'border-ink-200 bg-white/50 hover:border-brand-200 hover:bg-brand-50/40 dark:border-white/10 dark:bg-white/[0.02] dark:hover:border-brand-400/30 dark:hover:bg-brand-500/[0.06]'
+                  }`}
+                  aria-pressed={selected}
+                >
+                  <span
+                    className={`block text-base font-semibold ${
+                      selected ? 'text-brand-700 dark:text-brand-200' : 'text-ink-800 dark:text-ink-100'
+                    }`}
+                    style={{ fontFamily: option.preview }}
+                  >
+                    文字样例 Aa 字体
+                  </span>
+                  <span className="mt-1.5 block text-xs leading-relaxed text-ink-500 dark:text-ink-400">
+                    <b className="font-medium text-ink-700 dark:text-ink-200">{option.label}</b> · {option.description}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          <p className="mt-3 text-xs leading-relaxed text-ink-400">
+            字体来自访问设备已安装的系统字体，不额外请求第三方字体文件，因此不会影响首页加载速度。
+          </p>
         </Section>
 
         {/* ------------------------------ 本地数据 ------------------------------- */}

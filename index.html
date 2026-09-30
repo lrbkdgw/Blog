@@ -16,6 +16,11 @@
           var stored = localStorage.getItem('starlog:theme')
           var dark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
           if (dark) document.documentElement.classList.add('dark')
+
+          var font = localStorage.getItem('starlog:font')
+          if (font && ['system', 'modern', 'serif', 'rounded'].indexOf(font) !== -1) {
+            document.documentElement.dataset.font = font
+          }
         } catch (e) {}
       })()
     </script>
