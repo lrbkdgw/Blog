@@ -19,7 +19,7 @@ import { siteConfig } from '../lib/config'
 import { useTheme } from '../lib/theme'
 import { useAuth } from '../lib/auth'
 import { SearchDialog } from './SearchDialog'
-import logoVenti from '../assets/logo-venti.png'
+import logoVenti from '../assets/logo-venti.jpg'
 
 const NAV = [
   { to: '/', label: '首页', end: true },
