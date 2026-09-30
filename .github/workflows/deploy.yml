@@ -45,6 +45,13 @@ jobs:
           echo "VITE_BASE_PATH=$VITE_BASE_PATH"
           npm run build
 
+      # 仓库此前如果被设为“从分支部署”，根目录的源码会被当成静态页直接发布，
+      # 页面会因 /src/main.tsx 无法执行而无法加载。每次构建时明确切换到 Actions。
+      - name: 使用 GitHub Actions 作为 Pages 来源
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method PUT "repos/${GITHUB_REPOSITORY}/pages" -f build_type=workflow
+
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3

@@ -57,7 +57,7 @@ export default function PostPage() {
   useEffect(() => {
     if (post) document.title = `${post.title} · ${siteConfig.title}`
     return () => {
-      document.title = `${siteConfig.title} · ${siteConfig.titleEn}`
+      document.title = siteConfig.titleEn ? `${siteConfig.title} · ${siteConfig.titleEn}` : siteConfig.title
     }
   }, [post])
 

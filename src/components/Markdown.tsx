@@ -1,5 +1,6 @@
 import { isValidElement, memo, useState } from 'react'
 import type { ReactNode } from 'react'
+import 'katex/dist/katex.min.css'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -132,8 +133,8 @@ export const Markdown = memo(function Markdown({ content }: { content: string })
             <img src={typeof src === 'string' ? src : ''} alt={alt ?? ''} loading="lazy" decoding="async" />
           ),
           table: ({ children }) => (
-            <div className="my-6 overflow-x-auto rounded-xl border border-ink-200/70 dark:border-white/10">
-              <table className="!my-0">{children}</table>
+            <div className="markdown-table" role="region" aria-label="文章表格" tabIndex={0}>
+              <table>{children}</table>
             </div>
           ),
         }}

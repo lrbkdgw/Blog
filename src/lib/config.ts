@@ -3,9 +3,9 @@
  */
 export const siteConfig = {
   /** 站点名 */
-  title: '星野笔记',
-  /** 英文副名（导航栏与页脚展示） */
-  titleEn: 'Starlog',
+  title: '个人博客',
+  /** 英文副名（可留空） */
+  titleEn: '',
   /** 一句话简介 */
   description: '记录数学、代码与一些深夜里的胡思乱想。',
   /** 首页大标题下的长简介 */

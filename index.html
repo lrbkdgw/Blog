@@ -3,18 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>星野笔记 · Starlog</title>
+    <title>个人博客</title>
     <meta name="description" content="一个支持 Markdown 与 KaTeX 的在线写作博客。" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E✦%3C/text%3E%3C/svg%3E" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfbfd" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d1017" />
-    <!-- 字体：加载失败时会自动回退到系统字体，不影响渲染 -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Serif+SC:wght@500;600;700&display=swap"
-    />
+    <!-- 仅使用系统字体，避免第三方字体请求拖慢首次渲染。 -->
     <script>
       // 防止深色模式闪烁：在样式加载前决定主题
       (function () {

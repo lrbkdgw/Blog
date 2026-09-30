@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import { siteConfig } from '../lib/config'
+import ventiAvatar from '../../user_upload/venti.jpeg'
 import { useTheme } from '../lib/theme'
 import { useAuth } from '../lib/auth'
 import { SearchDialog } from './SearchDialog'
@@ -55,18 +56,19 @@ function ThemeToggle() {
 
 function Logo() {
   return (
-    <Link to="/" className="group flex shrink-0 items-center gap-2.5">
-      <span className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-400 via-brand-600 to-indigo-700 text-white shadow-lg shadow-brand-600/30 transition-transform duration-300 group-hover:rotate-6">
-        <span className="text-lg font-bold leading-none">✦</span>
-      </span>
-      <span className="flex flex-col leading-none">
-        <span className="font-serif text-[15px] font-semibold tracking-tight text-ink-900 dark:text-white">
-          {siteConfig.title}
-        </span>
-        <span className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-400">
-          {siteConfig.titleEn}
-        </span>
-      </span>
+    <Link
+      to="/"
+      aria-label="返回首页"
+      className="group flex shrink-0 items-center rounded-2xl transition-transform duration-300 hover:scale-105 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/20"
+    >
+      <img
+        src={ventiAvatar}
+        alt="温迪"
+        width={42}
+        height={42}
+        fetchPriority="high"
+        className="h-10 w-10 rounded-2xl border border-white/80 object-cover shadow-md shadow-brand-600/15 ring-1 ring-ink-200/70 transition-transform duration-300 group-hover:-rotate-3 dark:border-white/15 dark:ring-white/10"
+      />
     </Link>
   )
 }
@@ -174,7 +176,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
       <div className="container-page flex h-16 items-center gap-3">
         <Logo />
 
-        <nav className="ml-6 hidden items-center gap-1 md:flex">
+        <nav className="ml-3 hidden items-center gap-1 md:flex">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
@@ -292,10 +294,7 @@ function Footer() {
     <footer className="no-print mt-24 border-t border-ink-200/60 py-10 dark:border-white/[0.08]">
       <div className="container-page flex flex-col items-center justify-between gap-5 sm:flex-row">
         <div className="text-center sm:text-left">
-          <p className="font-serif text-sm font-medium text-ink-700 dark:text-ink-200">
-            {siteConfig.title} · {siteConfig.titleEn}
-          </p>
-          <p className="mt-1 text-xs text-ink-400">
+          <p className="text-xs text-ink-400">
             © {new Date().getFullYear()} {siteConfig.author.name}
             {siteConfig.footerNote ? ` · ${siteConfig.footerNote}` : ''} · 由 React + Vite 驱动，托管于 GitHub Pages
           </p>
@@ -346,7 +345,6 @@ export function Layout() {
     <div className="flex min-h-screen flex-col">
       {/* 背景装饰 */}
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute inset-0 bg-grid opacity-70" />
         <div className="absolute -left-40 -top-40 h-[32rem] w-[32rem] animate-float rounded-full bg-brand-400/20 blur-[110px] dark:bg-brand-600/15" />
         <div
           className="absolute -right-32 top-40 h-[26rem] w-[26rem] animate-float rounded-full bg-indigo-400/15 blur-[110px] dark:bg-indigo-600/15"
