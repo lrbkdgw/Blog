@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   CheckCircle2,
+  Cloud,
   Download,
   ExternalLink,
   Eye,
@@ -11,6 +12,7 @@ import {
   LogOut,
   Moon,
   Palette,
+  RotateCcw,
   Save,
   ShieldAlert,
   Sun,
@@ -19,11 +21,19 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useTheme } from '../lib/theme'
-import { FONT_OPTIONS, useFont } from '../lib/font'
+import { useFont } from '../lib/font'
 import { useToast } from '../components/Toast'
 import { getRepoTarget, setRepoTarget } from '../lib/github'
 import { getLocalPosts, serializePost } from '../lib/posts'
 import { STORAGE_KEYS } from '../lib/config'
+
+type LocalFontData = { family?: string }
+
+declare global {
+  interface Window {
+    queryLocalFonts?: () => Promise<LocalFontData[]>
+  }
+}
 
 function Section({
   title,
@@ -55,13 +65,20 @@ function Section({
 export default function SettingsPage() {
   const { ghUser, canPublish, connectGithub, disconnectGithub, logout } = useAuth()
   const { theme, setTheme } = useTheme()
-  const { font, setFont } = useFont()
+  const { font, status: fontStatus, accountSync, setFont, resetFont, saveForGithub } = useFont()
   const toast = useToast()
 
   const [token, setToken] = useState('')
   const [showToken, setShowToken] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [repo, setRepo] = useState(getRepoTarget())
+  const [fontName, setFontName] = useState(font.family)
+  const [localFonts, setLocalFonts] = useState<string[]>([])
+  const [loadingFonts, setLoadingFonts] = useState(false)
+  const [applyingFont, setApplyingFont] = useState(false)
+  const [savingFont, setSavingFont] = useState(false)
+
+  useEffect(() => setFontName(font.family), [font.family])
 
   const connect = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -80,6 +97,59 @@ export default function SettingsPage() {
   const saveRepo = () => {
     setRepoTarget(repo)
     toast('仓库设置已保存', 'success')
+  }
+
+  const loadLocalFonts = async () => {
+    if (!window.queryLocalFonts) {
+      toast('当前浏览器不支持读取本机字体；可直接手动输入已安装的字体名称', 'info')
+      return
+    }
+
+    setLoadingFonts(true)
+    try {
+      const faces = await window.queryLocalFonts()
+      const families = [...new Set(faces.map((face) => face.family?.trim()).filter((name): name is string => !!name))].sort(
+        (a, b) => a.localeCompare(b, 'zh-CN'),
+      )
+      setLocalFonts(families)
+      toast(`已读取 ${families.length} 个本机字体`, 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '未取得读取本机字体的权限', 'error')
+    } finally {
+      setLoadingFonts(false)
+    }
+  }
+
+  const applySelectedFont = async () => {
+    setApplyingFont(true)
+    try {
+      const next = await setFont(fontName, localFonts.includes(fontName.trim()))
+      if (fontName.trim() && next.source === 'default') {
+        toast('本机未找到该字体，云端请求失败或超时，已回退为默认字体', 'info')
+      } else if (!next.family) {
+        toast('已恢复默认字体', 'success')
+      } else if (next.source === 'cloud') {
+        toast(`已从云端加载「${next.family}」`, 'success')
+      } else {
+        toast(`已应用本机字体「${next.family}」`, 'success')
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '字体名称无效', 'error')
+    } finally {
+      setApplyingFont(false)
+    }
+  }
+
+  const saveFontToGithub = async () => {
+    setSavingFont(true)
+    try {
+      await saveForGithub()
+      toast(`字体偏好已保存到 GitHub 账号 @${ghUser?.login}`, 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '保存字体偏好失败', 'error')
+    } finally {
+      setSavingFont(false)
+    }
   }
 
   const exportAll = () => {
@@ -242,45 +312,87 @@ export default function SettingsPage() {
         {/* -------------------------------- 字体 --------------------------------- */}
         <Section
           title="字体"
-          desc="以本地管理员密码登录后可在此切换站点字体；选择会立即生效，并保存在当前浏览器。"
+          desc="可读取并选择任意已安装的本机字体，也可以手动输入字体名称。选择后会先检测本机；没有该字体时再尝试云端加载。"
           icon={Type}
         >
-          <div className="grid gap-2.5 sm:grid-cols-2">
-            {FONT_OPTIONS.map((option) => {
-              const selected = font === option.id
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => {
-                    setFont(option.id)
-                    toast(`已切换为「${option.label}」`, 'success')
-                  }}
-                  className={`rounded-xl border-2 p-4 text-left transition ${
-                    selected
-                      ? 'border-brand-500 bg-brand-500/[0.07] shadow-sm dark:bg-brand-500/[0.12]'
-                      : 'border-ink-200 bg-white/50 hover:border-brand-200 hover:bg-brand-50/40 dark:border-white/10 dark:bg-white/[0.02] dark:hover:border-brand-400/30 dark:hover:bg-brand-500/[0.06]'
-                  }`}
-                  aria-pressed={selected}
-                >
-                  <span
-                    className={`block text-base font-semibold ${
-                      selected ? 'text-brand-700 dark:text-brand-200' : 'text-ink-800 dark:text-ink-100'
-                    }`}
-                    style={{ fontFamily: option.preview }}
-                  >
-                    文字样例 Aa 字体
-                  </span>
-                  <span className="mt-1.5 block text-xs leading-relaxed text-ink-500 dark:text-ink-400">
-                    <b className="font-medium text-ink-700 dark:text-ink-200">{option.label}</b> · {option.description}
-                  </span>
-                </button>
-              )
-            })}
+          <label className="mb-1.5 block text-xs font-medium text-ink-500" htmlFor="font-family">
+            字体名称
+          </label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              id="font-family"
+              list="local-font-families"
+              value={fontName}
+              onChange={(e) => setFontName(e.target.value)}
+              placeholder="例如：霞鹜文楷、PingFang SC、Noto Serif SC"
+              className="input flex-1"
+              autoComplete="off"
+            />
+            <datalist id="local-font-families">
+              {localFonts.map((family) => (
+                <option key={family} value={family} />
+              ))}
+            </datalist>
+            <button type="button" onClick={loadLocalFonts} disabled={loadingFonts} className="btn-outline h-10 shrink-0">
+              {loadingFonts ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+              {localFonts.length > 0 ? `本机字体（${localFonts.length}）` : '读取本机字体'}
+            </button>
           </div>
-          <p className="mt-3 text-xs leading-relaxed text-ink-400">
-            字体来自访问设备已安装的系统字体，不额外请求第三方字体文件，因此不会影响首页加载速度。
-          </p>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={applySelectedFont} disabled={applyingFont} className="btn-primary h-10">
+              {applyingFont ? <Loader2 size={15} className="animate-spin" /> : <Type size={15} />}
+              {applyingFont ? '正在检测字体…' : '应用字体'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                resetFont()
+                setFontName('')
+                toast('已恢复默认字体', 'success')
+              }}
+              className="btn-outline h-10"
+            >
+              <RotateCcw size={15} />
+              恢复默认
+            </button>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-ink-200/80 bg-ink-50/70 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+            <p className="text-xs leading-relaxed text-ink-600 dark:text-ink-300">
+              当前字体：
+              <span className="ml-1 font-medium text-ink-900 dark:text-white">{font.family || '系统默认'}</span>
+              {font.source === 'cloud' && <span className="ml-2 text-brand-600 dark:text-brand-300">（云端加载）</span>}
+              {fontStatus === 'checking-local' && <span className="ml-2 text-ink-400">正在检测本机字体…</span>}
+              {fontStatus === 'loading-cloud' && <span className="ml-2 text-ink-400">正在请求云端字体…</span>}
+              {fontStatus === 'fallback' && <span className="ml-2 text-amber-600 dark:text-amber-400">已回退默认字体</span>}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-ink-400">
+              Chromium 浏览器会请求一次“读取本机字体”权限；不支持该功能的浏览器仍可直接输入本机字体名称。
+            </p>
+          </div>
+
+          {canPublish && ghUser ? (
+            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-ink-200/70 pt-4 dark:border-white/10">
+              <button type="button" onClick={saveFontToGithub} disabled={savingFont} className="btn-outline h-9">
+                {savingFont ? <Loader2 size={15} className="animate-spin" /> : <Cloud size={15} />}
+                保存到 GitHub（@{ghUser.login}）
+              </button>
+              <span className="text-xs text-ink-400">
+                {accountSync === 'loading'
+                  ? '正在恢复账号字体偏好…'
+                  : accountSync === 'synced'
+                    ? '已与该账号的字体偏好同步'
+                    : accountSync === 'error'
+                      ? '账号字体偏好同步失败，可重试保存'
+                      : '保存后，下次登录同一账号会自动恢复'}
+              </span>
+            </div>
+          ) : (
+            <p className="mt-4 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
+              登录并连接 GitHub 账号后，可将当前选择保存到账号；下次登录同一账号会自动恢复。
+            </p>
+          )}
         </Section>
 
         {/* ------------------------------ 本地数据 ------------------------------- */}

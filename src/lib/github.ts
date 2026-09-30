@@ -121,6 +121,65 @@ export async function fetchRemoteFile(path: string, target = getRepoTarget()) {
   return { sha: item.sha, text: item.content ? decodeBase64(item.content) : '' }
 }
 
+/* ---------------------------- 账号外观偏好 ---------------------------- */
+
+export interface GithubFontPreference {
+  family: string
+  updatedAt: number
+}
+
+const FONT_SETTINGS_DIR = '.starlog/settings/font-preferences'
+
+function fontSettingsPath(login: string): string {
+  const safeLogin = login.trim().replace(/[^a-zA-Z0-9-]/g, '')
+  if (!safeLogin) throw new Error('GitHub 用户名无效，无法保存字体设置')
+  return `${FONT_SETTINGS_DIR}/${safeLogin}.json`
+}
+
+/** 读取保存在当前博客仓库内、按 GitHub 账号区分的字体偏好。 */
+export async function fetchGithubFontPreference(
+  login: string,
+  target = getRepoTarget(),
+): Promise<GithubFontPreference | null> {
+  try {
+    const { text } = await fetchRemoteFile(fontSettingsPath(login), target)
+    const parsed = JSON.parse(text)
+    if (!parsed || typeof parsed.family !== 'string') return null
+    return {
+      family: parsed.family,
+      updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
+    }
+  } catch (err) {
+    if (err instanceof Error && /找不到资源/.test(err.message)) return null
+    throw err
+  }
+}
+
+/** 将字体偏好提交到当前博客仓库；下次同一 GitHub 账号登录时会自动恢复。 */
+export async function saveGithubFontPreference(
+  login: string,
+  preference: GithubFontPreference,
+  target = getRepoTarget(),
+): Promise<void> {
+  const path = fontSettingsPath(login)
+  const sha = await getSha(path, target)
+  await gh(`/repos/${target.owner}/${target.repo}/contents/${encodeURI(path)}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      message: `chore(settings): 保存 @${login} 的字体偏好`,
+      content: encodeBase64(
+        JSON.stringify(
+          { version: 1, family: preference.family, updatedAt: preference.updatedAt || Date.now() },
+          null,
+          2,
+        ) + '\n',
+      ),
+      branch: target.branch,
+      ...(sha ? { sha } : {}),
+    }),
+  })
+}
+
 async function getSha(path: string, target: RepoTarget): Promise<string | undefined> {
   try {
     const item = await gh<ContentItem>(

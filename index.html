@@ -8,18 +8,27 @@
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E✦%3C/text%3E%3C/svg%3E" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfbfd" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d1017" />
-    <!-- 仅使用系统字体，避免第三方字体请求拖慢首次渲染。 -->
+    <!-- 默认使用系统字体；管理员选择的本机字体会在 React 启动前先恢复。 -->
     <script>
-      // 防止深色模式闪烁：在样式加载前决定主题
-      (function () {
+      // 防止主题与字体在首屏闪烁。
+      ;(function () {
         try {
           var stored = localStorage.getItem('starlog:theme')
           var dark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
           if (dark) document.documentElement.classList.add('dark')
 
-          var font = localStorage.getItem('starlog:font')
-          if (font && ['system', 'modern', 'serif', 'rounded'].indexOf(font) !== -1) {
-            document.documentElement.dataset.font = font
+          var savedFont = JSON.parse(localStorage.getItem('starlog:font') || 'null')
+          var family = savedFont && typeof savedFont.family === 'string' ? savedFont.family.trim() : ''
+          if (family && family.length <= 120 && !/[{};<>\n\r]/.test(family)) {
+            var quoted = '"' + family.replace(/["\\]/g, '\\$&') + '"'
+            document.documentElement.style.setProperty(
+              '--font-sans',
+              quoted + ', system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif',
+            )
+            document.documentElement.style.setProperty(
+              '--font-serif',
+              quoted + ', "Noto Serif SC", "Songti SC", STSong, SimSun, serif',
+            )
           }
         } catch (e) {}
       })()

@@ -14,13 +14,13 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter basename={basename || '/'}>
       <ThemeProvider>
-        <FontProvider>
-          <AuthProvider>
+        <AuthProvider>
+          <FontProvider>
             <ToastProvider>
               <App />
             </ToastProvider>
-          </AuthProvider>
-        </FontProvider>
+          </FontProvider>
+        </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>
   </StrictMode>,
