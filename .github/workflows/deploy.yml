@@ -36,6 +36,12 @@ jobs:
       - name: 构建
         # 项目主页需要把 base 设为 /<仓库名>/；
         # 如果仓库名是 <用户名>.github.io，则自动使用 /
+        # OAuth 配置（可选）：在仓库 Settings → Secrets and variables → Actions →
+        # Variables 中添加 VITE_GITHUB_CLIENT_ID / VITE_OAUTH_RELAY_URL 即可注入，
+        # 未设置时站点会提示站长按 README 完成 OAuth 配置。
+        env:
+          VITE_GITHUB_CLIENT_ID: ${{ vars.VITE_GITHUB_CLIENT_ID }}
+          VITE_OAUTH_RELAY_URL: ${{ vars.VITE_OAUTH_RELAY_URL }}
         run: |
           if [[ "${GITHUB_REPOSITORY#*/}" == *.github.io ]]; then
             export VITE_BASE_PATH="/"

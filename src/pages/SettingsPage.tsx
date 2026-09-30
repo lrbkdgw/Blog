@@ -5,8 +5,6 @@ import {
   Cloud,
   Download,
   ExternalLink,
-  Eye,
-  EyeOff,
   Github,
   Loader2,
   LogOut,
@@ -25,6 +23,7 @@ import { useTheme } from '../lib/theme'
 import { useFont } from '../lib/font'
 import { useBackground } from '../lib/background'
 import { useToast } from '../components/Toast'
+import GithubConnect from '../components/GithubConnect'
 import { getRepoTarget, setRepoTarget } from '../lib/github'
 import { getLocalPosts, serializePost } from '../lib/posts'
 import { STORAGE_KEYS } from '../lib/config'
@@ -77,9 +76,6 @@ export default function SettingsPage() {
   } = useBackground()
   const toast = useToast()
 
-  const [token, setToken] = useState('')
-  const [showToken, setShowToken] = useState(false)
-  const [connecting, setConnecting] = useState(false)
   const [repo, setRepo] = useState(getRepoTarget())
   const [fontName, setFontName] = useState(font.family)
   const [localFonts, setLocalFonts] = useState<string[]>([])
@@ -95,20 +91,6 @@ export default function SettingsPage() {
     setBackgroundColor(background.color || '#FBFBFD')
     setBackgroundIntensity(background.intensity)
   }, [background.color, background.intensity])
-
-  const connect = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setConnecting(true)
-    try {
-      const user = await connectGithub(token)
-      setToken('')
-      toast(`已连接 GitHub：@${user.login}`, 'success')
-    } catch (err) {
-      toast(err instanceof Error ? err.message : '连接失败', 'error')
-    } finally {
-      setConnecting(false)
-    }
-  }
 
   const saveRepo = () => {
     setRepoTarget(repo)
@@ -256,42 +238,29 @@ export default function SettingsPage() {
               </button>
             </div>
           ) : (
-            <form onSubmit={connect} className="space-y-3">
-              <div className="relative">
-                <input
-                  type={showToken ? 'text' : 'password'}
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  placeholder="粘贴 GitHub Personal Access Token"
-                  className="input !pr-10 font-mono text-xs"
-                  autoComplete="off"
-                  spellCheck={false}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowToken((v) => !v)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700 dark:hover:text-white"
-                >
-                  {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <button type="submit" disabled={connecting} className="btn-primary h-9">
-                  {connecting ? <Loader2 size={15} className="animate-spin" /> : <Github size={15} />}
-                  连接
-                </button>
+            <div className="space-y-3">
+              <GithubConnect
+                size="sm"
+                label="使用 GitHub 授权连接"
+                onToken={async (token) => {
+                  const user = await connectGithub(token)
+                  toast(`已连接 GitHub：@${user.login}`, 'success')
+                }}
+              />
+              <p className="flex items-center gap-1 text-xs text-ink-400 dark:text-ink-500">
+                通过 OAuth（Device Flow）授权，无需手动创建 Token；可随时在
                 <a
-                  href="https://github.com/settings/personal-access-tokens/new"
+                  href="https://github.com/settings/applications"
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-1 text-xs text-brand-600 hover:underline dark:text-brand-300"
+                  className="flex items-center gap-0.5 text-brand-600 hover:underline dark:text-brand-300"
                 >
-                  创建 Fine-grained Token（Contents: Read and write）
+                  GitHub 授权管理
                   <ExternalLink size={11} />
                 </a>
-              </div>
-            </form>
+                撤销。
+              </p>
+            </div>
           )}
         </Section>
 
@@ -562,9 +531,10 @@ export default function SettingsPage() {
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-relaxed text-ink-600 dark:text-ink-300">
             <li>静态站点没有服务端，密码登录只是「防误入」的门帘，不构成安全边界。</li>
-            <li>GitHub Token 仅保存在你自己浏览器的 localStorage 中，不会发送到除 api.github.com 以外的任何地方。</li>
-            <li>请使用 Fine-grained Token，并把权限限制到本仓库的 Contents 读写。</li>
-            <li>在公共电脑上使用后，记得点「退出登录」清除 Token。</li>
+            <li>GitHub 使用 OAuth（Device Flow）授权，站点不会接触你的 GitHub 密码。</li>
+            <li>授权得到的访问令牌仅保存在你自己浏览器的 localStorage 中，只发送给 api.github.com。</li>
+            <li>可随时在 GitHub「Settings → Applications」撤销本站的 OAuth 授权。</li>
+            <li>在公共电脑上使用后，记得点「退出登录」清除本地令牌。</li>
           </ul>
         </section>
       </div>

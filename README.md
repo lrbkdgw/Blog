@@ -15,7 +15,7 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 📝 **在线编辑** | 分栏实时预览、工具栏、快捷键、滚动同步、自动保存草稿 |
 | 🧮 **KaTeX 公式** | 行内 `$…$` 与独立 `$$…$$`，支持 `aligned`、矩阵、分段函数 |
 | 🎨 **深色模式** | 跟随系统 / 手动固定，无刷新闪白，支持 View Transition 平滑切换 |
-| 🔐 **双模式登录** | 站点密码（写本地草稿）+ GitHub Token（发布到仓库） |
+| 🔐 **双模式登录** | 站点密码（写本地草稿）+ GitHub OAuth 授权（发布到仓库） |
 | 🚀 **一键发布** | 浏览器直接调用 GitHub API 提交 Markdown，Actions 自动部署 |
 | 🔍 **全文搜索** | <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>K</kbd> 唤起，支持方向键选择 |
 | 🏷️ **标签 / 归档** | 标签云、按年归档、置顶、草稿、阅读时长、自动目录 |
@@ -40,7 +40,21 @@ npm run build      # 类型检查 + 生产构建到 dist/
 npm run preview    # 本地预览构建产物
 ```
 
-### 2. 部署到 GitHub Pages
+### 2. 部署
+
+#### 路线 A：Cloudflare Pages（推荐，与 OAuth 中转一体化，最省事）
+
+1. <https://dash.cloudflare.com> → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**
+2. 授权 Cloudflare 访问 GitHub，选择本仓库，构建设置：
+   - Framework preset：**None**
+   - Build command：`npm run build`
+   - Build output directory：`dist`
+3. 保存后即可：自动构建站点 + 仓库内置的 Pages Function（OAuth 同源中转）+ SPA 路由，无需任何环境变量
+4. 之后每次 push 到 `main` 自动重新部署。站点地址为 `https://<project>.pages.dev`，可在 **Custom domains** 里绑定自己的域名
+
+> 构建时会检测到 Cloudflare 环境并自动使用 base path `/`；线上 OAuth 中转与页面同源，`oauthConfig.relayUrl` 留空即可，**不需要**再单独部署 oauth-relay Worker。
+
+#### 路线 B：GitHub Pages（默认路线）
 
 1. 把代码推送到 GitHub 仓库的 `main` 分支
 2. 打开仓库 **Settings → Pages**，把 **Source** 设为 **GitHub Actions**
@@ -53,6 +67,8 @@ Workflow 会自动判断 base path：
 
 > 本地构建时默认使用 `/Blog/`，可以用环境变量覆盖：
 > `VITE_BASE_PATH=/ npm run build`
+>
+> 此路线下 OAuth 中转需按下方「配置 OAuth 登录」单独部署 oauth-relay Worker。
 
 ---
 
@@ -98,24 +114,57 @@ crypto.subtle
 VITE_AUTH_PASSWORD_HASH=你的哈希值
 ```
 
+### 配置 OAuth 登录
+
+GitHub 登录使用 **OAuth Device Flow（RFC 8628）**，不再手动创建、粘贴 Token。
+由于 GitHub 的 OAuth 端点不支持浏览器跨域（CORS），前端需要一个极简中转
+（不含任何机密，只做转发）。仓库同时内置了中转的两种形态，按部署路线自动对应：
+
+| 部署路线 | OAuth 中转 | relayUrl |
+| --- | --- | --- |
+| **Cloudflare Pages** | 仓库内置 `functions/login/[[path]].ts`（同源，零配置） | **留空** |
+| **GitHub Pages** | 独立部署的 [`oauth-relay/`](oauth-relay/README.md) Cloudflare Worker | 填 Worker 地址 |
+
+**① 创建 OAuth App（一分钟，两条路线都需要）**
+
+1. 打开 <https://github.com/settings/developers> → **OAuth Apps** → **New OAuth App**
+2. 名字、主页随意填（Device Flow 用不到回调地址）
+3. 创建后在设置页勾选 **Enable Device Flow**
+4. 复制 **Client ID**（形如 `Ov23li…`，无需 Secret）
+
+**② 仅 GitHub Pages 路线需要**：按 [`oauth-relay/README.md`](oauth-relay/README.md) 把中转 Worker 部署到 Cloudflare Workers（约两分钟，免费），得到形如 `https://xxx.workers.dev` 的地址。
+
+**③ 填入配置**（任选其一）：
+
+```ts
+// src/lib/config.ts
+export const oauthConfig = {
+  clientId: 'Ov23li…',      // ① 的 Client ID（必填）
+  scope: 'public_repo',     // 私有仓库改为 'repo'
+  relayUrl: '',             // Cloudflare Pages 部署留空；GitHub Pages 部署填 ② 的地址
+}
+```
+
+或走环境变量：本地用 `.env.local`（见 `.env.example`）；GitHub Pages 路线在仓库
+**Settings → Secrets and variables → Actions → Variables** 中新增
+`VITE_GITHUB_CLIENT_ID` 与 `VITE_OAUTH_RELAY_URL`；Cloudflare Pages 路线在
+Pages 项目 **Settings → Environment variables** 中新增 `VITE_GITHUB_CLIENT_ID`。
+
+未配置时登录页会提示「站长尚未完成 OAuth 配置」，不影响密码登录写本地草稿。
+
 ---
 
 ## ✍️ 两种写作方式
 
 ### 方式 A：在站内写（推荐）
 
-1. 访问 `/login`，用站点密码登录
-2. 去 **设置 → GitHub 连接**，填入 Personal Access Token
-3. 写文章 → 点 **发布到 GitHub**
+1. 访问 `/login`，切到 **GitHub OAuth** 标签（或用站点密码登录后去 **设置 → GitHub 连接**）
+2. 点 **使用 GitHub 登录**，复制页面显示的验证码，在打开的 GitHub 页面输入并授权
+3. 授权后自动完成登录 → 写文章 → 点 **发布到 GitHub**
 
-**如何创建 Token**（推荐 Fine-grained，权限最小化）：
-
-1. 打开 <https://github.com/settings/personal-access-tokens/new>
-2. **Repository access** 选择本博客仓库
-3. **Permissions → Contents** 设为 **Read and write**
-4. 生成后复制，粘贴到站内设置页
-
-Token 只保存在你浏览器的 `localStorage`，只会发送给 `api.github.com`。
+整个过程基于 OAuth Device Flow，全程不需要创建或粘贴 Token。
+授权令牌只保存在你浏览器的 `localStorage`，只会发送给 `api.github.com`，
+可随时在 <https://github.com/settings/applications> 撤销授权。
 
 ### 方式 B：直接写文件
 
@@ -157,12 +206,15 @@ pinned: false    # true 则置顶到首页
 
 ```
 .
-├── .github/workflows/deploy.yml   # GitHub Pages 自动部署
+├── .github/workflows/deploy.yml   # GitHub Pages 自动部署（路线 B）
+├── functions/login/[[path]].ts    # OAuth 同源中转（Cloudflare Pages，路线 A）
+├── oauth-relay/                   # OAuth 极简 CORS 中转（独立 Worker，路线 B 用）
 ├── content/
 │   ├── about.md                   # 「关于」页内容
 │   └── posts/*.md                 # 所有文章
+├── public/_redirects              # Cloudflare Pages 的 SPA 路由兜底
 ├── src/
-│   ├── components/                # Layout / Markdown / 搜索 / 目录 / Toast
+│   ├── components/                # Layout / Markdown / 搜索 / 目录 / Toast / GitHub 授权
 │   ├── lib/                       # 配置、文章解析、认证、GitHub API、主题
 │   ├── pages/                     # 首页 / 文章 / 归档 / 标签 / 关于 / 登录 / 后台 / 编辑器
 │   ├── styles/index.css           # Tailwind + 代码高亮 + 排版细节
@@ -178,9 +230,10 @@ pinned: false    # true 则置顶到首页
 ## 🔒 关于安全（请务必读一下）
 
 - 静态站点**没有服务端**，前端密码只是「防止别人随手点进后台」的门帘，**不是安全边界**。任何人都能看到打包后的代码。
-- **真正的写权限由 GitHub Token 控制**。没有 Token，即使进了后台也只能改自己浏览器里的草稿，动不了仓库。
-- 建议使用 **Fine-grained Token**，权限限制到本仓库的 Contents 读写，并设置较短的有效期。
-- 在公共电脑上用完请点「退出登录」，会清除本地保存的 Token。
+- **真正的写权限由 GitHub OAuth 授权控制**。没有授权，即使进了后台也只能改自己浏览器里的草稿，动不了仓库。
+- OAuth 授权范围默认是 `public_repo`（公开仓库读写）；令牌存于浏览器本地，可随时在 GitHub「Settings → Applications」一键撤销。
+- OAuth 中转只转发 GitHub 的授权请求，**不持有任何机密**（Device Flow 无需 client_secret），也无法访问仓库内容。
+- 在公共电脑上用完请点「退出登录」，会清除本地保存的令牌。
 
 ---
 
@@ -191,6 +244,12 @@ pinned: false    # true 则置顶到首页
 
 **发布后页面没更新？**
 GitHub Actions 需要 1–2 分钟重新构建部署。可以在仓库的 Actions 标签页看进度。
+
+**为什么不能像以前那样直接粘贴 Token？**
+可以，但 OAuth 更好：不用在 GitHub 里翻权限创建 Token、权限边界清晰、随时一键撤销。本站用的 Device Flow 是标准的 OAuth 2.0 设备授权流程（RFC 8628），GitHub CLI、VS Code 同款。
+
+**为什么 OAuth 还要一个中转服务？**
+GitHub 的授权端点（`github.com/login/*`）不返回 CORS 头，浏览器读不到响应，纯前端无法直接完成授权。仓库内置了两种极简中转形态，部署时自动对应：Cloudflare Pages 用同源的 Pages Function（零配置）；GitHub Pages 用 `oauth-relay/` Worker（只透传 + 补 CORS 头，不含机密）。Device Flow 本身也不需要 client_secret。
 
 **本地草稿会丢吗？**
 草稿存在浏览器 `localStorage`，清除浏览器数据会丢失。重要内容请及时「发布到 GitHub」，或在设置页「导出全部草稿」。

@@ -1,20 +1,17 @@
 import { useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowRight, Eye, EyeOff, Github, HelpCircle, KeyRound, Loader2, Lock, ShieldCheck } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, Github, HelpCircle, Loader2, Lock, ShieldCheck } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useToast } from '../components/Toast'
-import { siteConfig } from '../lib/config'
+import GithubConnect from '../components/GithubConnect'
+import { oauthConfig, siteConfig } from '../lib/config'
 
 type Tab = 'password' | 'github'
-
-const TOKEN_HELP_URL =
-  'https://github.com/settings/personal-access-tokens/new'
 
 export default function Login() {
   const { isAuthed, loginWithPassword, loginWithGithub } = useAuth()
   const [tab, setTab] = useState<Tab>('password')
   const [password, setPassword] = useState('')
-  const [token, setToken] = useState('')
   const [showSecret, setShowSecret] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -29,13 +26,8 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      if (tab === 'password') {
-        await loginWithPassword(password)
-        toast('登录成功，欢迎回来', 'success')
-      } else {
-        const user = await loginWithGithub(token)
-        toast(`已连接 GitHub：@${user.login}`, 'success')
-      }
+      await loginWithPassword(password)
+      toast('登录成功，欢迎回来', 'success')
       navigate(location.state?.from || '/admin', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败')
@@ -63,7 +55,7 @@ export default function Login() {
             {(
               [
                 { id: 'password', label: '密码登录', icon: Lock },
-                { id: 'github', label: 'GitHub Token', icon: Github },
+                { id: 'github', label: 'GitHub OAuth', icon: Github },
               ] as const
             ).map((t) => (
               <button
@@ -85,8 +77,8 @@ export default function Login() {
             ))}
           </div>
 
-          <form onSubmit={submit} className="space-y-4">
-            {tab === 'password' ? (
+          {tab === 'password' ? (
+            <form onSubmit={submit} className="space-y-4">
               <div>
                 <label htmlFor="pwd" className="mb-1.5 block text-sm font-medium text-ink-700 dark:text-ink-200">
                   站点密码
@@ -118,70 +110,50 @@ export default function Login() {
                   密码登录只能写本地草稿。
                 </p>
               </div>
-            ) : (
+
+              {error && (
+                <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-400">
+                  {error}
+                </p>
+              )}
+
+              <button type="submit" disabled={loading} className="btn-primary h-11 w-full">
+                {loading ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+                {loading ? '验证中…' : '登录'}
+              </button>
+            </form>
+          ) : (
+            <div className="space-y-4">
               <div>
-                <label htmlFor="token" className="mb-1.5 block text-sm font-medium text-ink-700 dark:text-ink-200">
-                  GitHub Personal Access Token
-                </label>
-                <div className="relative">
-                  <KeyRound size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
-                  <input
-                    id="token"
-                    type={showSecret ? 'text' : 'password'}
-                    value={token}
-                    onChange={(e) => setToken(e.target.value)}
-                    placeholder="github_pat_… 或 ghp_…"
-                    autoComplete="off"
-                    spellCheck={false}
-                    required
-                    className="input !pl-9 !pr-10 font-mono text-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSecret((v) => !v)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700 dark:hover:text-white"
-                    aria-label="显示 Token"
-                  >
-                    {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
+                <span className="mb-1.5 block text-sm font-medium text-ink-700 dark:text-ink-200">
+                  GitHub OAuth 授权
+                </span>
+                <GithubConnect
+                  label="使用 GitHub 登录"
+                  onToken={async (token) => {
+                    const user = await loginWithGithub(token)
+                    toast(`已连接 GitHub：@${user.login}`, 'success')
+                    navigate(location.state?.from || '/admin', { replace: true })
+                  }}
+                />
                 <div className="mt-3 rounded-xl border border-brand-200/70 bg-brand-50/50 p-3 text-xs leading-relaxed text-ink-600 dark:border-brand-400/20 dark:bg-brand-500/[0.07] dark:text-ink-300">
                   <p className="flex items-center gap-1.5 font-medium text-brand-700 dark:text-brand-300">
                     <ShieldCheck size={13} />
-                    如何获取 Token
+                    授权流程（OAuth Device Flow）
                   </p>
                   <ol className="mt-1.5 list-decimal space-y-0.5 pl-4">
-                    <li>
-                      打开{' '}
-                      <a href={TOKEN_HELP_URL} target="_blank" rel="noreferrer" className="font-medium text-brand-600 underline dark:text-brand-300">
-                        Fine-grained tokens
-                      </a>{' '}
-                      页面
-                    </li>
-                    <li>Repository access 选择本博客仓库</li>
-                    <li>
-                      Permissions → Contents 设为 <b>Read and write</b>
-                    </li>
-                    <li>生成后复制粘贴到上方</li>
+                    <li>点击上方按钮，复制显示的一次性验证码</li>
+                    <li>在 GitHub 验证页面输入验证码并授权</li>
+                    <li>回到本页自动完成登录，无需手动创建或粘贴 Token</li>
                   </ol>
                   <p className="mt-2 text-ink-500 dark:text-ink-400">
-                    Token 只保存在你当前浏览器的 localStorage 中，不会上传到任何服务器。
+                    申请范围为 <code className="rounded bg-ink-100 px-1 dark:bg-white/10">{oauthConfig.scope}</code>
+                    ，授权令牌只保存在你当前浏览器的 localStorage 中，不会上传到任何服务器。
                   </p>
                 </div>
               </div>
-            )}
-
-            {error && (
-              <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-400">
-                {error}
-              </p>
-            )}
-
-            <button type="submit" disabled={loading} className="btn-primary h-11 w-full">
-              {loading ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
-              {loading ? '验证中…' : '登录'}
-            </button>
-          </form>
+            </div>
+          )}
         </div>
 
         <p className="mt-6 text-center text-xs text-ink-400">

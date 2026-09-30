@@ -1,0 +1,3 @@
+# Cloudflare Pages 的 SPA 兜底：未命中静态资源 / Functions 的请求重写回 index.html
+# （GitHub Pages 会忽略本文件；Pages Functions 优先于此规则执行）
+/* /index.html 200

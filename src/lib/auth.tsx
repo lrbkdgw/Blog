@@ -19,8 +19,10 @@ interface AuthCtx {
   /** 是否具备提交到 GitHub 的能力 */
   canPublish: boolean
   loginWithPassword: (password: string) => Promise<void>
-  loginWithGithub: (token: string) => Promise<GhUser>
-  connectGithub: (token: string) => Promise<GhUser>
+  /** 使用 OAuth（Device Flow）拿到的 access token 登录并建立会话 */
+  loginWithGithub: (accessToken: string) => Promise<GhUser>
+  /** 使用 OAuth access token 连接 GitHub（不建立登录会话） */
+  connectGithub: (accessToken: string) => Promise<GhUser>
   disconnectGithub: () => void
   logout: () => void
   loading: boolean
@@ -58,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             localStorage.removeItem(STORAGE_KEYS.session)
           }
         }
-        // 后台校验 token 是否仍然有效
+        // 后台校验 OAuth 访问令牌是否仍然有效
         const token = getToken()
         if (token) {
           try {
@@ -97,17 +99,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [persist],
   )
 
-  const connectGithub = useCallback(async (token: string) => {
-    const user = await verifyToken(token.trim())
-    setToken(token.trim())
+  const connectGithub = useCallback(async (accessToken: string) => {
+    const token = accessToken.trim()
+    const user = await verifyToken(token)
+    setToken(token)
     setGhUser(user)
     localStorage.setItem(STORAGE_KEYS.ghUser, JSON.stringify(user))
     return user
   }, [])
 
   const loginWithGithub = useCallback(
-    async (token: string) => {
-      const user = await connectGithub(token)
+    async (accessToken: string) => {
+      const user = await connectGithub(accessToken)
       persist({ mode: 'github', at: Date.now(), user })
       return user
     },
