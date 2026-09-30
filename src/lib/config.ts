@@ -68,7 +68,7 @@ export const githubConfig = {
  */
 export const oauthConfig = {
   /** OAuth App 的 Client ID */
-  clientId: Ov23lid9P8sdNuiKhkzy,
+  clientId: 'Ov23lid9P8sdNuiKhkzy',
   /**
    * 申请权限范围：public_repo = 读写公开仓库；
    * 若博客仓库是私有的，需要改成 'repo'。
