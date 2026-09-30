@@ -87,10 +87,14 @@ export default function SettingsPage() {
   const [applyingFont, setApplyingFont] = useState(false)
   const [savingFont, setSavingFont] = useState(false)
   const [backgroundColor, setBackgroundColor] = useState(background.color || '#FBFBFD')
+  const [backgroundIntensity, setBackgroundIntensity] = useState(background.intensity)
   const [savingBackground, setSavingBackground] = useState(false)
 
   useEffect(() => setFontName(font.family), [font.family])
-  useEffect(() => setBackgroundColor(background.color || '#FBFBFD'), [background.color])
+  useEffect(() => {
+    setBackgroundColor(background.color || '#FBFBFD')
+    setBackgroundIntensity(background.intensity)
+  }, [background.color, background.intensity])
 
   const connect = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -166,9 +170,10 @@ export default function SettingsPage() {
 
   const applyBackground = () => {
     try {
-      const next = setBackground(backgroundColor)
+      const next = setBackground(backgroundColor, backgroundIntensity)
       setBackgroundColor(next.color || '#FBFBFD')
-      toast(`已应用背景颜色 ${next.color || '系统默认'}`, 'success')
+      setBackgroundIntensity(next.intensity)
+      toast(`已应用渐变背景 ${next.color || '系统默认'} · 明显度 ${next.intensity}%`, 'success')
     } catch (err) {
       toast(err instanceof Error ? err.message : '背景颜色格式无效', 'error')
     }
@@ -432,7 +437,7 @@ export default function SettingsPage() {
         {/* ------------------------------ 背景颜色 ------------------------------ */}
         <Section
           title="背景颜色"
-          desc="选择器支持任意颜色；浅色和深色模式都会使用此自定义背景。留空或恢复默认可回到系统配色。"
+          desc="所选颜色会作为双渐变柔光叠加到背景上，保留原有的渐变层次；可调整颜色的明显程度。"
           icon={Paintbrush}
         >
           <label className="mb-1.5 block text-xs font-medium text-ink-500" htmlFor="background-color">
@@ -461,21 +466,45 @@ export default function SettingsPage() {
             </button>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-3">
+          <div className="mt-4">
+            <div className="mb-2 flex items-center justify-between gap-4">
+              <label htmlFor="background-intensity" className="text-xs font-medium text-ink-500">
+                渐变颜色明显度
+              </label>
+              <span className="font-mono text-xs font-medium text-brand-600 dark:text-brand-300">{backgroundIntensity}%</span>
+            </div>
+            <input
+              id="background-intensity"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={backgroundIntensity}
+              onChange={(e) => setBackgroundIntensity(Number(e.target.value))}
+              className="h-2 w-full cursor-pointer accent-brand-500"
+            />
+            <p className="mt-1.5 text-xs leading-relaxed text-ink-400">
+              0% 隐藏自定义柔光，50% 接近原有渐变效果，100% 为最明显效果。点击“应用背景”后生效。
+            </p>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
             <span
               className="h-8 w-8 rounded-lg border border-ink-200 shadow-sm dark:border-white/15"
               style={{ backgroundColor: background.color || '#FBFBFD' }}
               aria-label={`当前背景颜色：${background.color || '系统默认'}`}
             />
             <p className="text-xs text-ink-500 dark:text-ink-400">
-              当前背景：<span className="font-mono font-medium text-ink-800 dark:text-ink-100">{background.color || '系统默认'}</span>
+              当前叠加色：<span className="font-mono font-medium text-ink-800 dark:text-ink-100">{background.color || '未设置'}</span>
+              <span className="ml-2">渐变明显度 {background.intensity}%</span>
             </p>
             <button
               type="button"
               onClick={() => {
                 resetBackground()
                 setBackgroundColor('#FBFBFD')
-                toast('已恢复系统默认背景', 'success')
+                setBackgroundIntensity(50)
+                toast('已恢复系统默认渐变背景', 'success')
               }}
               className="btn-outline ml-auto h-9"
             >

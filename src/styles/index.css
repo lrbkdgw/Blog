@@ -10,9 +10,16 @@
     --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     --site-background: #fbfbfd;
     --site-background-dark: #0d1017;
+    /* 基础双渐变始终保留；设置页只在其上叠加选中的颜色。 */
+    --site-background-glow-primary: rgba(90, 139, 255, 0.2);
+    --site-background-glow-secondary: rgba(129, 140, 248, 0.15);
+    --site-background-tint-primary: rgba(0, 0, 0, 0);
+    --site-background-tint-secondary: rgba(0, 0, 0, 0);
   }
   .dark {
     color-scheme: dark;
+    --site-background-glow-primary: rgba(53, 99, 246, 0.15);
+    --site-background-glow-secondary: rgba(99, 102, 241, 0.15);
   }
 
   html {
@@ -22,6 +29,12 @@
   body {
     @apply text-ink-800 antialiased dark:text-ink-200;
     background-color: var(--site-background);
+    background-image: radial-gradient(62rem 44rem at -14% -18%, var(--site-background-tint-primary), transparent 68%),
+      radial-gradient(54rem 42rem at 112% 28%, var(--site-background-tint-secondary), transparent 70%),
+      radial-gradient(62rem 44rem at -14% -18%, var(--site-background-glow-primary), transparent 68%),
+      radial-gradient(54rem 42rem at 112% 28%, var(--site-background-glow-secondary), transparent 70%);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
   }
   .dark body {
@@ -98,6 +111,16 @@
            transition-[background-size] duration-300 hover:bg-[length:100%_1.5px];
   }
 
+  .site-background-glow-primary {
+    background-color: var(--site-background-tint-primary);
+  }
+  .site-background-glow-secondary {
+    background-color: var(--site-background-tint-secondary);
+  }
+  .site-background-hairline {
+    background: linear-gradient(to right, transparent, var(--site-background-tint-secondary), transparent),
+      linear-gradient(to right, transparent, var(--site-background-glow-secondary), transparent);
+  }
 }
 
 /* ---------- 代码高亮（跟随深浅色） ---------- */

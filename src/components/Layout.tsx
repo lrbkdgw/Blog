@@ -341,12 +341,12 @@ export function Layout() {
     <div className="flex min-h-screen flex-col">
       {/* 背景装饰 */}
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute -left-40 -top-40 h-[32rem] w-[32rem] animate-float rounded-full bg-brand-400/20 blur-[110px] dark:bg-brand-600/15" />
+        <div className="site-background-glow-primary absolute -left-40 -top-40 h-[32rem] w-[32rem] animate-float rounded-full blur-[110px]" />
         <div
-          className="absolute -right-32 top-40 h-[26rem] w-[26rem] animate-float rounded-full bg-indigo-400/15 blur-[110px] dark:bg-indigo-600/15"
+          className="site-background-glow-secondary absolute -right-32 top-40 h-[26rem] w-[26rem] animate-float rounded-full blur-[110px]"
           style={{ animationDelay: '-4s' }}
         />
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-500/40 to-transparent" />
+        <div className="site-background-hairline absolute inset-x-0 top-0 h-px" />
       </div>
 
       <Header onSearch={() => setSearchOpen(true)} />

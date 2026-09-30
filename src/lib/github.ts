@@ -182,6 +182,7 @@ export async function saveGithubFontPreference(
 
 export interface GithubBackgroundPreference {
   color: string
+  intensity: number
   updatedAt: number
 }
 
@@ -204,6 +205,7 @@ export async function fetchGithubBackgroundPreference(
     if (!parsed || typeof parsed.color !== 'string') return null
     return {
       color: parsed.color,
+      intensity: typeof parsed.intensity === 'number' ? parsed.intensity : 50,
       updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
     }
   } catch (err) {
@@ -226,7 +228,12 @@ export async function saveGithubBackgroundPreference(
       message: `chore(settings): 保存 @${login} 的背景颜色偏好`,
       content: encodeBase64(
         JSON.stringify(
-          { version: 1, color: preference.color, updatedAt: preference.updatedAt || Date.now() },
+          {
+            version: 2,
+            color: preference.color,
+            intensity: preference.intensity,
+            updatedAt: preference.updatedAt || Date.now(),
+          },
           null,
           2,
         ) + '\n',

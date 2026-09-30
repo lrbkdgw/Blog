@@ -34,8 +34,33 @@
           var savedBackground = JSON.parse(localStorage.getItem('starlog:background') || 'null')
           var color = savedBackground && typeof savedBackground.color === 'string' ? savedBackground.color.trim() : ''
           if (/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color)) {
-            document.documentElement.style.setProperty('--site-background', color)
-            document.documentElement.style.setProperty('--site-background-dark', color)
+            var hex = color.slice(1)
+            if (hex.length === 3 || hex.length === 4) {
+              hex = hex
+                .split('')
+                .map(function (part) {
+                  return part + part
+                })
+                .join('')
+            }
+            var red = parseInt(hex.slice(0, 2), 16)
+            var green = parseInt(hex.slice(2, 4), 16)
+            var blue = parseInt(hex.slice(4, 6), 16)
+            var alpha = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1
+            var storedIntensity = savedBackground && Number(savedBackground.intensity)
+            var intensity = isFinite(storedIntensity) ? Math.max(0, Math.min(100, storedIntensity)) / 100 : 0.5
+            var secondaryRed = Math.round(red * 0.7 + 129 * 0.3)
+            var secondaryGreen = Math.round(green * 0.7 + 140 * 0.3)
+            var secondaryBlue = Math.round(blue * 0.7 + 248 * 0.3)
+
+            document.documentElement.style.setProperty(
+              '--site-background-tint-primary',
+              'rgba(' + red + ', ' + green + ', ' + blue + ', ' + (alpha * 0.42 * intensity).toFixed(3) + ')',
+            )
+            document.documentElement.style.setProperty(
+              '--site-background-tint-secondary',
+              'rgba(' + secondaryRed + ', ' + secondaryGreen + ', ' + secondaryBlue + ', ' + (alpha * 0.3 * intensity).toFixed(3) + ')',
+            )
           }
         } catch (e) {}
       })()
