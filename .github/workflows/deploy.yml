@@ -60,20 +60,29 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      # Pages 曾被配置为「从分支部署（legacy）」，导致线上是未构建的源码、页面空白。
-      # 这里自动把部署来源切换为 GitHub Actions；若权限不足会给出提示而不中断。
-      - name: 确保 Pages 部署来源为 GitHub Actions
+      # 如果 Pages 仍是 legacy「从分支部署」，push 会同时启动一次 Jekyll 构建。
+      # 它可能在 deploy-pages 之后完成并把已构建的网站覆盖成仓库源码，最终导致白屏。
+      # GITHUB_TOKEN 无权修改 Pages 的 build_type，因此先等 legacy 构建结束，确保
+      # deploy-pages 始终是最后一次发布。仍建议在 Settings → Pages 中改成 GitHub Actions。
+      - name: 检查 Pages 部署来源并等待旧构建
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          current=$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq '.build_type' 2>/dev/null || echo unknown)
-          echo "当前 Pages build_type: $current"
-          if [[ "$current" != "workflow" ]]; then
-            if gh api -X PUT "repos/${GITHUB_REPOSITORY}/pages" -f build_type=workflow; then
-              echo "已切换为 workflow 部署模式"
-            else
-              echo "::warning::无法自动切换 Pages 部署模式，请到 Settings → Pages → Build and deployment → Source 手动选择 GitHub Actions"
-            fi
+          build_type=$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq '.build_type')
+          echo "当前 Pages build_type: $build_type"
+          if [[ "$build_type" == "legacy" ]]; then
+            echo "::warning::Pages 仍使用从分支部署；请在 Settings → Pages → Build and deployment → Source 选择 GitHub Actions"
+            for attempt in {1..30}; do
+              result=$(gh api "repos/${GITHUB_REPOSITORY}/pages/builds/latest" \
+                --jq '[.commit, .status] | @tsv' 2>/dev/null || true)
+              commit=${result%%$'\t'*}
+              status=${result#*$'\t'}
+              echo "legacy build ($attempt/30): commit=$commit status=$status"
+              if [[ "$commit" == "$GITHUB_SHA" && ( "$status" == "built" || "$status" == "errored" ) ]]; then
+                break
+              fi
+              sleep 5
+            done
           fi
 
       - id: deployment
