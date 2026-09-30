@@ -68,7 +68,7 @@ export const githubConfig = {
  */
 export const oauthConfig = {
   /** OAuth App 的 Client ID */
-  clientId: import.meta.env.VITE_GITHUB_CLIENT_ID || '',
+  clientId: Ov23lid9P8sdNuiKhkzy,
   /**
    * 申请权限范围：public_repo = 读写公开仓库；
    * 若博客仓库是私有的，需要改成 'repo'。
@@ -79,7 +79,7 @@ export const oauthConfig = {
    * - Cloudflare Pages 部署：留空（自动走仓库内置的同源 Pages Function）
    * - GitHub Pages 部署：必填，为 oauth-relay Worker 地址，如 https://xxx.workers.dev
    */
-  relayUrl: import.meta.env.VITE_OAUTH_RELAY_URL || '',
+  relayUrl: '',
 }
 
 /**
