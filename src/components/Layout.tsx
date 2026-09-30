@@ -19,6 +19,7 @@ import { siteConfig } from '../lib/config'
 import { useTheme } from '../lib/theme'
 import { useAuth } from '../lib/auth'
 import { SearchDialog } from './SearchDialog'
+import logoVenti from '../assets/logo-venti.png'
 
 const NAV = [
   { to: '/', label: '首页', end: true },
@@ -55,18 +56,14 @@ function ThemeToggle() {
 
 function Logo() {
   return (
-    <Link to="/" className="group flex shrink-0 items-center gap-2.5">
-      <span className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-400 via-brand-600 to-indigo-700 text-white shadow-lg shadow-brand-600/30 transition-transform duration-300 group-hover:rotate-6">
-        <span className="text-lg font-bold leading-none">✦</span>
-      </span>
-      <span className="flex flex-col leading-none">
-        <span className="font-serif text-[15px] font-semibold tracking-tight text-ink-900 dark:text-white">
-          {siteConfig.title}
-        </span>
-        <span className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-400">
-          {siteConfig.titleEn}
-        </span>
-      </span>
+    <Link to="/" className="group flex shrink-0 items-center" aria-label="回到首页">
+      <img
+        src={logoVenti}
+        alt="Venti"
+        width={40}
+        height={40}
+        className="h-10 w-10 rounded-xl object-cover shadow-md shadow-brand-600/20 ring-1 ring-black/5 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105 dark:ring-white/10"
+      />
     </Link>
   )
 }
@@ -346,7 +343,6 @@ export function Layout() {
     <div className="flex min-h-screen flex-col">
       {/* 背景装饰 */}
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute inset-0 bg-grid opacity-70" />
         <div className="absolute -left-40 -top-40 h-[32rem] w-[32rem] animate-float rounded-full bg-brand-400/20 blur-[110px] dark:bg-brand-600/15" />
         <div
           className="absolute -right-32 top-40 h-[26rem] w-[26rem] animate-float rounded-full bg-indigo-400/15 blur-[110px] dark:bg-indigo-600/15"

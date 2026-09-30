@@ -6,20 +6,21 @@ export default {
     extend: {
       // 允许任意整数透明度修饰符，例如 bg-white/12、border-white/65
       opacity: Object.fromEntries(Array.from({ length: 101 }, (_, i) => [i, String(i / 100)])),
-      fontFamily: {
-        sans: [
-          'Inter',
-          'system-ui',
-          '-apple-system',
-          '"Segoe UI"',
-          '"PingFang SC"',
-          '"Hiragino Sans GB"',
-          '"Microsoft YaHei"',
-          'sans-serif',
-        ],
-        serif: ['"Noto Serif SC"', 'Georgia', '"Songti SC"', 'serif'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
-      },
+        fontFamily: {
+          // 系统字体优先：无需网络请求，中文环境（苹方 / 微软雅黑）观感一致
+          sans: [
+            'system-ui',
+            '-apple-system',
+            '"Segoe UI"',
+            '"PingFang SC"',
+            '"Hiragino Sans GB"',
+            '"Microsoft YaHei"',
+            '"Noto Sans SC"',
+            'sans-serif',
+          ],
+          serif: ['Georgia', '"Songti SC"', '"STSong"', '"SimSun"', '"Noto Serif SC"', 'serif'],
+          mono: ['ui-monospace', 'SFMono-Regular', '"SF Mono"', 'Menlo', 'Consolas', 'monospace'],
+        },
       colors: {
         brand: {
           50: '#eef4ff',
