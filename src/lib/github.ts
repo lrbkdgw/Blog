@@ -91,10 +91,20 @@ export interface DeviceAuthInfo {
 
 function oauthRelay(path: string): string {
   const relay = oauthConfig.relayUrl.trim()
-  if (!relay) {
-    throw new Error('尚未配置 OAuth 中转（oauthConfig.relayUrl），请按 README「配置 OAuth 登录」一节部署')
-  }
+  // 留空 = 同源中转：Cloudflare Pages 部署时由仓库内置的
+  // functions/login/[[path]].ts 提供，天然无 CORS 问题
+  if (!relay) return path
   return `${relay.replace(/\/+$/, '')}${path}`
+}
+
+/** 读取中转响应；GitHub Pages 上没有 Pages Function，会返回静态 HTML，这里给出可操作的提示 */
+async function readOAuthJson(res: Response): Promise<Record<string, unknown>> {
+  if (!res.headers.get('content-type')?.toLowerCase().includes('json')) {
+    throw new Error(
+      'OAuth 中转不可用：若站点部署在 GitHub Pages，请配置 oauthConfig.relayUrl 指向已部署的 oauth-relay Worker（或改用 Cloudflare Pages 一体化部署），详见 README',
+    )
+  }
+  return (await res.json().catch(() => ({}))) as Record<string, unknown>
 }
 
 export async function requestDeviceCode(): Promise<DeviceAuthInfo> {
@@ -117,7 +127,7 @@ export async function requestDeviceCode(): Promise<DeviceAuthInfo> {
   } catch {
     throw new Error('无法连接 OAuth 中转服务，请检查网络或中转地址配置')
   }
-  const data = await res.json().catch(() => ({} as Record<string, unknown>))
+  const data = await readOAuthJson(res)
   if (!res.ok || typeof data.device_code !== 'string') {
     const msg = data.error_description || data.error
     if (msg === 'device_flow_disabled' || /device flow/i.test(String(msg))) {
@@ -179,7 +189,7 @@ export async function pollDeviceToken(info: DeviceAuthInfo, signal?: AbortSignal
       // 网络抖动：继续按节奏轮询，直到过期
       continue
     }
-    const data = await res.json().catch(() => ({} as Record<string, unknown>))
+    const data = await readOAuthJson(res)
     if (typeof data.access_token === 'string' && data.access_token) return data.access_token
     switch (data.error) {
       case 'authorization_pending':

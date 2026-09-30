@@ -28,7 +28,8 @@ interface Props {
 export function missingOAuthConfig(): string[] {
   const missing: string[] = []
   if (!oauthConfig.clientId.trim()) missing.push('OAuth App Client ID（oauthConfig.clientId）')
-  if (!oauthConfig.relayUrl.trim()) missing.push('OAuth 中转地址（oauthConfig.relayUrl）')
+  // relayUrl 可留空：Cloudflare Pages 部署使用仓库内置的同源 Pages Function；
+  // 仅 GitHub Pages 部署时必须显式配置（留空时授权会给出相应错误提示）
   return missing
 }
 
@@ -114,6 +115,7 @@ export default function GithubConnect({ onToken, label = '使用 GitHub 登录',
         <p className="mt-1.5">
           缺少：{missing.join('、')}。配置方法见仓库 README「🔑 配置 OAuth 登录」一节或{' '}
           <code className="rounded bg-amber-100/80 px-1 dark:bg-amber-500/15">src/lib/config.ts</code>。
+          若部署在 GitHub Pages，还需配置 <code className="rounded bg-amber-100/80 px-1 dark:bg-amber-500/15">oauthConfig.relayUrl</code>。
         </p>
       </div>
     )

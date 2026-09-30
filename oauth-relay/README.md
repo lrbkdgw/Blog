@@ -1,5 +1,9 @@
 # OAuth Relay —— 极简 CORS 中转
 
+> 💡 如果把整个博客托管到 **Cloudflare Pages**（见根目录 README「路线 A」），
+> 仓库内置的 `functions/login/[[path]].ts` 会提供同源中转，**不需要部署本 Worker**。
+> 本目录只服务于 **GitHub Pages** 部署的场景。
+
 静态站点（GitHub Pages）无法直接调用 GitHub 的 OAuth 接口：`github.com/login/*`
 端点不返回 CORS 头，浏览器读不到响应。这个不到 100 行的 Worker 只转发 OAuth
 Device Flow 需要的两个端点，并补上 CORS 头：

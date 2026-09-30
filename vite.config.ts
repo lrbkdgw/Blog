@@ -4,14 +4,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 /**
- * GitHub Pages 部署说明：
- * - 项目主页（https://<user>.github.io/<repo>/）：BASE_PATH 设为 "/<repo>/"，本仓库默认 "/Blog/"
- * - 用户主页（https://<user>.github.io/）：BASE_PATH 设为 "/"
- * 可以通过环境变量 VITE_BASE_PATH 覆盖（GitHub Actions 中已自动注入仓库名）。
+ * 部署说明：
+ * - GitHub Pages 项目主页（https://<user>.github.io/<repo>/）：BASE_PATH 为 "/<repo>/"，本仓库默认 "/Blog/"
+ * - 用户主页（https://<user>.github.io/）：环境变量 VITE_BASE_PATH 设为 "/"
+ * - Cloudflare Pages（https://<project>.pages.dev/）：构建环境自带 CF_PAGES，自动使用 "/"
+ * 以上均可用环境变量 VITE_BASE_PATH 覆盖（GitHub Actions 中已自动注入仓库名）。
  */
 export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const base = command === 'serve' ? '/' : env.VITE_BASE_PATH || '/Blog/'
+  const base = command === 'serve' ? '/' : env.VITE_BASE_PATH || (process.env.CF_PAGES ? '/' : '/Blog/')
 
   return {
     base,

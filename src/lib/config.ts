@@ -46,17 +46,24 @@ export const githubConfig = {
  * GitHub OAuth 登录（Device Flow，RFC 8628）。
  *
  * 纯静态站点无法直接调用 GitHub 的 OAuth 接口：github.com 的 /login/* 端点
- * 不支持跨域（CORS），浏览器读不到响应。因此登录需要两个小配置：
+ * 不支持跨域（CORS），浏览器读不到响应，因此前端会经过一个极简中转
+ * （Device Flow 不需要 client_secret，中转不含任何机密，只做转发）。
  *
- * 1. 一个启用了 Device Flow 的 OAuth App（免费，只需名字 + 主页地址）：
+ * 中转的两种形态，按部署平台二选一：
+ *
+ * A. Cloudflare Pages 部署（推荐，最省事）：
+ *    仓库自带 functions/login/[[path]].ts，部署后自动成为同源中转，
+ *    relayUrl 留空即可，无需任何额外服务。
+ *
+ * B. GitHub Pages 部署：
+ *    把仓库自带 oauth-relay/worker.js 部署为一个独立的 Cloudflare Worker
+ *    （见 oauth-relay/README.md，约 2 分钟），把它的地址填到 relayUrl。
+ *
+ * 另外都需要一个启用了 Device Flow 的 OAuth App（免费，只需名字 + 主页地址）：
  *      https://github.com/settings/developers → New OAuth App → 勾选
- *      “Enable Device Flow”，把 Client ID 填到下面。
+ *      “Enable Device Flow”，把 Client ID 填到下面的 clientId。
  *
- * 2. 一个极简 CORS 中转（Device Flow 不需要 client_secret，中转不含任何机密，
- *    只做转发）：仓库自带 oauth-relay/worker.js，按 oauth-relay/README.md
- *    部署到 Cloudflare Workers（免费额度足够），把它的 URL 填到下面。
- *
- * 两项也都可以用环境变量配置（本地 .env.local / Actions 变量，避免改代码）：
+ * 配置也可以用环境变量（本地 .env.local / CI 变量，避免改代码）：
  *    VITE_GITHUB_CLIENT_ID / VITE_OAUTH_RELAY_URL
  */
 export const oauthConfig = {
@@ -67,7 +74,11 @@ export const oauthConfig = {
    * 若博客仓库是私有的，需要改成 'repo'。
    */
   scope: 'public_repo',
-  /** OAuth 中转（Cloudflare Worker）地址，例如 https://xxx.workers.dev */
+  /**
+   * OAuth 中转地址：
+   * - Cloudflare Pages 部署：留空（自动走仓库内置的同源 Pages Function）
+   * - GitHub Pages 部署：必填，为 oauth-relay Worker 地址，如 https://xxx.workers.dev
+   */
   relayUrl: import.meta.env.VITE_OAUTH_RELAY_URL || '',
 }
 
