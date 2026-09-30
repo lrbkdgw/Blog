@@ -4,10 +4,12 @@ import 'katex/dist/katex.min.css'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
+import remarkDirective from 'remark-directive'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeSlug from 'rehype-slug'
 import { Check, Copy, Link2 } from 'lucide-react'
+import { rehypeTableSpan, remarkCallfold } from '../lib/markdownPlugins'
 
 function extractText(node: ReactNode): string {
   if (node == null || typeof node === 'boolean') return ''
@@ -94,9 +96,10 @@ export const Markdown = memo(function Markdown({ content }: { content: string })
   return (
     <div className="prose prose-lg dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath, remarkDirective, remarkCallfold]}
         rehypePlugins={[
           rehypeSlug,
+          rehypeTableSpan,
           [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
           [rehypeHighlight, { detect: true, ignoreMissing: true }],
         ]}

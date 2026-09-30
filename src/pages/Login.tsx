@@ -10,7 +10,7 @@ type Tab = 'password' | 'github'
 
 export default function Login() {
   const { isAuthed, loginWithPassword, loginWithGithub } = useAuth()
-  const [tab, setTab] = useState<Tab>('password')
+  const [tab, setTab] = useState<Tab>('github')
   const [password, setPassword] = useState('')
   const [showSecret, setShowSecret] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -54,8 +54,8 @@ export default function Login() {
           <div className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-ink-100/80 p-1 dark:bg-white/5">
             {(
               [
-                { id: 'password', label: '密码登录', icon: Lock },
                 { id: 'github', label: 'GitHub OAuth', icon: Github },
+                { id: 'password', label: '密码登录', icon: Lock },
               ] as const
             ).map((t) => (
               <button

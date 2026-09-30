@@ -7,6 +7,8 @@ export interface PostMeta {
   /** ISO 日期字符串 yyyy-MM-dd */
   date: string
   updated?: string
+  /** 最近一次发布到 GitHub 的时间（ISO 8601）；旧文章缺失时回退到发布日期 */
+  publishedAt?: string
   summary: string
   tags: string[]
   cover?: string

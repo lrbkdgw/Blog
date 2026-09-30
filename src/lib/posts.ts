@@ -102,6 +102,7 @@ export function buildPost(
     title,
     date: normalizeDate(data.date),
     updated: data.updated ? normalizeDate(data.updated) : undefined,
+    publishedAt: data.publishedAt ? String(data.publishedAt) : undefined,
     summary: String(data.summary ?? data.description ?? '').trim() || excerpt(content),
     tags: toStringArray(data.tags),
     cover: data.cover ? String(data.cover) : undefined,
@@ -123,6 +124,7 @@ export function serializePost(post: Post | (PostMeta & { content: string })): st
       title: post.title,
       date: post.date,
       updated: post.updated,
+      publishedAt: post.publishedAt,
       summary: post.summary,
       tags: post.tags,
       cover: post.cover,
@@ -199,7 +201,12 @@ function sortPosts(posts: Post[]): Post[] {
   })
 }
 
-/** 本地草稿与仓库文章同名时，以本地版本（更新的那份）为准 */
+/** 内容管理使用：草稿与仓库文章始终是两条独立记录，即使 slug 和内容完全相同。 */
+export function getManagedPosts(): Post[] {
+  return sortPosts([...getRepoPosts(), ...getLocalPosts()])
+}
+
+/** 公开阅读时同名本地草稿覆盖仓库版本，保持预览 URL 稳定。 */
 export function getAllPosts(): Post[] {
   const map = new Map<string, Post>()
   for (const p of getRepoPosts()) map.set(p.slug, p)
@@ -211,7 +218,8 @@ export function getPublishedPosts(): Post[] {
   return getAllPosts().filter((p) => !p.draft)
 }
 
-export function getPostBySlug(slug: string): Post | undefined {
+export function getPostBySlug(slug: string, source?: Post['source']): Post | undefined {
+  if (source) return getManagedPosts().find((p) => p.slug === slug && p.source === source)
   return getAllPosts().find((p) => p.slug === slug)
 }
 

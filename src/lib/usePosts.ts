@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getAllPosts, getPublishedPosts } from './posts'
+import { getAllPosts, getManagedPosts, getPublishedPosts } from './posts'
 import type { Post } from './types'
 
 /** 订阅文章数据（本地草稿变更后自动刷新） */
-export function usePosts(includeDrafts = false): [Post[], () => void] {
+export function usePosts(includeDrafts = false, keepSourcesSeparate = false): [Post[], () => void] {
   const read = useCallback(
-    () => (includeDrafts ? getAllPosts() : getPublishedPosts()),
-    [includeDrafts],
+    () => (keepSourcesSeparate ? getManagedPosts() : includeDrafts ? getAllPosts() : getPublishedPosts()),
+    [includeDrafts, keepSourcesSeparate],
   )
   const [posts, setPosts] = useState<Post[]>(read)
 

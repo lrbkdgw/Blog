@@ -284,3 +284,34 @@
     display: none !important;
   }
 }
+
+/* Markdown 折叠提示框（兼容洛谷 :::info / success / warning / error 语法） */
+.markdown-callfold {
+  --callfold-color: 59 130 246;
+  margin: 1.5rem 0;
+  overflow: hidden;
+  border: 1px solid rgb(var(--callfold-color) / .28);
+  border-radius: .85rem;
+  background: rgb(var(--callfold-color) / .06);
+}
+.markdown-callfold-success { --callfold-color: 16 185 129; }
+.markdown-callfold-warning { --callfold-color: 245 158 11; }
+.markdown-callfold-error { --callfold-color: 244 63 94; }
+.markdown-callfold-title {
+  cursor: pointer;
+  list-style: none;
+  padding: .8rem 1rem;
+  color: rgb(var(--callfold-color));
+  font-weight: 600;
+  user-select: none;
+}
+.markdown-callfold-title::-webkit-details-marker { display: none; }
+.markdown-callfold-title::before {
+  display: inline-block;
+  margin-right: .55rem;
+  content: '›';
+  transition: transform .2s ease;
+}
+.markdown-callfold[open] > .markdown-callfold-title::before { transform: rotate(90deg); }
+.markdown-callfold > :not(summary) { margin-left: 1rem; margin-right: 1rem; }
+.markdown-callfold > :last-child { margin-bottom: 1rem; }

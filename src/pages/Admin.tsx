@@ -23,7 +23,7 @@ import type { Post } from '../lib/types'
 type Filter = 'all' | 'local' | 'repo' | 'draft'
 
 export default function Admin() {
-  const [posts, refresh] = usePosts(true)
+  const [posts, refresh] = usePosts(true, true)
   const { canPublish, ghUser } = useAuth()
   const toast = useToast()
   const [query, setQuery] = useState('')
@@ -57,7 +57,8 @@ export default function Admin() {
     }
     setBusy(post.slug)
     try {
-      const res = await commitPost(post.slug, serializePost(post), `post(blog): ${post.title}`)
+      const published = { ...post, publishedAt: new Date().toISOString(), draft: false }
+      const res = await commitPost(post.slug, serializePost(published), `post(blog): ${post.title}`)
       toast(`已提交 ${res.path}，Actions 部署中…`, 'success', { label: '查看提交', href: res.commitUrl })
     } catch (err) {
       toast(err instanceof Error ? err.message : '提交失败', 'error')
@@ -174,7 +175,7 @@ export default function Admin() {
         )}
 
         {filtered.map((post) => (
-          <div key={post.slug} className="group flex flex-wrap items-center gap-3 px-4 py-3.5 transition hover:bg-ink-50/70 dark:hover:bg-white/[.03]">
+          <div key={`${post.source}:${post.slug}`} className="group flex flex-wrap items-center gap-3 px-4 py-3.5 transition hover:bg-ink-50/70 dark:hover:bg-white/[.03]">
             <span
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
                 post.source === 'local'
@@ -189,7 +190,7 @@ export default function Admin() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <Link
-                  to={`/admin/edit/${post.slug}`}
+                  to={`/admin/edit/${post.slug}?source=${post.source}`}
                   className="truncate text-sm font-medium text-ink-900 hover:text-brand-600 dark:text-white dark:hover:text-brand-300"
                 >
                   {post.title}
@@ -207,7 +208,9 @@ export default function Admin() {
               </div>
               <p className="mt-0.5 truncate font-mono text-xs text-ink-400">
                 {formatDate(post.date, 'short')} · /{post.slug} · {post.wordCount} 字
-                {post.savedAt ? ` · 本地保存于 ${relativeTime(post.savedAt)}` : ''}
+                {post.savedAt
+                  ? ` · 本地保存于 ${relativeTime(post.savedAt)}`
+                  : ` · 上次发布到 GitHub：${post.publishedAt ? new Date(post.publishedAt).toLocaleString('zh-CN') : formatDate(post.date)}`}
               </p>
             </div>
 
@@ -215,7 +218,7 @@ export default function Admin() {
               <Link to={`/posts/${post.slug}`} className="btn-ghost h-8 w-8 !px-0" title="查看">
                 <Eye size={15} />
               </Link>
-              <Link to={`/admin/edit/${post.slug}`} className="btn-ghost h-8 w-8 !px-0" title="编辑">
+              <Link to={`/admin/edit/${post.slug}?source=${post.source}`} className="btn-ghost h-8 w-8 !px-0" title="编辑">
                 <PenLine size={15} />
               </Link>
               {post.source === 'local' && (

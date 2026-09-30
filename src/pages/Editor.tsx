@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertCircle,
   Bold,
@@ -71,11 +71,16 @@ const hello = (name: string) => \`你好，\${name}！\`
 
 export default function Editor() {
   const { slug: routeSlug } = useParams()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const toast = useToast()
   const { canPublish, ghUser } = useAuth()
 
-  const existing = useMemo(() => (routeSlug ? getPostBySlug(routeSlug) : undefined), [routeSlug])
+  const requestedSource = searchParams.get('source')
+  const existing = useMemo(
+    () => (routeSlug ? getPostBySlug(routeSlug, requestedSource === 'repo' || requestedSource === 'local' ? requestedSource : undefined) : undefined),
+    [routeSlug, requestedSource],
+  )
   const originalSlug = useRef(existing?.slug)
 
   const [title, setTitle] = useState(existing?.title ?? '')
@@ -117,6 +122,7 @@ export default function Editor() {
       title: title.trim() || '未命名文章',
       date,
       updated: existing ? today() : undefined,
+      publishedAt: existing?.publishedAt,
       summary: summary.trim() || excerpt(content),
       tags,
       cover: cover.trim() || undefined,
@@ -141,11 +147,11 @@ export default function Editor() {
       if (!silent) {
         toast('已保存到本地草稿', 'success')
         // 仅在显式保存时同步 URL（自动保存时跳转会打断输入）
-        if (routeSlug !== post.slug) navigate(`/admin/edit/${post.slug}`, { replace: true })
+        if (routeSlug !== post.slug || requestedSource !== 'local') navigate(`/admin/edit/${post.slug}?source=local`, { replace: true })
       }
       return post
     },
-    [buildDraftPost, navigate, routeSlug, toast],
+    [buildDraftPost, navigate, requestedSource, routeSlug, toast],
   )
 
   // 自动保存（停止输入 2.5 秒后）
@@ -267,7 +273,8 @@ export default function Editor() {
     }
     setPublishing(true)
     try {
-      const markdown = serializePost(post)
+      const published = { ...post, publishedAt: new Date().toISOString(), draft: false }
+      const markdown = serializePost(published)
       const res = await commitPost(post.slug, markdown, `post(blog): ${post.title}`)
       const target = getRepoTarget()
       toast(

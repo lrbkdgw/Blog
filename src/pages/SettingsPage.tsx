@@ -64,7 +64,7 @@ function Section({
 }
 
 export default function SettingsPage() {
-  const { ghUser, canPublish, connectGithub, disconnectGithub, logout } = useAuth()
+  const { isAuthed, ghUser, canPublish, connectGithub, disconnectGithub, logout } = useAuth()
   const { theme, setTheme } = useTheme()
   const { font, status: fontStatus, accountSync, setFont, resetFont, saveForGithub } = useFont()
   const {
@@ -202,8 +202,8 @@ export default function SettingsPage() {
         <h1 className="font-serif text-3xl font-bold tracking-tight text-ink-900 dark:text-white">设置</h1>
         <p className="mt-1.5 text-sm text-ink-500">
           常规设置保存在当前浏览器；连接 GitHub 后可将字体与背景颜色同步到账号。
-          <Link to="/admin" className="ml-2 text-brand-600 hover:underline dark:text-brand-300">
-            ← 返回内容管理
+          <Link to={isAuthed ? '/admin' : '/'} className="ml-2 text-brand-600 hover:underline dark:text-brand-300">
+            ← {isAuthed ? '返回内容管理' : '返回首页'}
           </Link>
         </p>
       </header>
@@ -320,11 +320,11 @@ export default function SettingsPage() {
         {/* -------------------------------- 字体 --------------------------------- */}
         <Section
           title="字体"
-          desc="可读取并选择任意已安装的本机字体，也可以手动输入字体名称。选择后会先检测本机；没有该字体时再尝试云端加载。"
+          desc="按优先级填写多个字体（用逗号或换行分隔）。系统会依次检测本机字体、尝试云端加载，最后回退到系统字体；访客偏好也会保存在当前浏览器。"
           icon={Type}
         >
           <label className="mb-1.5 block text-xs font-medium text-ink-500" htmlFor="font-family">
-            字体名称
+            字体优先级列表
           </label>
           <div className="flex flex-col gap-2 sm:flex-row">
             <input
@@ -332,7 +332,7 @@ export default function SettingsPage() {
               list="local-font-families"
               value={fontName}
               onChange={(e) => setFontName(e.target.value)}
-              placeholder="例如：霞鹜文楷、PingFang SC、Noto Serif SC"
+              placeholder="例如：霞鹜文楷, PingFang SC, Noto Serif SC"
               className="input flex-1"
               autoComplete="off"
             />
@@ -376,7 +376,7 @@ export default function SettingsPage() {
               {fontStatus === 'fallback' && <span className="ml-2 text-amber-600 dark:text-amber-400">已回退默认字体</span>}
             </p>
             <p className="mt-1 text-xs leading-relaxed text-ink-400">
-              Chromium 浏览器会请求一次“读取本机字体”权限；不支持该功能的浏览器仍可直接输入本机字体名称。
+              排在前面的字体优先使用。Chromium 浏览器可授权读取本机字体；其他浏览器仍可直接填写字体名称。偏好会自动保存到此浏览器。
             </p>
           </div>
 
@@ -516,10 +516,12 @@ export default function SettingsPage() {
               <Trash2 size={15} />
               清空本地草稿
             </button>
-            <button onClick={logout} className="btn-ghost ml-auto h-9">
-              <LogOut size={15} />
-              退出登录
-            </button>
+            {isAuthed && (
+              <button onClick={logout} className="btn-ghost ml-auto h-9">
+                <LogOut size={15} />
+                退出登录
+              </button>
+            )}
           </div>
         </Section>
 

@@ -1,40 +1,33 @@
 import aboutRaw from '/content/about.md?raw'
-import { Github, Mail, Twitter } from 'lucide-react'
+import { Github, Rocket, Settings, Sparkles } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { Markdown } from '../components/Markdown'
 import { parseFrontmatter } from '../lib/frontmatter'
 import { siteConfig } from '../lib/config'
 
 export default function About() {
   const { content } = parseFrontmatter(aboutRaw)
-  const { author, social } = siteConfig
-
-  const links = [
-    social.github && { href: social.github, icon: Github, label: 'GitHub' },
-    social.twitter && { href: social.twitter, icon: Twitter, label: 'Twitter' },
-    social.email && { href: `mailto:${social.email}`, icon: Mail, label: social.email },
-  ].filter(Boolean) as { href: string; icon: typeof Github; label: string }[]
 
   return (
-    <div className="container-page max-w-3xl pt-16">
-      <header className="flex animate-fade-up flex-col items-start gap-5 sm:flex-row sm:items-center">
-        {author.avatar ? (
-          <img src={author.avatar} alt={author.name} className="h-20 w-20 rounded-2xl object-cover shadow-lg" />
-        ) : (
-          <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-400 via-brand-600 to-indigo-700 text-3xl font-bold text-white shadow-xl shadow-brand-600/25">
-            {author.name[0]?.toUpperCase()}
-          </div>
-        )}
-        <div>
-          <h1 className="font-serif text-3xl font-bold tracking-tight text-ink-900 dark:text-white">{author.name}</h1>
-          <p className="mt-1.5 text-sm text-ink-500">{author.bio}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {links.map((l) => (
-              <a key={l.label} href={l.href} target="_blank" rel="noreferrer" className="chip">
-                <l.icon size={12} />
-                {l.label}
-              </a>
-            ))}
-          </div>
+    <div className="container-page max-w-4xl pt-12">
+      <header className="animate-fade-up overflow-hidden rounded-3xl border border-brand-200/70 bg-gradient-to-br from-brand-50 via-white to-indigo-50 p-7 shadow-sm sm:p-10 dark:border-brand-400/15 dark:from-brand-500/10 dark:via-ink-950 dark:to-indigo-500/10">
+        <div className="flex items-center gap-2 text-sm font-medium text-brand-600 dark:text-brand-300">
+          <Sparkles size={16} />
+          关于本站
+        </div>
+        <h1 className="mt-4 font-serif text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl dark:text-white">
+          {siteConfig.title}
+          {siteConfig.titleEn && <span className="ml-3 text-brand-500">{siteConfig.titleEn}</span>}
+        </h1>
+        <p className="mt-4 max-w-2xl text-base leading-relaxed text-ink-600 dark:text-ink-300">{siteConfig.description}</p>
+        <div className="mt-7 flex flex-wrap gap-3">
+          <Link to="/" className="btn-primary h-10"><Rocket size={15} />开始阅读</Link>
+          <Link to="/settings" className="btn-outline h-10"><Settings size={15} />阅读设置</Link>
+          {siteConfig.social.github && (
+            <a href={siteConfig.social.github} target="_blank" rel="noreferrer" className="btn-outline h-10">
+              <Github size={15} />GitHub
+            </a>
+          )}
         </div>
       </header>
 

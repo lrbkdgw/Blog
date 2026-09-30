@@ -444,3 +444,64 @@ export async function uploadImage(file: File, target = getRepoTarget()): Promise
   })
   return `https://raw.githubusercontent.com/${target.owner}/${target.repo}/${target.branch}/${path}`
 }
+
+/* -------------------------------- 文章评论 -------------------------------- */
+
+export interface GithubComment {
+  id: number
+  body: string
+  created_at: string
+  html_url: string
+  user: { login: string; avatar_url: string; html_url: string }
+}
+
+interface CommentIssue {
+  number: number
+  body?: string
+  pull_request?: unknown
+}
+
+function commentMarker(slug: string) {
+  return `<!-- starlog-post:${slug} -->`
+}
+
+async function findCommentIssue(slug: string, target = getRepoTarget()): Promise<CommentIssue | null> {
+  const marker = commentMarker(slug)
+  const issues = await gh<CommentIssue[]>(
+    `/repos/${target.owner}/${target.repo}/issues?state=all&per_page=100&sort=created&direction=desc`,
+  )
+  return issues.find((issue) => !issue.pull_request && issue.body?.includes(marker)) || null
+}
+
+/** 访客也可读取；没有对应讨论 Issue 时返回空列表而不会创建资源。 */
+export async function fetchPostComments(slug: string, target = getRepoTarget()): Promise<GithubComment[]> {
+  const issue = await findCommentIssue(slug, target)
+  if (!issue) return []
+  return gh<GithubComment[]>(
+    `/repos/${target.owner}/${target.repo}/issues/${issue.number}/comments?per_page=100`,
+  )
+}
+
+/** 首条评论会自动建立一个隐藏标记与文章关联的 GitHub Issue。 */
+export async function addPostComment(
+  slug: string,
+  postTitle: string,
+  body: string,
+  target = getRepoTarget(),
+): Promise<GithubComment> {
+  if (!getToken()) throw new Error('请先使用 GitHub 登录')
+  let issue = await findCommentIssue(slug, target)
+  if (!issue) {
+    issue = await gh<CommentIssue>(`/repos/${target.owner}/${target.repo}/issues`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: `评论：${postTitle}`,
+        body: `${commentMarker(slug)}\n此 Issue 用于保存文章「${postTitle}」的评论。`,
+      }),
+    })
+  }
+  return gh<GithubComment>(`/repos/${target.owner}/${target.repo}/issues/${issue.number}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({ body }),
+  })
+}
