@@ -1,6 +1,9 @@
 type AstNode = {
   type?: string
+  /** mdast directive name */
   name?: string
+  /** hast element tag */
+  tagName?: string
   value?: string
   children?: AstNode[]
   attributes?: Record<string, string | null>
@@ -57,15 +60,17 @@ function spanOf(cell: AstNode, key: 'rowSpan' | 'colSpan'): number {
 export function rehypeTableSpan() {
   return (tree: AstNode) => {
     walk(tree, (table) => {
-      if (table.type !== 'element' || table.name !== 'table') return
+      if (table.type !== 'element' || table.tagName !== 'table') return
       const rows: AstNode[] = []
       walk(table, (node) => {
-        if (node !== table && node.type === 'element' && node.name === 'tr') rows.push(node)
+        if (node !== table && node.type === 'element' && node.tagName === 'tr') rows.push(node)
       })
 
       let above: Array<AstNode | undefined> = []
       for (const row of rows) {
-        const cells = (row.children || []).filter((cell) => cell.type === 'element' && (cell.name === 'td' || cell.name === 'th'))
+        const cells = (row.children || []).filter(
+          (cell) => cell.type === 'element' && (cell.tagName === 'td' || cell.tagName === 'th'),
+        )
         const next: Array<AstNode | undefined> = []
         const kept: AstNode[] = []
         let column = 0
@@ -99,7 +104,7 @@ export function rehypeTableSpan() {
         // 保留行内的空白文本节点，只替换实际单元格。
         let index = 0
         row.children = (row.children || []).filter((child) => {
-          if (!(child.type === 'element' && (child.name === 'td' || child.name === 'th'))) return true
+          if (!(child.type === 'element' && (child.tagName === 'td' || child.tagName === 'th'))) return true
           return kept.includes(cells[index++])
         })
         above = next
