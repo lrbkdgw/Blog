@@ -60,5 +60,21 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # Pages 曾被配置为「从分支部署（legacy）」，导致线上是未构建的源码、页面空白。
+      # 这里自动把部署来源切换为 GitHub Actions；若权限不足会给出提示而不中断。
+      - name: 确保 Pages 部署来源为 GitHub Actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current=$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq '.build_type' 2>/dev/null || echo unknown)
+          echo "当前 Pages build_type: $current"
+          if [[ "$current" != "workflow" ]]; then
+            if gh api -X PUT "repos/${GITHUB_REPOSITORY}/pages" -f build_type=workflow; then
+              echo "已切换为 workflow 部署模式"
+            else
+              echo "::warning::无法自动切换 Pages 部署模式，请到 Settings → Pages → Build and deployment → Source 手动选择 GitHub Actions"
+            fi
+          fi
+
       - id: deployment
         uses: actions/deploy-pages@v4
