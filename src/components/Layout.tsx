@@ -16,10 +16,10 @@ import {
   X,
 } from 'lucide-react'
 import { siteConfig } from '../lib/config'
-import ventiAvatar from '../../user_upload/venti.jpeg'
 import { useTheme } from '../lib/theme'
 import { useAuth } from '../lib/auth'
 import { SearchDialog } from './SearchDialog'
+import logoVenti from '../assets/logo-venti.jpg'
 
 const NAV = [
   { to: '/', label: '首页', end: true },
@@ -56,18 +56,14 @@ function ThemeToggle() {
 
 function Logo() {
   return (
-    <Link
-      to="/"
-      aria-label="返回首页"
-      className="group flex shrink-0 items-center rounded-2xl transition-transform duration-300 hover:scale-105 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/20"
-    >
+    <Link to="/" className="group flex shrink-0 items-center" aria-label="回到首页">
       <img
-        src={ventiAvatar}
+        src={logoVenti}
         alt="温迪"
-        width={42}
-        height={42}
+        width={40}
+        height={40}
         fetchPriority="high"
-        className="h-10 w-10 rounded-2xl border border-white/80 object-cover shadow-md shadow-brand-600/15 ring-1 ring-ink-200/70 transition-transform duration-300 group-hover:-rotate-3 dark:border-white/15 dark:ring-white/10"
+        className="h-10 w-10 rounded-xl object-cover shadow-md shadow-brand-600/20 ring-1 ring-black/5 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105 dark:ring-white/10"
       />
     </Link>
   )
