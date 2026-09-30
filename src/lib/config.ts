@@ -61,6 +61,8 @@ export const STORAGE_KEYS = {
   theme: 'starlog:theme',
   font: 'starlog:font',
   fontAccounts: 'starlog:font-accounts',
+  background: 'starlog:background',
+  backgroundAccounts: 'starlog:background-accounts',
   session: 'starlog:session',
   token: 'starlog:gh-token',
   ghUser: 'starlog:gh-user',

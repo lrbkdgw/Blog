@@ -11,6 +11,7 @@ import {
   Loader2,
   LogOut,
   Moon,
+  Paintbrush,
   Palette,
   RotateCcw,
   Save,
@@ -22,6 +23,7 @@ import {
 import { useAuth } from '../lib/auth'
 import { useTheme } from '../lib/theme'
 import { useFont } from '../lib/font'
+import { useBackground } from '../lib/background'
 import { useToast } from '../components/Toast'
 import { getRepoTarget, setRepoTarget } from '../lib/github'
 import { getLocalPosts, serializePost } from '../lib/posts'
@@ -66,6 +68,13 @@ export default function SettingsPage() {
   const { ghUser, canPublish, connectGithub, disconnectGithub, logout } = useAuth()
   const { theme, setTheme } = useTheme()
   const { font, status: fontStatus, accountSync, setFont, resetFont, saveForGithub } = useFont()
+  const {
+    background,
+    accountSync: backgroundAccountSync,
+    setBackground,
+    resetBackground,
+    saveForGithub: saveBackgroundForGithub,
+  } = useBackground()
   const toast = useToast()
 
   const [token, setToken] = useState('')
@@ -77,8 +86,11 @@ export default function SettingsPage() {
   const [loadingFonts, setLoadingFonts] = useState(false)
   const [applyingFont, setApplyingFont] = useState(false)
   const [savingFont, setSavingFont] = useState(false)
+  const [backgroundColor, setBackgroundColor] = useState(background.color || '#FBFBFD')
+  const [savingBackground, setSavingBackground] = useState(false)
 
   useEffect(() => setFontName(font.family), [font.family])
+  useEffect(() => setBackgroundColor(background.color || '#FBFBFD'), [background.color])
 
   const connect = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -152,6 +164,28 @@ export default function SettingsPage() {
     }
   }
 
+  const applyBackground = () => {
+    try {
+      const next = setBackground(backgroundColor)
+      setBackgroundColor(next.color || '#FBFBFD')
+      toast(`已应用背景颜色 ${next.color || '系统默认'}`, 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '背景颜色格式无效', 'error')
+    }
+  }
+
+  const saveBackgroundToGithub = async () => {
+    setSavingBackground(true)
+    try {
+      await saveBackgroundForGithub()
+      toast(`背景颜色偏好已保存到 GitHub 账号 @${ghUser?.login}`, 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '保存背景颜色偏好失败', 'error')
+    } finally {
+      setSavingBackground(false)
+    }
+  }
+
   const exportAll = () => {
     const posts = getLocalPosts()
     if (posts.length === 0) {
@@ -180,7 +214,7 @@ export default function SettingsPage() {
       <header className="mb-8 animate-fade-up">
         <h1 className="font-serif text-3xl font-bold tracking-tight text-ink-900 dark:text-white">设置</h1>
         <p className="mt-1.5 text-sm text-ink-500">
-          所有设置都保存在当前浏览器本地。
+          常规设置保存在当前浏览器；连接 GitHub 后可将字体与背景颜色同步到账号。
           <Link to="/admin" className="ml-2 text-brand-600 hover:underline dark:text-brand-300">
             ← 返回内容管理
           </Link>
@@ -391,6 +425,84 @@ export default function SettingsPage() {
           ) : (
             <p className="mt-4 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
               登录并连接 GitHub 账号后，可将当前选择保存到账号；下次登录同一账号会自动恢复。
+            </p>
+          )}
+        </Section>
+
+        {/* ------------------------------ 背景颜色 ------------------------------ */}
+        <Section
+          title="背景颜色"
+          desc="选择器支持任意颜色；浅色和深色模式都会使用此自定义背景。留空或恢复默认可回到系统配色。"
+          icon={Paintbrush}
+        >
+          <label className="mb-1.5 block text-xs font-medium text-ink-500" htmlFor="background-color">
+            十六进制颜色
+          </label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              type="color"
+              value={/^#[0-9A-F]{6}$/i.test(backgroundColor) ? backgroundColor : '#FBFBFD'}
+              onChange={(e) => setBackgroundColor(e.target.value.toUpperCase())}
+              aria-label="选择背景颜色"
+              className="h-11 w-full cursor-pointer rounded-xl border border-ink-200 bg-white p-1.5 dark:border-white/12 dark:bg-white/[0.04] sm:w-14"
+            />
+            <input
+              id="background-color"
+              value={backgroundColor}
+              onChange={(e) => setBackgroundColor(e.target.value)}
+              placeholder="#F5F7FF"
+              className="input flex-1 font-mono uppercase"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button type="button" onClick={applyBackground} className="btn-primary h-10 shrink-0">
+              <Paintbrush size={15} />
+              应用背景
+            </button>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <span
+              className="h-8 w-8 rounded-lg border border-ink-200 shadow-sm dark:border-white/15"
+              style={{ backgroundColor: background.color || '#FBFBFD' }}
+              aria-label={`当前背景颜色：${background.color || '系统默认'}`}
+            />
+            <p className="text-xs text-ink-500 dark:text-ink-400">
+              当前背景：<span className="font-mono font-medium text-ink-800 dark:text-ink-100">{background.color || '系统默认'}</span>
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                resetBackground()
+                setBackgroundColor('#FBFBFD')
+                toast('已恢复系统默认背景', 'success')
+              }}
+              className="btn-outline ml-auto h-9"
+            >
+              <RotateCcw size={15} />
+              恢复默认
+            </button>
+          </div>
+
+          {canPublish && ghUser ? (
+            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-ink-200/70 pt-4 dark:border-white/10">
+              <button type="button" onClick={saveBackgroundToGithub} disabled={savingBackground} className="btn-outline h-9">
+                {savingBackground ? <Loader2 size={15} className="animate-spin" /> : <Cloud size={15} />}
+                保存到 GitHub（@{ghUser.login}）
+              </button>
+              <span className="text-xs text-ink-400">
+                {backgroundAccountSync === 'loading'
+                  ? '正在恢复账号背景偏好…'
+                  : backgroundAccountSync === 'synced'
+                    ? '已与该账号的背景偏好同步'
+                    : backgroundAccountSync === 'error'
+                      ? '账号背景偏好同步失败，可重试保存'
+                      : '保存后，下次登录同一账号会自动恢复'}
+              </span>
+            </div>
+          ) : (
+            <p className="mt-4 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
+              登录并连接 GitHub 账号后，可将当前背景颜色保存到账号；下次登录同一账号会自动恢复。
             </p>
           )}
         </Section>

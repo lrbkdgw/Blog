@@ -8,6 +8,8 @@
     --font-sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
     --font-serif: Georgia, "Songti SC", STSong, SimSun, "Noto Serif SC", serif;
     --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --site-background: #fbfbfd;
+    --site-background-dark: #0d1017;
   }
   .dark {
     color-scheme: dark;
@@ -18,8 +20,12 @@
   }
 
   body {
-    @apply bg-[#fbfbfd] text-ink-800 antialiased dark:bg-ink-950 dark:text-ink-200;
+    @apply text-ink-800 antialiased dark:text-ink-200;
+    background-color: var(--site-background);
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+  }
+  .dark body {
+    background-color: var(--site-background-dark);
   }
 
   ::selection {

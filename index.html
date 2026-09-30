@@ -30,6 +30,13 @@
               quoted + ', "Noto Serif SC", "Songti SC", STSong, SimSun, serif',
             )
           }
+
+          var savedBackground = JSON.parse(localStorage.getItem('starlog:background') || 'null')
+          var color = savedBackground && typeof savedBackground.color === 'string' ? savedBackground.color.trim() : ''
+          if (/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color)) {
+            document.documentElement.style.setProperty('--site-background', color)
+            document.documentElement.style.setProperty('--site-background-dark', color)
+          }
         } catch (e) {}
       })()
     </script>
