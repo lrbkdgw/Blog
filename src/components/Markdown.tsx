@@ -7,6 +7,8 @@ import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeSlug from 'rehype-slug'
 import { Check, Copy, Link2 } from 'lucide-react'
+// KaTeX 样式随本组件所在的懒加载分片一起加载，避免拖慢首屏
+import 'katex/dist/katex.min.css'
 
 function extractText(node: ReactNode): string {
   if (node == null || typeof node === 'boolean') return ''
@@ -132,8 +134,8 @@ export const Markdown = memo(function Markdown({ content }: { content: string })
             <img src={typeof src === 'string' ? src : ''} alt={alt ?? ''} loading="lazy" decoding="async" />
           ),
           table: ({ children }) => (
-            <div className="my-6 overflow-x-auto rounded-xl border border-ink-200/70 dark:border-white/10">
-              <table className="!my-0">{children}</table>
+            <div className="my-6 overflow-x-auto rounded-xl border border-ink-200/70 shadow-[0_1px_2px_rgba(16,24,40,.05)] dark:border-white/10">
+              <table className="!my-0 w-full">{children}</table>
             </div>
           ),
         }}

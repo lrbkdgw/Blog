@@ -1,4 +1,4 @@
-@import 'katex/dist/katex.min.css';
+/* KaTeX 样式在 Markdown.tsx 中引入，跟随懒加载分片，减小首屏 CSS 体积 */
 
 @tailwind base;
 @tailwind components;
@@ -7,11 +7,9 @@
 @layer base {
   :root {
     color-scheme: light;
-    --grid-line: rgba(15, 23, 42, 0.05);
   }
   .dark {
     color-scheme: dark;
-    --grid-line: rgba(255, 255, 255, 0.045);
   }
 
   html {
@@ -91,13 +89,6 @@
   .link-underline {
     @apply bg-gradient-to-r from-brand-500 to-brand-500 bg-[length:0%_1.5px] bg-left-bottom bg-no-repeat
            transition-[background-size] duration-300 hover:bg-[length:100%_1.5px];
-  }
-
-  /* 网格背景 */
-  .bg-grid {
-    background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-    background-size: 56px 56px;
   }
 }
 
@@ -210,11 +201,26 @@
 .prose blockquote p:last-of-type::after {
   content: '';
 }
+/* ---------- 表格：卡片式，表头着色、行分隔线、悬停高亮 ---------- */
 .prose table {
-  @apply block w-full overflow-x-auto text-sm;
+  @apply w-full border-separate border-spacing-0 text-sm;
 }
 .prose thead th {
-  @apply bg-ink-100/60 dark:bg-white/5;
+  @apply whitespace-nowrap border-b-0 bg-ink-100/70 px-4 py-3 text-left align-bottom font-semibold text-ink-800
+         dark:bg-white/[0.06] dark:text-ink-100;
+}
+.prose tbody td {
+  @apply border-b-0 border-t border-ink-200/70 px-4 py-3 align-top leading-6 text-ink-700
+         dark:border-white/[0.08] dark:text-ink-300;
+}
+.prose tbody tr:hover td {
+  @apply bg-ink-50/80 dark:bg-white/[0.03];
+}
+.prose tbody td > :first-child {
+  margin-top: 0;
+}
+.prose tbody td > :last-child {
+  margin-bottom: 0;
 }
 .prose img {
   @apply mx-auto rounded-xl shadow-lg;

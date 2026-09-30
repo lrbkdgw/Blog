@@ -45,7 +45,9 @@ jobs:
           echo "VITE_BASE_PATH=$VITE_BASE_PATH"
           npm run build
 
-      - uses: actions/configure-pages@v5
+      # 说明：不再使用 actions/configure-pages（历史上曾在这里失败导致部署中断），
+      # upload-pages-artifact + deploy-pages 本身不依赖它。
+      # ⚠️ 仓库的 Pages 需要在 Settings → Pages 中选择 “GitHub Actions” 作为部署来源。
 
       - uses: actions/upload-pages-artifact@v3
         with:
