@@ -78,7 +78,16 @@
             )
             document.documentElement.style.setProperty(
               '--site-background-tint-secondary',
-              'rgba(' + secondaryRed + ', ' + secondaryGreen + ', ' + secondaryBlue + ', ' + (alpha * 0.3 * intensity).toFixed(3) + ')',
+              'rgba(' + secondaryRed + ', ' + secondaryGreen + ', ' + secondaryBlue + ', ' + (alpha * 0.3 * intensity).toFixed(3) + ')'
+            )
+            /* 全屏渐层（issue #16）：强度二次曲线增强，100% 时完全不透明 */
+            document.documentElement.style.setProperty(
+              '--site-background-screen-from',
+              'rgba(' + red + ', ' + green + ', ' + blue + ', ' + (alpha * intensity * intensity).toFixed(3) + ')',
+            )
+            document.documentElement.style.setProperty(
+              '--site-background-screen-to',
+              'rgba(' + secondaryRed + ', ' + secondaryGreen + ', ' + secondaryBlue + ', ' + (alpha * intensity * intensity).toFixed(3) + ')',
             )
           }
         } catch (e) {}

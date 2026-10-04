@@ -75,6 +75,8 @@ function applyToDocument(color: string, intensity: number) {
   if (!color) {
     root.style.removeProperty('--site-background-tint-primary')
     root.style.removeProperty('--site-background-tint-secondary')
+    root.style.removeProperty('--site-background-screen-from')
+    root.style.removeProperty('--site-background-screen-to')
     root.removeAttribute('data-background-color')
     return
   }
@@ -88,6 +90,12 @@ function applyToDocument(color: string, intensity: number) {
 
   root.style.setProperty('--site-background-tint-primary', primaryGlow)
   root.style.setProperty('--site-background-tint-secondary', secondaryGlow)
+
+  // 全屏渐层（issue #16）：随强度二次曲线增强——
+  // 中间值仍是轻叠加，100% 时完全不透明并铺满整个屏幕。
+  const screenAlpha = Math.pow(amount, 2) * alpha
+  root.style.setProperty('--site-background-screen-from', toRgbaString(r, g, b, screenAlpha))
+  root.style.setProperty('--site-background-screen-to', toRgbaString(secondary.r, secondary.g, secondary.b, screenAlpha))
   root.dataset.backgroundColor = color
 }
 

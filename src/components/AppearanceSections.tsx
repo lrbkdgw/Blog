@@ -413,7 +413,7 @@ export function BackgroundSection() {
           className="h-2 w-full cursor-pointer accent-brand-500"
         />
         <p className="mt-1.5 text-xs leading-relaxed text-ink-400">
-          0% 隐藏自定义柔光，50% 接近原有渐变效果，100% 为最明显效果。点击“应用背景”后生效。
+          0% 隐藏自定义柔光；50% 接近原有渐变层次；100% 时渐变铺满全屏且完全不透明。点击“应用背景”后生效。
         </p>
       </div>
 
