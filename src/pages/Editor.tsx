@@ -18,6 +18,7 @@ import {
   List,
   ListOrdered,
   Loader2,
+  LogIn,
   Maximize2,
   Minimize2,
   Pencil,
@@ -329,7 +330,7 @@ export default function Editor() {
   /* ------------------------------- 图片上传 ------------------------------- */
   const onPickImage = async (file: File) => {
     if (!canPublish) {
-      toast('上传图片需要先连接具备仓库权限的 GitHub 账号', 'warning')
+      toast('未登录 GitHub 无法直接将图片上传至远程仓库，可直接使用 Markdown 插入外链图片或登录后上传', 'info')
       return
     }
     setUploading(true)
@@ -353,7 +354,10 @@ export default function Editor() {
     }
     const post = save(true)
     if (!canPublish) {
-      toast('尚未连接 GitHub，请先登录 GitHub 账号', 'warning')
+      toast('未登录状态仅支持保存到本地草稿。登录 GitHub 账号后可直接发布或提交发表申请。', 'info', {
+        label: '前往登录',
+        href: '/login',
+      })
       return
     }
 
@@ -473,27 +477,38 @@ export default function Editor() {
             </button>
 
             {/* 发布/提交 PR 按钮 */}
-            <button
-              onClick={publishOrSubmitPR}
-              disabled={publishing}
-              className="btn-primary h-9"
-              title={canDirectPush ? '直接提交到 main 分支' : '提交文章发表申请 (PR)'}
-            >
-              {publishing ? (
-                <Loader2 size={15} className="animate-spin" />
-              ) : canDirectPush ? (
-                <Github size={15} />
-              ) : (
-                <GitPullRequest size={15} />
-              )}
-              <span className="hidden sm:inline">
-                {publishing
-                  ? '处理中…'
-                  : canDirectPush
-                    ? '发布到 GitHub'
-                    : '申请发表 (PR)'}
-              </span>
-            </button>
+            {canPublish ? (
+              <button
+                onClick={publishOrSubmitPR}
+                disabled={publishing}
+                className="btn-primary h-9"
+                title={canDirectPush ? '直接提交到 main 分支' : '提交文章发表申请 (PR)'}
+              >
+                {publishing ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : canDirectPush ? (
+                  <Github size={15} />
+                ) : (
+                  <GitPullRequest size={15} />
+                )}
+                <span className="hidden sm:inline">
+                  {publishing
+                    ? '处理中…'
+                    : canDirectPush
+                      ? '发布到 GitHub'
+                      : '申请发表 (PR)'}
+                </span>
+              </button>
+            ) : (
+              <button
+                onClick={publishOrSubmitPR}
+                className="btn-outline h-9 text-ink-600 dark:text-ink-300"
+                title="未登录仅支持保存本地草稿，登录后可发布或提交申请"
+              >
+                <LogIn size={15} />
+                <span className="hidden sm:inline">登录后发布</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -511,6 +526,11 @@ export default function Editor() {
               {draft && (
                 <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-600 dark:text-amber-400">
                   草稿
+                </span>
+              )}
+              {!canPublish && (
+                <span className="rounded-full bg-ink-100 px-2 py-0.5 text-[11px] text-ink-600 dark:bg-white/10 dark:text-ink-300">
+                  本地草稿模式
                 </span>
               )}
             </span>

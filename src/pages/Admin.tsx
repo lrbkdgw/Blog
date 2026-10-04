@@ -245,6 +245,19 @@ export default function Admin() {
         </div>
       </header>
 
+      {/* 访客提示 */}
+      {!canPublish && (
+        <div className="card mt-6 flex flex-wrap items-center justify-between gap-3 border-brand-200/60 bg-brand-50/50 p-4 text-sm dark:border-brand-500/20 dark:bg-brand-500/10">
+          <div className="flex items-center gap-2.5 text-brand-900 dark:text-brand-200">
+            <HardDrive size={18} className="shrink-0 text-brand-500" />
+            <span>您当前处于<strong>未登录访客模式</strong>，可以创作并管理保存在本机的本地草稿。登录 GitHub 账号后可发布到远程仓库或提交审核申请。</span>
+          </div>
+          <Link to="/login" className="btn-primary h-8 !px-3 text-xs">
+            登录 GitHub
+          </Link>
+        </div>
+      )}
+
       {/* 大标签切换：文章列表 vs 发表申请 (PR 审批) */}
       <div className="mt-8 flex gap-2 border-b border-ink-200/70 pb-px dark:border-white/10">
         <button

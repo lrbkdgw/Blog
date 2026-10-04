@@ -220,12 +220,10 @@ function Header({ onSearch }: { onSearch: () => void }) {
 
           <ThemeToggle />
 
-          {isAuthed && (
-            <Link to="/admin/new" className="btn-primary hidden h-9 sm:inline-flex">
-              <PenLine size={15} />
-              写文章
-            </Link>
-          )}
+          <Link to="/admin/new" className="btn-primary hidden h-9 sm:inline-flex">
+            <PenLine size={15} />
+            写文章
+          </Link>
 
           <UserMenu />
 
@@ -273,10 +271,16 @@ function Header({ onSearch }: { onSearch: () => void }) {
                   </Link>
                 </>
               ) : (
-                <Link to="/login" className="btn-primary flex-1">
-                  <LogIn size={15} />
-                  登录
-                </Link>
+                <>
+                  <Link to="/admin/new" className="btn-outline flex-1">
+                    <PenLine size={15} />
+                    写文章
+                  </Link>
+                  <Link to="/login" className="btn-primary flex-1">
+                    <LogIn size={15} />
+                    登录
+                  </Link>
+                </>
               )}
             </div>
           </nav>
