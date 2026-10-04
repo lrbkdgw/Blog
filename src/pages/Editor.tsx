@@ -32,7 +32,9 @@ import {
 import { Markdown } from '../components/Markdown'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../lib/auth'
-import { commitPost, getRepoTarget, uploadImage } from '../lib/github'
+import { commitPost, getRepoAccess, getRepoTarget, uploadImage } from '../lib/github'
+import type { RepoAccess } from '../lib/github'
+import { submitPostAsPR } from '../lib/submissions'
 import {
   countWords,
   deleteLocalPost,
@@ -96,6 +98,22 @@ export default function Editor() {
   const [savedAt, setSavedAt] = useState<number | null>(existing?.savedAt ?? null)
   const [publishing, setPublishing] = useState(false)
   const [uploading, setUploading] = useState(false)
+  // 预查仓库写权限：无权限时发布按钮变为「申请发表（PR）」（issue #15）
+  const [access, setAccess] = useState<RepoAccess | null>(null)
+
+  useEffect(() => {
+    if (!canPublish) {
+      setAccess(null)
+      return
+    }
+    let alive = true
+    getRepoAccess()
+      .then((a) => alive && setAccess(a))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [canPublish])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
@@ -270,20 +288,35 @@ export default function Editor() {
       return
     }
     const post = save(true)
-    if (!canPublish) {
+    if (!canPublish || !ghUser) {
       toast('尚未连接 GitHub，请到「设置」里完成 OAuth 授权', 'warning')
       return
     }
     setPublishing(true)
     try {
-      const markdown = serializePost(post)
-      const res = await commitPost(post.slug, markdown, `post(blog): ${post.title}`)
       const target = getRepoTarget()
-      toast(
-        `已提交到 ${target.owner}/${target.repo} 的 ${res.path}\nGitHub Actions 正在重新部署站点，约 1-2 分钟后生效。`,
-        'success',
-        { label: '查看提交', href: res.commitUrl },
-      )
+      const repoAccess = access ?? (await getRepoAccess())
+      if (!repoAccess.exists) {
+        throw new Error(`找不到仓库 ${target.owner}/${target.repo}，请到「设置 → 目标仓库」检查配置`)
+      }
+      if (repoAccess.push) {
+        // 有写权限：直接提交并触发部署
+        const markdown = serializePost(post)
+        const res = await commitPost(post.slug, markdown, `post(blog): ${post.title}`)
+        toast(
+          `已提交到 ${target.owner}/${target.repo} 的 ${res.path}\nGitHub Actions 正在重新部署站点，约 1-2 分钟后生效。`,
+          'success',
+          { label: '查看提交', href: res.commitUrl },
+        )
+      } else {
+        // 无写权限：自动 fork 并以 PR 申请发表（issue #15）
+        const sub = await submitPostAsPR(post, ghUser)
+        toast(
+          `你没有 ${target.owner}/${target.repo} 的写权限，已提交投稿 PR #${sub.prNumber}\n仓库管理者审核合并后文章即发表，可在「内容管理」查看处理情况。`,
+          'success',
+          { label: '查看 PR', href: sub.prUrl },
+        )
+      }
     } catch (err) {
       toast(err instanceof Error ? err.message : '发布失败', 'error')
     } finally {
@@ -370,7 +403,9 @@ export default function Editor() {
             </button>
             <button onClick={publish} disabled={publishing} className="btn-primary h-9">
               {publishing ? <Loader2 size={15} className="animate-spin" /> : <Github size={15} />}
-              <span className="hidden sm:inline">{publishing ? '发布中…' : '发布到 GitHub'}</span>
+              <span className="hidden sm:inline">
+                {publishing ? '发布中…' : access && access.exists && !access.push ? '申请发表（PR）' : '发布到 GitHub'}
+              </span>
             </button>
           </div>
         </div>

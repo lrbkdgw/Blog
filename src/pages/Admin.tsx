@@ -4,27 +4,39 @@ import {
   CloudUpload,
   Eye,
   FileText,
+  GitMerge,
+  GitPullRequest,
   Github,
   HardDrive,
   History,
+  Hourglass,
   Loader2,
   PenLine,
   Plus,
+  RefreshCw,
   Search,
   Settings,
   Trash2,
+  XCircle,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useAdminPosts } from '../lib/usePosts'
 import { useToast } from '../components/Toast'
 import { deleteLocalPost, formatDate, relativeTime, searchPosts, serializePost } from '../lib/posts'
 import {
+  closePull,
   commitPost,
   deleteRemotePost,
   fetchCommitTimes,
+  getRepoAccess,
   getRepoTarget,
+  listOpenPulls,
+  mergePull,
   readCommitTimeCache,
 } from '../lib/github'
+import type { PullInfo, RepoAccess } from '../lib/github'
+import { fetchSubmissionStates, getSubmissions, submitPostAsPR } from '../lib/submissions'
+import type { Submission, SubmissionState } from '../lib/submissions'
 import type { Post } from '../lib/types'
 
 type Filter = 'all' | 'published' | 'draft' | 'local' | 'repo'
@@ -55,7 +67,62 @@ export default function Admin() {
   const [busy, setBusy] = useState<string | null>(null)
   const [commitTimes, setCommitTimes] = useState<Record<string, number>>(() => readCommitTimeCache())
 
+  // issue #15：仓库权限、我的投稿、待审核 PR（管理者）
+  const [access, setAccess] = useState<RepoAccess | null>(null)
+  const [submissions, setSubmissions] = useState<Submission[]>(() => getSubmissions())
+  const [subStates, setSubStates] = useState<Map<number, SubmissionState>>(new Map())
+  const [subRefreshing, setSubRefreshing] = useState(false)
+  const [subBusy, setSubBusy] = useState<string | null>(null)
+  const [pulls, setPulls] = useState<PullInfo[] | null>(null)
+  const [prBusy, setPrBusy] = useState<number | null>(null)
+
   const target = getRepoTarget()
+
+  // 查询当前账号对目标仓库的权限
+  useEffect(() => {
+    if (!canPublish) {
+      setAccess(null)
+      return
+    }
+    let alive = true
+    getRepoAccess()
+      .then((a) => alive && setAccess(a))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [canPublish])
+
+  // 拉取我的投稿的最新处理状态
+  const refreshSubStates = async () => {
+    const list = getSubmissions()
+    setSubmissions(list)
+    if (list.length === 0 || !canPublish) return
+    setSubRefreshing(true)
+    try {
+      const states = await fetchSubmissionStates(list)
+      setSubStates(states)
+    } finally {
+      setSubRefreshing(false)
+    }
+  }
+  useEffect(() => {
+    void refreshSubStates()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPublish])
+
+  // 管理者视角：目标仓库的待审核 PR
+  const refreshPulls = async () => {
+    try {
+      setPulls(await listOpenPulls())
+    } catch {
+      setPulls([])
+    }
+  }
+  useEffect(() => {
+    if (access?.push) void refreshPulls()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [access?.push])
 
   // 同 slug 的仓库文章与本地草稿要分行显示（issue #8），先统计每个 slug 的来源
   const slugSources = useMemo(() => {
@@ -110,18 +177,71 @@ export default function Admin() {
   const rowId = (p: Post) => `${p.source}:${p.slug}`
 
   const publishOne = async (post: Post) => {
-    if (!canPublish) {
+    if (!canPublish || !ghUser) {
       toast('请先在「设置」中连接 GitHub', 'warning')
       return
     }
     setBusy(rowId(post))
     try {
-      const res = await commitPost(post.slug, serializePost(post), `post(blog): ${post.title}`)
-      toast(`已提交 ${res.path}，Actions 部署中…`, 'success', { label: '查看提交', href: res.commitUrl })
+      const repoAccess = access ?? (await getRepoAccess())
+      if (!repoAccess.exists) {
+        throw new Error(`找不到仓库 ${target.owner}/${target.repo}，请到「设置 → 目标仓库」检查配置`)
+      }
+      if (repoAccess.push) {
+        const res = await commitPost(post.slug, serializePost(post), `post(blog): ${post.title}`)
+        toast(`已提交 ${res.path}，Actions 部署中…`, 'success', { label: '查看提交', href: res.commitUrl })
+      } else {
+        // 无写权限：以 PR 申请发表（issue #15）
+        const sub = await submitPostAsPR(post, ghUser)
+        setSubmissions(getSubmissions())
+        void refreshSubStates()
+        toast(`已提交投稿 PR #${sub.prNumber}，等待仓库管理者审核`, 'success', { label: '查看 PR', href: sub.prUrl })
+      }
     } catch (err) {
       toast(err instanceof Error ? err.message : '提交失败', 'error')
     } finally {
       setBusy(null)
+    }
+  }
+
+  /** 投稿被关闭后重新提交同一篇文章 */
+  const resubmit = async (sub: Submission) => {
+    if (!ghUser) return
+    const post = posts.find((p) => p.slug === sub.slug && p.source === 'local')
+    if (!post) {
+      toast('找不到这篇文章的本地草稿，无法重新提交', 'error')
+      return
+    }
+    setSubBusy(sub.prUrl)
+    try {
+      await submitPostAsPR(post, ghUser)
+      setSubmissions(getSubmissions())
+      await refreshSubStates()
+      toast('已重新提交投稿，等待审核', 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '重新提交失败', 'error')
+    } finally {
+      setSubBusy(null)
+    }
+  }
+
+  const reviewPull = async (pr: PullInfo, action: 'merge' | 'close') => {
+    if (action === 'merge' && !confirm(`合并 PR #${pr.number}「${pr.title}」？文章将立即提交进仓库并触发部署。`)) return
+    if (action === 'close' && !confirm(`关闭（拒绝）PR #${pr.number}「${pr.title}」？`)) return
+    setPrBusy(pr.number)
+    try {
+      if (action === 'merge') {
+        await mergePull(pr.number)
+        toast(`已合并 PR #${pr.number}，Actions 部署中…`, 'success')
+      } else {
+        await closePull(pr.number)
+        toast(`已关闭 PR #${pr.number}`, 'info')
+      }
+      await refreshPulls()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '操作失败', 'error')
+    } finally {
+      setPrBusy(null)
     }
   }
 
@@ -182,6 +302,146 @@ export default function Admin() {
           </Link>
         </div>
       </header>
+
+      {/* --------------------- 投稿审核（仓库管理者视角，issue #15） --------------------- */}
+      {access?.push && pulls && pulls.length > 0 && (
+        <section className="card mt-8 animate-fade-up overflow-hidden" style={{ animationDelay: '40ms' }}>
+          <div className="flex items-center gap-2 border-b border-ink-200/60 px-4 py-3 dark:border-white/[0.07]">
+            <GitPullRequest size={16} className="text-brand-500" />
+            <h2 className="text-sm font-medium text-ink-900 dark:text-white">
+              投稿审核
+              <span className="ml-2 rounded-full bg-brand-500/10 px-2 py-0.5 font-mono text-[11px] text-brand-600 dark:text-brand-300">
+                {pulls.length} 个待处理 PR
+              </span>
+            </h2>
+            <button onClick={() => void refreshPulls()} className="btn-ghost ml-auto h-7 w-7 !px-0" title="刷新 PR 列表" aria-label="刷新 PR 列表">
+              <RefreshCw size={13} />
+            </button>
+          </div>
+          <ul className="divide-y divide-ink-200/60 dark:divide-white/[0.07]">
+            {pulls.map((pr) => (
+              <li key={pr.number} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                  <GitPullRequest size={15} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <a href={pr.url} target="_blank" rel="noreferrer" className="truncate text-sm font-medium text-ink-900 hover:text-brand-600 dark:text-white dark:hover:text-brand-300">
+                    #{pr.number} {pr.title}
+                  </a>
+                  <p className="mt-0.5 truncate font-mono text-xs text-ink-400">
+                    @{pr.author} → {pr.headLabel} · {relativeTime(pr.createdAt)}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    onClick={() => reviewPull(pr, 'merge')}
+                    disabled={prBusy === pr.number}
+                    className="btn-primary h-8 !px-3 text-xs"
+                    title="合并此 PR（文章随即进入仓库并触发部署）"
+                  >
+                    {prBusy === pr.number ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
+                    合并
+                  </button>
+                  <button
+                    onClick={() => reviewPull(pr, 'close')}
+                    disabled={prBusy === pr.number}
+                    className="btn-danger h-8 !px-3 text-xs"
+                    title="关闭（拒绝）此 PR"
+                  >
+                    {prBusy === pr.number ? <Loader2 size={13} className="animate-spin" /> : <XCircle size={13} />}
+                    关闭
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* --------------------- 我的投稿（投稿人视角，issue #15） --------------------- */}
+      {submissions.length > 0 && (
+        <section className="card mt-8 animate-fade-up overflow-hidden" style={{ animationDelay: '40ms' }}>
+          <div className="flex items-center gap-2 border-b border-ink-200/60 px-4 py-3 dark:border-white/[0.07]">
+            <Hourglass size={15} className="text-brand-500" />
+            <h2 className="text-sm font-medium text-ink-900 dark:text-white">
+              我的投稿
+              <span className="ml-2 rounded-full bg-ink-900/[.06] px-2 py-0.5 font-mono text-[11px] text-ink-500 dark:bg-white/10 dark:text-ink-400">
+                {submissions.length}
+              </span>
+            </h2>
+            <button
+              onClick={() => void refreshSubStates()}
+              disabled={subRefreshing}
+              className="btn-ghost ml-auto h-7 w-7 !px-0"
+              title="刷新处理状态"
+              aria-label="刷新处理状态"
+            >
+              <RefreshCw size={13} className={subRefreshing ? 'animate-spin' : ''} />
+            </button>
+          </div>
+          <ul className="divide-y divide-ink-200/60 dark:divide-white/[0.07]">
+            {submissions.map((sub) => {
+              const state = subStates.get(sub.prNumber)
+              const localPost = posts.find((p) => p.slug === sub.slug && p.source === 'local')
+              return (
+                <li key={`${sub.prNumber}`} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <a href={sub.prUrl} target="_blank" rel="noreferrer" className="truncate text-sm font-medium text-ink-900 hover:text-brand-600 dark:text-white dark:hover:text-brand-300">
+                      {sub.title}
+                      <span className="ml-1.5 font-mono text-xs text-ink-400">PR #{sub.prNumber}</span>
+                    </a>
+                    <p className="mt-0.5 truncate font-mono text-xs text-ink-400">
+                      /{sub.slug} · 提交于 {relativeTime(sub.submittedAt)}
+                    </p>
+                  </div>
+                  {state === 'open' || state === undefined ? (
+                    <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-brand-500/10 px-2.5 py-1 text-[11px] font-medium text-brand-600 dark:text-brand-300">
+                      {state === undefined ? <Loader2 size={11} className="animate-spin" /> : <Hourglass size={11} />}
+                      {state === undefined ? '查询中…' : '等待审核'}
+                    </span>
+                  ) : state === 'merged' ? (
+                    <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                      <GitMerge size={11} />
+                      已合并发表
+                    </span>
+                  ) : (
+                    <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-rose-500/10 px-2.5 py-1 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                      <XCircle size={11} />
+                      已被关闭
+                    </span>
+                  )}
+                  {state === 'merged' && localPost && (
+                    <button
+                      onClick={() => {
+                        if (confirm(`投稿已合并，删除本地草稿「${localPost.title}」？`)) {
+                          deleteLocalPost(localPost.slug)
+                          refresh()
+                          toast('本地草稿已删除', 'info')
+                        }
+                      }}
+                      className="btn-ghost h-8 shrink-0 !px-2.5 text-xs"
+                      title="投稿已发表，清理本地草稿"
+                    >
+                      <Trash2 size={13} />
+                      删除本地草稿
+                    </button>
+                  )}
+                  {state === 'closed' && localPost && (
+                    <button
+                      onClick={() => resubmit(sub)}
+                      disabled={subBusy === sub.prUrl}
+                      className="btn-outline h-8 shrink-0 !px-2.5 text-xs"
+                    >
+                      {subBusy === sub.prUrl ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                      重新提交
+                    </button>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      )}
 
       {/* 筛选 */}
       <div className="mt-8 flex animate-fade-up flex-wrap items-center gap-3" style={{ animationDelay: '60ms' }}>

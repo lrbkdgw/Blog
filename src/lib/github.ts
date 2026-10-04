@@ -399,6 +399,219 @@ export interface CommitResult {
   commitUrl: string
 }
 
+/* ------------------------- 仓库权限 / Fork / PR（issue #15） ------------------------- */
+
+export interface RepoAccess {
+  exists: boolean
+  /** 是否对目标仓库有写（直接提交）权限 */
+  push: boolean
+}
+
+/** 查询当前令牌对目标仓库的权限（会话级缓存） */
+export async function getRepoAccess(target = getRepoTarget(), force = false): Promise<RepoAccess> {
+  const key = `starlog:repo-access:${target.owner}/${target.repo}`
+  if (!force) {
+    try {
+      const cached = sessionStorage.getItem(key)
+      if (cached) return JSON.parse(cached) as RepoAccess
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    const info = await gh<{ permissions?: { push?: boolean } }>(`/repos/${target.owner}/${target.repo}`)
+    const access: RepoAccess = { exists: true, push: !!info.permissions?.push }
+    try {
+      sessionStorage.setItem(key, JSON.stringify(access))
+    } catch {
+      /* ignore */
+    }
+    return access
+  } catch (err) {
+    if (err instanceof Error && /找不到资源/.test(err.message)) return { exists: false, push: false }
+    throw err
+  }
+}
+
+export interface ForkInfo {
+  owner: string
+  repo: string
+  defaultBranch: string
+}
+
+/** 确保当前用户拥有目标仓库的 fork（没有就创建并等待其就绪） */
+export async function ensureFork(target: RepoTarget, user: GhUser): Promise<ForkInfo> {
+  try {
+    const existing = await gh<{ default_branch: string }>(`/repos/${user.login}/${target.repo}`)
+    return { owner: user.login, repo: target.repo, defaultBranch: existing.default_branch }
+  } catch {
+    /* 还没有 fork，继续创建 */
+  }
+
+  await gh(`/repos/${target.owner}/${target.repo}/forks`, { method: 'POST', body: '{}' })
+  // fork 在 GitHub 侧是异步完成的，轮询等待就绪
+  const deadline = Date.now() + 60_000
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    try {
+      const created = await gh<{ default_branch: string }>(`/repos/${user.login}/${target.repo}`)
+      return { owner: user.login, repo: target.repo, defaultBranch: created.default_branch }
+    } catch {
+      if (Date.now() > deadline) throw new Error('创建 Fork 超时，请稍后重试')
+    }
+  }
+}
+
+export interface GitLocation {
+  owner: string
+  repo: string
+  branch: string
+}
+
+async function getFileShaAt(path: string, loc: GitLocation): Promise<string | undefined> {
+  try {
+    const item = await gh<ContentItem>(`/repos/${loc.owner}/${loc.repo}/contents/${path}?ref=${encodeURIComponent(loc.branch)}`)
+    return item.sha
+  } catch {
+    return undefined
+  }
+}
+
+/** 在指定仓库的指定分支上新建/更新文件 */
+export async function upsertFileAt(path: string, content: string, message: string, loc: GitLocation): Promise<string> {
+  const sha = await getFileShaAt(path, loc)
+  const res = await gh<{ commit: { html_url: string } }>(
+    `/repos/${loc.owner}/${loc.repo}/contents/${encodeURI(path)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        message,
+        content: encodeBase64(content),
+        branch: loc.branch,
+        ...(sha ? { sha } : {}),
+      }),
+    },
+  )
+  return res.commit.html_url
+}
+
+export async function getBranchHead(loc: GitLocation): Promise<string> {
+  const ref = await gh<{ object: { sha: string } }>(
+    `/repos/${loc.owner}/${loc.repo}/git/ref/heads/${encodeURIComponent(loc.branch)}`,
+  )
+  return ref.object.sha
+}
+
+/** 创建分支；已存在则直接复用 */
+export async function createBranch(owner: string, repo: string, branch: string, fromSha: string): Promise<void> {
+  try {
+    await gh(`/repos/${owner}/${repo}/git/refs`, {
+      method: 'POST',
+      body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: fromSha }),
+    })
+  } catch (err) {
+    if (err instanceof Error && /already exists/i.test(err.message)) return
+    throw err
+  }
+}
+
+export interface PullInfo {
+  number: number
+  url: string
+  state: 'open' | 'closed'
+  merged: boolean
+  title: string
+  author: string
+  /** 形如 "someone:branch" 的来源标识 */
+  headLabel: string
+  createdAt: number
+}
+
+function toPullInfo(raw: {
+  number: number
+  title: string
+  html_url: string
+  state: string
+  merged_at: string | null
+  created_at: string
+  user: { login: string }
+  head: { label: string }
+}): PullInfo {
+  return {
+    number: raw.number,
+    url: raw.html_url,
+    state: raw.state === 'open' ? 'open' : 'closed',
+    merged: !!raw.merged_at,
+    title: raw.title,
+    author: raw.user.login,
+    headLabel: raw.head.label,
+    createdAt: new Date(raw.created_at).getTime(),
+  }
+}
+
+/** 按 head 查找未关闭的 PR（fork 投稿用于复用同一个 PR） */
+export async function findOpenPull(head: string, target = getRepoTarget()): Promise<PullInfo | null> {
+  const list = await gh<Parameters<typeof toPullInfo>[0][]>(
+    `/repos/${target.owner}/${target.repo}/pulls?head=${encodeURIComponent(head)}&state=open&per_page=5`,
+  )
+  return list[0] ? toPullInfo(list[0]) : null
+}
+
+export async function createPull(
+  opts: { title: string; body: string; head: string; base: string },
+  target = getRepoTarget(),
+): Promise<PullInfo> {
+  try {
+    const raw = await gh<Parameters<typeof toPullInfo>[0]>(`/repos/${target.owner}/${target.repo}/pulls`, {
+      method: 'POST',
+      body: JSON.stringify(opts),
+    })
+    return toPullInfo(raw)
+  } catch (err) {
+    if (err instanceof Error && /pull request already exists/i.test(err.message)) {
+      const existing = await findOpenPull(opts.head, target)
+      if (existing) return existing
+    }
+    throw err
+  }
+}
+
+/** 查询单个 PR 的处理状态 */
+export async function getPullStatus(
+  prNumber: number,
+  target = getRepoTarget(),
+): Promise<{ state: 'open' | 'merged' | 'closed' }> {
+  const raw = await gh<{ state: string; merged: boolean; merged_at: string | null }>(
+    `/repos/${target.owner}/${target.repo}/pulls/${prNumber}`,
+  )
+  if (raw.merged || raw.merged_at) return { state: 'merged' }
+  return { state: raw.state === 'open' ? 'open' : 'closed' }
+}
+
+/** 列出目标仓库的未合并 PR（管理者审核投稿用） */
+export async function listOpenPulls(target = getRepoTarget()): Promise<PullInfo[]> {
+  const list = await gh<Parameters<typeof toPullInfo>[0][]>(
+    `/repos/${target.owner}/${target.repo}/pulls?state=open&per_page=30&sort=created&direction=desc`,
+  )
+  return list.map(toPullInfo)
+}
+
+/** 合并 PR（需要目标仓库写权限） */
+export async function mergePull(prNumber: number, target = getRepoTarget()): Promise<void> {
+  await gh(`/repos/${target.owner}/${target.repo}/pulls/${prNumber}/merge`, {
+    method: 'PUT',
+    body: JSON.stringify({ merge_method: 'squash' }),
+  })
+}
+
+/** 关闭（拒绝）PR（需要目标仓库写权限） */
+export async function closePull(prNumber: number, target = getRepoTarget()): Promise<void> {
+  await gh(`/repos/${target.owner}/${target.repo}/pulls/${prNumber}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ state: 'closed' }),
+  })
+}
+
 /* ---------------------- 文件最近一次提交时间（issue #8） ---------------------- */
 
 function commitTimeCacheKey(target: RepoTarget): string {

@@ -17,6 +17,7 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 🎨 **深色模式** | 跟随系统 / 手动固定，无刷新闪白，支持 View Transition 平滑切换 |
 | 🔐 **双模式登录** | 站点密码（写本地草稿）+ GitHub OAuth 授权（发布到仓库） |
 | 🚀 **一键发布** | 浏览器直接调用 GitHub API 提交 Markdown，Actions 自动部署 |
+| 📮 **PR 投稿** | 登录用户即使无仓库写权限，也可一键 fork 并发起 PR 投稿；管理者在站内合并/关闭审批 |
 | 💬 **评论** | 登录后可在文章下评论：连接 GitHub 的评论公开保存在仓库，密码登录的评论保存在本机 |
 | 🧩 **扩展语法** | 折叠框（`::::info[标题]…::::`）与表格合并（`^` 向上合并、`<` 向左合并），洛谷同款 |
 | 🔍 **全文搜索** | <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>K</kbd> 唤起，支持方向键选择 |
