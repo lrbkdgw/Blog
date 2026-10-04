@@ -30,7 +30,7 @@ summary: "-"
 
 #### 折叠框
 
-:::info[I am lrbkdgw]
+:::info[I am lrbkdgw]{open}
 welcome to my blog.
 ::::success[You Can]
 Write article and upd it to github.
@@ -43,3 +43,9 @@ Write article and upd it to github.
 :::::
 ::::
 :::
+
+#### 公式
+
+$$
+\prod_{1 \leq i \leq n} \sum_{1 \leq j \leq m} \gcd(a_i,a_j) \bmod (10^9+7) 
+$$
