@@ -11,6 +11,7 @@ import {
   Eye,
   FoldVertical,
   Github,
+  Grid3X3,
   Heading2,
   Image as ImageIcon,
   Italic,
@@ -224,6 +225,19 @@ export default function Editor() {
       run: () =>
         withSelection((v, s, e) =>
           insertBlock(v, s, e, '| 列 A | 列 B |\n| --- | --- |\n| 内容 | 内容 |\n'),
+        ),
+    },
+    {
+      icon: Grid3X3,
+      title: 'Tuack 风格表格（方边全网格；可用 ^ / < 合并单元格）',
+      run: () =>
+        withSelection((v, s, e) =>
+          insertBlock(
+            v,
+            s,
+            e,
+            '::cute-table{tuack}\n\n| 测试点 | 数据范围 | 特殊性质 |\n| :-: | :-: | :-: |\n| $1$ | $n \\le 10$ | 无 |\n| $2 \\sim 3$ | $n \\le 10^5$ | ^ |\n',
+          ),
         ),
     },
     {

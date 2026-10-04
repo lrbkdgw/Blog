@@ -1,5 +1,5 @@
 /**
- * 【新增 Markdown 语法】洛谷风格扩展（issue #11）：
+ * 【新增 Markdown 语法】洛谷风格扩展（issue #11 / #19 / #20）：
  *
  * 1. 折叠框（remarkFold，搭配 remark-directive 解析容器指令）
  *    ::::info[标题]{open}
@@ -10,6 +10,13 @@
  * 2. 表格合并（rehypeTableSpan）
  *    单元格内仅含 `^`  → 与正上方同列单元格纵向合并
  *    单元格内仅含 `<`  → 与左侧同行单元格横向合并
+ *    发生合并的表会被加上 `md-table-merged` class（方边全网格、无交替行色）。
+ *
+ * 3. Tuack 风格表格（remarkCuteTable）
+ *    ::cute-table{tuack}
+ *
+ *    | 表头 | … |
+ *    紧随其后的表格会被加上 `md-tuack` class，渲染为方边全网格的评测风格表格。
  */
 import remarkDirective from 'remark-directive'
 import type { Paragraph, PhrasingContent, Root } from 'mdast'
@@ -125,6 +132,7 @@ function processTable(table: Element) {
   const covered = new Map<string, Element>()
   const meta = new Map<Element, SpanMeta>()
   const emptyRows: Element[] = []
+  let merged = false
 
   rows.forEach((row, r) => {
     const cells = row.children.filter(
@@ -146,6 +154,7 @@ function processTable(table: Element) {
           owner.properties = { ...owner.properties, rowSpan: m.rowSpan }
           for (let cc = 0; cc < m.colSpan; cc++) covered.set(`${r},${m.col + cc}`, owner)
           col += 1
+          merged = true
           continue
         }
       } else if (marker === '<') {
@@ -157,6 +166,7 @@ function processTable(table: Element) {
           owner.properties = { ...owner.properties, colSpan: m.colSpan }
           for (let rr = 0; rr < m.rowSpan; rr++) covered.set(`${m.row + rr},${col}`, owner)
           col += 1
+          merged = true
           continue
         }
       }
@@ -198,6 +208,15 @@ function processTable(table: Element) {
       }
     }
   }
+
+  // issue #19：发生合并的表改用「方边全网格、无交替行色」的专属样式，避免
+  // 斑马纹/圆角在跨行跨列单元格上产生错位感。
+  if (merged) {
+    const prev = table.properties?.className
+    const classes = Array.isArray(prev) ? prev.map(String) : typeof prev === 'string' ? [prev] : []
+    if (!classes.includes('md-table-merged')) classes.push('md-table-merged')
+    table.properties = { ...table.properties, className: classes }
+  }
 }
 
 /** rehype 插件：扫描所有表格应用 ^ / < 合并规则 */
@@ -210,5 +229,50 @@ export function rehypeTableSpan() {
       if (Array.isArray(n.children)) n.children.forEach(visit)
     }
     visit(tree)
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                               Tuack 风格表格                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * remark 插件（issue #20）：`::cute-table{tuack}` 让紧随其后的第一张表格
+ * 渲染为 Tuack 风格（方边全网格）。无 tuack 属性或后面没有表格时原样保留。
+ */
+export function remarkCuteTable() {
+  return (tree: Root) => {
+    const visit = (node: AnyNode) => {
+      if (!Array.isArray(node.children)) return
+      for (let i = 0; i < node.children.length; i++) {
+        const child = node.children[i]
+        if (
+          child.type === 'leafDirective' &&
+          child.name === 'cute-table' &&
+          child.attributes &&
+          Object.prototype.hasOwnProperty.call(child.attributes, 'tuack')
+        ) {
+          // 向后找同级的第一张表格
+          const table = node.children.slice(i + 1).find((c) => c.type === 'table') as
+            | (AnyNode & { data?: Record<string, unknown> })
+            | undefined
+          if (table) {
+            const hProps = ((table.data as { hProperties?: { className?: unknown[] } })?.hProperties ?? {}) as {
+              className?: unknown[]
+              [key: string]: unknown
+            }
+            const classes = Array.isArray(hProps.className) ? hProps.className.map(String) : []
+            if (!classes.includes('md-tuack')) classes.push('md-tuack')
+            hProps.className = classes
+            table.data = { ...(table.data ?? {}), hProperties: hProps }
+            node.children.splice(i, 1)
+            i--
+            continue
+          }
+        }
+        visit(child)
+      }
+    }
+    visit(tree as unknown as AnyNode)
   }
 }

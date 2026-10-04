@@ -266,6 +266,44 @@
 .prose .markdown-table tr:last-child td {
   @apply border-b-0;
 }
+
+/* ---------- 合并表格 / Tuack 表格（issue #19、#20）：方边全网格、无交替黑白 ---------- */
+/* 外层容器降为透明方边，网格线交给表格自身 */
+.prose .markdown-table:has(> table.md-table-merged),
+.prose .markdown-table:has(> table.md-tuack) {
+  @apply rounded-none border-0 bg-transparent shadow-none dark:bg-transparent;
+}
+.prose .markdown-table > table.md-table-merged,
+.prose .markdown-table > table.md-tuack {
+  @apply border-collapse border-[1.5px] border-ink-400 dark:border-white/40;
+}
+/* 全网格实线 + 默认居中，显式声明的 GFM 对齐仍优先生效 */
+.prose .markdown-table > table.md-table-merged th,
+.prose .markdown-table > table.md-table-merged td,
+.prose .markdown-table > table.md-tuack th,
+.prose .markdown-table > table.md-tuack td {
+  @apply border border-ink-300/80 text-center align-middle dark:border-white/25;
+}
+/* 末行保留下边框（基础样式里有 border-b-0 需要压掉） */
+.prose .markdown-table > table.md-table-merged tr:last-child td,
+.prose .markdown-table > table.md-tuack tr:last-child td {
+  @apply border-b border-b-ink-300/80 dark:border-b-white/25;
+}
+/* 无交替黑白：斑马纹与 hover 浮色在网格表上都拿掉 */
+.prose .markdown-table > table.md-table-merged tbody tr:nth-child(even),
+.prose .markdown-table > table.md-tuack tbody tr:nth-child(even),
+.prose .markdown-table > table.md-table-merged tbody tr,
+.prose .markdown-table > table.md-tuack tbody tr {
+  @apply bg-transparent hover:bg-transparent;
+}
+/* Tuack：表头淡灰底 + 加粗下边框，更像 OI 评测表 */
+.prose .markdown-table > table.md-tuack thead {
+  @apply bg-ink-100/80 dark:bg-white/10;
+  background-image: none;
+}
+.prose .markdown-table > table.md-tuack thead th {
+  @apply border-b-[1.5px] border-b-ink-400 font-semibold dark:border-b-white/40;
+}
 .prose img {
   @apply mx-auto rounded-xl shadow-lg;
 }
