@@ -214,7 +214,7 @@
 
 /* ---------- KaTeX ---------- */
 .katex-display {
-  @apply my-6 overflow-x-auto overflow-y-hidden py-1;
+  @apply my-6 overflow-x-auto overflow-y-hidden py-1 text-center;
 }
 .katex {
   font-size: 1.05em;
@@ -240,97 +240,116 @@
 }
 
 /* -------------------------------------------------------------------------- */
-/*                 1. 标准表格 & 合并表格（严格对照效果图 1）                  */
+/*              1. 标准表格 & 合并表格（仿洛谷：居中、列宽自适应、无斑马纹）         */
 /* -------------------------------------------------------------------------- */
-.prose .markdown-table {
-  @apply my-8 overflow-x-auto rounded-none border border-ink-200 bg-white shadow-none dark:border-white/15 dark:bg-transparent;
+.prose .markdown-table-wrapper {
+  @apply my-8 flex w-full justify-center overflow-x-auto;
 }
-.prose .markdown-table > table {
-  @apply !my-0 w-full min-w-[28rem] border-collapse text-sm leading-relaxed text-center;
+
+.prose table.markdown-table {
+  @apply !my-0 w-auto table-auto border-collapse text-center text-sm leading-relaxed;
+  border: 1px solid #d1d5db;
 }
-.prose .markdown-table th {
-  @apply border border-ink-200 bg-white px-5 py-3 font-bold text-ink-900 text-center align-middle dark:border-white/15 dark:bg-white/[0.04] dark:text-white;
+.dark .prose table.markdown-table {
+  border-color: rgba(255, 255, 255, 0.2);
 }
-.prose .markdown-table td {
-  @apply border border-ink-200 bg-transparent px-5 py-3 text-ink-800 text-center align-middle dark:border-white/15 dark:text-ink-200;
+
+.prose table.markdown-table th {
+  @apply border border-ink-200 bg-white px-4 py-2.5 font-bold text-ink-900 text-center align-middle whitespace-nowrap;
+  border-color: #d1d5db;
 }
-.prose .markdown-table tbody tr {
+.dark .prose table.markdown-table th {
+  @apply bg-white/[0.04] text-white;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.prose table.markdown-table td {
+  @apply border border-ink-200 bg-transparent px-4 py-2.5 text-ink-800 text-center align-middle;
+  border-color: #d1d5db;
+}
+.dark .prose table.markdown-table td {
+  @apply text-ink-200;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.prose table.markdown-table tbody tr {
   @apply bg-transparent;
 }
-.prose .markdown-table td :where(code) {
+.prose table.markdown-table td :where(code) {
   @apply whitespace-nowrap bg-ink-100/80 px-1 py-0.5 rounded text-[.85em] dark:bg-white/10;
 }
 
 /* -------------------------------------------------------------------------- */
-/*                2. Tuack 风格表格（严格对照效果图 2）                         */
+/*             2. Tuack 竞赛风格表格（仿洛谷：居中、自适应列宽、三线经典）           */
 /* -------------------------------------------------------------------------- */
-.prose .table-tuack-wrapper,
-.prose .table-tuack-wrapper .markdown-table,
-.prose .markdown-table.table-tuack {
-  @apply my-8 overflow-x-auto rounded-none border-none bg-transparent shadow-none;
+.prose .table-tuack-wrapper {
+  @apply my-8 flex w-full justify-center overflow-x-auto;
 }
-.prose .table-tuack-wrapper .markdown-table > table,
-.prose .markdown-table.table-tuack > table {
-  @apply !my-0 w-full min-w-[28rem] border-collapse text-sm leading-relaxed text-center;
-  border-top: 3px solid #111827 !important;
-  border-bottom: 3px solid #111827 !important;
+
+.prose table.table-tuack,
+.prose .table-tuack-wrapper table {
+  @apply !my-0 w-auto table-auto border-collapse text-center text-sm leading-relaxed;
+  border-top: 2.5px solid #111827 !important;
+  border-bottom: 2.5px solid #111827 !important;
   border-left: none !important;
   border-right: none !important;
 }
-.dark .prose .table-tuack-wrapper .markdown-table > table,
-.dark .prose .markdown-table.table-tuack > table {
-  border-top-color: #f3f4f6 !important;
-  border-bottom-color: #f3f4f6 !important;
+.dark .prose table.table-tuack,
+.dark .prose .table-tuack-wrapper table {
+  border-top-color: #ffffff !important;
+  border-bottom-color: #ffffff !important;
 }
 
-.prose .table-tuack-wrapper th,
-.prose .markdown-table.table-tuack th {
-  @apply px-4 py-3 font-bold text-ink-900 text-center align-middle dark:text-white bg-transparent;
+.prose table.table-tuack th,
+.prose .table-tuack-wrapper th {
+  @apply px-4 py-2.5 font-bold text-ink-900 text-center align-middle bg-transparent whitespace-nowrap;
   border-top: none !important;
   border-bottom: 1.5px solid #111827 !important;
   border-left: 1px solid #111827;
   border-right: 1px solid #111827;
 }
-.dark .prose .table-tuack-wrapper th,
-.dark .prose .markdown-table.table-tuack th {
-  border-bottom-color: #f3f4f6 !important;
-  border-left-color: rgba(243, 244, 246, 0.4);
-  border-right-color: rgba(243, 244, 246, 0.4);
+.dark .prose table.table-tuack th,
+.dark .prose .table-tuack-wrapper th {
+  @apply text-white;
+  border-bottom-color: #ffffff !important;
+  border-left-color: rgba(255, 255, 255, 0.45);
+  border-right-color: rgba(255, 255, 255, 0.45);
 }
 
-.prose .table-tuack-wrapper td,
-.prose .markdown-table.table-tuack td {
-  @apply px-4 py-2.5 text-ink-900 text-center align-middle dark:text-ink-100 bg-transparent;
+.prose table.table-tuack td,
+.prose .table-tuack-wrapper td {
+  @apply px-4 py-2 text-ink-900 text-center align-middle bg-transparent;
   border-top: 1px solid #111827;
   border-bottom: 1px solid #111827;
   border-left: 1px solid #111827;
   border-right: 1px solid #111827;
 }
-.dark .prose .table-tuack-wrapper td,
-.dark .prose .markdown-table.table-tuack td {
-  border-top-color: rgba(243, 244, 246, 0.4);
-  border-bottom-color: rgba(243, 244, 246, 0.4);
-  border-left-color: rgba(243, 244, 246, 0.4);
-  border-right-color: rgba(243, 244, 246, 0.4);
+.dark .prose table.table-tuack td,
+.dark .prose .table-tuack-wrapper td {
+  @apply text-ink-100;
+  border-top-color: rgba(255, 255, 255, 0.45);
+  border-bottom-color: rgba(255, 255, 255, 0.45);
+  border-left-color: rgba(255, 255, 255, 0.45);
+  border-right-color: rgba(255, 255, 255, 0.45);
 }
 
-/* 去除 Tuack 表格外侧左右边框 (Open Sides) */
+/* 去除 Tuack 表格最外侧左右边框 (Open sides) */
+.prose table.table-tuack th:first-child,
+.prose table.table-tuack td:first-child,
 .prose .table-tuack-wrapper th:first-child,
-.prose .table-tuack-wrapper td:first-child,
-.prose .markdown-table.table-tuack th:first-child,
-.prose .markdown-table.table-tuack td:first-child {
+.prose .table-tuack-wrapper td:first-child {
   border-left: none !important;
 }
+.prose table.table-tuack th:last-child,
+.prose table.table-tuack td:last-child,
 .prose .table-tuack-wrapper th:last-child,
-.prose .table-tuack-wrapper td:last-child,
-.prose .markdown-table.table-tuack th:last-child,
-.prose .markdown-table.table-tuack td:last-child {
+.prose .table-tuack-wrapper td:last-child {
   border-right: none !important;
 }
 
-/* 最后一行的下边框由 table 的 3px 实线负责 */
-.prose .table-tuack-wrapper tr:last-child td,
-.prose .markdown-table.table-tuack tr:last-child td {
+/* 最后一行的下边框由 table 的 2.5px 粗实线负责 */
+.prose table.table-tuack tr:last-child td,
+.prose .table-tuack-wrapper tr:last-child td {
   border-bottom: none !important;
 }
 

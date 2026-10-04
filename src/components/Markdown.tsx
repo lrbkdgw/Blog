@@ -360,12 +360,12 @@ function SmartTable({ children, className, ...props }: HTMLAttributes<HTMLTableE
 
   return (
     <div
-      className={`markdown-table ${isTuack ? 'table-tuack' : ''}`}
+      className="markdown-table-wrapper"
       role="region"
       aria-label="文章表格"
       tabIndex={0}
     >
-      <table className={className} {...props}>
+      <table className={`markdown-table ${className || ''} ${isTuack ? 'table-tuack' : ''}`} {...props}>
         {newChildren}
       </table>
     </div>
