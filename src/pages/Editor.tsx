@@ -56,6 +56,7 @@ import {
   slugify,
   today,
 } from '../lib/posts'
+import { siteConfig } from '../lib/config'
 import { handleEditorKey, insertBlock, toggleLinePrefix, toggleWrap } from '../lib/editor'
 import type { EditAction } from '../lib/editor'
 import type { Post } from '../lib/types'
@@ -125,6 +126,7 @@ export default function Editor() {
   const [date, setDate] = useState(encryptedSource ? today() : (initial?.date ?? today()))
   const [tagsText, setTagsText] = useState(encryptedSource ? '' : (initial?.tags.join(', ') ?? ''))
   const [summary, setSummary] = useState(encryptedSource ? '' : (initial?.summary ?? ''))
+  const [author, setAuthor] = useState(encryptedSource ? '' : (initial?.author ?? ''))
   const [cover, setCover] = useState(encryptedSource ? '' : (initial?.cover ?? ''))
   const [draft, setDraft] = useState(encryptedSource ? false : (initial?.draft ?? false))
   const [pinned, setPinned] = useState(encryptedSource ? false : (initial?.pinned ?? false))
@@ -179,6 +181,7 @@ export default function Editor() {
     setDate(post.date)
     setTagsText(post.tags.join(', '))
     setSummary(post.summary)
+    setAuthor(post.author || '')
     setCover(post.cover || '')
     setDraft(post.draft)
     setPinned(Boolean(post.pinned))
@@ -210,6 +213,7 @@ export default function Editor() {
       date,
       updated: existing ? today() : undefined,
       summary: summary.trim() || excerpt(content),
+      author: author.trim() || undefined,
       tags,
       cover: cover.trim() || undefined,
       draft,
@@ -219,7 +223,7 @@ export default function Editor() {
       wordCount: words,
       readingTime: readingTime(content),
     }),
-    [effectiveSlug, title, date, summary, content, tags, cover, draft, pinned, existing, words],
+    [effectiveSlug, title, date, summary, author, content, tags, cover, draft, pinned, existing, words],
   )
 
   const unlockExisting = async (password: string) => {
@@ -706,6 +710,18 @@ export default function Editor() {
                   }}
                   placeholder="https://…"
                   className="input text-xs"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-ink-500">作者（可选）</label>
+                <input
+                  value={author}
+                  onChange={(e) => {
+                    setAuthor(e.target.value)
+                    markDirty()
+                  }}
+                  placeholder={siteConfig.author.name}
+                  className="input"
                 />
               </div>
               <div className="sm:col-span-2">
