@@ -126,7 +126,10 @@ export function preprocessMarkdown(md: string): string {
 
     // 交互展示框：::show_begin{标题}{变量定义} … ::show_end
     // 编码到 data attribute 后再由 React component 接管，可保留框内完整 Markdown。
-    const showMatch = line.match(/^\s*::show_begin\{([^}]*)\}\{([^}]*)\}\s*$/i)
+    // The variable definition may itself contain braces, e.g. Q{faster_set}.
+    // Capture its final closing brace rather than stopping at the directive's
+    // inner `}`.
+    const showMatch = line.match(/^\s*::show_begin\{([^}]*)\}\{([\s\S]*)\}\s*$/i)
     if (showMatch) {
       const body: string[] = []
       let end = i + 1
