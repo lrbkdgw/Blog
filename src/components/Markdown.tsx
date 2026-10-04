@@ -108,9 +108,21 @@ export function preprocessMarkdown(md: string): string {
   const lines = md.split('\n')
   const result: string[] = []
   const stack: { colonsCount: number; type: string }[] = []
+  let inCodeFence = false
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
+
+    // 扩展指令不应解析代码示例；否则文档中的语法会被执行而无法展示源码。
+    if (/^\s*(`{3,}|~{3,})/.test(line)) {
+      inCodeFence = !inCodeFence
+      result.push(line)
+      continue
+    }
+    if (inCodeFence) {
+      result.push(line)
+      continue
+    }
 
     // 交互展示框：::show_begin{标题}{变量定义} … ::show_end
     // 编码到 data attribute 后再由 React component 接管，可保留框内完整 Markdown。
