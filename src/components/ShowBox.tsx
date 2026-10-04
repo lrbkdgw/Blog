@@ -13,6 +13,8 @@ interface ShowVariable {
   step?: number
   minLength?: number
   maxLength?: number
+  /** 有理数需显式声明 {faster_set} 才会显示滑动条。 */
+  fastSet?: boolean
   initial: ShowValue
 }
 
@@ -53,16 +55,25 @@ function parseVariable(raw: string): ShowVariable | null {
   let remainder = match[2].trim()
   let type: ShowVariableType = 'integer'
 
-  const typeMatch = remainder.match(/^:\s*(integer|int|整数|rational|number|float|有理数|string|text|字符串)/i)
+  // Z / Q / S are the preferred short forms for integer, rational and string.
+  const typeMatch = remainder.match(
+    /^:\s*(integer|int|z|整数|rational|number|float|q|有理数|string|text|s|字符串)/i,
+  )
   if (typeMatch) {
     const normalized = typeMatch[1].toLowerCase()
-    type = ['string', 'text', '字符串'].includes(normalized)
+    type = ['string', 'text', 's', '字符串'].includes(normalized)
       ? 'string'
-      : ['rational', 'number', 'float', '有理数'].includes(normalized)
+      : ['rational', 'number', 'float', 'q', '有理数'].includes(normalized)
         ? 'rational'
         : 'integer'
     remainder = remainder.slice(typeMatch[0].length).trim()
   }
+
+  // {faster_set} is intentionally opt-in for Q variables, so long ranges do
+  // not unexpectedly turn into an imprecise slider. It is accepted anywhere
+  // after the variable type, including `x:Q{faster_set}=…[…]`.
+  const fastSet = /\{faster_set\}/i.test(remainder)
+  remainder = remainder.replace(/\{faster_set\}/gi, '').trim()
 
   let defaultText: string | undefined
   const defaultMatch = remainder.match(/^=\s*([^\[\]()]+?)(?=\s*(?:\[|\(|$))/)
@@ -88,7 +99,15 @@ function parseVariable(raw: string): ShowVariable | null {
   const step = suppliedStep || defaultStep
   const parsedInitial = numberOr(defaultText, min <= 0 && max >= 0 ? 0 : min)
   const roundedInitial = type === 'integer' ? Math.round(parsedInitial) : parsedInitial
-  return { name, type, min, max, step, initial: Math.min(max, Math.max(min, roundedInitial)) }
+  return {
+    name,
+    type,
+    min,
+    max,
+    step,
+    fastSet: type === 'rational' && fastSet,
+    initial: Math.min(max, Math.max(min, roundedInitial)),
+  }
 }
 
 function parseMappings(content: string): Mapping[] {
@@ -296,7 +315,10 @@ export function ShowBox({ title, variableSpec, body }: { title: string; variable
         <div className="grid gap-3 border-t border-ink-200/80 bg-white/50 p-4 sm:grid-cols-2 dark:border-white/10 dark:bg-black/10">
           {variables.map((variable) => {
             const value = values[variable.name]
-            const canSlide = variable.type === 'integer' && variable.min !== undefined && variable.max !== undefined
+            const canSlide =
+              (variable.type === 'integer' || (variable.type === 'rational' && variable.fastSet)) &&
+              variable.min !== undefined &&
+              variable.max !== undefined
             return (
               <label key={variable.name} className="block min-w-0">
                 <span className="mb-1.5 flex items-center justify-between gap-2 font-mono text-xs font-medium text-ink-600 dark:text-ink-300">

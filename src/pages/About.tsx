@@ -6,29 +6,25 @@ import { parseFrontmatter } from '../lib/frontmatter'
 import { siteConfig } from '../lib/config'
 
 export default function About() {
-  const { content } = parseFrontmatter(aboutRaw)
+  const { data, content } = parseFrontmatter(aboutRaw)
+  const helpTitle = typeof data.title === 'string' ? data.title : '博客帮助中心'
   const { social } = siteConfig
 
   return (
     <div className="container-page max-w-4xl pt-16">
-      {/* 网站介绍 Banner */}
+      {/* 帮助中心 Banner */}
       <header className="card animate-fade-up overflow-hidden p-8 sm:p-10 border-brand-200/80 bg-gradient-to-br from-brand-50/60 via-white/80 to-indigo-50/40 dark:border-brand-500/20 dark:from-brand-500/[0.08] dark:via-white/[0.02] dark:to-indigo-500/[0.05]">
         <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center justify-between">
           <div>
             <div className="inline-flex items-center gap-1.5 rounded-full bg-brand-500/10 px-3 py-1 text-xs font-semibold text-brand-600 dark:text-brand-300">
               <Sparkles size={13} />
-              静态博客 · 在线交互系统
+              帮助中心 · 使用与写作手册
             </div>
             <h1 className="mt-3 font-serif text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl dark:text-white">
-              {siteConfig.title}
-              {siteConfig.titleEn && (
-                <span className="ml-2.5 font-sans text-xl font-normal text-ink-400 sm:text-2xl">
-                  {siteConfig.titleEn}
-                </span>
-              )}
+              {helpTitle}
             </h1>
-            <p className="mt-2 text-sm text-ink-600 dark:text-ink-300 max-w-xl">
-              {siteConfig.description || '记录数学、代码与一些深夜里的胡思乱想。'}
+            <p className="mt-2 max-w-xl text-sm text-ink-600 dark:text-ink-300">
+              阅读、创作、发布和全部 Markdown 扩展语法，都可以在这里找到具体用法。
             </p>
           </div>
 
