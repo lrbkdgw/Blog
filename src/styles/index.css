@@ -451,3 +451,22 @@ details[open] .callout-chevron {
     display: none !important;
   }
 }
+
+/* ---------- 交互展示框 ---------- */
+.show-box {
+  box-shadow: 0 12px 30px -24px rgba(15, 23, 42, 0.35);
+}
+.show-box .show-box-content > .prose {
+  max-width: none;
+  font-size: 0.95rem;
+}
+.show-box .show-box-content > .prose > :first-child {
+  margin-top: 0;
+}
+.show-box .show-box-content > .prose > :last-child {
+  margin-bottom: 0;
+}
+.show-box code.show-value,
+.show-box code.show-result {
+  @apply mx-0.5 rounded-md border border-brand-200 bg-brand-50 px-1.5 py-0.5 font-mono text-[0.86em] font-semibold text-brand-700 dark:border-brand-400/25 dark:bg-brand-500/10 dark:text-brand-200;
+}

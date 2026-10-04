@@ -44,6 +44,14 @@ Write article and upd it to github.
 ::::
 :::
 
+#### 交互展示框
+
+::show_begin{二次函数}{a:integer=1[-5,5,1]; b:rational=0[-3,3,0.5]; name:string=Starlog[0,12]}
+你好，*&show(name)*&！当前 $a$ 为 *&show(a)*&、$b$ 为 *&show(b)*&，$a^2+b$ 的值是 *&hs(a^2+b)*&。
+
+映射结果：*&a:{-1,负一;0,零;1,正一}*&
+::show_end
+
 #### 公式
 
 $$

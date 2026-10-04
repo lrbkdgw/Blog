@@ -1,4 +1,5 @@
 import { githubConfig, oauthConfig, STORAGE_KEYS } from './config'
+import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 
 export interface RepoTarget {
   owner: string
@@ -19,17 +20,13 @@ const API = 'https://api.github.com'
 /* --------------------------------- 配置 ---------------------------------- */
 
 export function getRepoTarget(): RepoTarget {
-  try {
-    const stored = JSON.parse(localStorage.getItem(STORAGE_KEYS.ghRepo) || 'null')
-    if (stored && stored.owner && stored.repo) return { ...githubConfig, ...stored }
-  } catch {
-    /* ignore */
-  }
+  const stored = readPersonalSetting<Partial<RepoTarget>>('repository', STORAGE_KEYS.ghRepo)
+  if (stored && stored.owner && stored.repo) return { ...githubConfig, ...stored }
   return { ...githubConfig }
 }
 
 export function setRepoTarget(target: RepoTarget) {
-  localStorage.setItem(STORAGE_KEYS.ghRepo, JSON.stringify(target))
+  writePersonalSetting('repository', target)
 }
 
 export function getToken(): string | null {
@@ -263,9 +260,13 @@ export async function listRemotePosts(target = getRepoTarget()): Promise<Content
   }
 }
 
-export async function fetchRemoteFile(path: string, target = getRepoTarget()) {
+export async function fetchRemoteFile(
+  path: string,
+  target = getRepoTarget(),
+  ref = target.branch,
+) {
   const item = await gh<ContentItem>(
-    `/repos/${target.owner}/${target.repo}/contents/${path}?ref=${target.branch}`,
+    `/repos/${target.owner}/${target.repo}/contents/${path}?ref=${encodeURIComponent(ref)}`,
   )
   return { sha: item.sha, text: item.content ? decodeBase64(item.content) : '' }
 }
@@ -318,6 +319,59 @@ export async function deleteRemotePost(slug: string, target = getRepoTarget()): 
     method: 'DELETE',
     body: JSON.stringify({ message: `chore(blog): 删除文章 ${slug}`, sha, branch: target.branch }),
   })
+}
+
+export interface PostHistoryVersion {
+  sha: string
+  message: string
+  committedAt: string
+  author: {
+    login?: string
+    name: string
+    avatarUrl?: string
+  }
+}
+
+/**
+ * Every contents API update is a Git commit, so Git itself is the durable version
+ * store. This reads the history for one Markdown path without duplicating article
+ * bodies in localStorage.
+ */
+export async function listPostHistory(
+  slug: string,
+  target = getRepoTarget(),
+  filePath?: string,
+): Promise<PostHistoryVersion[]> {
+  const path = filePath || `${target.postsDir}/${slug}.md`
+  const params = new URLSearchParams({ path, sha: target.branch, per_page: '100' })
+  const commits = await gh<
+    {
+      sha: string
+      commit: { message: string; author?: { name?: string; date?: string } }
+      author?: { login?: string; avatar_url?: string }
+    }[]
+  >(`/repos/${target.owner}/${target.repo}/commits?${params.toString()}`)
+  return commits.map((commit) => ({
+    sha: commit.sha,
+    message: commit.commit.message.split('\n')[0] || '更新文章',
+    committedAt: commit.commit.author?.date || '',
+    author: {
+      login: commit.author?.login,
+      name: commit.author?.login || commit.commit.author?.name || '未知作者',
+      avatarUrl: commit.author?.avatar_url,
+    },
+  }))
+}
+
+export async function fetchPostHistoryMarkdown(
+  slug: string,
+  sha: string,
+  target = getRepoTarget(),
+  filePath?: string,
+): Promise<string> {
+  const path = filePath || `${target.postsDir}/${slug}.md`
+  const { text } = await fetchRemoteFile(path, target, sha)
+  return text
 }
 
 export async function uploadImage(file: File, target = getRepoTarget()): Promise<string> {

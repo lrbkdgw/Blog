@@ -110,6 +110,10 @@ export function buildPost(
     draft: data.draft === true || data.draft === 'true',
     pinned: data.pinned === true || data.pinned === 'true',
     author: data.author ? String(data.author) : undefined,
+    encryption:
+      (data.encrypted === true || data.encrypted === 'true') && typeof data.encryption === 'string'
+        ? data.encryption
+        : undefined,
     content,
     source: opts.source,
     path: opts.path,
@@ -117,6 +121,23 @@ export function buildPost(
     wordCount: countWords(content),
     readingTime: readingTime(content),
   }
+}
+
+export function postFingerprint(post: Pick<Post, 'title' | 'date' | 'updated' | 'summary' | 'tags' | 'cover' | 'draft' | 'pinned' | 'author' | 'content' | 'encryption'>): string {
+  // An encrypted wrapper can be compared safely without attempting to expose its plaintext.
+  if (post.encryption) return `encrypted:${post.encryption}`
+  return JSON.stringify({
+    title: post.title,
+    date: post.date,
+    updated: post.updated || '',
+    summary: post.summary,
+    tags: post.tags,
+    cover: post.cover || '',
+    draft: post.draft,
+    pinned: Boolean(post.pinned),
+    author: post.author || '',
+    content: post.content,
+  })
 }
 
 export function serializePost(post: Post | (PostMeta & { content: string })): string {

@@ -9,6 +9,7 @@ import rehypeRaw from 'rehype-raw'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeSlug from 'rehype-slug'
+import { ShowBox } from './ShowBox'
 import {
   AlertCircle,
   AlertTriangle,
@@ -111,6 +112,26 @@ export function preprocessMarkdown(md: string): string {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
 
+    // 交互展示框：::show_begin{标题}{变量定义} … ::show_end
+    // 编码到 data attribute 后再由 React component 接管，可保留框内完整 Markdown。
+    const showMatch = line.match(/^\s*::show_begin\{([^}]*)\}\{([^}]*)\}\s*$/i)
+    if (showMatch) {
+      const body: string[] = []
+      let end = i + 1
+      while (end < lines.length && !/^\s*::show_end\s*$/i.test(lines[end])) {
+        body.push(lines[end])
+        end += 1
+      }
+      if (end < lines.length) {
+        result.push(
+          `<div data-show-box="true" data-show-title="${encodeURIComponent(showMatch[1])}" data-show-vars="${encodeURIComponent(showMatch[2])}" data-show-content="${encodeURIComponent(body.join('\n'))}"></div>`,
+        )
+        result.push('')
+        i = end
+        continue
+      }
+    }
+
     // ::cute-table{tuack} 或 :::cute-table{tuack}
     const tuackMatch = line.match(/^ *(?:::+|:::+)(?:cute-table)\s*\{([^}]+)\}\s*$/i)
     if (tuackMatch) {
@@ -185,6 +206,15 @@ export function preprocessMarkdown(md: string): string {
   }
 
   return result.join('\n')
+}
+
+function decodeShowAttribute(value: string | undefined): string {
+  if (!value) return ''
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return ''
+  }
 }
 
 function renderMathInText(text: string): ReactNode {
@@ -418,6 +448,24 @@ export const Markdown = memo(function Markdown({ content }: { content: string })
             <img src={typeof src === 'string' ? src : ''} alt={alt ?? ''} loading="lazy" decoding="async" />
           ),
           table: SmartTable,
+          div: ({ children, ...props }) => {
+            const attributes = props as React.HTMLAttributes<HTMLDivElement> & {
+              'data-show-box'?: string
+              'data-show-title'?: string
+              'data-show-vars'?: string
+              'data-show-content'?: string
+            }
+            if (attributes['data-show-box'] === 'true') {
+              return (
+                <ShowBox
+                  title={decodeShowAttribute(attributes['data-show-title'])}
+                  variableSpec={decodeShowAttribute(attributes['data-show-vars'])}
+                  body={decodeShowAttribute(attributes['data-show-content'])}
+                />
+              )
+            }
+            return <div {...props}>{children}</div>
+          },
           summary: CalloutSummary,
         }}
       >

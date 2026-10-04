@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { STORAGE_KEYS } from './config'
+import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 import { fetchGithubFontPreference, saveGithubFontPreference } from './github'
 import { useAuth } from './auth'
 
@@ -87,19 +88,24 @@ function applyToDocument(families: string[]) {
 }
 
 function writeLocal(preference: FontPreference) {
-  localStorage.setItem(STORAGE_KEYS.font, JSON.stringify(preference))
+  writePersonalSetting('font', preference)
 }
 
 function readLocal(): FontPreference {
   if (typeof window === 'undefined') return DEFAULT_FONT
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.font)
-    if (!raw) return DEFAULT_FONT
-    const parsed = JSON.parse(raw)
-    if (parsed) {
+    const parsed = readPersonalSetting<{
+      families?: unknown
+      family?: unknown
+      updatedAt?: unknown
+    }>('font', STORAGE_KEYS.font)
+    if (parsed && typeof parsed === 'object') {
       if (Array.isArray(parsed.families)) {
         return {
-          families: parsed.families.map(normalizeFamily).filter(Boolean),
+          families: parsed.families
+            .filter((family): family is string => typeof family === 'string')
+            .map(normalizeFamily)
+            .filter(Boolean),
           updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
         }
       }
@@ -271,6 +277,21 @@ export function FontProvider({ children }: { children: ReactNode }) {
     },
     [resetFont, setFonts],
   )
+
+  // Keep settings in other tabs/views in sync, just like the comments list.
+  useEffect(() => {
+    const sync = () => {
+      const next = readLocal()
+      applyToDocument(next.families)
+      setFontState(next)
+    }
+    window.addEventListener('starlog:settings-changed', sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener('starlog:settings-changed', sync)
+      window.removeEventListener('storage', sync)
+    }
+  }, [])
 
   useEffect(() => {
     if (font.families && font.families.length > 0) {

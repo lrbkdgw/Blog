@@ -229,7 +229,7 @@ export default function SettingsPage() {
       <header className="mb-8 animate-fade-up">
         <h1 className="font-serif text-3xl font-bold tracking-tight text-ink-900 dark:text-white">设置</h1>
         <p className="mt-1.5 text-sm text-ink-500">
-          访客及登录用户的个性化设置均自动保存在本地；连接 GitHub 后可将偏好同步至账号。
+          个性化设置使用与评论区相同的浏览器本地存储与即时更新机制；连接 GitHub 后仍可选择同步偏好至账号。
           <Link
             to={isAuthed ? '/admin' : '/'}
             className="ml-2 text-brand-600 hover:underline dark:text-brand-300"
