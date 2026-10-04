@@ -112,7 +112,7 @@ function UserMenu() {
               {ghUser?.name || ghUser?.login || siteConfig.author.name}
             </p>
             <p className="truncate text-xs text-ink-400">
-              {ghUser ? `已连接 GitHub · @${ghUser.login}` : '本地登录 · 仅浏览器草稿'}
+              {ghUser ? `GitHub 账号 · @${ghUser.login}` : '已登录'}
             </p>
           </div>
           {[

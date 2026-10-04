@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom'
 import {
   Eye,
   Github,
-  Lock,
   MessageSquare,
   PenLine,
   Send,
@@ -79,27 +78,18 @@ export function Comments({ postSlug, postTitle: _postTitle }: { postSlug: string
   }, [loadComments])
 
   const isOwner = useMemo(() => {
-    if (!isAuthed) return false
-    if (ghUser && ghUser.login.toLowerCase() === siteConfig.author.name.toLowerCase()) return true
-    return true // Local password login is considered blog admin/owner
+    if (!isAuthed || !ghUser) return false
+    return ghUser.login.toLowerCase() === siteConfig.author.name.toLowerCase()
   }, [isAuthed, ghUser])
 
   const currentAuthor = useMemo(() => {
-    if (!isAuthed) return null
-    if (ghUser) {
-      return {
-        name: ghUser.name || ghUser.login,
-        login: ghUser.login,
-        avatar_url: ghUser.avatar_url,
-        isOwner: ghUser.login.toLowerCase() === siteConfig.author.name.toLowerCase(),
-        isLocal: false,
-      }
-    }
+    if (!isAuthed || !ghUser) return null
     return {
-      name: siteConfig.author.name || '站长',
-      avatar_url: siteConfig.author.avatar,
-      isOwner: true,
-      isLocal: true,
+      name: ghUser.name || ghUser.login,
+      login: ghUser.login,
+      avatar_url: ghUser.avatar_url,
+      isOwner: ghUser.login.toLowerCase() === siteConfig.author.name.toLowerCase(),
+      isLocal: false,
     }
   }, [isAuthed, ghUser])
 
@@ -239,16 +229,12 @@ export function Comments({ postSlug, postTitle: _postTitle }: { postSlug: string
             </div>
             <div>
               <p className="text-sm font-semibold text-ink-800 dark:text-ink-100">登录后参与评论与讨论</p>
-              <p className="mt-1 text-xs text-ink-400">你可以使用 GitHub 账号或站点密码快速登录</p>
+              <p className="mt-1 text-xs text-ink-400">使用 GitHub 账号一键快捷登录</p>
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
-              <Link to="/login" className="btn-primary h-8 px-3.5 text-xs">
+              <Link to="/login" className="btn-primary h-8 px-4 text-xs">
                 <Github size={13} />
                 使用 GitHub 登录
-              </Link>
-              <Link to="/login" className="btn-outline h-8 px-3.5 text-xs">
-                <Lock size={13} />
-                密码登录
               </Link>
             </div>
           </div>

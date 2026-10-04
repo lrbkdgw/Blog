@@ -260,8 +260,8 @@ function CalloutSummary({
       <IconComponent size={16} className="shrink-0 transition-transform group-hover/summary:scale-110" />
       <span className="flex-1 font-semibold">{titleNode}</span>
       <ChevronRight
-        size={15}
-        className="shrink-0 text-ink-400 transition-transform duration-200 group-open:rotate-90 group-hover/summary:text-ink-600 dark:text-ink-500"
+        size={16}
+        className="callout-chevron shrink-0 text-ink-400 group-hover/summary:text-ink-600 dark:text-ink-500"
       />
     </summary>
   )

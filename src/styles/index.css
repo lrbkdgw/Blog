@@ -129,7 +129,7 @@
   }
 }
 
-/* ---------- 代码高亮（跟随深浅色） ---------- */
+/* ---------- 代码高亮 ---------- */
 :root {
   --hl-bg: #f7f8fa;
   --hl-text: #383a42;
@@ -239,36 +239,37 @@
   content: '';
 }
 
-/* Markdown 表格：方边，无交替黑白 */
+/* -------------------------------------------------------------------------- */
+/*                           重做表格：方边全网格，无斑马纹                      */
+/* -------------------------------------------------------------------------- */
 .prose .markdown-table {
-  @apply my-8 overflow-x-auto rounded-none border border-ink-200/80 bg-white shadow-sm dark:border-white/10 dark:bg-white/[0.025];
+  @apply my-8 overflow-x-auto rounded-none border border-ink-300/90 bg-white dark:border-white/20 dark:bg-ink-950/40;
 }
 .prose .markdown-table > table {
-  @apply !my-0 w-full min-w-[38rem] border-collapse text-left text-sm leading-6;
-}
-.prose .markdown-table thead {
-  @apply bg-ink-50/80 dark:bg-white/[0.05];
+  @apply !my-0 w-full min-w-[28rem] border-collapse text-sm leading-6 text-center;
+  border: 1px solid rgba(140, 150, 170, 0.4);
 }
 .prose .markdown-table th {
-  @apply whitespace-nowrap border-b border-ink-200/80 px-5 py-3 font-semibold text-ink-800 dark:border-white/10 dark:text-ink-100;
+  @apply border border-ink-300/90 bg-ink-100/90 px-4 py-2.5 font-bold text-ink-900 dark:border-white/20 dark:bg-white/10 dark:text-white text-center align-middle;
 }
 .prose .markdown-table td {
-  @apply border-b border-ink-100 px-5 py-3 align-middle text-ink-600 last:border-b-0 dark:border-white/[0.07] dark:text-ink-300;
+  @apply border border-ink-300/80 px-4 py-2.5 text-ink-700 dark:border-white/15 dark:text-ink-200 text-center align-middle;
 }
+/* 无斑马纹，无交替黑白 */
 .prose .markdown-table tbody tr {
-  @apply bg-transparent transition-colors hover:bg-brand-50/40 dark:hover:bg-brand-500/[0.05];
+  @apply bg-transparent;
+}
+.prose .markdown-table tbody tr:hover {
+  @apply bg-ink-50/60 dark:bg-white/[0.03];
 }
 .prose .markdown-table td :where(code) {
   @apply whitespace-nowrap bg-ink-100/80 text-[.85em] dark:bg-white/10;
 }
-.prose .markdown-table tr:last-child td {
-  @apply border-b-0;
-}
 
-/* Tuack 风格表格 (::cute-table{tuack}) */
+/* Tuack 风格表格 (::cute-table{tuack})：方边全网格 + 灰底表头 + 加粗表头下边框 */
 .prose .markdown-table.table-tuack,
 .prose .table-tuack-wrapper .markdown-table {
-  @apply my-6 rounded-none border border-ink-300/90 bg-white shadow-none dark:border-white/20 dark:bg-ink-950/40;
+  @apply my-6 rounded-none border-2 border-ink-400/90 bg-white dark:border-white/30 dark:bg-ink-950/60;
 }
 .prose .markdown-table.table-tuack > table,
 .prose .table-tuack-wrapper .markdown-table > table {
@@ -276,18 +277,16 @@
 }
 .prose .markdown-table.table-tuack th,
 .prose .table-tuack-wrapper .markdown-table th {
-  @apply border border-ink-300/90 bg-ink-100 px-4 py-2 font-bold text-ink-900 dark:border-white/20 dark:bg-white/10 dark:text-white;
+  @apply border border-ink-400/80 border-b-2 border-b-ink-500 bg-ink-200/80 px-4 py-2.5 font-bold text-ink-900 dark:border-white/25 dark:border-b-white/40 dark:bg-white/15 dark:text-white text-center;
 }
 .prose .markdown-table.table-tuack td,
 .prose .table-tuack-wrapper .markdown-table td {
-  @apply border border-ink-300/80 px-4 py-2 text-ink-700 dark:border-white/15 dark:text-ink-200;
-}
-.prose .markdown-table.table-tuack tbody tr,
-.prose .table-tuack-wrapper .markdown-table tbody tr {
-  @apply bg-transparent hover:bg-ink-50/70 dark:hover:bg-white/[0.03];
+  @apply border border-ink-300/90 px-4 py-2 text-ink-800 dark:border-white/20 dark:text-ink-100 text-center align-middle;
 }
 
-/* 折叠框 (Callouts) */
+/* -------------------------------------------------------------------------- */
+/*                               折叠框 (Callouts)                             */
+/* -------------------------------------------------------------------------- */
 .prose details.callout {
   @apply my-6 overflow-hidden rounded-xl border text-sm transition-all duration-200;
 }
@@ -305,6 +304,15 @@
 }
 .prose details.callout .callout-content > :last-child {
   @apply mb-0;
+}
+
+/* 折叠框展开时，右侧箭头平滑旋转 90 度向下 */
+.callout-chevron {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+details[open] > summary .callout-chevron,
+details.callout[open] summary .callout-chevron {
+  transform: rotate(90deg);
 }
 
 .prose details.callout-info {
@@ -363,7 +371,6 @@
   @apply mr-1 h-4 w-4 rounded accent-brand-500;
 }
 
-/* 编辑器滚动同步区域 */
 .editor-textarea {
   tab-size: 2;
   line-height: 1.75;
