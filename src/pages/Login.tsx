@@ -6,11 +6,11 @@ import { useToast } from '../components/Toast'
 import GithubConnect from '../components/GithubConnect'
 import { oauthConfig, siteConfig } from '../lib/config'
 
-type Tab = 'password' | 'github'
+type Tab = 'github' | 'password'
 
 export default function Login() {
   const { isAuthed, loginWithPassword, loginWithGithub } = useAuth()
-  const [tab, setTab] = useState<Tab>('password')
+  const [tab, setTab] = useState<Tab>('github')
   const [password, setPassword] = useState('')
   const [showSecret, setShowSecret] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -46,16 +46,16 @@ export default function Login() {
           <h1 className="font-serif text-2xl font-bold tracking-tight text-ink-900 dark:text-white">
             登录 {siteConfig.title}
           </h1>
-          <p className="mt-1.5 text-sm text-ink-500">登录后即可在线撰写与发布文章</p>
+          <p className="mt-1.5 text-sm text-ink-500">登录后即可在线撰写与发布文章、参与评论</p>
         </div>
 
         <div className="card p-6 sm:p-7">
-          {/* Tab 切换 */}
+          {/* Tab 切换：GitHub 登录放在第一个 */}
           <div className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-ink-100/80 p-1 dark:bg-white/5">
             {(
               [
-                { id: 'password', label: '密码登录', icon: Lock },
                 { id: 'github', label: 'GitHub OAuth', icon: Github },
+                { id: 'password', label: '密码登录', icon: Lock },
               ] as const
             ).map((t) => (
               <button
@@ -77,7 +77,38 @@ export default function Login() {
             ))}
           </div>
 
-          {tab === 'password' ? (
+          {tab === 'github' ? (
+            <div className="space-y-4">
+              <div>
+                <span className="mb-1.5 block text-sm font-medium text-ink-700 dark:text-ink-200">
+                  GitHub OAuth 授权
+                </span>
+                <GithubConnect
+                  label="使用 GitHub 登录"
+                  onToken={async (token) => {
+                    const user = await loginWithGithub(token)
+                    toast(`已连接 GitHub：@${user.login}`, 'success')
+                    navigate(location.state?.from || '/admin', { replace: true })
+                  }}
+                />
+                <div className="mt-3 rounded-xl border border-brand-200/70 bg-brand-50/50 p-3 text-xs leading-relaxed text-ink-600 dark:border-brand-400/20 dark:bg-brand-500/[0.07] dark:text-ink-300">
+                  <p className="flex items-center gap-1.5 font-medium text-brand-700 dark:text-brand-300">
+                    <ShieldCheck size={13} />
+                    授权流程（OAuth Device Flow）
+                  </p>
+                  <ol className="mt-1.5 list-decimal space-y-0.5 pl-4">
+                    <li>点击上方按钮，验证码将<strong>自动复制</strong>到剪贴板</li>
+                    <li>在自动打开的 GitHub 验证页面粘贴并授权</li>
+                    <li>回到本页自动完成登录，无需手动创建或粘贴 Token</li>
+                  </ol>
+                  <p className="mt-2 text-ink-500 dark:text-ink-400">
+                    申请范围为 <code className="rounded bg-ink-100 px-1 dark:bg-white/10">{oauthConfig.scope}</code>
+                    ，授权令牌只保存在你当前浏览器的 localStorage 中，不会上传到任何第三方服务器。
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
             <form onSubmit={submit} className="space-y-4">
               <div>
                 <label htmlFor="pwd" className="mb-1.5 block text-sm font-medium text-ink-700 dark:text-ink-200">
@@ -107,7 +138,6 @@ export default function Login() {
                   <HelpCircle size={13} className="mt-px shrink-0" />
                   默认密码 <code className="rounded bg-ink-100 px-1 dark:bg-white/10">starlog</code>
                   ，可在 <code className="rounded bg-ink-100 px-1 dark:bg-white/10">src/lib/config.ts</code> 中修改。
-                  密码登录只能写本地草稿。
                 </p>
               </div>
 
@@ -122,37 +152,6 @@ export default function Login() {
                 {loading ? '验证中…' : '登录'}
               </button>
             </form>
-          ) : (
-            <div className="space-y-4">
-              <div>
-                <span className="mb-1.5 block text-sm font-medium text-ink-700 dark:text-ink-200">
-                  GitHub OAuth 授权
-                </span>
-                <GithubConnect
-                  label="使用 GitHub 登录"
-                  onToken={async (token) => {
-                    const user = await loginWithGithub(token)
-                    toast(`已连接 GitHub：@${user.login}`, 'success')
-                    navigate(location.state?.from || '/admin', { replace: true })
-                  }}
-                />
-                <div className="mt-3 rounded-xl border border-brand-200/70 bg-brand-50/50 p-3 text-xs leading-relaxed text-ink-600 dark:border-brand-400/20 dark:bg-brand-500/[0.07] dark:text-ink-300">
-                  <p className="flex items-center gap-1.5 font-medium text-brand-700 dark:text-brand-300">
-                    <ShieldCheck size={13} />
-                    授权流程（OAuth Device Flow）
-                  </p>
-                  <ol className="mt-1.5 list-decimal space-y-0.5 pl-4">
-                    <li>点击上方按钮，复制显示的一次性验证码</li>
-                    <li>在 GitHub 验证页面输入验证码并授权</li>
-                    <li>回到本页自动完成登录，无需手动创建或粘贴 Token</li>
-                  </ol>
-                  <p className="mt-2 text-ink-500 dark:text-ink-400">
-                    申请范围为 <code className="rounded bg-ink-100 px-1 dark:bg-white/10">{oauthConfig.scope}</code>
-                    ，授权令牌只保存在你当前浏览器的 localStorage 中，不会上传到任何服务器。
-                  </p>
-                </div>
-              </div>
-            </div>
           )}
         </div>
 

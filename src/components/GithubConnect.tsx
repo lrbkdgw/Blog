@@ -28,14 +28,12 @@ interface Props {
 export function missingOAuthConfig(): string[] {
   const missing: string[] = []
   if (!oauthConfig.clientId.trim()) missing.push('OAuth App Client ID（oauthConfig.clientId）')
-  // relayUrl 可留空：Cloudflare Pages 部署使用仓库内置的同源 Pages Function；
-  // 仅 GitHub Pages 部署时必须显式配置（留空时授权会给出相应错误提示）
   return missing
 }
 
 /**
  * GitHub OAuth 授权（Device Flow，RFC 8628）：
- * 点按钮 → 显示一次性验证码并自动打开 GitHub 验证页 → 轮询直至授权完成。
+ * 点按钮 → 显示一次性验证码并自动复制到剪贴板，自动打开 GitHub 验证页 → 轮询直至授权完成。
  */
 export default function GithubConnect({ onToken, label = '使用 GitHub 登录', size = 'lg' }: Props) {
   const [phase, setPhase] = useState<Phase>('idle')
@@ -67,6 +65,18 @@ export default function GithubConnect({ onToken, label = '使用 GitHub 登录',
     return () => clearInterval(timer)
   }, [phase, flow])
 
+  const copyCode = useCallback(async (codeToCopy?: string) => {
+    const targetCode = codeToCopy || flow?.userCode
+    if (!targetCode) return
+    try {
+      await navigator.clipboard.writeText(targetCode)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      /* 剪贴板不可用时容错，用户仍可手动复制 */
+    }
+  }, [flow])
+
   const start = useCallback(async () => {
     setError('')
     setPhase('starting')
@@ -77,12 +87,21 @@ export default function GithubConnect({ onToken, label = '使用 GitHub 登录',
       if (controller.signal.aborted) return
       setFlow(info)
       setPhase('waiting')
-      // 自动打开 GitHub 验证页（若被浏览器拦截，界面里还有手动按钮）
+
+      // 点击登录后自动复制登录代码
+      try {
+        await navigator.clipboard.writeText(info.userCode)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch {
+        /* 容错 */
+      }
+
+      // 自动打开 GitHub 验证页
       window.open(info.verificationUri, '_blank', 'noopener')
       const token = await pollDeviceToken(info, controller.signal)
       if (controller.signal.aborted) return
       setPhase('finishing')
-      // 等待父级完成登录（校验 token、写会话等）；失败则回退展示错误
       await onToken(token)
       reset()
     } catch (err) {
@@ -94,17 +113,6 @@ export default function GithubConnect({ onToken, label = '使用 GitHub 登录',
     }
   }, [onToken, reset])
 
-  const copyCode = useCallback(async () => {
-    if (!flow) return
-    try {
-      await navigator.clipboard.writeText(flow.userCode)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1600)
-    } catch {
-      /* 剪贴板不可用时忽略，用户可手动选择复制 */
-    }
-  }, [flow])
-
   if (missing.length > 0) {
     return (
       <div className="rounded-xl border border-amber-200/80 bg-amber-50/60 p-4 text-xs leading-relaxed text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/[0.08] dark:text-amber-300">
@@ -115,7 +123,6 @@ export default function GithubConnect({ onToken, label = '使用 GitHub 登录',
         <p className="mt-1.5">
           缺少：{missing.join('、')}。配置方法见仓库 README「🔑 配置 OAuth 登录」一节或{' '}
           <code className="rounded bg-amber-100/80 px-1 dark:bg-amber-500/15">src/lib/config.ts</code>。
-          若部署在 GitHub Pages，还需配置 <code className="rounded bg-amber-100/80 px-1 dark:bg-amber-500/15">oauthConfig.relayUrl</code>。
         </p>
       </div>
     )
@@ -124,19 +131,18 @@ export default function GithubConnect({ onToken, label = '使用 GitHub 登录',
   const busy = phase === 'starting' || phase === 'finishing'
   const mm = String(Math.floor(remaining / 60)).padStart(2, '0')
   const ss = String(remaining % 60).padStart(2, '0')
-  const btnBase =
-    size === 'lg'
-      ? 'btn-primary h-11 w-full'
-      : 'btn-primary h-9'
+  const btnBase = size === 'lg' ? 'btn-primary h-11 w-full' : 'btn-primary h-9'
 
   return (
     <div className="space-y-3">
       {phase === 'waiting' && flow ? (
         <div className="animate-fade-up rounded-xl border border-brand-200/80 bg-brand-50/60 p-4 text-center dark:border-brand-400/25 dark:bg-brand-500/[0.08]">
-          <p className="text-xs text-ink-500 dark:text-ink-300">在 GitHub 验证页面输入下面的验证码</p>
+          <p className="text-xs text-ink-500 dark:text-ink-300">
+            {copied ? '✅ 验证码已自动复制！请在 GitHub 页面粘贴授权：' : '在 GitHub 验证页面输入下面的验证码：'}
+          </p>
           <button
             type="button"
-            onClick={copyCode}
+            onClick={() => copyCode(flow.userCode)}
             title="点击复制"
             className="group mx-auto mt-2 flex items-center gap-2 rounded-lg bg-white/80 px-4 py-2 font-mono text-2xl font-bold tracking-[0.18em] text-ink-900 shadow-sm ring-1 ring-ink-900/5 transition hover:ring-brand-400/50 dark:bg-white/10 dark:text-white dark:ring-white/10"
           >

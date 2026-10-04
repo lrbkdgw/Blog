@@ -15,6 +15,10 @@
     --site-background-glow-secondary: rgba(129, 140, 248, 0.15);
     --site-background-tint-primary: rgba(0, 0, 0, 0);
     --site-background-tint-secondary: rgba(0, 0, 0, 0);
+    --site-background-gradient-size-1: 62rem 44rem;
+    --site-background-gradient-size-2: 54rem 42rem;
+    --site-background-gradient-stop-1: 68%;
+    --site-background-gradient-stop-2: 70%;
   }
   .dark {
     color-scheme: dark;
@@ -29,12 +33,14 @@
   body {
     @apply text-ink-800 antialiased dark:text-ink-200;
     background-color: var(--site-background);
-    background-image: radial-gradient(62rem 44rem at -14% -18%, var(--site-background-tint-primary), transparent 68%),
-      radial-gradient(54rem 42rem at 112% 28%, var(--site-background-tint-secondary), transparent 70%),
+    background-image:
+      radial-gradient(var(--site-background-gradient-size-1) at -14% -18%, var(--site-background-tint-primary), transparent var(--site-background-gradient-stop-1)),
+      radial-gradient(var(--site-background-gradient-size-2) at 112% 28%, var(--site-background-tint-secondary), transparent var(--site-background-gradient-stop-2)),
       radial-gradient(62rem 44rem at -14% -18%, var(--site-background-glow-primary), transparent 68%),
       radial-gradient(54rem 42rem at 112% 28%, var(--site-background-glow-secondary), transparent 70%);
     background-attachment: fixed;
     background-repeat: no-repeat;
+    background-size: cover;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
   }
   .dark body {
@@ -232,27 +238,25 @@
 .prose blockquote p:last-of-type::after {
   content: '';
 }
-/* Markdown 表格：在桌面端保持清晰层级，窄屏可横向滚动而不挤压文字。 */
+
+/* Markdown 表格：方边，无交替黑白 */
 .prose .markdown-table {
-  @apply my-8 overflow-x-auto rounded-2xl border border-ink-200/80 bg-white shadow-[0_10px_28px_-22px_rgba(16,24,40,.32)] dark:border-white/10 dark:bg-white/[0.025] dark:shadow-none;
+  @apply my-8 overflow-x-auto rounded-none border border-ink-200/80 bg-white shadow-sm dark:border-white/10 dark:bg-white/[0.025];
 }
 .prose .markdown-table > table {
-  @apply !my-0 w-full min-w-[38rem] border-separate border-spacing-0 text-left text-sm leading-6;
+  @apply !my-0 w-full min-w-[38rem] border-collapse text-left text-sm leading-6;
 }
 .prose .markdown-table thead {
-  @apply bg-gradient-to-r from-brand-50 to-indigo-50/70 dark:from-brand-500/[0.14] dark:to-indigo-500/[0.08];
+  @apply bg-ink-50/80 dark:bg-white/[0.05];
 }
 .prose .markdown-table th {
-  @apply whitespace-nowrap border-b border-ink-200/80 px-5 py-3 font-semibold text-ink-800 first:pl-5 dark:border-white/10 dark:text-ink-100;
+  @apply whitespace-nowrap border-b border-ink-200/80 px-5 py-3 font-semibold text-ink-800 dark:border-white/10 dark:text-ink-100;
 }
 .prose .markdown-table td {
-  @apply border-b border-ink-100 px-5 py-3 align-top text-ink-600 last:border-b-0 dark:border-white/[0.07] dark:text-ink-300;
-}
-.prose .markdown-table tbody tr:nth-child(even) {
-  @apply bg-ink-50/70 dark:bg-white/[0.025];
+  @apply border-b border-ink-100 px-5 py-3 align-middle text-ink-600 last:border-b-0 dark:border-white/[0.07] dark:text-ink-300;
 }
 .prose .markdown-table tbody tr {
-  @apply transition-colors hover:bg-brand-50/60 dark:hover:bg-brand-500/[0.08];
+  @apply bg-transparent transition-colors hover:bg-brand-50/40 dark:hover:bg-brand-500/[0.05];
 }
 .prose .markdown-table td :where(code) {
   @apply whitespace-nowrap bg-ink-100/80 text-[.85em] dark:bg-white/10;
@@ -260,6 +264,92 @@
 .prose .markdown-table tr:last-child td {
   @apply border-b-0;
 }
+
+/* Tuack 风格表格 (::cute-table{tuack}) */
+.prose .markdown-table.table-tuack,
+.prose .table-tuack-wrapper .markdown-table {
+  @apply my-6 rounded-none border border-ink-300/90 bg-white shadow-none dark:border-white/20 dark:bg-ink-950/40;
+}
+.prose .markdown-table.table-tuack > table,
+.prose .table-tuack-wrapper .markdown-table > table {
+  @apply border-collapse text-center;
+}
+.prose .markdown-table.table-tuack th,
+.prose .table-tuack-wrapper .markdown-table th {
+  @apply border border-ink-300/90 bg-ink-100 px-4 py-2 font-bold text-ink-900 dark:border-white/20 dark:bg-white/10 dark:text-white;
+}
+.prose .markdown-table.table-tuack td,
+.prose .table-tuack-wrapper .markdown-table td {
+  @apply border border-ink-300/80 px-4 py-2 text-ink-700 dark:border-white/15 dark:text-ink-200;
+}
+.prose .markdown-table.table-tuack tbody tr,
+.prose .table-tuack-wrapper .markdown-table tbody tr {
+  @apply bg-transparent hover:bg-ink-50/70 dark:hover:bg-white/[0.03];
+}
+
+/* 折叠框 (Callouts) */
+.prose details.callout {
+  @apply my-6 overflow-hidden rounded-xl border text-sm transition-all duration-200;
+}
+.prose details.callout summary.callout-summary {
+  @apply flex cursor-pointer list-none select-none items-center gap-2.5 px-4 py-3 font-semibold outline-none transition-colors;
+}
+.prose details.callout summary::-webkit-details-marker {
+  display: none;
+}
+.prose details.callout .callout-content {
+  @apply border-t px-4 py-3.5 text-[14.5px] leading-relaxed;
+}
+.prose details.callout .callout-content > :first-child {
+  @apply mt-0;
+}
+.prose details.callout .callout-content > :last-child {
+  @apply mb-0;
+}
+
+.prose details.callout-info {
+  @apply border-sky-200 bg-sky-50/50 text-sky-950 dark:border-sky-500/25 dark:bg-sky-500/[0.07] dark:text-sky-100;
+}
+.prose details.callout-info summary.callout-summary {
+  @apply text-sky-800 hover:bg-sky-100/50 dark:text-sky-300 dark:hover:bg-sky-500/10;
+}
+.prose details.callout-info .callout-content {
+  @apply border-sky-200/70 dark:border-sky-500/20 text-ink-700 dark:text-ink-200;
+}
+
+.prose details.callout-success {
+  @apply border-emerald-200 bg-emerald-50/50 text-emerald-950 dark:border-emerald-500/25 dark:bg-emerald-500/[0.07] dark:text-emerald-100;
+}
+.prose details.callout-success summary.callout-summary {
+  @apply text-emerald-800 hover:bg-emerald-100/50 dark:text-emerald-300 dark:hover:bg-emerald-500/10;
+}
+.prose details.callout-success .callout-content {
+  @apply border-emerald-200/70 dark:border-emerald-500/20 text-ink-700 dark:text-ink-200;
+}
+
+.prose details.callout-warning {
+  @apply border-amber-200 bg-amber-50/50 text-amber-950 dark:border-amber-500/25 dark:bg-amber-500/[0.07] dark:text-amber-100;
+}
+.prose details.callout-warning summary.callout-summary {
+  @apply text-amber-800 hover:bg-amber-100/50 dark:text-amber-300 dark:hover:bg-amber-500/10;
+}
+.prose details.callout-warning .callout-content {
+  @apply border-amber-200/70 dark:border-amber-500/20 text-ink-700 dark:text-ink-200;
+}
+
+.prose details.callout-error,
+.prose details.callout-danger {
+  @apply border-rose-200 bg-rose-50/50 text-rose-950 dark:border-rose-500/25 dark:bg-rose-500/[0.07] dark:text-rose-100;
+}
+.prose details.callout-error summary.callout-summary,
+.prose details.callout-danger summary.callout-summary {
+  @apply text-rose-800 hover:bg-rose-100/50 dark:text-rose-300 dark:hover:bg-rose-500/10;
+}
+.prose details.callout-error .callout-content,
+.prose details.callout-danger .callout-content {
+  @apply border-rose-200/70 dark:border-rose-500/20 text-ink-700 dark:text-ink-200;
+}
+
 .prose img {
   @apply mx-auto rounded-xl shadow-lg;
 }

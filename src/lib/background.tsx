@@ -6,7 +6,7 @@ import { useAuth } from './auth'
 
 export interface BackgroundPreference {
   color: string
-  /** 0–100：自定义颜色在渐变中的明显程度 */
+  /** 0–100：自定义颜色在渐变中的明显程度，最大 100% 时全屏覆盖且不透明 */
   intensity: number
   updatedAt: number
 }
@@ -68,27 +68,58 @@ function toRgbaString(r: number, g: number, b: number, alpha: number) {
 
 function applyToDocument(color: string, intensity: number) {
   const root = document.documentElement
-  // 清理旧版“纯色覆盖”变量：自定义颜色现在始终作为原渐变上的柔光层。
-  root.style.removeProperty('--site-background')
-  root.style.removeProperty('--site-background-dark')
 
   if (!color) {
+    root.style.removeProperty('--site-background')
+    root.style.removeProperty('--site-background-dark')
     root.style.removeProperty('--site-background-tint-primary')
     root.style.removeProperty('--site-background-tint-secondary')
+    root.style.removeProperty('--site-background-gradient-size-1')
+    root.style.removeProperty('--site-background-gradient-size-2')
+    root.style.removeProperty('--site-background-gradient-stop-1')
+    root.style.removeProperty('--site-background-gradient-stop-2')
     root.removeAttribute('data-background-color')
     return
   }
 
   const { r, g, b, alpha } = toRgba(color)
   const amount = normalizeBackgroundIntensity(intensity) / 100
-  // 两束不同色相与不同透明度的柔光叠在基础双渐变上；50% 接近站点原始渐变强度。
-  const secondary = { r: mix(r, 129, 0.3), g: mix(g, 140, 0.3), b: mix(b, 248, 0.3) }
-  const primaryGlow = toRgbaString(r, g, b, alpha * 0.42 * amount)
-  const secondaryGlow = toRgbaString(secondary.r, secondary.g, secondary.b, alpha * 0.3 * amount)
+
+  // 强化渐变效果：
+  // 100% 最大效果下：alpha 达到 1.0（完全不透明），渐变半径扩展覆盖全屏（100% stop），并在底色层使用混合色使全屏不透明覆盖。
+  const effectivePrimaryAlpha = alpha * Math.min(1, 0.15 + 0.85 * (amount ** 1.1))
+  const effectiveSecondaryAlpha = alpha * Math.min(1, 0.12 + 0.88 * (amount ** 1.1))
+
+  const secondary = { r: mix(r, 129, 0.35), g: mix(g, 140, 0.35), b: mix(b, 248, 0.35) }
+  const primaryGlow = toRgbaString(r, g, b, effectivePrimaryAlpha)
+  const secondaryGlow = toRgbaString(secondary.r, secondary.g, secondary.b, effectiveSecondaryAlpha)
+
+  // 动态尺寸与停靠点（最大效果覆盖全屏）
+  const size1 = `${Math.round(62 + amount * 120)}rem ${Math.round(44 + amount * 100)}rem`
+  const size2 = `${Math.round(54 + amount * 120)}rem ${Math.round(42 + amount * 100)}rem`
+  const stop1 = `${Math.round(68 + amount * 32)}%`
+  const stop2 = `${Math.round(70 + amount * 30)}%`
 
   root.style.setProperty('--site-background-tint-primary', primaryGlow)
   root.style.setProperty('--site-background-tint-secondary', secondaryGlow)
+  root.style.setProperty('--site-background-gradient-size-1', size1)
+  root.style.setProperty('--site-background-gradient-size-2', size2)
+  root.style.setProperty('--site-background-gradient-stop-1', stop1)
+  root.style.setProperty('--site-background-gradient-stop-2', stop2)
+
+  if (amount >= 0.95) {
+    // 最大效果下覆盖全屏且不透明
+    const solidBase = toRgbaString(mix(r, 251, 1 - amount), mix(g, 251, 1 - amount), mix(b, 253, 1 - amount), 1)
+    const solidBaseDark = toRgbaString(mix(r, 13, 1 - amount), mix(g, 16, 1 - amount), mix(b, 23, 1 - amount), 1)
+    root.style.setProperty('--site-background', solidBase)
+    root.style.setProperty('--site-background-dark', solidBaseDark)
+  } else {
+    root.style.removeProperty('--site-background')
+    root.style.removeProperty('--site-background-dark')
+  }
+
   root.dataset.backgroundColor = color
+  root.dataset.backgroundIntensity = String(intensity)
 }
 
 function writeLocal(preference: BackgroundPreference) {
@@ -107,7 +138,7 @@ function readLocal(): BackgroundPreference {
       }
     }
   } catch {
-    // 无法识别旧值时使用默认背景，避免非法样式注入页面。
+    // 无法识别旧值时使用默认背景
   }
   return DEFAULT_BACKGROUND
 }
@@ -154,8 +185,6 @@ export function BackgroundProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     applyToDocument(background.color, background.intensity)
-    // 只在首次挂载时恢复本地背景；后续更新由 commit() 处理。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {

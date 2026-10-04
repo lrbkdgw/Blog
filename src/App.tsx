@@ -35,11 +35,12 @@ export default function App() {
           <Route path="tags" element={<TagsPage />} />
           <Route path="tags/:tag" element={<TagsPage />} />
           <Route path="about" element={<About />} />
+          <Route path="settings" element={<SettingsPage />} />
           <Route path="login" element={<Login />} />
           <Route path="admin" element={protect(<Admin />)} />
           <Route path="admin/new" element={protect(<Editor />)} />
           <Route path="admin/edit/:slug" element={protect(<Editor />)} />
-          <Route path="admin/settings" element={protect(<SettingsPage />)} />
+          <Route path="admin/settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>

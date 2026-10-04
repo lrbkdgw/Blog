@@ -214,6 +214,10 @@ function Header({ onSearch }: { onSearch: () => void }) {
             <Search size={17} />
           </button>
 
+          <Link to="/settings" className="btn-ghost h-9 w-9 !px-0 text-ink-500 hover:text-brand-600 dark:text-ink-400 dark:hover:text-brand-300" title="设置" aria-label="设置">
+            <Settings size={18} />
+          </Link>
+
           <ThemeToggle />
 
           {isAuthed && (
@@ -253,6 +257,10 @@ function Header({ onSearch }: { onSearch: () => void }) {
               </NavLink>
             ))}
             <div className="mt-2 flex gap-2 border-t border-ink-200/60 pt-3 dark:border-white/10">
+              <Link to="/settings" className="btn-outline">
+                <Settings size={15} />
+                设置
+              </Link>
               {isAuthed ? (
                 <>
                   <Link to="/admin" className="btn-outline flex-1">
