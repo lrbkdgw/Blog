@@ -17,10 +17,18 @@
           var dark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
           if (dark) document.documentElement.classList.add('dark')
 
-          var savedFont = JSON.parse(localStorage.getItem('starlog:font') || 'null')
-          var family = savedFont && typeof savedFont.family === 'string' ? savedFont.family.trim() : ''
-          if (family && family.length <= 120 && !/[{};<>\n\r]/.test(family)) {
-            var quoted = '"' + family.replace(/["\\]/g, '\\$&') + '"'
+          var personalSettings = JSON.parse(localStorage.getItem('starlog:personal-settings') || 'null')
+          var savedFont = (personalSettings && personalSettings.font) || JSON.parse(localStorage.getItem('starlog:font') || 'null')
+          var families = savedFont && Array.isArray(savedFont.families)
+            ? savedFont.families
+            : savedFont && typeof savedFont.family === 'string'
+              ? [savedFont.family]
+              : []
+          var validFamilies = families
+            .map(function (item) { return typeof item === 'string' ? item.trim() : '' })
+            .filter(function (item) { return item && item.length <= 120 && !/[{};<>\n\r]/.test(item) })
+          if (validFamilies.length) {
+            var quoted = validFamilies.map(function (family) { return '"' + family.replace(/["\\]/g, '\\$&') + '"' }).join(', ')
             document.documentElement.style.setProperty(
               '--font-sans',
               quoted + ', system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif',
@@ -31,7 +39,7 @@
             )
           }
 
-          var savedBackground = JSON.parse(localStorage.getItem('starlog:background') || 'null')
+          var savedBackground = (personalSettings && personalSettings.background) || JSON.parse(localStorage.getItem('starlog:background') || 'null')
           var color = savedBackground && typeof savedBackground.color === 'string' ? savedBackground.color.trim() : ''
           if (/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color)) {
             var hex = color.slice(1)

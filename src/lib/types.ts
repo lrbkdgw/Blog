@@ -15,6 +15,8 @@ export interface PostMeta {
   /** 置顶 */
   pinned?: boolean
   author?: string
+  /** 加密文章的序列化信封；存在时 content 仅是占位内容，需要密码解锁。 */
+  encryption?: string
 }
 
 export interface Post extends PostMeta {

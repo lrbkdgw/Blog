@@ -19,20 +19,24 @@ import {
   ListOrdered,
   Loader2,
   LogIn,
+  LockKeyhole,
   Maximize2,
   Minimize2,
   Pencil,
   Quote,
   Save,
   Sigma,
+  SlidersHorizontal,
   Strikethrough,
   Table2,
   Trash2,
   Upload,
 } from 'lucide-react'
 import { Markdown } from '../components/Markdown'
+import { PasswordPrompt } from '../components/PasswordPrompt'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../lib/auth'
+import { decryptPost, encryptPostMarkdown } from '../lib/crypto'
 import {
   checkUserRepoPermissions,
   commitPost,
@@ -106,17 +110,25 @@ export default function Editor() {
     () => (routeSlug ? getPostBySlug(routeSlug, sourceParam) : undefined),
     [routeSlug, sourceParam],
   )
+  const prefetchedDraft = (location.state as { draft?: Post } | null)?.draft
+  // A historic version that has no matching editable post arrives here as a new local draft.
+  const initial = prefetchedDraft ?? existing
+  const prefetchedProtected = (location.state as { protected?: boolean } | null)?.protected === true
+  const encryptedSource = Boolean(existing?.encryption)
+  // Historic protected versions arrive already decrypted, but must still never
+  // be written back as a plaintext local draft.
+  const protectedExisting = encryptedSource || prefetchedProtected
   const originalSlug = useRef(existing?.slug)
 
-  const [title, setTitle] = useState(existing?.title ?? '')
-  const [slug, setSlug] = useState(existing?.slug ?? '')
-  const [date, setDate] = useState(existing?.date ?? today())
-  const [tagsText, setTagsText] = useState(existing?.tags.join(', ') ?? '')
-  const [summary, setSummary] = useState(existing?.summary ?? '')
-  const [cover, setCover] = useState(existing?.cover ?? '')
-  const [draft, setDraft] = useState(existing?.draft ?? false)
-  const [pinned, setPinned] = useState(existing?.pinned ?? false)
-  const [content, setContent] = useState(existing?.content ?? STARTER)
+  const [title, setTitle] = useState(encryptedSource ? '' : (initial?.title ?? ''))
+  const [slug, setSlug] = useState(encryptedSource ? '' : (initial?.slug ?? ''))
+  const [date, setDate] = useState(encryptedSource ? today() : (initial?.date ?? today()))
+  const [tagsText, setTagsText] = useState(encryptedSource ? '' : (initial?.tags.join(', ') ?? ''))
+  const [summary, setSummary] = useState(encryptedSource ? '' : (initial?.summary ?? ''))
+  const [cover, setCover] = useState(encryptedSource ? '' : (initial?.cover ?? ''))
+  const [draft, setDraft] = useState(encryptedSource ? false : (initial?.draft ?? false))
+  const [pinned, setPinned] = useState(encryptedSource ? false : (initial?.pinned ?? false))
+  const [content, setContent] = useState(encryptedSource ? '' : (initial?.content ?? STARTER))
 
   const [view, setView] = useState<ViewMode>('split')
   const [metaOpen, setMetaOpen] = useState(!existing)
@@ -126,16 +138,23 @@ export default function Editor() {
   const [publishing, setPublishing] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [canDirectPush, setCanDirectPush] = useState(false)
+  const [isRepoAdmin, setIsRepoAdmin] = useState(false)
+  const [unlocked, setUnlocked] = useState(!encryptedSource)
+  const [encryptOnPublish, setEncryptOnPublish] = useState(protectedExisting)
+  const [encryptionPassword, setEncryptionPassword] = useState('')
+  const [encryptionConfirm, setEncryptionConfirm] = useState('')
 
   const target = getRepoTarget()
 
   useEffect(() => {
     if (!ghUser) {
       setCanDirectPush(false)
+      setIsRepoAdmin(false)
       return
     }
     checkUserRepoPermissions(ghUser.login, target).then((res) => {
       setCanDirectPush(res.canPush || res.canAdmin)
+      setIsRepoAdmin(res.canAdmin)
     })
   }, [ghUser, target])
 
@@ -153,6 +172,32 @@ export default function Editor() {
   )
   const effectiveSlug = slug.trim() || slugify(title) || 'untitled'
   const words = useMemo(() => countWords(content), [content])
+
+  const hydratePost = useCallback((post: Post) => {
+    setTitle(post.title)
+    setSlug(post.slug)
+    setDate(post.date)
+    setTagsText(post.tags.join(', '))
+    setSummary(post.summary)
+    setCover(post.cover || '')
+    setDraft(post.draft)
+    setPinned(Boolean(post.pinned))
+    setContent(post.content)
+    setSavedAt(post.savedAt ?? null)
+    setDirty(false)
+  }, [])
+
+  useEffect(() => {
+    const incoming = (location.state as { draft?: Post } | null)?.draft ?? existing
+    if (existing?.encryption) {
+      setUnlocked(false)
+      setEncryptOnPublish(true)
+      return
+    }
+    setUnlocked(true)
+    setEncryptOnPublish(prefetchedProtected)
+    if (incoming) hydratePost(incoming)
+  }, [routeSlug, sourceParam, location.state, existing, prefetchedProtected, hydratePost])
 
   useEffect(() => {
     document.title = `${title || '未命名文章'} · 编辑器`
@@ -177,10 +222,26 @@ export default function Editor() {
     [effectiveSlug, title, date, summary, content, tags, cover, draft, pinned, existing, words],
   )
 
+  const unlockExisting = async (password: string) => {
+    if (!existing?.encryption) return
+    const decrypted = await decryptPost(existing, password)
+    hydratePost(decrypted)
+    originalSlug.current = decrypted.slug
+    setUnlocked(true)
+  }
+
   /* ------------------------------- 保存草稿 ------------------------------- */
   const save = useCallback(
     (silent = false) => {
       const post = buildDraftPost()
+      // Never leave a decrypted protected article in localStorage. A published
+      // encrypted version must always require its password when reopened.
+      if (protectedExisting) {
+        setSavedAt(Date.now())
+        setDirty(false)
+        if (!silent) toast('已保留在当前编辑器中；发布时会再次加密，不会写入明文草稿', 'info')
+        return post
+      }
       saveLocalPost(post, originalSlug.current)
       originalSlug.current = post.slug
       setSavedAt(Date.now())
@@ -191,7 +252,7 @@ export default function Editor() {
       }
       return post
     },
-    [buildDraftPost, navigate, routeSlug, toast],
+    [buildDraftPost, navigate, protectedExisting, routeSlug, toast],
   )
 
   // 自动保存
@@ -287,6 +348,19 @@ export default function Editor() {
         withSelection((v, s, e) => insertBlock(v, s, e, '$$\n\\int_a^b f(x)\\,\\mathrm{d}x\n$$\n')),
     },
     {
+      icon: SlidersHorizontal,
+      title: '交互展示框',
+      run: () =>
+        withSelection((v, s, e) =>
+          insertBlock(
+            v,
+            s,
+            e,
+            '::show_begin{二次函数展示}{a:Z=1[-5,5,1]; b:Q=0[-10,10,0.5]{faster_set}}\\n当 *&show(a)*&、*&show(b)*& 时，$a^2+b$ = *&hs(a^2+b)*&。\\n*&a:{-1,负一;0,零;1,正一}*&\\n::show_end\\n',
+          ),
+        ),
+    },
+    {
       icon: Table2,
       title: '表格（支持合并与 Tuack）',
       run: () =>
@@ -361,14 +435,40 @@ export default function Editor() {
       return
     }
 
+    if (encryptOnPublish) {
+      if (!isRepoAdmin) {
+        toast('只有目标仓库管理员可以发布带密码的文章', 'warning')
+        return
+      }
+      if (!encryptionPassword) {
+        toast('请输入文章加密密码', 'warning')
+        setMetaOpen(true)
+        return
+      }
+      if (encryptionPassword !== encryptionConfirm) {
+        toast('两次输入的密码不一致', 'warning')
+        setMetaOpen(true)
+        return
+      }
+    }
+
     setPublishing(true)
     try {
-      const markdown = serializePost(post)
+      const markdown = encryptOnPublish
+        ? await encryptPostMarkdown(post, encryptionPassword)
+        : serializePost(post)
 
       if (canDirectPush) {
         // 管理员/直接拥有 push 权限：直推 main 分支
         const res = await commitPost(post.slug, markdown, `post(blog): ${post.title}`)
         recordPublishTime(post.slug, Date.now())
+        // A plaintext local autosave must not shadow the encrypted repository
+        // article on the public route after the next reload.
+        if (encryptOnPublish) {
+          deleteLocalPost(post.slug)
+          setEncryptionPassword('')
+          setEncryptionConfirm('')
+        }
         toast(
           `已提交到 ${target.owner}/${target.repo} 的 ${res.path}\nGitHub Actions 正在部署中，约 1-2 分钟生效。`,
           'success',
@@ -420,6 +520,18 @@ export default function Editor() {
   }
 
   const previewPost = buildDraftPost()
+
+  if (protectedExisting && !unlocked) {
+    return (
+      <div className="container-page flex min-h-[65vh] items-center justify-center py-10">
+        <PasswordPrompt
+          title="解锁后编辑文章"
+          description="该 GitHub 文章以密码加密。请输入密码后才会将内容载入编辑器。"
+          onUnlock={unlockExisting}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className={fullscreen ? 'fixed inset-0 z-[80] overflow-y-auto bg-white p-6 dark:bg-ink-950' : 'container-page pt-8'}>
@@ -632,6 +744,46 @@ export default function Editor() {
                     {c.label}
                   </label>
                 ))}
+                {isRepoAdmin && (
+                  <div className="w-full rounded-xl border border-brand-200/70 bg-brand-50/40 p-3 dark:border-brand-500/20 dark:bg-brand-500/[0.06]">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-ink-700 dark:text-ink-200">
+                      <input
+                        type="checkbox"
+                        checked={encryptOnPublish}
+                        onChange={(event) => {
+                          setEncryptOnPublish(event.target.checked)
+                          markDirty()
+                        }}
+                        className="h-4 w-4 rounded accent-brand-500"
+                      />
+                      <LockKeyhole size={14} className="text-brand-600 dark:text-brand-300" />
+                      发布为带密码的加密文章
+                    </label>
+                    {encryptOnPublish && (
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <input
+                          type="password"
+                          value={encryptionPassword}
+                          onChange={(event) => setEncryptionPassword(event.target.value)}
+                          autoComplete="new-password"
+                          placeholder="设置文章密码"
+                          className="input !py-2 text-xs"
+                        />
+                        <input
+                          type="password"
+                          value={encryptionConfirm}
+                          onChange={(event) => setEncryptionConfirm(event.target.value)}
+                          autoComplete="new-password"
+                          placeholder="再次输入密码"
+                          className="input !py-2 text-xs"
+                        />
+                      </div>
+                    )}
+                    <p className="mt-2 text-xs leading-relaxed text-ink-500 dark:text-ink-400">
+                      使用浏览器 Web Crypto 加密完整文章后再提交；密码不会写入 GitHub 或本机。之后查看和编辑都需要该密码。
+                    </p>
+                  </div>
+                )}
                 {existing?.source === 'local' && (
                   <button onClick={removeDraft} className="btn-danger ml-auto h-8 text-xs">
                     <Trash2 size={13} />

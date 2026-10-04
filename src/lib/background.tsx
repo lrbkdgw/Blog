@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { STORAGE_KEYS } from './config'
+import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 import { fetchGithubBackgroundPreference, saveGithubBackgroundPreference } from './github'
 import { useAuth } from './auth'
 
@@ -123,13 +124,16 @@ function applyToDocument(color: string, intensity: number) {
 }
 
 function writeLocal(preference: BackgroundPreference) {
-  localStorage.setItem(STORAGE_KEYS.background, JSON.stringify(preference))
+  writePersonalSetting('background', preference)
 }
 
 function readLocal(): BackgroundPreference {
   if (typeof window === 'undefined') return DEFAULT_BACKGROUND
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.background) || 'null')
+    const parsed = readPersonalSetting<{ color?: unknown; intensity?: unknown; updatedAt?: unknown }>(
+      'background',
+      STORAGE_KEYS.background,
+    )
     if (parsed && typeof parsed.color === 'string') {
       return {
         color: normalizeBackgroundColor(parsed.color),
@@ -182,6 +186,22 @@ export function BackgroundProvider({ children }: { children: ReactNode }) {
   const resetBackground = useCallback(() => {
     commit({ ...DEFAULT_BACKGROUND, updatedAt: Date.now() })
   }, [commit])
+
+  // Match the comments' browser-store behaviour: updates are immediately visible
+  // to other mounted views and other tabs without a repository write.
+  useEffect(() => {
+    const sync = () => {
+      const next = readLocal()
+      applyToDocument(next.color, next.intensity)
+      setBackgroundState(next)
+    }
+    window.addEventListener('starlog:settings-changed', sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener('starlog:settings-changed', sync)
+      window.removeEventListener('storage', sync)
+    }
+  }, [])
 
   useEffect(() => {
     applyToDocument(background.color, background.intensity)

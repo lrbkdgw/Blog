@@ -88,6 +88,8 @@ export const STORAGE_KEYS = {
   fontAccounts: 'starlog:font-accounts',
   background: 'starlog:background',
   backgroundAccounts: 'starlog:background-accounts',
+  /** 集中保存个人偏好；采用和评论区一致的 localStorage + 事件更新方式。 */
+  personalSettings: 'starlog:personal-settings',
   session: 'starlog:session',
   /** GitHub OAuth 授权拿到的访问令牌（仅存于浏览器本地） */
   token: 'starlog:gh-token',
