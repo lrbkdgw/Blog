@@ -3,22 +3,23 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
   ArrowUp,
-  Calendar,
   Clock,
   FileClock,
   FileEdit,
+  GitCompareArrows,
   Hash,
   History,
   Link2,
   Loader2,
   PenLine,
-  Type,
+  User,
   X,
 } from 'lucide-react'
 import { Markdown } from '../components/Markdown'
 import { PasswordPrompt } from '../components/PasswordPrompt'
 import { Toc } from '../components/Toc'
 import { Comments } from '../components/Comments'
+import { VersionCompare } from '../components/VersionCompare'
 import {
   buildPost,
   extractToc,
@@ -67,6 +68,7 @@ function HistoryDialog({
   error,
   onClose,
   onSelect,
+  onCompare,
   selecting,
 }: {
   versions: PostHistoryVersion[]
@@ -74,6 +76,7 @@ function HistoryDialog({
   error: string
   onClose: () => void
   onSelect: (version: PostHistoryVersion) => void
+  onCompare: () => void
   selecting: string | null
 }) {
   return (
@@ -87,9 +90,20 @@ function HistoryDialog({
             </h2>
             <p className="mt-1 text-xs text-ink-400">每次发布都会保留为一个 Git 提交，可在此查看任一版本。</p>
           </div>
-          <button type="button" onClick={onClose} className="btn-ghost h-8 w-8 !px-0" aria-label="关闭历史版本">
-            <X size={16} />
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onCompare}
+              disabled={loading || versions.length < 2}
+              className="btn-ghost h-8 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+              title={versions.length < 2 ? '至少需要两个历史版本才能对比' : '对比任意两个版本'}
+            >
+              <GitCompareArrows size={14} />版本对比
+            </button>
+            <button type="button" onClick={onClose} className="btn-ghost h-8 w-8 !px-0" aria-label="关闭历史版本">
+              <X size={16} />
+            </button>
+          </div>
         </div>
         <div className="min-h-32 overflow-y-auto divide-y divide-ink-200/60 dark:divide-white/10">
           {loading ? (
@@ -141,6 +155,7 @@ export default function PostPage() {
   const [historyError, setHistoryError] = useState('')
   const [history, setHistory] = useState<PostHistoryVersion[]>([])
   const [selectingVersion, setSelectingVersion] = useState<string | null>(null)
+  const [compareOpen, setCompareOpen] = useState(false)
   const [historicalPost, setHistoricalPost] = useState<Post | null>(null)
   const [unlockedPost, setUnlockedPost] = useState<Post | null>(null)
 
@@ -159,6 +174,7 @@ export default function PostPage() {
     setHistoricalPost(null)
     setUnlockedPost(null)
     setHistoryOpen(false)
+    setCompareOpen(false)
     setHistory([])
     setHistoryError('')
   }, [slug])
@@ -282,7 +298,8 @@ export default function PostPage() {
             <button type="button" onClick={openHistory} className="btn-ghost h-8 text-xs"><History size={13} />历史版本</button>
           </div>
         </div>
-        {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} selecting={selectingVersion} />}
+        {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} onCompare={() => setCompareOpen(true)} selecting={selectingVersion} />}
+        {compareOpen && <VersionCompare versions={history} slug={historyBase.slug} path={historyBase.path} onClose={() => setCompareOpen(false)} />}
       </>
     )
   }
@@ -310,9 +327,8 @@ export default function PostPage() {
             <h1 className="font-serif text-3xl font-bold leading-tight tracking-tight text-ink-900 sm:text-[2.6rem] dark:text-white">{article.title}</h1>
             {article.summary && <p className="mt-4 text-[15.5px] leading-relaxed text-ink-500 dark:text-ink-400">{article.summary}</p>}
             <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-400">
-              <span className="flex items-center gap-1.5"><Calendar size={13} /><time dateTime={article.date}>{formatDate(article.date)}</time></span>
+              <span className="flex items-center gap-1.5"><User size={13} />{article.author?.trim() || siteConfig.author.name}</span>
               {article.updated && article.updated !== article.date && <span className="flex items-center gap-1.5">更新于 {formatDate(article.updated)}</span>}
-              <span className="flex items-center gap-1.5"><Type size={13} />{article.wordCount} 字</span>
               <span className="flex items-center gap-1.5"><Clock size={13} />约 {article.readingTime} 分钟</span>
               <span className="ml-auto flex flex-wrap items-center gap-1.5">
                 <button onClick={copyLink} className="btn-ghost no-print h-7 !px-2 text-xs"><Link2 size={13} />复制链接</button>
@@ -333,7 +349,8 @@ export default function PostPage() {
         </article>
         <Toc items={toc} />
       </div>
-      {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} selecting={selectingVersion} />}
+      {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} onCompare={() => setCompareOpen(true)} selecting={selectingVersion} />}
+      {compareOpen && <VersionCompare versions={history} slug={historyBase.slug} path={historyBase.path} onClose={() => setCompareOpen(false)} />}
       {showTop && <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="no-print card fixed bottom-6 left-6 z-40 flex h-10 w-10 animate-scale-in items-center justify-center !rounded-full text-ink-500 transition hover:text-brand-600 dark:hover:text-brand-300" aria-label="回到顶部"><ArrowUp size={17} /></button>}
     </>
   )

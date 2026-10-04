@@ -267,13 +267,15 @@ function renderContent(body: string, values: Record<string, ShowValue>, mappings
     stashed.push(value)
     return marker
   })
+  // 特殊语法等价于「在源码里把这一段直接替换成对应的值」，所以这里只写回
+  // 纯文本：既不会被包进 <code> 展示框，也能出现在代码块、表格、公式里。
   const withFormulas = withoutMappings.replace(/\*&hs\(([\s\S]*?)\)\*&/g, (_token, formula: string) => {
     const result = evaluateFormula(formula.trim(), values)
-    return `<code class="show-result">${result === null ? '未定义' : formatNumber(result)}</code>`
+    return result === null ? '未定义' : formatNumber(result)
   })
   const withValues = withFormulas.replace(/\*&show\(([^)]+)\)\*&/g, (_token, rawName: string) => {
     const value = values[rawName.trim()]
-    return `<code class="show-value">${value === undefined ? '未定义' : valueKey(value)}</code>`
+    return value === undefined ? '未定义' : valueKey(value)
   })
   return withValues.replace(/\uE000(\d+)\uE001/g, (_token, index: string) => stashed[Number(index)] ?? '')
 }
