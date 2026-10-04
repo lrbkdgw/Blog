@@ -99,7 +99,7 @@ const SOURCE_STYLE = {
 
 export function FontSection() {
   const { ghUser, canPublish } = useAuth()
-  const { font, status: fontStatus, resolved, accountSync, setFonts, resetFont, saveForGithub } = useFont()
+  const { font, status: fontStatus, resolved, resolvedRef, accountSync, setFonts, resetFont, saveForGithub } = useFont()
   const toast = useToast()
 
   const [fontList, setFontList] = useState<string[]>(font.families)
@@ -164,7 +164,8 @@ export function FontSection() {
         toast('已恢复默认字体', 'success')
         return
       }
-      const missing = next.families.filter((f) => resolved[f] === 'missing')
+      // setFonts 返回时检测结果已同步写入 ref，避免读到上一次渲染的旧 state
+      const missing = next.families.filter((f) => resolvedRef.current[f] === 'missing')
       if (missing.length === next.families.length) {
         toast('这些字体本机和云端都没有，实际显示将回退到系统字体', 'warning')
       } else if (missing.length > 0) {

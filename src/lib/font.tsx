@@ -21,6 +21,8 @@ interface FontCtx {
   font: FontPreference
   status: FontStatus
   resolved: FontResolve
+  /** 同步读取最近一次检测结果（setFonts 完成后立即可用，不受渲染时序影响） */
+  resolvedRef: { current: FontResolve }
   accountSync: 'idle' | 'loading' | 'synced' | 'error'
   setFonts: (families: string[]) => Promise<FontPreference>
   resetFont: () => void
@@ -35,6 +37,7 @@ const Ctx = createContext<FontCtx>({
   font: DEFAULT_FONT,
   status: 'idle',
   resolved: {},
+  resolvedRef: { current: {} },
   accountSync: 'idle',
   setFonts: async () => DEFAULT_FONT,
   resetFont: () => {},
@@ -189,6 +192,7 @@ export function FontProvider({ children }: { children: ReactNode }) {
   const [font, setFontState] = useState<FontPreference>(readLocal)
   const [status, setStatus] = useState<FontStatus>('idle')
   const [resolved, setResolved] = useState<FontResolve>({})
+  const resolvedRef = useRef<FontResolve>({})
   const [accountSync, setAccountSync] = useState<FontCtx['accountSync']>('idle')
   const accountRef = useRef('')
 
@@ -197,6 +201,7 @@ export function FontProvider({ children }: { children: ReactNode }) {
     writeLocal(next)
     setFontState(next)
     setStatus(nextStatus)
+    resolvedRef.current = resolveMap
     setResolved(resolveMap)
     return next
   }, [])
@@ -297,7 +302,7 @@ export function FontProvider({ children }: { children: ReactNode }) {
   }, [canPublish, ghUser, font])
 
   const value = useMemo(
-    () => ({ font, status, resolved, accountSync, setFonts, resetFont, saveForGithub }),
+    () => ({ font, status, resolved, resolvedRef, accountSync, setFonts, resetFont, saveForGithub }),
     [font, status, resolved, accountSync, setFonts, resetFont, saveForGithub],
   )
 
