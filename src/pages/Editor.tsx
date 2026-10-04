@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   AlertCircle,
   Bold,
@@ -9,6 +9,7 @@ import {
   Columns2,
   Download,
   Eye,
+  GitPullRequest,
   Github,
   Heading2,
   Image as ImageIcon,
@@ -17,6 +18,7 @@ import {
   List,
   ListOrdered,
   Loader2,
+  LogIn,
   Maximize2,
   Minimize2,
   Pencil,
@@ -31,13 +33,20 @@ import {
 import { Markdown } from '../components/Markdown'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../lib/auth'
-import { commitPost, getRepoTarget, uploadImage } from '../lib/github'
+import {
+  checkUserRepoPermissions,
+  commitPost,
+  getRepoTarget,
+  submitPublicationPR,
+  uploadImage,
+} from '../lib/github'
 import {
   countWords,
   deleteLocalPost,
   excerpt,
   getPostBySlug,
   readingTime,
+  recordPublishTime,
   saveLocalPost,
   serializePost,
   slugify,
@@ -67,15 +76,36 @@ $$
 \`\`\`ts
 const hello = (name: string) => \`你好，\${name}！\`
 \`\`\`
+
+::cute-table{tuack}
+
+| 编号 | 测试点 | 状态 | 备注 |
+| :-: | :-: | :-: | :-: |
+| 1 | 基础测试 | 通过 | 跨行合并 |
+| 2 | ^ | 通过 | ^ |
+| 3 | 跨列合并 | < | 正常 |
+
+::::info[这是折叠信息框]{open}
+折叠框内容支持各类 Markdown 与公式排版。
+::::
 `
 
 export default function Editor() {
   const { slug: routeSlug } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
   const toast = useToast()
   const { canPublish, ghUser } = useAuth()
 
-  const existing = useMemo(() => (routeSlug ? getPostBySlug(routeSlug) : undefined), [routeSlug])
+  const sourceParam = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    return params.get('source') as Post['source'] | undefined
+  }, [location.search])
+
+  const existing = useMemo(
+    () => (routeSlug ? getPostBySlug(routeSlug, sourceParam) : undefined),
+    [routeSlug, sourceParam],
+  )
   const originalSlug = useRef(existing?.slug)
 
   const [title, setTitle] = useState(existing?.title ?? '')
@@ -95,13 +125,30 @@ export default function Editor() {
   const [savedAt, setSavedAt] = useState<number | null>(existing?.savedAt ?? null)
   const [publishing, setPublishing] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [canDirectPush, setCanDirectPush] = useState(false)
+
+  const target = getRepoTarget()
+
+  useEffect(() => {
+    if (!ghUser) {
+      setCanDirectPush(false)
+      return
+    }
+    checkUserRepoPermissions(ghUser.login, target).then((res) => {
+      setCanDirectPush(res.canPush || res.canAdmin)
+    })
+  }, [ghUser, target])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const tags = useMemo(
-    () => tagsText.split(/[,，]/).map((t) => t.trim()).filter(Boolean),
+    () =>
+      tagsText
+        .split(/[,，]/)
+        .map((t) => t.trim())
+        .filter(Boolean),
     [tagsText],
   )
   const effectiveSlug = slug.trim() || slugify(title) || 'untitled'
@@ -140,7 +187,6 @@ export default function Editor() {
       setDirty(false)
       if (!silent) {
         toast('已保存到本地草稿', 'success')
-        // 仅在显式保存时同步 URL（自动保存时跳转会打断输入）
         if (routeSlug !== post.slug) navigate(`/admin/edit/${post.slug}`, { replace: true })
       }
       return post
@@ -148,7 +194,7 @@ export default function Editor() {
     [buildDraftPost, navigate, routeSlug, toast],
   )
 
-  // 自动保存（停止输入 2.5 秒后）
+  // 自动保存
   useEffect(() => {
     if (!dirty) return
     const t = setTimeout(() => save(true), 2500)
@@ -189,22 +235,68 @@ export default function Editor() {
   }
 
   const tools = [
-    { icon: Bold, title: '粗体 (⌘B)', run: () => withSelection((v, s, e) => toggleWrap(v, s, e, '**', '**', '粗体')) },
-    { icon: Italic, title: '斜体 (⌘I)', run: () => withSelection((v, s, e) => toggleWrap(v, s, e, '*', '*', '斜体')) },
-    { icon: Strikethrough, title: '删除线', run: () => withSelection((v, s, e) => toggleWrap(v, s, e, '~~', '~~', '删除')) },
-    { icon: Heading2, title: '标题', run: () => withSelection((v, s, e) => toggleLinePrefix(v, s, e, '## ')) },
-    { icon: Quote, title: '引用', run: () => withSelection((v, s, e) => toggleLinePrefix(v, s, e, '> ')) },
-    { icon: List, title: '无序列表', run: () => withSelection((v, s, e) => toggleLinePrefix(v, s, e, '- ')) },
-    { icon: ListOrdered, title: '有序列表', run: () => withSelection((v, s, e) => toggleLinePrefix(v, s, e, '1. ')) },
-    { icon: Link2, title: '链接 (⌘K)', run: () => withSelection((v, s, e) => toggleWrap(v, s, e, '[', '](https://)', '链接文字')) },
-    { icon: Code2, title: '代码块', run: () => withSelection((v, s, e) => insertBlock(v, s, e, '```ts\n\n```\n')) },
-    { icon: Sigma, title: '数学公式', run: () => withSelection((v, s, e) => insertBlock(v, s, e, '$$\n\\int_a^b f(x)\\,\\mathrm{d}x\n$$\n')) },
+    {
+      icon: Bold,
+      title: '粗体 (⌘B)',
+      run: () => withSelection((v, s, e) => toggleWrap(v, s, e, '**', '**', '粗体')),
+    },
+    {
+      icon: Italic,
+      title: '斜体 (⌘I)',
+      run: () => withSelection((v, s, e) => toggleWrap(v, s, e, '*', '*', '斜体')),
+    },
+    {
+      icon: Strikethrough,
+      title: '删除线',
+      run: () => withSelection((v, s, e) => toggleWrap(v, s, e, '~~', '~~', '删除')),
+    },
+    {
+      icon: Heading2,
+      title: '标题',
+      run: () => withSelection((v, s, e) => toggleLinePrefix(v, s, e, '## ')),
+    },
+    {
+      icon: Quote,
+      title: '引用',
+      run: () => withSelection((v, s, e) => toggleLinePrefix(v, s, e, '> ')),
+    },
+    {
+      icon: List,
+      title: '无序列表',
+      run: () => withSelection((v, s, e) => toggleLinePrefix(v, s, e, '- ')),
+    },
+    {
+      icon: ListOrdered,
+      title: '有序列表',
+      run: () => withSelection((v, s, e) => toggleLinePrefix(v, s, e, '1. ')),
+    },
+    {
+      icon: Link2,
+      title: '链接 (⌘K)',
+      run: () => withSelection((v, s, e) => toggleWrap(v, s, e, '[', '](https://)', '链接文字')),
+    },
+    {
+      icon: Code2,
+      title: '代码块',
+      run: () => withSelection((v, s, e) => insertBlock(v, s, e, '```ts\n\n```\n')),
+    },
+    {
+      icon: Sigma,
+      title: '数学公式',
+      run: () =>
+        withSelection((v, s, e) => insertBlock(v, s, e, '$$\n\\int_a^b f(x)\\,\\mathrm{d}x\n$$\n')),
+    },
     {
       icon: Table2,
-      title: '表格',
+      title: '表格（支持合并与 Tuack）',
       run: () =>
         withSelection((v, s, e) =>
-          insertBlock(v, s, e, '| 列 A | 列 B |\n| --- | --- |\n| 内容 | 内容 |\n'),
+          insertBlock(
+            v,
+            s,
+            e,
+            '::cute-table{tuack}\n\n| 列 A | 列 B | 列 C |\n| :---: | :---: | :---: |\n| 单元格 1 | 单元格 2 | 单元格 3 |\n| 跨行合并 | ^ | 跨列合并 | < |\n',
+          ),
         ),
     },
   ]
@@ -238,7 +330,7 @@ export default function Editor() {
   /* ------------------------------- 图片上传 ------------------------------- */
   const onPickImage = async (file: File) => {
     if (!canPublish) {
-      toast('上传图片需要先连接 GitHub（设置 → GitHub 连接）', 'warning')
+      toast('未登录 GitHub 无法直接将图片上传至远程仓库，可直接使用 Markdown 插入外链图片或登录后上传', 'info')
       return
     }
     setUploading(true)
@@ -253,8 +345,8 @@ export default function Editor() {
     }
   }
 
-  /* ------------------------------ 发布到 GitHub ---------------------------- */
-  const publish = async () => {
+  /* ------------------------------ 发布或提交 PR ---------------------------- */
+  const publishOrSubmitPR = async () => {
     if (!title.trim()) {
       toast('请先填写标题', 'warning')
       setMetaOpen(true)
@@ -262,21 +354,38 @@ export default function Editor() {
     }
     const post = save(true)
     if (!canPublish) {
-      toast('尚未连接 GitHub，请到「设置」里完成 OAuth 授权', 'warning')
+      toast('未登录状态仅支持保存到本地草稿。登录 GitHub 账号后可直接发布或提交发表申请。', 'info', {
+        label: '前往登录',
+        href: '/login',
+      })
       return
     }
+
     setPublishing(true)
     try {
       const markdown = serializePost(post)
-      const res = await commitPost(post.slug, markdown, `post(blog): ${post.title}`)
-      const target = getRepoTarget()
-      toast(
-        `已提交到 ${target.owner}/${target.repo} 的 ${res.path}\nGitHub Actions 正在重新部署站点，约 1-2 分钟后生效。`,
-        'success',
-        { label: '查看提交', href: res.commitUrl },
-      )
+
+      if (canDirectPush) {
+        // 管理员/直接拥有 push 权限：直推 main 分支
+        const res = await commitPost(post.slug, markdown, `post(blog): ${post.title}`)
+        recordPublishTime(post.slug, Date.now())
+        toast(
+          `已提交到 ${target.owner}/${target.repo} 的 ${res.path}\nGitHub Actions 正在部署中，约 1-2 分钟生效。`,
+          'success',
+          { label: '查看提交', href: res.commitUrl },
+        )
+      } else {
+        // 普通已登录用户：提交 PR
+        const pr = await submitPublicationPR(post.slug, markdown, post.title, target)
+        toast(
+          `已成功提交发表申请 PR #${pr.number}！等待仓库管理员审核。`,
+          'success',
+          { label: '查看 PR', href: pr.html_url },
+        )
+        navigate('/admin')
+      }
     } catch (err) {
-      toast(err instanceof Error ? err.message : '发布失败', 'error')
+      toast(err instanceof Error ? err.message : '操作失败', 'error')
     } finally {
       setPublishing(false)
     }
@@ -284,7 +393,9 @@ export default function Editor() {
 
   /* --------------------------------- 导出 --------------------------------- */
   const download = () => {
-    const blob = new Blob([serializePost(buildDraftPost())], { type: 'text/markdown;charset=utf-8' })
+    const blob = new Blob([serializePost(buildDraftPost())], {
+      type: 'text/markdown;charset=utf-8',
+    })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
     a.download = `${effectiveSlug}.md`
@@ -311,45 +422,50 @@ export default function Editor() {
   const previewPost = buildDraftPost()
 
   return (
-    <div className={fullscreen ? 'fixed inset-0 z-[80] overflow-auto bg-transparent' : ''}>
-      <div className={`${fullscreen ? 'px-4 py-4' : 'container-page pt-8'}`}>
-        {/* ------------------------------ 顶部操作条 ----------------------------- */}
-        <div className="card sticky top-[4.25rem] z-30 mb-4 flex flex-wrap items-center gap-2 p-2.5 !bg-white/90 dark:!bg-ink-900/85">
+    <div className={fullscreen ? 'fixed inset-0 z-[80] overflow-y-auto bg-white p-6 dark:bg-ink-950' : 'container-page pt-8'}>
+      <div className="max-w-6xl mx-auto">
+        {/* 顶部栏 */}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <input
             value={title}
             onChange={(e) => {
               setTitle(e.target.value)
               markDirty()
             }}
-            placeholder="文章标题…"
-            className="min-w-0 flex-1 bg-transparent px-2 py-1.5 font-serif text-lg font-semibold tracking-tight text-ink-900 outline-none placeholder:font-sans placeholder:text-base placeholder:font-normal placeholder:text-ink-400 dark:text-white"
+            placeholder="输入文章标题…"
+            className="flex-1 min-w-[15rem] font-serif text-2xl font-bold bg-transparent outline-none text-ink-900 placeholder:text-ink-400 dark:text-white"
           />
 
-          <div className="flex items-center gap-1.5">
-            <div className="hidden items-center gap-0.5 rounded-lg bg-ink-100/80 p-0.5 sm:flex dark:bg-white/5">
+          <div className="flex items-center gap-2">
+            {/* 视图模式切换 */}
+            <div className="flex rounded-lg bg-ink-100 p-0.5 dark:bg-white/10">
               {(
                 [
-                  { id: 'edit', icon: Pencil, label: '编辑' },
-                  { id: 'split', icon: Columns2, label: '分栏' },
-                  { id: 'preview', icon: Eye, label: '预览' },
+                  { id: 'edit', icon: Pencil, label: '仅编辑' },
+                  { id: 'split', icon: Columns2, label: '双栏' },
+                  { id: 'preview', icon: Eye, label: '仅预览' },
                 ] as const
-              ).map((m) => (
+              ).map((v) => (
                 <button
-                  key={m.id}
-                  onClick={() => setView(m.id)}
-                  title={m.label}
-                  className={`rounded-md p-1.5 transition ${
-                    view === m.id
-                      ? 'bg-white text-brand-600 shadow-sm dark:bg-white/10 dark:text-brand-300'
-                      : 'text-ink-400 hover:text-ink-700 dark:hover:text-ink-200'
+                  key={v.id}
+                  onClick={() => setView(v.id)}
+                  className={`rounded-md p-1.5 text-xs transition ${
+                    view === v.id
+                      ? 'bg-white text-ink-900 shadow-sm dark:bg-ink-800 dark:text-white'
+                      : 'text-ink-500 hover:text-ink-900 dark:text-ink-400'
                   }`}
+                  title={v.label}
                 >
-                  <m.icon size={15} />
+                  <v.icon size={15} />
                 </button>
               ))}
             </div>
 
-            <button onClick={() => setFullscreen((v) => !v)} className="btn-ghost h-9 w-9 !px-0" title="全屏">
+            <button
+              onClick={() => setFullscreen((v) => !v)}
+              className="btn-ghost h-9 w-9 !px-0"
+              title="全屏"
+            >
               {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
             <button onClick={download} className="btn-ghost h-9 w-9 !px-0" title="下载 .md">
@@ -359,10 +475,40 @@ export default function Editor() {
               <Save size={15} />
               <span className="hidden sm:inline">保存草稿</span>
             </button>
-            <button onClick={publish} disabled={publishing} className="btn-primary h-9">
-              {publishing ? <Loader2 size={15} className="animate-spin" /> : <Github size={15} />}
-              <span className="hidden sm:inline">{publishing ? '发布中…' : '发布到 GitHub'}</span>
-            </button>
+
+            {/* 发布/提交 PR 按钮 */}
+            {canPublish ? (
+              <button
+                onClick={publishOrSubmitPR}
+                disabled={publishing}
+                className="btn-primary h-9"
+                title={canDirectPush ? '直接提交到 main 分支' : '提交文章发表申请 (PR)'}
+              >
+                {publishing ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : canDirectPush ? (
+                  <Github size={15} />
+                ) : (
+                  <GitPullRequest size={15} />
+                )}
+                <span className="hidden sm:inline">
+                  {publishing
+                    ? '处理中…'
+                    : canDirectPush
+                      ? '发布到 GitHub'
+                      : '申请发表 (PR)'}
+                </span>
+              </button>
+            ) : (
+              <button
+                onClick={publishOrSubmitPR}
+                className="btn-outline h-9 text-ink-600 dark:text-ink-300"
+                title="未登录仅支持保存本地草稿，登录后可发布或提交申请"
+              >
+                <LogIn size={15} />
+                <span className="hidden sm:inline">登录后发布</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -374,20 +520,32 @@ export default function Editor() {
           >
             <span className="flex items-center gap-2">
               文章信息
-              <span className="font-mono text-xs font-normal text-ink-400">/posts/{effectiveSlug}</span>
+              <span className="font-mono text-xs font-normal text-ink-400">
+                /posts/{effectiveSlug}
+              </span>
               {draft && (
                 <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-600 dark:text-amber-400">
                   草稿
                 </span>
               )}
+              {!canPublish && (
+                <span className="rounded-full bg-ink-100 px-2 py-0.5 text-[11px] text-ink-600 dark:bg-white/10 dark:text-ink-300">
+                  本地草稿模式
+                </span>
+              )}
             </span>
-            <ChevronDown size={16} className={`text-ink-400 transition-transform ${metaOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown
+              size={16}
+              className={`text-ink-400 transition-transform ${metaOpen ? 'rotate-180' : ''}`}
+            />
           </button>
 
           {metaOpen && (
             <div className="grid gap-4 border-t border-ink-200/70 p-4 sm:grid-cols-2 dark:border-white/10">
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-ink-500">URL 别名 (slug)</label>
+                <label className="mb-1.5 block text-xs font-medium text-ink-500">
+                  URL 别名 (slug)
+                </label>
                 <input
                   value={slug}
                   onChange={(e) => {
@@ -411,7 +569,9 @@ export default function Editor() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-ink-500">标签（逗号分隔）</label>
+                <label className="mb-1.5 block text-xs font-medium text-ink-500">
+                  标签（逗号分隔）
+                </label>
                 <input
                   value={tagsText}
                   onChange={(e) => {
@@ -423,7 +583,9 @@ export default function Editor() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-ink-500">封面图 URL（可选）</label>
+                <label className="mb-1.5 block text-xs font-medium text-ink-500">
+                  封面图 URL（可选）
+                </label>
                 <input
                   value={cover}
                   onChange={(e) => {
@@ -435,7 +597,9 @@ export default function Editor() {
                 />
               </div>
               <div className="sm:col-span-2">
-                <label className="mb-1.5 block text-xs font-medium text-ink-500">摘要（留空自动截取正文）</label>
+                <label className="mb-1.5 block text-xs font-medium text-ink-500">
+                  摘要（留空自动截取正文）
+                </label>
                 <textarea
                   value={summary}
                   onChange={(e) => {
@@ -452,7 +616,10 @@ export default function Editor() {
                   { label: '保存为草稿（不公开）', value: draft, set: setDraft },
                   { label: '置顶到首页', value: pinned, set: setPinned },
                 ].map((c) => (
-                  <label key={c.label} className="flex cursor-pointer items-center gap-2 text-sm text-ink-600 dark:text-ink-300">
+                  <label
+                    key={c.label}
+                    className="flex cursor-pointer items-center gap-2 text-sm text-ink-600 dark:text-ink-300"
+                  >
                     <input
                       type="checkbox"
                       checked={c.value}
@@ -513,7 +680,9 @@ export default function Editor() {
             />
 
             <div className="ml-auto flex items-center gap-3 pr-2 text-xs text-ink-400">
-              <span className="hidden sm:inline">{words} 字 · 约 {previewPost.readingTime} 分钟</span>
+              <span className="hidden sm:inline">
+                {words} 字 · 约 {previewPost.readingTime} 分钟
+              </span>
               <span className="flex items-center gap-1">
                 {dirty ? (
                   <>
@@ -555,7 +724,9 @@ export default function Editor() {
               <div
                 ref={previewRef}
                 className={`h-full overflow-y-auto bg-ink-50/40 p-5 dark:bg-white/[.02] ${
-                  view === 'split' ? 'hidden border-l border-ink-200/70 md:block dark:border-white/10' : ''
+                  view === 'split'
+                    ? 'hidden border-l border-ink-200/70 md:block dark:border-white/10'
+                    : ''
                 }`}
               >
                 <h1 className="mb-6 font-serif text-2xl font-bold tracking-tight text-ink-900 dark:text-white">
@@ -567,19 +738,23 @@ export default function Editor() {
           </div>
         </div>
 
-        {/* 提示 */}
+        {/* 提示栏 */}
         <div className="mb-16 mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-400">
           <span className="flex items-center gap-1.5">
             <AlertCircle size={13} />
-            草稿自动保存在本浏览器；点「发布到 GitHub」才会写入仓库。
+            草稿实时保存在本浏览器；
+            {canDirectPush ? '点击「发布到 GitHub」直接推送至仓库' : '点击「申请发表」将创建审核 PR'}。
           </span>
           {canPublish ? (
             <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
               <Github size={13} />
-              已连接 @{ghUser?.login}
+              已连接 @{ghUser?.login} {canDirectPush ? '（仓库管理员）' : '（协作者）'}
             </span>
           ) : (
-            <Link to="/admin/settings" className="flex items-center gap-1.5 text-brand-600 hover:underline dark:text-brand-300">
+            <Link
+              to="/settings"
+              className="flex items-center gap-1.5 text-brand-600 hover:underline dark:text-brand-300"
+            >
               <Upload size={13} />
               连接 GitHub 以启用发布
             </Link>

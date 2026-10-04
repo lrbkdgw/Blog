@@ -54,7 +54,9 @@ export function stripMarkdown(md: string): string {
 export function countWords(md: string): number {
   const text = stripMarkdown(md)
   const cjk = (text.match(/[\u4e00-\u9fa5\u3040-\u30ff]/g) || []).length
-  const words = (text.replace(/[\u4e00-\u9fa5\u3040-\u30ff]/g, ' ').match(/[A-Za-z0-9'’-]+/g) || []).length
+  const words = (
+    text.replace(/[\u4e00-\u9fa5\u3040-\u30ff]/g, ' ').match(/[A-Za-z0-9'’-]+/g) || []
+  ).length
   return cjk + words
 }
 
@@ -165,7 +167,10 @@ export function getLocalPosts(): Post[] {
   )
 }
 
-export function saveLocalPost(post: Post | (PostMeta & { content: string }), prevSlug?: string): Post {
+export function saveLocalPost(
+  post: Post | (PostMeta & { content: string }),
+  prevSlug?: string,
+): Post {
   const items = readStore().filter((d) => d.slug !== post.slug && d.slug !== prevSlug)
   const raw = serializePost(post)
   const savedAt = Date.now()
@@ -183,6 +188,43 @@ export function localPostExists(slug: string): boolean {
 }
 
 /* -------------------------------------------------------------------------- */
+/*                          GitHub 发布时间记录                                 */
+/* -------------------------------------------------------------------------- */
+
+const PUBLISHED_TIMES_KEY = 'starlog:published-times'
+
+function readPublishTimes(): Record<string, number> {
+  if (typeof localStorage === 'undefined') return {}
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PUBLISHED_TIMES_KEY) || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+export function recordPublishTime(slug: string, timestamp = Date.now()) {
+  const store = readPublishTimes()
+  store[slug] = timestamp
+  localStorage.setItem(PUBLISHED_TIMES_KEY, JSON.stringify(store))
+  window.dispatchEvent(new CustomEvent('starlog:posts-changed'))
+}
+
+export function getPublishTime(post: Post): number | null {
+  const store = readPublishTimes()
+  if (store[post.slug]) return store[post.slug]
+
+  // 如果是仓库文章但未在当前设备单独记录过发布时间，则以文章日期作为发布时间基准
+  if (post.source === 'repo') {
+    const rawDate = post.updated || post.date
+    const parsed = Date.parse(rawDate)
+    return isNaN(parsed) ? null : parsed
+  }
+
+  return null
+}
+
+/* -------------------------------------------------------------------------- */
 /*                                  聚合查询                                   */
 /* -------------------------------------------------------------------------- */
 
@@ -194,12 +236,12 @@ export function getRepoPosts(): Post[] {
 
 function sortPosts(posts: Post[]): Post[] {
   return posts.sort((a, b) => {
-    if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1
+    if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1
     return b.date.localeCompare(a.date) || a.title.localeCompare(b.title)
   })
 }
 
-/** 本地草稿与仓库文章同名时，以本地版本（更新的那份）为准 */
+/** 公开聚合：本地草稿与仓库文章同名时，以本地版本为准 */
 export function getAllPosts(): Post[] {
   const map = new Map<string, Post>()
   for (const p of getRepoPosts()) map.set(p.slug, p)
@@ -207,17 +249,36 @@ export function getAllPosts(): Post[] {
   return sortPosts([...map.values()])
 }
 
+/** 文章管理后台列表：区分草稿和已发布的文章，同名草稿与已发布文章均完整列出 */
+export function getAllAdminPosts(): Post[] {
+  const repoPosts = getRepoPosts()
+  const localPosts = getLocalPosts()
+  return sortPosts([...repoPosts, ...localPosts])
+}
+
 export function getPublishedPosts(): Post[] {
   return getAllPosts().filter((p) => !p.draft)
 }
 
-export function getPostBySlug(slug: string): Post | undefined {
+export function getPostBySlug(slug: string, source?: Post['source']): Post | undefined {
+  if (source === 'local') {
+    return getLocalPosts().find((p) => p.slug === slug)
+  }
+  if (source === 'repo') {
+    return getRepoPosts().find((p) => p.slug === slug)
+  }
   return getAllPosts().find((p) => p.slug === slug)
 }
 
 export function getAllTags(posts: Post[]): { name: string; count: number }[] {
   const counter = new Map<string, number>()
-  for (const p of posts) for (const t of p.tags) counter.set(t, (counter.get(t) ?? 0) + 1)
+  for (const p of posts) {
+    if (p && Array.isArray(p.tags)) {
+      for (const t of p.tags) {
+        if (t) counter.set(t, (counter.get(t) ?? 0) + 1)
+      }
+    }
+  }
   return [...counter.entries()]
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
@@ -226,7 +287,7 @@ export function getAllTags(posts: Post[]): { name: string; count: number }[] {
 export function getArchive(posts: Post[]): { year: string; posts: Post[] }[] {
   const map = new Map<string, Post[]>()
   for (const p of posts) {
-    const year = p.date.slice(0, 4)
+    const year = (p.date || '').slice(0, 4) || '其他'
     if (!map.has(year)) map.set(year, [])
     map.get(year)!.push(p)
   }

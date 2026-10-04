@@ -82,21 +82,6 @@ export const oauthConfig = {
   relayUrl: '',
 }
 
-/**
- * 本地登录密码的 SHA-256（十六进制小写）。
- * 默认密码为：starlog
- *
- * ⚠️ 前端密码只是一道「不让人随手点进后台」的门帘，并非真正的安全边界
- *   （静态站点的所有代码都是公开的）。真正的写权限由 GitHub OAuth 授权控制。
- *
- * 修改方法：在浏览器控制台执行下面这段，把输出替换到这里：
- *   crypto.subtle.digest('SHA-256', new TextEncoder().encode('你的新密码'))
- *     .then(b => console.log([...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('')))
- */
-export const AUTH_PASSWORD_SHA256 =
-  import.meta.env.VITE_AUTH_PASSWORD_HASH ||
-  '3f8d4abe496a6defe2a765df5a7a1200efbcbbaf044b842ae7424427dbbf0612'
-
 export const STORAGE_KEYS = {
   theme: 'starlog:theme',
   font: 'starlog:font',

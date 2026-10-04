@@ -112,7 +112,7 @@ function UserMenu() {
               {ghUser?.name || ghUser?.login || siteConfig.author.name}
             </p>
             <p className="truncate text-xs text-ink-400">
-              {ghUser ? `已连接 GitHub · @${ghUser.login}` : '本地登录 · 仅浏览器草稿'}
+              {ghUser ? `GitHub 账号 · @${ghUser.login}` : '已登录'}
             </p>
           </div>
           {[
@@ -214,14 +214,16 @@ function Header({ onSearch }: { onSearch: () => void }) {
             <Search size={17} />
           </button>
 
+          <Link to="/settings" className="btn-ghost h-9 w-9 !px-0 text-ink-500 hover:text-brand-600 dark:text-ink-400 dark:hover:text-brand-300" title="设置" aria-label="设置">
+            <Settings size={18} />
+          </Link>
+
           <ThemeToggle />
 
-          {isAuthed && (
-            <Link to="/admin/new" className="btn-primary hidden h-9 sm:inline-flex">
-              <PenLine size={15} />
-              写文章
-            </Link>
-          )}
+          <Link to="/admin/new" className="btn-primary hidden h-9 sm:inline-flex">
+            <PenLine size={15} />
+            写文章
+          </Link>
 
           <UserMenu />
 
@@ -253,6 +255,10 @@ function Header({ onSearch }: { onSearch: () => void }) {
               </NavLink>
             ))}
             <div className="mt-2 flex gap-2 border-t border-ink-200/60 pt-3 dark:border-white/10">
+              <Link to="/settings" className="btn-outline">
+                <Settings size={15} />
+                设置
+              </Link>
               {isAuthed ? (
                 <>
                   <Link to="/admin" className="btn-outline flex-1">
@@ -265,10 +271,16 @@ function Header({ onSearch }: { onSearch: () => void }) {
                   </Link>
                 </>
               ) : (
-                <Link to="/login" className="btn-primary flex-1">
-                  <LogIn size={15} />
-                  登录
-                </Link>
+                <>
+                  <Link to="/admin/new" className="btn-outline flex-1">
+                    <PenLine size={15} />
+                    写文章
+                  </Link>
+                  <Link to="/login" className="btn-primary flex-1">
+                    <LogIn size={15} />
+                    登录
+                  </Link>
+                </>
               )}
             </div>
           </nav>

@@ -1,7 +1,6 @@
 import { Suspense, lazy } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
-import { ProtectedRoute } from './components/ProtectedRoute'
 import Home from './pages/Home'
 
 const PostPage = lazy(() => import('./pages/PostPage'))
@@ -22,8 +21,6 @@ function Loading() {
   )
 }
 
-const protect = (node: React.ReactNode) => <ProtectedRoute>{node}</ProtectedRoute>
-
 export default function App() {
   return (
     <Suspense fallback={<Loading />}>
@@ -35,11 +32,14 @@ export default function App() {
           <Route path="tags" element={<TagsPage />} />
           <Route path="tags/:tag" element={<TagsPage />} />
           <Route path="about" element={<About />} />
+          <Route path="settings" element={<SettingsPage />} />
           <Route path="login" element={<Login />} />
-          <Route path="admin" element={protect(<Admin />)} />
-          <Route path="admin/new" element={protect(<Editor />)} />
-          <Route path="admin/edit/:slug" element={protect(<Editor />)} />
-          <Route path="admin/settings" element={protect(<SettingsPage />)} />
+          <Route path="admin" element={<Admin />} />
+          <Route path="admin/new" element={<Editor />} />
+          <Route path="admin/edit/:slug" element={<Editor />} />
+          <Route path="editor" element={<Editor />} />
+          <Route path="editor/:slug" element={<Editor />} />
+          <Route path="admin/settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>

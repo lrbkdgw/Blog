@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { Markdown } from '../components/Markdown'
 import { Toc } from '../components/Toc'
+import { Comments } from '../components/Comments'
 import { extractToc, formatDate } from '../lib/posts'
 import { usePosts } from '../lib/usePosts'
 import { useAuth } from '../lib/auth'
@@ -208,6 +209,9 @@ export default function PostPage() {
               )}
             </div>
           </div>
+
+          {/* 评论区 */}
+          <Comments postSlug={post.slug} postTitle={post.title} />
         </article>
 
         <Toc items={toc} />

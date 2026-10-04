@@ -15,6 +15,10 @@
     --site-background-glow-secondary: rgba(129, 140, 248, 0.15);
     --site-background-tint-primary: rgba(0, 0, 0, 0);
     --site-background-tint-secondary: rgba(0, 0, 0, 0);
+    --site-background-gradient-size-1: 62rem 44rem;
+    --site-background-gradient-size-2: 54rem 42rem;
+    --site-background-gradient-stop-1: 68%;
+    --site-background-gradient-stop-2: 70%;
   }
   .dark {
     color-scheme: dark;
@@ -29,12 +33,14 @@
   body {
     @apply text-ink-800 antialiased dark:text-ink-200;
     background-color: var(--site-background);
-    background-image: radial-gradient(62rem 44rem at -14% -18%, var(--site-background-tint-primary), transparent 68%),
-      radial-gradient(54rem 42rem at 112% 28%, var(--site-background-tint-secondary), transparent 70%),
+    background-image:
+      radial-gradient(var(--site-background-gradient-size-1) at -14% -18%, var(--site-background-tint-primary), transparent var(--site-background-gradient-stop-1)),
+      radial-gradient(var(--site-background-gradient-size-2) at 112% 28%, var(--site-background-tint-secondary), transparent var(--site-background-gradient-stop-2)),
       radial-gradient(62rem 44rem at -14% -18%, var(--site-background-glow-primary), transparent 68%),
       radial-gradient(54rem 42rem at 112% 28%, var(--site-background-glow-secondary), transparent 70%);
     background-attachment: fixed;
     background-repeat: no-repeat;
+    background-size: cover;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
   }
   .dark body {
@@ -123,7 +129,7 @@
   }
 }
 
-/* ---------- 代码高亮（跟随深浅色） ---------- */
+/* ---------- 代码高亮 ---------- */
 :root {
   --hl-bg: #f7f8fa;
   --hl-text: #383a42;
@@ -208,7 +214,7 @@
 
 /* ---------- KaTeX ---------- */
 .katex-display {
-  @apply my-6 overflow-x-auto overflow-y-hidden py-1;
+  @apply my-6 overflow-x-auto overflow-y-hidden py-1 text-center;
 }
 .katex {
   font-size: 1.05em;
@@ -232,34 +238,196 @@
 .prose blockquote p:last-of-type::after {
   content: '';
 }
-/* Markdown 表格：在桌面端保持清晰层级，窄屏可横向滚动而不挤压文字。 */
-.prose .markdown-table {
-  @apply my-8 overflow-x-auto rounded-2xl border border-ink-200/80 bg-white shadow-[0_10px_28px_-22px_rgba(16,24,40,.32)] dark:border-white/10 dark:bg-white/[0.025] dark:shadow-none;
+
+/* -------------------------------------------------------------------------- */
+/*              1. 标准表格 & 合并表格（仿洛谷：居中、浅淡边框、表头无底色）         */
+/* -------------------------------------------------------------------------- */
+.prose .markdown-table-wrapper {
+  @apply my-8 flex w-full justify-center overflow-x-auto;
 }
-.prose .markdown-table > table {
-  @apply !my-0 w-full min-w-[38rem] border-separate border-spacing-0 text-left text-sm leading-6;
+
+.prose table.markdown-table {
+  @apply !my-0 w-auto table-auto border-collapse text-center text-base leading-relaxed;
+  border: 1px solid #e5e7eb;
 }
-.prose .markdown-table thead {
-  @apply bg-gradient-to-r from-brand-50 to-indigo-50/70 dark:from-brand-500/[0.14] dark:to-indigo-500/[0.08];
+.dark .prose table.markdown-table {
+  border-color: rgba(255, 255, 255, 0.12);
 }
-.prose .markdown-table th {
-  @apply whitespace-nowrap border-b border-ink-200/80 px-5 py-3 font-semibold text-ink-800 first:pl-5 dark:border-white/10 dark:text-ink-100;
+
+.prose table.markdown-table th {
+  @apply px-4 py-2.5 font-bold text-ink-900 text-center align-middle whitespace-nowrap bg-transparent;
+  border: 1px solid #e5e7eb;
 }
-.prose .markdown-table td {
-  @apply border-b border-ink-100 px-5 py-3 align-top text-ink-600 last:border-b-0 dark:border-white/[0.07] dark:text-ink-300;
+.dark .prose table.markdown-table th {
+  @apply text-white bg-transparent;
+  border-color: rgba(255, 255, 255, 0.12);
 }
-.prose .markdown-table tbody tr:nth-child(even) {
-  @apply bg-ink-50/70 dark:bg-white/[0.025];
+
+.prose table.markdown-table td {
+  @apply px-4 py-2.5 text-ink-800 text-center align-middle bg-transparent;
+  border: 1px solid #e5e7eb;
 }
-.prose .markdown-table tbody tr {
-  @apply transition-colors hover:bg-brand-50/60 dark:hover:bg-brand-500/[0.08];
+.dark .prose table.markdown-table td {
+  @apply text-ink-200 bg-transparent;
+  border-color: rgba(255, 255, 255, 0.12);
 }
-.prose .markdown-table td :where(code) {
-  @apply whitespace-nowrap bg-ink-100/80 text-[.85em] dark:bg-white/10;
+
+.prose table.markdown-table tbody tr {
+  @apply bg-transparent;
 }
-.prose .markdown-table tr:last-child td {
-  @apply border-b-0;
+.prose table.markdown-table td :where(code) {
+  @apply whitespace-nowrap bg-ink-100/80 px-1 py-0.5 rounded text-[.85em] dark:bg-white/10;
 }
+
+/* -------------------------------------------------------------------------- */
+/*             2. Tuack 竞赛风格表格（三线加粗、内部细线、自适应居中）            */
+/* -------------------------------------------------------------------------- */
+.prose .table-tuack-wrapper {
+  @apply my-8 flex w-full justify-center overflow-x-auto;
+}
+
+.prose table.table-tuack,
+.prose .table-tuack-wrapper table {
+  @apply !my-0 w-auto table-auto border-collapse text-center text-base leading-relaxed;
+  border-top: 3.5px solid #111827 !important;
+  border-bottom: 3.5px solid #111827 !important;
+  border-left: none !important;
+  border-right: none !important;
+}
+.dark .prose table.table-tuack,
+.dark .prose .table-tuack-wrapper table {
+  border-top-color: #ffffff !important;
+  border-bottom-color: #ffffff !important;
+}
+
+.prose table.table-tuack th,
+.prose .table-tuack-wrapper th {
+  @apply px-4 py-2.5 font-bold text-ink-900 text-center align-middle bg-transparent whitespace-nowrap;
+  border-top: none !important;
+  border-bottom: 2px solid #111827 !important;
+  border-left: 1.2px solid #111827;
+  border-right: 1.2px solid #111827;
+}
+.dark .prose table.table-tuack th,
+.dark .prose .table-tuack-wrapper th {
+  @apply text-white;
+  border-bottom-color: #ffffff !important;
+  border-left-color: rgba(255, 255, 255, 0.6);
+  border-right-color: rgba(255, 255, 255, 0.6);
+}
+
+.prose table.table-tuack td,
+.prose .table-tuack-wrapper td {
+  @apply px-4 py-2 text-ink-900 text-center align-middle bg-transparent;
+  border-top: 1.2px solid #111827;
+  border-bottom: 1.2px solid #111827;
+  border-left: 1.2px solid #111827;
+  border-right: 1.2px solid #111827;
+}
+.dark .prose table.table-tuack td,
+.dark .prose .table-tuack-wrapper td {
+  @apply text-ink-100;
+  border-top-color: rgba(255, 255, 255, 0.6);
+  border-bottom-color: rgba(255, 255, 255, 0.6);
+  border-left-color: rgba(255, 255, 255, 0.6);
+  border-right-color: rgba(255, 255, 255, 0.6);
+}
+
+/* 去除 Tuack 表格最外侧左右边框 (Open sides) */
+.prose table.table-tuack th:first-child,
+.prose table.table-tuack td:first-child,
+.prose .table-tuack-wrapper th:first-child,
+.prose .table-tuack-wrapper td:first-child {
+  border-left: none !important;
+}
+.prose table.table-tuack th:last-child,
+.prose table.table-tuack td:last-child,
+.prose .table-tuack-wrapper th:last-child,
+.prose .table-tuack-wrapper td:last-child {
+  border-right: none !important;
+}
+
+/* 最后一行的下边框由 table 的 3.5px 粗实线负责 */
+.prose table.table-tuack tr:last-child td,
+.prose .table-tuack-wrapper tr:last-child td {
+  border-bottom: none !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                               折叠框 (Callouts)                             */
+/* -------------------------------------------------------------------------- */
+.prose details.callout {
+  @apply my-6 overflow-hidden rounded-xl border text-sm transition-all duration-200;
+}
+.prose details.callout summary.callout-summary {
+  @apply flex cursor-pointer list-none select-none items-center gap-2.5 px-4 py-3 font-semibold outline-none transition-colors;
+}
+.prose details.callout summary::-webkit-details-marker {
+  display: none;
+}
+.prose details.callout .callout-content {
+  @apply border-t px-4 py-3.5 text-[14.5px] leading-relaxed;
+}
+.prose details.callout .callout-content > :first-child {
+  @apply mt-0;
+}
+.prose details.callout .callout-content > :last-child {
+  @apply mb-0;
+}
+
+/* 折叠框展开时，右侧箭头平滑顺时针旋转 90 度向下 */
+.callout-chevron {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+details[open] > summary .callout-chevron,
+details.callout[open] summary .callout-chevron,
+details[open] .callout-chevron {
+  transform: rotate(90deg) !important;
+}
+
+.prose details.callout-info {
+  @apply border-sky-200 bg-sky-50/50 text-sky-950 dark:border-sky-500/25 dark:bg-sky-500/[0.07] dark:text-sky-100;
+}
+.prose details.callout-info summary.callout-summary {
+  @apply text-sky-800 hover:bg-sky-100/50 dark:text-sky-300 dark:hover:bg-sky-500/10;
+}
+.prose details.callout-info .callout-content {
+  @apply border-sky-200/70 dark:border-sky-500/20 text-ink-700 dark:text-ink-200;
+}
+
+.prose details.callout-success {
+  @apply border-emerald-200 bg-emerald-50/50 text-emerald-950 dark:border-emerald-500/25 dark:bg-emerald-500/[0.07] dark:text-emerald-100;
+}
+.prose details.callout-success summary.callout-summary {
+  @apply text-emerald-800 hover:bg-emerald-100/50 dark:text-emerald-300 dark:hover:bg-emerald-500/10;
+}
+.prose details.callout-success .callout-content {
+  @apply border-emerald-200/70 dark:border-emerald-500/20 text-ink-700 dark:text-ink-200;
+}
+
+.prose details.callout-warning {
+  @apply border-amber-200 bg-amber-50/50 text-amber-950 dark:border-amber-500/25 dark:bg-amber-500/[0.07] dark:text-amber-100;
+}
+.prose details.callout-warning summary.callout-summary {
+  @apply text-amber-800 hover:bg-amber-100/50 dark:text-amber-300 dark:hover:bg-amber-500/10;
+}
+.prose details.callout-warning .callout-content {
+  @apply border-amber-200/70 dark:border-amber-500/20 text-ink-700 dark:text-ink-200;
+}
+
+.prose details.callout-error,
+.prose details.callout-danger {
+  @apply border-rose-200 bg-rose-50/50 text-rose-950 dark:border-rose-500/25 dark:bg-rose-500/[0.07] dark:text-rose-100;
+}
+.prose details.callout-error summary.callout-summary,
+.prose details.callout-danger summary.callout-summary {
+  @apply text-rose-800 hover:bg-rose-100/50 dark:text-rose-300 dark:hover:bg-rose-500/10;
+}
+.prose details.callout-error .callout-content,
+.prose details.callout-danger .callout-content {
+  @apply border-rose-200/70 dark:border-rose-500/20 text-ink-700 dark:text-ink-200;
+}
+
 .prose img {
   @apply mx-auto rounded-xl shadow-lg;
 }
@@ -273,7 +441,6 @@
   @apply mr-1 h-4 w-4 rounded accent-brand-500;
 }
 
-/* 编辑器滚动同步区域 */
 .editor-textarea {
   tab-size: 2;
   line-height: 1.75;

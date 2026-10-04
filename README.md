@@ -15,7 +15,7 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 📝 **在线编辑** | 分栏实时预览、工具栏、快捷键、滚动同步、自动保存草稿 |
 | 🧮 **KaTeX 公式** | 行内 `$…$` 与独立 `$$…$$`，支持 `aligned`、矩阵、分段函数 |
 | 🎨 **深色模式** | 跟随系统 / 手动固定，无刷新闪白，支持 View Transition 平滑切换 |
-| 🔐 **双模式登录** | 站点密码（写本地草稿）+ GitHub OAuth 授权（发布到仓库） |
+| 🔐 **GitHub OAuth 授权** | 基于 Device Flow 极简一键登录，令牌仅保存在浏览器本地 |
 | 🚀 **一键发布** | 浏览器直接调用 GitHub API 提交 Markdown，Actions 自动部署 |
 | 🔍 **全文搜索** | <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>K</kbd> 唤起，支持方向键选择 |
 | 🏷️ **标签 / 归档** | 标签云、按年归档、置顶、草稿、阅读时长、自动目录 |
@@ -94,26 +94,6 @@ export const githubConfig = {
 }
 ```
 
-### 修改登录密码
-
-密码以 SHA-256 的形式存在 `AUTH_PASSWORD_SHA256`，**默认密码是 `starlog`**。
-
-在浏览器控制台执行下面这段，把输出替换进去即可：
-
-```js
-crypto.subtle
-  .digest('SHA-256', new TextEncoder().encode('你的新密码'))
-  .then((b) =>
-    console.log([...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('')),
-  )
-```
-
-也可以用环境变量（`.env.local`）而不改代码：
-
-```bash
-VITE_AUTH_PASSWORD_HASH=你的哈希值
-```
-
 ### 配置 OAuth 登录
 
 GitHub 登录使用 **OAuth Device Flow（RFC 8628）**，不再手动创建、粘贴 Token。
@@ -150,17 +130,15 @@ export const oauthConfig = {
 `VITE_GITHUB_CLIENT_ID` 与 `VITE_OAUTH_RELAY_URL`；Cloudflare Pages 路线在
 Pages 项目 **Settings → Environment variables** 中新增 `VITE_GITHUB_CLIENT_ID`。
 
-未配置时登录页会提示「站长尚未完成 OAuth 配置」，不影响密码登录写本地草稿。
-
 ---
 
 ## ✍️ 两种写作方式
 
 ### 方式 A：在站内写（推荐）
 
-1. 访问 `/login`，切到 **GitHub OAuth** 标签（或用站点密码登录后去 **设置 → GitHub 连接**）
-2. 点 **使用 GitHub 登录**，复制页面显示的验证码，在打开的 GitHub 页面输入并授权
-3. 授权后自动完成登录 → 写文章 → 点 **发布到 GitHub**
+1. 访问 `/login` 点击 **使用 GitHub 登录**
+2. 验证码将自动复制到剪贴板，在自动打开的 GitHub 页面粘贴并授权
+3. 授权后自动完成登录 → 写文章 → 点 **发布到 GitHub**（或申请发表 PR）
 
 整个过程基于 OAuth Device Flow，全程不需要创建或粘贴 Token。
 授权令牌只保存在你浏览器的 `localStorage`，只会发送给 `api.github.com`，
@@ -229,8 +207,7 @@ pinned: false    # true 则置顶到首页
 
 ## 🔒 关于安全（请务必读一下）
 
-- 静态站点**没有服务端**，前端密码只是「防止别人随手点进后台」的门帘，**不是安全边界**。任何人都能看到打包后的代码。
-- **真正的写权限由 GitHub OAuth 授权控制**。没有授权，即使进了后台也只能改自己浏览器里的草稿，动不了仓库。
+- **写权限与身份验证完全由 GitHub OAuth 授权控制**。没有授权，即使进入页面也无法修改仓库。
 - OAuth 授权范围默认是 `public_repo`（公开仓库读写）；令牌存于浏览器本地，可随时在 GitHub「Settings → Applications」一键撤销。
 - OAuth 中转只转发 GitHub 的授权请求，**不持有任何机密**（Device Flow 无需 client_secret），也无法访问仓库内容。
 - 在公共电脑上用完请点「退出登录」，会清除本地保存的令牌。

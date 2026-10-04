@@ -13,7 +13,6 @@ export function usePosts(includeDrafts = false): [Post[], () => void] {
   const refresh = useCallback(() => setPosts(read()), [read])
 
   useEffect(() => {
-    refresh()
     const handler = () => refresh()
     window.addEventListener('starlog:posts-changed', handler)
     window.addEventListener('storage', handler)
