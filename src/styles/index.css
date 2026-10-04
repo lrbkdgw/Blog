@@ -240,48 +240,98 @@
 }
 
 /* -------------------------------------------------------------------------- */
-/*                           重做表格：方边全网格，无斑马纹                      */
+/*                 1. 标准表格 & 合并表格（严格对照效果图 1）                  */
 /* -------------------------------------------------------------------------- */
 .prose .markdown-table {
-  @apply my-8 overflow-x-auto rounded-none border border-ink-300/90 bg-white dark:border-white/20 dark:bg-ink-950/40;
+  @apply my-8 overflow-x-auto rounded-none border border-ink-200 bg-white shadow-none dark:border-white/15 dark:bg-transparent;
 }
 .prose .markdown-table > table {
-  @apply !my-0 w-full min-w-[28rem] border-collapse text-sm leading-6 text-center;
-  border: 1px solid rgba(140, 150, 170, 0.4);
+  @apply !my-0 w-full min-w-[28rem] border-collapse text-sm leading-relaxed text-center;
 }
 .prose .markdown-table th {
-  @apply border border-ink-300/90 bg-ink-100/90 px-4 py-2.5 font-bold text-ink-900 dark:border-white/20 dark:bg-white/10 dark:text-white text-center align-middle;
+  @apply border border-ink-200 bg-white px-5 py-3 font-bold text-ink-900 text-center align-middle dark:border-white/15 dark:bg-white/[0.04] dark:text-white;
 }
 .prose .markdown-table td {
-  @apply border border-ink-300/80 px-4 py-2.5 text-ink-700 dark:border-white/15 dark:text-ink-200 text-center align-middle;
+  @apply border border-ink-200 bg-transparent px-5 py-3 text-ink-800 text-center align-middle dark:border-white/15 dark:text-ink-200;
 }
-/* 无斑马纹，无交替黑白 */
 .prose .markdown-table tbody tr {
   @apply bg-transparent;
 }
-.prose .markdown-table tbody tr:hover {
-  @apply bg-ink-50/60 dark:bg-white/[0.03];
-}
 .prose .markdown-table td :where(code) {
-  @apply whitespace-nowrap bg-ink-100/80 text-[.85em] dark:bg-white/10;
+  @apply whitespace-nowrap bg-ink-100/80 px-1 py-0.5 rounded text-[.85em] dark:bg-white/10;
 }
 
-/* Tuack 风格表格 (::cute-table{tuack})：方边全网格 + 灰底表头 + 加粗表头下边框 */
-.prose .markdown-table.table-tuack,
-.prose .table-tuack-wrapper .markdown-table {
-  @apply my-6 rounded-none border-2 border-ink-400/90 bg-white dark:border-white/30 dark:bg-ink-950/60;
+/* -------------------------------------------------------------------------- */
+/*                2. Tuack 风格表格（严格对照效果图 2）                         */
+/* -------------------------------------------------------------------------- */
+.prose .table-tuack-wrapper,
+.prose .table-tuack-wrapper .markdown-table,
+.prose .markdown-table.table-tuack {
+  @apply my-8 overflow-x-auto rounded-none border-none bg-transparent shadow-none;
 }
-.prose .markdown-table.table-tuack > table,
-.prose .table-tuack-wrapper .markdown-table > table {
-  @apply border-collapse text-center;
+.prose .table-tuack-wrapper .markdown-table > table,
+.prose .markdown-table.table-tuack > table {
+  @apply !my-0 w-full min-w-[28rem] border-collapse text-sm leading-relaxed text-center;
+  border-top: 3px solid #111827 !important;
+  border-bottom: 3px solid #111827 !important;
+  border-left: none !important;
+  border-right: none !important;
 }
-.prose .markdown-table.table-tuack th,
-.prose .table-tuack-wrapper .markdown-table th {
-  @apply border border-ink-400/80 border-b-2 border-b-ink-500 bg-ink-200/80 px-4 py-2.5 font-bold text-ink-900 dark:border-white/25 dark:border-b-white/40 dark:bg-white/15 dark:text-white text-center;
+.dark .prose .table-tuack-wrapper .markdown-table > table,
+.dark .prose .markdown-table.table-tuack > table {
+  border-top-color: #f3f4f6 !important;
+  border-bottom-color: #f3f4f6 !important;
 }
-.prose .markdown-table.table-tuack td,
-.prose .table-tuack-wrapper .markdown-table td {
-  @apply border border-ink-300/90 px-4 py-2 text-ink-800 dark:border-white/20 dark:text-ink-100 text-center align-middle;
+
+.prose .table-tuack-wrapper th,
+.prose .markdown-table.table-tuack th {
+  @apply px-4 py-3 font-bold text-ink-900 text-center align-middle dark:text-white bg-transparent;
+  border-top: none !important;
+  border-bottom: 1.5px solid #111827 !important;
+  border-left: 1px solid #111827;
+  border-right: 1px solid #111827;
+}
+.dark .prose .table-tuack-wrapper th,
+.dark .prose .markdown-table.table-tuack th {
+  border-bottom-color: #f3f4f6 !important;
+  border-left-color: rgba(243, 244, 246, 0.4);
+  border-right-color: rgba(243, 244, 246, 0.4);
+}
+
+.prose .table-tuack-wrapper td,
+.prose .markdown-table.table-tuack td {
+  @apply px-4 py-2.5 text-ink-900 text-center align-middle dark:text-ink-100 bg-transparent;
+  border-top: 1px solid #111827;
+  border-bottom: 1px solid #111827;
+  border-left: 1px solid #111827;
+  border-right: 1px solid #111827;
+}
+.dark .prose .table-tuack-wrapper td,
+.dark .prose .markdown-table.table-tuack td {
+  border-top-color: rgba(243, 244, 246, 0.4);
+  border-bottom-color: rgba(243, 244, 246, 0.4);
+  border-left-color: rgba(243, 244, 246, 0.4);
+  border-right-color: rgba(243, 244, 246, 0.4);
+}
+
+/* 去除 Tuack 表格外侧左右边框 (Open Sides) */
+.prose .table-tuack-wrapper th:first-child,
+.prose .table-tuack-wrapper td:first-child,
+.prose .markdown-table.table-tuack th:first-child,
+.prose .markdown-table.table-tuack td:first-child {
+  border-left: none !important;
+}
+.prose .table-tuack-wrapper th:last-child,
+.prose .table-tuack-wrapper td:last-child,
+.prose .markdown-table.table-tuack th:last-child,
+.prose .markdown-table.table-tuack td:last-child {
+  border-right: none !important;
+}
+
+/* 最后一行的下边框由 table 的 3px 实线负责 */
+.prose .table-tuack-wrapper tr:last-child td,
+.prose .markdown-table.table-tuack tr:last-child td {
+  border-bottom: none !important;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -306,13 +356,14 @@
   @apply mb-0;
 }
 
-/* 折叠框展开时，右侧箭头平滑旋转 90 度向下 */
+/* 折叠框展开时，右侧箭头平滑顺时针旋转 90 度向下 */
 .callout-chevron {
   transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 details[open] > summary .callout-chevron,
-details.callout[open] summary .callout-chevron {
-  transform: rotate(90deg);
+details.callout[open] summary .callout-chevron,
+details[open] .callout-chevron {
+  transform: rotate(90deg) !important;
 }
 
 .prose details.callout-info {
