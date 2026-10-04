@@ -12,6 +12,7 @@ import {
   Type,
 } from 'lucide-react'
 import { Markdown } from '../components/Markdown'
+import { Comments } from '../components/Comments'
 import { Toc } from '../components/Toc'
 import { extractToc, formatDate } from '../lib/posts'
 import { usePosts } from '../lib/usePosts'
@@ -178,6 +179,9 @@ export default function PostPage() {
           <div className="mt-8">
             <Markdown content={post.content} />
           </div>
+
+          {/* 评论区：登录后的用户可以评论 */}
+          <Comments slug={post.slug} />
 
           {/* 文末 */}
           <div className="no-print mt-16 border-t border-ink-200/60 pt-8 dark:border-white/[0.08]">

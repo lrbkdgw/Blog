@@ -5,12 +5,22 @@ import { usePosts } from '../lib/usePosts'
 import { getAllTags } from '../lib/posts'
 import { PostCard } from '../components/PostCard'
 
+/** 路由参数已经过路由器解码；这里再做一次防御性处理，非法 % 序列不再让整页崩溃 */
+function safeDecode(tag: string | undefined): string {
+  if (!tag) return ''
+  try {
+    return decodeURIComponent(tag)
+  } catch {
+    return tag
+  }
+}
+
 export default function TagsPage() {
   const { tag } = useParams()
   const [posts] = usePosts()
   const tags = useMemo(() => getAllTags(posts), [posts])
 
-  const decoded = tag ? decodeURIComponent(tag) : ''
+  const decoded = safeDecode(tag)
   const filtered = useMemo(
     () => (decoded ? posts.filter((p) => p.tags.includes(decoded)) : []),
     [posts, decoded],

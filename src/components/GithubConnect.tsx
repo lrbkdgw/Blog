@@ -77,6 +77,17 @@ export default function GithubConnect({ onToken, label = '使用 GitHub 登录',
       if (controller.signal.aborted) return
       setFlow(info)
       setPhase('waiting')
+      // 点击登录后自动复制登录代码（issue #9），免去手动复制一步；
+      // 部分浏览器在异步回调里不允许写剪贴板，失败就静默，用户仍可点击验证码手动复制。
+      void (async () => {
+        try {
+          await navigator.clipboard.writeText(info.userCode)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 4000)
+        } catch {
+          /* 剪贴板不可用时忽略 */
+        }
+      })()
       // 自动打开 GitHub 验证页（若被浏览器拦截，界面里还有手动按钮）
       window.open(info.verificationUri, '_blank', 'noopener')
       const token = await pollDeviceToken(info, controller.signal)
@@ -147,7 +158,14 @@ export default function GithubConnect({ onToken, label = '使用 GitHub 登录',
               <ClipboardCopy size={16} className="text-ink-300 transition group-hover:text-brand-500" />
             )}
           </button>
-          <p className="mt-2 flex items-center justify-center gap-1.5 text-xs text-ink-400">
+          <p className="mt-2 flex items-center justify-center gap-1.5 text-xs">
+            {copied ? (
+              <span className="font-medium text-emerald-600 dark:text-emerald-400">验证码已自动复制，直接粘贴即可</span>
+            ) : (
+              <span className="text-ink-400">点击验证码可复制</span>
+            )}
+          </p>
+          <p className="mt-1.5 flex items-center justify-center gap-1.5 text-xs text-ink-400">
             <Timer size={12} />
             {remaining > 0 ? `验证码 ${mm}:${ss} 后过期` : '验证码已过期'}
             <span className="mx-1">·</span>

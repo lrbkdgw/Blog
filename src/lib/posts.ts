@@ -159,10 +159,19 @@ function writeStore(items: StoredDraft[]) {
   window.dispatchEvent(new CustomEvent('starlog:posts-changed'))
 }
 
+/* 缓存：同一批草稿数据只解析一次，避免每个订阅组件重复做 YAML/字数统计 */
+let draftsJsonCache: string | null = null
+let localPostsCache: Post[] = []
+
 export function getLocalPosts(): Post[] {
-  return readStore().map((d) =>
-    buildPost(d.raw, { slug: d.slug, source: 'local', savedAt: d.savedAt }),
-  )
+  const json = typeof localStorage === 'undefined' ? '[]' : localStorage.getItem(STORAGE_KEYS.drafts) || '[]'
+  if (json !== draftsJsonCache) {
+    draftsJsonCache = json
+    localPostsCache = readStore().map((d) =>
+      buildPost(d.raw, { slug: d.slug, source: 'local', savedAt: d.savedAt }),
+    )
+  }
+  return localPostsCache
 }
 
 export function saveLocalPost(post: Post | (PostMeta & { content: string }), prevSlug?: string): Post {
@@ -186,10 +195,16 @@ export function localPostExists(slug: string): boolean {
 /*                                  聚合查询                                   */
 /* -------------------------------------------------------------------------- */
 
+let repoCache: Post[] | null = null
+
 export function getRepoPosts(): Post[] {
-  return Object.entries(rawModules).map(([path, raw]) =>
-    buildPost(raw, { path: path.replace(/^\//, ''), source: 'repo' }),
-  )
+  // 仓库文章在构建时打包，内容不会变，只解析一次
+  if (!repoCache) {
+    repoCache = Object.entries(rawModules).map(([path, raw]) =>
+      buildPost(raw, { path: path.replace(/^\//, ''), source: 'repo' }),
+    )
+  }
+  return repoCache
 }
 
 function sortPosts(posts: Post[]): Post[] {
@@ -205,6 +220,14 @@ export function getAllPosts(): Post[] {
   for (const p of getRepoPosts()) map.set(p.slug, p)
   for (const p of getLocalPosts()) map.set(p.slug, p)
   return sortPosts([...map.values()])
+}
+
+/**
+ * 管理页专用列表（issue #8）：不做同名合并——
+ * 即使本地草稿与仓库文章完全相同，也各自显示为一条。
+ */
+export function getAllPostsFlat(): Post[] {
+  return sortPosts([...getRepoPosts(), ...getLocalPosts()])
 }
 
 export function getPublishedPosts(): Post[] {

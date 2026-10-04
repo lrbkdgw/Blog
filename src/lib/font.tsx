@@ -4,66 +4,92 @@ import { STORAGE_KEYS } from './config'
 import { fetchGithubFontPreference, saveGithubFontPreference } from './github'
 import { useAuth } from './auth'
 
-export type FontSource = 'default' | 'local' | 'cloud'
 export type FontStatus = 'idle' | 'checking-local' | 'loading-cloud' | 'ready' | 'fallback'
+/** 每个字体命中的来源：本机 / 云端 / 两边都没有 */
+export type FontResolve = Record<string, 'local' | 'cloud' | 'missing'>
 
 export interface FontPreference {
-  family: string
-  source: FontSource
+  /**
+   * 字体栈（issue #9）：可以设置多个字体，渲染时按列表顺序依次尝试，
+   * 前一个不可用（本机未安装且云端加载失败）时自动落到下一个。
+   */
+  families: string[]
   updatedAt: number
 }
 
 interface FontCtx {
   font: FontPreference
   status: FontStatus
+  resolved: FontResolve
   accountSync: 'idle' | 'loading' | 'synced' | 'error'
-  setFont: (family: string, knownLocal?: boolean) => Promise<FontPreference>
+  setFonts: (families: string[]) => Promise<FontPreference>
   resetFont: () => void
   saveForGithub: () => Promise<void>
 }
 
-const DEFAULT_FONT: FontPreference = { family: '', source: 'default', updatedAt: 0 }
+const DEFAULT_FONT: FontPreference = { families: [], updatedAt: 0 }
 const CLOUD_TIMEOUT = 5000
+const MAX_FONTS = 6
 const cloudStyles = new Map<string, HTMLStyleElement>()
 const Ctx = createContext<FontCtx>({
   font: DEFAULT_FONT,
   status: 'idle',
+  resolved: {},
   accountSync: 'idle',
-  setFont: async () => DEFAULT_FONT,
+  setFonts: async () => DEFAULT_FONT,
   resetFont: () => {},
   saveForGithub: async () => {},
 })
 
-function normalizeFamily(value: string): string {
-  const family = value.trim().replace(/\s+/g, ' ')
-  if (!family) return ''
-  if (family.length > 120 || /[{};<>\n\r]/.test(family)) {
-    throw new Error('字体名称格式不正确，请只填写一个字体名称')
+function normalizeFamilies(values: string[]): string[] {
+  const out: string[] = []
+  for (const raw of values) {
+    const family = String(raw ?? '').trim().replace(/\s+/g, ' ')
+    if (!family) continue
+    if (family.length > 120 || /[{};<>\n\r]/.test(family)) {
+      throw new Error(`字体名称「${family.slice(0, 20)}…」格式不正确`)
+    }
+    if (!out.some((v) => v.toLowerCase() === family.toLowerCase())) out.push(family)
   }
-  return family
+  if (out.length > MAX_FONTS) throw new Error(`最多设置 ${MAX_FONTS} 个字体`)
+  return out
 }
 
 function quoteFamily(family: string): string {
   return `"${family.replace(/["\\]/g, '\\$&')}"`
 }
 
-function applyToDocument(family: string) {
+function applyToDocument(families: string[]) {
   const root = document.documentElement
-  if (!family) {
+  if (families.length === 0) {
     root.style.removeProperty('--font-sans')
     root.style.removeProperty('--font-serif')
     root.removeAttribute('data-font-family')
     return
   }
 
-  const quoted = quoteFamily(family)
-  root.style.setProperty('--font-sans', `${quoted}, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif`)
-  root.style.setProperty('--font-serif', `${quoted}, "Noto Serif SC", "Songti SC", STSong, SimSun, serif`)
-  root.dataset.fontFamily = family
+  const stack = families.map(quoteFamily).join(', ')
+  // 自定义字体按优先级排在最前，后面始终垫上系统字体兜底
+  root.style.setProperty('--font-sans', `${stack}, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif`)
+  root.style.setProperty('--font-serif', `${stack}, "Noto Serif SC", "Songti SC", STSong, SimSun, serif`)
+  root.dataset.fontFamily = families.join(' / ')
 }
 
 function writeLocal(preference: FontPreference) {
   localStorage.setItem(STORAGE_KEYS.font, JSON.stringify(preference))
+}
+
+function normalizePreference(parsed: Record<string, unknown>): FontPreference {
+  // 兼容旧版 {family, source} 单字体格式
+  const families = Array.isArray(parsed.families)
+    ? parsed.families
+    : typeof parsed.family === 'string' && parsed.family.trim()
+      ? [parsed.family]
+      : []
+  return {
+    families: normalizeFamilies(families.map((v) => String(v))),
+    updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
+  }
 }
 
 function readLocal(): FontPreference {
@@ -71,24 +97,27 @@ function readLocal(): FontPreference {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.font)
     if (!raw) return DEFAULT_FONT
-    const parsed = JSON.parse(raw)
-    if (parsed && typeof parsed.family === 'string') {
-      return {
-        family: normalizeFamily(parsed.family),
-        source: parsed.source === 'cloud' || parsed.source === 'local' ? parsed.source : 'default',
-        updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
-      }
-    }
+    return normalizePreference(JSON.parse(raw))
   } catch {
-    // 兼容旧版仅保存预设名称的值；无法转换时回退为默认字体。
+    return DEFAULT_FONT
   }
-  return DEFAULT_FONT
 }
 
 function readAccountCache(): Record<string, FontPreference> {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.fontAccounts) || '{}')
-    return parsed && typeof parsed === 'object' ? parsed : {}
+    if (!parsed || typeof parsed !== 'object') return {}
+    const out: Record<string, FontPreference> = {}
+    for (const [login, value] of Object.entries(parsed)) {
+      if (value && typeof value === 'object') {
+        try {
+          out[login] = normalizePreference(value as Record<string, unknown>)
+        } catch {
+          /* 单条坏数据跳过 */
+        }
+      }
+    }
+    return out
   } catch {
     return {}
   }
@@ -159,14 +188,16 @@ export function FontProvider({ children }: { children: ReactNode }) {
   const { ghUser, canPublish, loading: authLoading } = useAuth()
   const [font, setFontState] = useState<FontPreference>(readLocal)
   const [status, setStatus] = useState<FontStatus>('idle')
+  const [resolved, setResolved] = useState<FontResolve>({})
   const [accountSync, setAccountSync] = useState<FontCtx['accountSync']>('idle')
   const accountRef = useRef('')
 
-  const commit = useCallback((next: FontPreference, nextStatus: FontStatus) => {
-    applyToDocument(next.family)
+  const commit = useCallback((next: FontPreference, nextStatus: FontStatus, resolveMap: FontResolve = {}) => {
+    applyToDocument(next.families)
     writeLocal(next)
     setFontState(next)
     setStatus(nextStatus)
+    setResolved(resolveMap)
     return next
   }, [])
 
@@ -174,39 +205,52 @@ export function FontProvider({ children }: { children: ReactNode }) {
     commit({ ...DEFAULT_FONT, updatedAt: Date.now() }, 'idle')
   }, [commit])
 
-  const setFont = useCallback(
-    async (value: string, knownLocal = false): Promise<FontPreference> => {
-      const family = normalizeFamily(value)
-      if (!family) {
+  /** 设置字体栈：逐个检测本机是否安装，缺失的尝试云端加载，最后按优先级依次生效 */
+  const setFonts = useCallback(
+    async (values: string[]): Promise<FontPreference> => {
+      const families = normalizeFamilies(values)
+      if (families.length === 0) {
         return commit({ ...DEFAULT_FONT, updatedAt: Date.now() }, 'idle')
       }
 
       setStatus('checking-local')
-      if (knownLocal || localFontLikelyExists(family)) {
-        return commit({ family, source: 'local', updatedAt: Date.now() }, 'ready')
+      const resolveMap: FontResolve = {}
+      const missing: string[] = []
+      for (const family of families) {
+        if (localFontLikelyExists(family)) resolveMap[family] = 'local'
+        else missing.push(family)
       }
 
-      setStatus('loading-cloud')
-      try {
-        await requestCloudFont(family)
-        return commit({ family, source: 'cloud', updatedAt: Date.now() }, 'ready')
-      } catch {
-        return commit({ ...DEFAULT_FONT, updatedAt: Date.now() }, 'fallback')
+      if (missing.length > 0) {
+        setStatus('loading-cloud')
+        await Promise.all(
+          missing.map(async (family) => {
+            try {
+              await requestCloudFont(family)
+              resolveMap[family] = 'cloud'
+            } catch {
+              resolveMap[family] = 'missing'
+            }
+          }),
+        )
       }
+
+      const allMissing = families.every((f) => resolveMap[f] === 'missing')
+      return commit({ families, updatedAt: Date.now() }, allMissing ? 'fallback' : 'ready', resolveMap)
     },
     [commit],
   )
 
   // 本地偏好先立即恢复并校验；字体在这台设备上不存在时会尝试云端，再按规则回退。
   useEffect(() => {
-    if (font.family) {
-      void setFont(font.family)
+    if (font.families.length > 0) {
+      void setFonts(font.families)
     } else if (typeof document !== 'undefined') {
-      applyToDocument('')
+      applyToDocument([])
     }
     // 只在首次挂载时校验本地已保存的偏好，后续变更由 commit() 统一处理。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setFont])
+  }, [setFonts])
 
   useEffect(() => {
     if (authLoading || !canPublish || !ghUser) {
@@ -224,12 +268,12 @@ export function FontProvider({ children }: { children: ReactNode }) {
     const restore = async () => {
       try {
         const cached = readAccountCache()[login]
-        if (cached && typeof cached.family === 'string') await setFont(cached.family)
+        if (cached && cached.families.length > 0) await setFonts(cached.families)
 
         const remote = await fetchGithubFontPreference(login)
         if (!active) return
         if (remote) {
-          const restored = await setFont(remote.family)
+          const restored = await setFonts(remote.families)
           if (!active) return
           writeAccountCache(login, restored)
         }
@@ -243,18 +287,18 @@ export function FontProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false
     }
-  }, [authLoading, canPublish, ghUser, setFont])
+  }, [authLoading, canPublish, ghUser, setFonts])
 
   const saveForGithub = useCallback(async () => {
     if (!canPublish || !ghUser) throw new Error('请先登录并连接具备 Contents 写入权限的 GitHub 账号')
-    await saveGithubFontPreference(ghUser.login, { family: font.family, updatedAt: font.updatedAt })
+    await saveGithubFontPreference(ghUser.login, { families: font.families, updatedAt: font.updatedAt })
     writeAccountCache(ghUser.login, font)
     setAccountSync('synced')
   }, [canPublish, ghUser, font])
 
   const value = useMemo(
-    () => ({ font, status, accountSync, setFont, resetFont, saveForGithub }),
-    [font, status, accountSync, setFont, resetFont, saveForGithub],
+    () => ({ font, status, resolved, accountSync, setFonts, resetFont, saveForGithub }),
+    [font, status, resolved, accountSync, setFonts, resetFont, saveForGithub],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

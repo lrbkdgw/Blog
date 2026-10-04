@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   CloudUpload,
@@ -6,6 +6,7 @@ import {
   FileText,
   Github,
   HardDrive,
+  History,
   Loader2,
   PenLine,
   Plus,
@@ -14,48 +15,106 @@ import {
   Trash2,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
-import { usePosts } from '../lib/usePosts'
+import { useAdminPosts } from '../lib/usePosts'
 import { useToast } from '../components/Toast'
 import { deleteLocalPost, formatDate, relativeTime, searchPosts, serializePost } from '../lib/posts'
-import { commitPost, deleteRemotePost, getRepoTarget } from '../lib/github'
+import {
+  commitPost,
+  deleteRemotePost,
+  fetchCommitTimes,
+  getRepoTarget,
+  readCommitTimeCache,
+} from '../lib/github'
 import type { Post } from '../lib/types'
 
-type Filter = 'all' | 'local' | 'repo' | 'draft'
+type Filter = 'all' | 'published' | 'draft' | 'local' | 'repo'
+
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: 'all', label: '全部' },
+  { id: 'published', label: '已发布' },
+  { id: 'draft', label: '草稿' },
+  { id: 'local', label: '本地' },
+  { id: 'repo', label: '仓库' },
+]
+
+/** 行状态：已发布（仓库·公开）/ 仓库草稿 / 本地草稿 */
+function statusOf(post: Post) {
+  if (post.source === 'local')
+    return { label: post.draft ? '本地草稿' : '本地（待发布）', className: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' }
+  if (post.draft)
+    return { label: '仓库草稿', className: 'bg-orange-500/10 text-orange-600 dark:text-orange-400' }
+  return { label: '已发布', className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' }
+}
 
 export default function Admin() {
-  const [posts, refresh] = usePosts(true)
+  const [posts, refresh] = useAdminPosts()
   const { canPublish, ghUser } = useAuth()
   const toast = useToast()
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [busy, setBusy] = useState<string | null>(null)
+  const [commitTimes, setCommitTimes] = useState<Record<string, number>>(() => readCommitTimeCache())
 
   const target = getRepoTarget()
 
+  // 同 slug 的仓库文章与本地草稿要分行显示（issue #8），先统计每个 slug 的来源
+  const slugSources = useMemo(() => {
+    const map = new Map<string, Set<Post['source']>>()
+    for (const p of posts) {
+      if (!map.has(p.slug)) map.set(p.slug, new Set())
+      map.get(p.slug)!.add(p.source)
+    }
+    return map
+  }, [posts])
+
+  const repoPaths = useMemo(
+    () => [...new Set(posts.filter((p) => p.source === 'repo' && p.path).map((p) => p.path!))].sort(),
+    [posts],
+  )
+
+  // 连接 GitHub 后，补全「上次发布到 GitHub 的时间」（有缓存先用缓存）
+  useEffect(() => {
+    if (!canPublish || repoPaths.length === 0) return
+    let alive = true
+    fetchCommitTimes(repoPaths)
+      .then((map) => {
+        if (alive) setCommitTimes(map)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [canPublish, repoPaths])
+
   const filtered = useMemo(() => {
     let list = searchPosts(posts, query)
+    if (filter === 'published') list = list.filter((p) => p.source === 'repo' && !p.draft)
+    if (filter === 'draft') list = list.filter((p) => p.draft || p.source === 'local')
     if (filter === 'local') list = list.filter((p) => p.source === 'local')
     if (filter === 'repo') list = list.filter((p) => p.source === 'repo')
-    if (filter === 'draft') list = list.filter((p) => p.draft)
     return list
   }, [posts, query, filter])
 
   const counts = useMemo(
     () => ({
       all: posts.length,
+      published: posts.filter((p) => p.source === 'repo' && !p.draft).length,
+      draft: posts.filter((p) => p.draft || p.source === 'local').length,
       local: posts.filter((p) => p.source === 'local').length,
       repo: posts.filter((p) => p.source === 'repo').length,
-      draft: posts.filter((p) => p.draft).length,
     }),
     [posts],
   )
+
+  /** 该行唯一的操作标识：同 slug 会有仓库/本地两行 */
+  const rowId = (p: Post) => `${p.source}:${p.slug}`
 
   const publishOne = async (post: Post) => {
     if (!canPublish) {
       toast('请先在「设置」中连接 GitHub', 'warning')
       return
     }
-    setBusy(post.slug)
+    setBusy(rowId(post))
     try {
       const res = await commitPost(post.slug, serializePost(post), `post(blog): ${post.title}`)
       toast(`已提交 ${res.path}，Actions 部署中…`, 'success', { label: '查看提交', href: res.commitUrl })
@@ -79,7 +138,7 @@ export default function Admin() {
       return
     }
     if (!confirm(`将从 GitHub 仓库中删除「${post.title}」，确定吗？`)) return
-    setBusy(post.slug)
+    setBusy(rowId(post))
     try {
       await deleteRemotePost(post.slug)
       toast('已从仓库删除，重新部署后生效', 'success')
@@ -97,7 +156,7 @@ export default function Admin() {
         <div>
           <h1 className="font-serif text-3xl font-bold tracking-tight text-ink-900 dark:text-white">内容管理</h1>
           <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-500">
-            <span>共 {posts.length} 篇</span>
+            <span>共 {posts.length} 条（仓库 {counts.repo} · 本地 {counts.local}）</span>
             <span className="text-ink-300 dark:text-ink-700">|</span>
             {canPublish ? (
               <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
@@ -136,14 +195,7 @@ export default function Admin() {
           />
         </div>
         <div className="flex gap-0.5 rounded-xl bg-ink-100/80 p-1 dark:bg-white/5">
-          {(
-            [
-              { id: 'all', label: '全部' },
-              { id: 'repo', label: '仓库' },
-              { id: 'local', label: '本地' },
-              { id: 'draft', label: '草稿' },
-            ] as const
-          ).map((f) => (
+          {FILTERS.map((f) => (
             <button
               key={f.id}
               onClick={() => setFilter(f.id)}
@@ -173,78 +225,119 @@ export default function Admin() {
           </div>
         )}
 
-        {filtered.map((post) => (
-          <div key={post.slug} className="group flex flex-wrap items-center gap-3 px-4 py-3.5 transition hover:bg-ink-50/70 dark:hover:bg-white/[.03]">
-            <span
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                post.source === 'local'
-                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                  : 'bg-brand-500/10 text-brand-600 dark:text-brand-300'
-              }`}
-              title={post.source === 'local' ? '浏览器本地草稿' : '仓库文件'}
+        {filtered.map((post) => {
+          const status = statusOf(post)
+          const sources = slugSources.get(post.slug)
+          const hasTwin = sources && sources.size > 1
+          const publishedAt = post.path ? commitTimes[post.path] : undefined
+          return (
+            <div
+              key={rowId(post)}
+              className="group flex flex-wrap items-center gap-3 px-4 py-3.5 transition hover:bg-ink-50/70 dark:hover:bg-white/[.03]"
             >
-              {post.source === 'local' ? <HardDrive size={16} /> : <Github size={16} />}
-            </span>
+              <span
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                  post.source === 'local'
+                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                    : 'bg-brand-500/10 text-brand-600 dark:text-brand-300'
+                }`}
+                title={post.source === 'local' ? '浏览器本地草稿' : '仓库文件'}
+              >
+                {post.source === 'local' ? <HardDrive size={16} /> : <Github size={16} />}
+              </span>
 
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <Link
-                  to={`/admin/edit/${post.slug}`}
-                  className="truncate text-sm font-medium text-ink-900 hover:text-brand-600 dark:text-white dark:hover:text-brand-300"
-                >
-                  {post.title}
-                </Link>
-                {post.draft && (
-                  <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-600 dark:text-amber-400">
-                    草稿
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    to={`/admin/edit/${post.slug}`}
+                    className="truncate text-sm font-medium text-ink-900 hover:text-brand-600 dark:text-white dark:hover:text-brand-300"
+                  >
+                    {post.title}
+                  </Link>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${status.className}`}>
+                    {status.label}
                   </span>
-                )}
-                {post.pinned && (
-                  <span className="shrink-0 rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] text-brand-600 dark:text-brand-300">
-                    置顶
-                  </span>
+                  {post.pinned && (
+                    <span className="shrink-0 rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] text-brand-600 dark:text-brand-300">
+                      置顶
+                    </span>
+                  )}
+                  {hasTwin && (
+                    <span
+                      className="shrink-0 rounded-full bg-ink-900/[.06] px-2 py-0.5 text-[11px] text-ink-500 dark:bg-white/10 dark:text-ink-400"
+                      title={
+                        post.source === 'local'
+                          ? '仓库里已有一篇同名文章，发布后会覆盖它'
+                          : '本浏览器里有一份同名草稿'
+                      }
+                    >
+                      {post.source === 'local' ? '与仓库同名' : '本地有同名草稿'}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-0.5 truncate font-mono text-xs text-ink-400">
+                  {formatDate(post.date, 'short')} · /{post.slug} · {post.wordCount} 字
+                  {post.updated && ` · 更新于 ${formatDate(post.updated, 'short')}`}
+                  {post.savedAt ? ` · 本地保存于 ${relativeTime(post.savedAt)}` : ''}
+                </p>
+                {/* 上次发布到 GitHub 的时间（issue #8） */}
+                {post.source === 'repo' && (
+                  <p className="mt-0.5 flex items-center gap-1 font-mono text-xs text-ink-400" title="上次发布（提交）到 GitHub 的时间">
+                    <History size={11} className="shrink-0" />
+                    {!canPublish ? (
+                      <span>连接 GitHub 后显示上次发布时间</span>
+                    ) : publishedAt === undefined ? (
+                      <span className="flex items-center gap-1">
+                        <Loader2 size={11} className="animate-spin" />
+                        正在获取发布时间…
+                      </span>
+                    ) : publishedAt > 0 ? (
+                      <span>
+                        上次发布于 {relativeTime(publishedAt)}（{formatDate(new Date(publishedAt).toISOString())}）
+                      </span>
+                    ) : (
+                      <span>发布时间未知</span>
+                    )}
+                  </p>
                 )}
               </div>
-              <p className="mt-0.5 truncate font-mono text-xs text-ink-400">
-                {formatDate(post.date, 'short')} · /{post.slug} · {post.wordCount} 字
-                {post.savedAt ? ` · 本地保存于 ${relativeTime(post.savedAt)}` : ''}
-              </p>
-            </div>
 
-            <div className="flex shrink-0 items-center gap-1">
-              <Link to={`/posts/${post.slug}`} className="btn-ghost h-8 w-8 !px-0" title="查看">
-                <Eye size={15} />
-              </Link>
-              <Link to={`/admin/edit/${post.slug}`} className="btn-ghost h-8 w-8 !px-0" title="编辑">
-                <PenLine size={15} />
-              </Link>
-              {post.source === 'local' && (
+              <div className="flex shrink-0 items-center gap-1">
+                <Link to={`/posts/${post.slug}`} className="btn-ghost h-8 w-8 !px-0" title="查看">
+                  <Eye size={15} />
+                </Link>
+                <Link to={`/admin/edit/${post.slug}`} className="btn-ghost h-8 w-8 !px-0" title="编辑">
+                  <PenLine size={15} />
+                </Link>
+                {post.source === 'local' && (
+                  <button
+                    onClick={() => publishOne(post)}
+                    disabled={busy === rowId(post)}
+                    className="btn-ghost h-8 w-8 !px-0 text-brand-600 dark:text-brand-300"
+                    title="发布到 GitHub"
+                  >
+                    {busy === rowId(post) ? <Loader2 size={15} className="animate-spin" /> : <CloudUpload size={15} />}
+                  </button>
+                )}
                 <button
-                  onClick={() => publishOne(post)}
-                  disabled={busy === post.slug}
-                  className="btn-ghost h-8 w-8 !px-0 text-brand-600 dark:text-brand-300"
-                  title="发布到 GitHub"
+                  onClick={() => removePost(post)}
+                  disabled={busy === rowId(post)}
+                  className="btn-ghost h-8 w-8 !px-0 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                  title={post.source === 'local' ? '删除本地草稿' : '从仓库删除'}
                 >
-                  {busy === post.slug ? <Loader2 size={15} className="animate-spin" /> : <CloudUpload size={15} />}
+                  {busy === rowId(post) ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
                 </button>
-              )}
-              <button
-                onClick={() => removePost(post)}
-                disabled={busy === post.slug}
-                className="btn-ghost h-8 w-8 !px-0 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10"
-                title={post.source === 'local' ? '删除本地草稿' : '从仓库删除'}
-              >
-                <Trash2 size={15} />
-              </button>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <p className="mb-16 mt-4 text-xs leading-relaxed text-ink-400">
         「仓库」文章来自 <code className="rounded bg-ink-100 px-1 dark:bg-white/10">{target.postsDir}/</code>{' '}
         目录，会在构建时打包进站点；「本地」文章只存在于当前浏览器，点击{' '}
         <CloudUpload size={12} className="inline" /> 即可提交到 GitHub 并触发自动部署。
+        同一名称的仓库文章与本地草稿会分两条显示，互不干扰。
       </p>
     </div>
   )

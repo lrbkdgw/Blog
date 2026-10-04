@@ -18,16 +18,35 @@
           if (dark) document.documentElement.classList.add('dark')
 
           var savedFont = JSON.parse(localStorage.getItem('starlog:font') || 'null')
-          var family = savedFont && typeof savedFont.family === 'string' ? savedFont.family.trim() : ''
-          if (family && family.length <= 120 && !/[{};<>\n\r]/.test(family)) {
-            var quoted = '"' + family.replace(/["\\]/g, '\\$&') + '"'
+          // 新版多字体栈（families），兼容旧版单字体（family）
+          var fonts = savedFont
+            ? Array.isArray(savedFont.families)
+              ? savedFont.families
+              : typeof savedFont.family === 'string' && savedFont.family.trim()
+                ? [savedFont.family]
+                : []
+            : []
+          fonts = fonts
+            .map(function (f) {
+              return String(f || '').trim()
+            })
+            .filter(function (f) {
+              return f && f.length <= 120 && !/[{};<>\n\r]/.test(f)
+            })
+            .slice(0, 6)
+          if (fonts.length > 0) {
+            var stack = fonts
+              .map(function (f) {
+                return '"' + f.replace(/["\\]/g, '\\$&') + '"'
+              })
+              .join(', ')
             document.documentElement.style.setProperty(
               '--font-sans',
-              quoted + ', system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif',
+              stack + ', system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif',
             )
             document.documentElement.style.setProperty(
               '--font-serif',
-              quoted + ', "Noto Serif SC", "Songti SC", STSong, SimSun, serif',
+              stack + ', "Noto Serif SC", "Songti SC", STSong, SimSun, serif',
             )
           }
 

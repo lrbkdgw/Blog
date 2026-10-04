@@ -257,7 +257,8 @@ export async function fetchRemoteFile(path: string, target = getRepoTarget()) {
 /* ---------------------------- 账号外观偏好 ---------------------------- */
 
 export interface GithubFontPreference {
-  family: string
+  /** 字体栈（issue #9）：按优先级排列的多个字体 */
+  families: string[]
   updatedAt: number
 }
 
@@ -269,7 +270,7 @@ function fontSettingsPath(login: string): string {
   return `${FONT_SETTINGS_DIR}/${safeLogin}.json`
 }
 
-/** 读取保存在当前博客仓库内、按 GitHub 账号区分的字体偏好。 */
+/** 读取保存在当前博客仓库内、按 GitHub 账号区分的字体偏好（兼容旧版单字体格式）。 */
 export async function fetchGithubFontPreference(
   login: string,
   target = getRepoTarget(),
@@ -277,9 +278,14 @@ export async function fetchGithubFontPreference(
   try {
     const { text } = await fetchRemoteFile(fontSettingsPath(login), target)
     const parsed = JSON.parse(text)
-    if (!parsed || typeof parsed.family !== 'string') return null
+    if (!parsed || typeof parsed !== 'object') return null
+    const families = Array.isArray(parsed.families)
+      ? parsed.families.filter((f: unknown) => typeof f === 'string' && f.trim()).map((f: string) => f.trim())
+      : typeof parsed.family === 'string' && parsed.family.trim()
+        ? [parsed.family.trim()]
+        : []
     return {
-      family: parsed.family,
+      families,
       updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
     }
   } catch (err) {
@@ -302,7 +308,7 @@ export async function saveGithubFontPreference(
       message: `chore(settings): 保存 @${login} 的字体偏好`,
       content: encodeBase64(
         JSON.stringify(
-          { version: 1, family: preference.family, updatedAt: preference.updatedAt || Date.now() },
+          { version: 2, families: preference.families, updatedAt: preference.updatedAt || Date.now() },
           null,
           2,
         ) + '\n',
@@ -393,6 +399,65 @@ export interface CommitResult {
   commitUrl: string
 }
 
+/* ---------------------- 文件最近一次提交时间（issue #8） ---------------------- */
+
+function commitTimeCacheKey(target: RepoTarget): string {
+  return `starlog:commit-times:${target.owner}/${target.repo}@${target.branch}`
+}
+
+export function readCommitTimeCache(target = getRepoTarget()): Record<string, number> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(commitTimeCacheKey(target)) || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeCommitTimeCache(map: Record<string, number>, target = getRepoTarget()) {
+  try {
+    localStorage.setItem(commitTimeCacheKey(target), JSON.stringify(map))
+  } catch {
+    /* 缓存写不进去就算了（比如隐私模式） */
+  }
+}
+
+/** 自己刚提交完，直接记录时间，免得再去问一遍 GitHub */
+export function recordCommitTime(path: string, ts: number, target = getRepoTarget()) {
+  const map = readCommitTimeCache(target)
+  map[path] = ts
+  writeCommitTimeCache(map, target)
+}
+
+/**
+ * 批量获取一组文件「上次发布（提交）到 GitHub 的时间」。
+ * 本地有缓存的先取缓存，缺失的并发调用 Commits API，结果写回缓存。
+ * 值为 0 表示查询失败或没有提交记录。
+ */
+export async function fetchCommitTimes(
+  paths: string[],
+  target = getRepoTarget(),
+): Promise<Record<string, number>> {
+  const cached = readCommitTimeCache(target)
+  const missing = paths.filter((p) => typeof cached[p] !== 'number')
+  if (missing.length > 0) {
+    await Promise.all(
+      missing.map(async (path) => {
+        try {
+          const list = await gh<{ commit: { committer: { date: string } } }[]>(
+            `/repos/${target.owner}/${target.repo}/commits?path=${encodeURIComponent(path)}&sha=${encodeURIComponent(target.branch)}&per_page=1`,
+          )
+          cached[path] = list[0] ? new Date(list[0].commit.committer.date).getTime() : 0
+        } catch {
+          cached[path] = 0
+        }
+      }),
+    )
+    writeCommitTimeCache(cached, target)
+  }
+  return Object.fromEntries(paths.map((p) => [p, cached[p] ?? 0]))
+}
+
 /** 新建或更新一个 Markdown 文件 */
 export async function commitPost(
   slug: string,
@@ -414,7 +479,46 @@ export async function commitPost(
       }),
     },
   )
+  recordCommitTime(path, Date.now(), target)
   return { path, commitUrl: res.commit.html_url }
+}
+
+/** 读取仓库中的一个 JSON 文件（公开仓库未登录也可读）；不存在时返回 null */
+export async function readRemoteJson<T>(
+  path: string,
+  target = getRepoTarget(),
+): Promise<{ sha?: string; data: T } | null> {
+  try {
+    const { sha, text } = await fetchRemoteFile(path, target)
+    return { sha, data: JSON.parse(text) as T }
+  } catch (err) {
+    if (err instanceof Error && /找不到资源/.test(err.message)) return null
+    if (err instanceof SyntaxError) return { sha: undefined, data: null as unknown as T }
+    throw err
+  }
+}
+
+/** 把 JSON 数据写回仓库（需要已连接具备写权限的 GitHub 账号） */
+export async function writeRemoteJson(
+  path: string,
+  data: unknown,
+  message: string,
+  target = getRepoTarget(),
+): Promise<string> {
+  const sha = await getSha(path, target)
+  const res = await gh<{ commit: { html_url: string } }>(
+    `/repos/${target.owner}/${target.repo}/contents/${encodeURI(path)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        message,
+        content: encodeBase64(JSON.stringify(data, null, 2) + '\n'),
+        branch: target.branch,
+        ...(sha ? { sha } : {}),
+      }),
+    },
+  )
+  return res.commit.html_url
 }
 
 export async function deleteRemotePost(slug: string, target = getRepoTarget()): Promise<void> {

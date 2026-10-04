@@ -263,6 +263,79 @@
 .prose img {
   @apply mx-auto rounded-xl shadow-lg;
 }
+
+/* ---------- 折叠框（:::info / ::success / ::warning / ::error） ---------- */
+.prose details.md-fold {
+  @apply my-6 overflow-hidden rounded-xl border px-5 text-[0.95em];
+}
+.prose details.md-fold > summary.md-fold-summary {
+  @apply -mx-5 flex cursor-pointer select-none items-center gap-2.5 px-5 py-3 font-medium transition-colors;
+}
+.prose details.md-fold > summary.md-fold-summary::before {
+  content: '';
+  @apply inline-block h-0 w-0 shrink-0 border-y-[5px] border-l-[7px] border-y-transparent transition-transform duration-200;
+}
+.prose details.md-fold[open] > summary.md-fold-summary::before {
+  @apply rotate-90;
+}
+.prose details.md-fold > summary.md-fold-summary::-webkit-details-marker {
+  display: none;
+}
+/* 标题里的相邻段落默认 margin 会撑开 summary，这里去掉；summary 内公式基线对齐 */
+.prose details.md-fold > summary.md-fold-summary > .katex-display {
+  @apply my-1;
+}
+.prose details.md-fold[open] > summary.md-fold-summary {
+  @apply border-b;
+}
+.prose details.md-fold-info {
+  @apply border-brand-300/60 bg-brand-50/70 dark:border-brand-400/25 dark:bg-brand-500/[0.07];
+}
+.prose details.md-fold-info > summary.md-fold-summary {
+  @apply text-brand-700 hover:bg-brand-100/60 dark:text-brand-300 dark:hover:bg-brand-400/10;
+}
+.prose details.md-fold-info > summary.md-fold-summary::before {
+  @apply border-l-brand-500 dark:border-l-brand-300;
+}
+.prose details.md-fold-info[open] > summary.md-fold-summary {
+  @apply border-brand-200/80 dark:border-brand-400/20;
+}
+.prose details.md-fold-success {
+  @apply border-emerald-300/60 bg-emerald-50/70 dark:border-emerald-400/25 dark:bg-emerald-500/[0.07];
+}
+.prose details.md-fold-success > summary.md-fold-summary {
+  @apply text-emerald-700 hover:bg-emerald-100/60 dark:text-emerald-300 dark:hover:bg-emerald-400/10;
+}
+.prose details.md-fold-success > summary.md-fold-summary::before {
+  @apply border-l-emerald-500 dark:border-l-emerald-300;
+}
+.prose details.md-fold-success[open] > summary.md-fold-summary {
+  @apply border-emerald-200/80 dark:border-emerald-400/20;
+}
+.prose details.md-fold-warning {
+  @apply border-amber-300/60 bg-amber-50/70 dark:border-amber-400/25 dark:bg-amber-500/[0.07];
+}
+.prose details.md-fold-warning > summary.md-fold-summary {
+  @apply text-amber-700 hover:bg-amber-100/60 dark:text-amber-300 dark:hover:bg-amber-400/10;
+}
+.prose details.md-fold-warning > summary.md-fold-summary::before {
+  @apply border-l-amber-500 dark:border-l-amber-300;
+}
+.prose details.md-fold-warning[open] > summary.md-fold-summary {
+  @apply border-amber-200/80 dark:border-amber-400/20;
+}
+.prose details.md-fold-error {
+  @apply border-rose-300/60 bg-rose-50/70 dark:border-rose-400/25 dark:bg-rose-500/[0.07];
+}
+.prose details.md-fold-error > summary.md-fold-summary {
+  @apply text-rose-700 hover:bg-rose-100/60 dark:text-rose-300 dark:hover:bg-rose-400/10;
+}
+.prose details.md-fold-error > summary.md-fold-summary::before {
+  @apply border-l-rose-500 dark:border-l-rose-300;
+}
+.prose details.md-fold-error[open] > summary.md-fold-summary {
+  @apply border-rose-200/80 dark:border-rose-400/20;
+}
 .prose hr {
   @apply border-dashed dark:border-white/10;
 }

@@ -9,6 +9,7 @@ import {
   Columns2,
   Download,
   Eye,
+  FoldVertical,
   Github,
   Heading2,
   Image as ImageIcon,
@@ -201,10 +202,18 @@ export default function Editor() {
     { icon: Sigma, title: '数学公式', run: () => withSelection((v, s, e) => insertBlock(v, s, e, '$$\n\\int_a^b f(x)\\,\\mathrm{d}x\n$$\n')) },
     {
       icon: Table2,
-      title: '表格',
+      title: '表格（单元格内只写 ^ 表示与上方合并，只写 < 表示与左侧合并）',
       run: () =>
         withSelection((v, s, e) =>
           insertBlock(v, s, e, '| 列 A | 列 B |\n| --- | --- |\n| 内容 | 内容 |\n'),
+        ),
+    },
+    {
+      icon: FoldVertical,
+      title: '折叠框（:::info / :::success / :::warning / :::error）',
+      run: () =>
+        withSelection((v, s, e) =>
+          insertBlock(v, s, e, '::::info[标题]\n折叠内容，支持完整 Markdown。\n::::\n'),
         ),
     },
   ]

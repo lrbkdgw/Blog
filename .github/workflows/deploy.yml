@@ -4,9 +4,12 @@ on:
   push:
     branches: [main]
     # 只有这些路径变化时才重新部署
+    # （评论与外观偏好保存在仓库里，但运行时直接读 API，不必整站重建）
     paths-ignore:
       - 'README.md'
       - '.gitignore'
+      - '.starlog/**'
+      - 'content/comments/**'
   workflow_dispatch:
 
 permissions:

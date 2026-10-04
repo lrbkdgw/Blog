@@ -12,6 +12,7 @@ import {
   Rss,
   Search,
   Settings,
+  SlidersHorizontal,
   Sun,
   X,
 } from 'lucide-react'
@@ -216,6 +217,11 @@ function Header({ onSearch }: { onSearch: () => void }) {
 
           <ThemeToggle />
 
+          {/* 个性化设置（主题 / 字体 / 背景）：访客也可使用（issue #9） */}
+          <Link to="/settings" className="btn-ghost h-9 w-9 !px-0" aria-label="个性化设置" title="个性化设置">
+            <SlidersHorizontal size={17} />
+          </Link>
+
           {isAuthed && (
             <Link to="/admin/new" className="btn-primary hidden h-9 sm:inline-flex">
               <PenLine size={15} />
@@ -252,6 +258,17 @@ function Header({ onSearch }: { onSearch: () => void }) {
                 {item.label}
               </NavLink>
             ))}
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                `mt-1 flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+                  isActive ? 'bg-brand-500/10 text-brand-600 dark:text-brand-300' : 'text-ink-600 dark:text-ink-300'
+                }`
+              }
+            >
+              <SlidersHorizontal size={15} />
+              个性化设置
+            </NavLink>
             <div className="mt-2 flex gap-2 border-t border-ink-200/60 pt-3 dark:border-white/10">
               {isAuthed ? (
                 <>
