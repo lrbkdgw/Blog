@@ -247,7 +247,7 @@
 }
 
 .prose table.markdown-table {
-  @apply !my-0 w-auto table-auto border-collapse text-center text-sm leading-relaxed;
+  @apply !my-0 w-auto table-auto border-collapse text-center text-base leading-relaxed;
   border: 1px solid #e5e7eb;
 }
 .dark .prose table.markdown-table {
@@ -288,7 +288,7 @@
 
 .prose table.table-tuack,
 .prose .table-tuack-wrapper table {
-  @apply !my-0 w-auto table-auto border-collapse text-center text-sm leading-relaxed;
+  @apply !my-0 w-auto table-auto border-collapse text-center text-base leading-relaxed;
   border-top: 3.5px solid #111827 !important;
   border-bottom: 3.5px solid #111827 !important;
   border-left: none !important;
