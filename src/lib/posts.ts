@@ -332,27 +332,92 @@ export interface TocItem {
   level: number
 }
 
+interface MarkdownFence {
+  marker: '`' | '~'
+  length: number
+}
+
+function parseFence(line: string): MarkdownFence | null {
+  const match = line.match(/^\s*([`~]{3,})/)
+  if (!match) return null
+  return { marker: match[1][0] as '`' | '~', length: match[1].length }
+}
+
+function slugHeading(text: string, used: Map<string, number>): string {
+  // 与 rehype-slug（github-slugger）保持一致的 id 生成规则
+  let id = text
+    .toLowerCase()
+    .replace(/[\s]+/g, '-')
+    .replace(/[^\p{L}\p{N}\-_]+/gu, '')
+  const seen = used.get(id)
+  if (seen !== undefined) {
+    used.set(id, seen + 1)
+    id = `${id}-${seen + 1}`
+  } else {
+    used.set(id, 0)
+  }
+  return id
+}
+
 export function extractToc(md: string): TocItem[] {
-  const withoutCode = md.replace(/```[\s\S]*?```/g, '')
+  const lines = md.split('\n')
   const items: TocItem[] = []
   const used = new Map<string, number>()
-  for (const line of withoutCode.split('\n')) {
-    const m = line.match(/^(#{2,4})\s+(.+?)\s*#*\s*$/)
-    if (!m) continue
-    const text = stripMarkdown(m[2])
-    // 与 rehype-slug（github-slugger）保持一致的 id 生成规则
-    let id = text
-      .toLowerCase()
-      .replace(/[\s]+/g, '-')
-      .replace(/[^\p{L}\p{N}\-_]+/gu, '')
-    const seen = used.get(id)
-    if (seen !== undefined) {
-      used.set(id, seen + 1)
-      id = `${id}-${seen + 1}`
-    } else {
-      used.set(id, 0)
+  const callouts: number[] = []
+  let fence: MarkdownFence | null = null
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    const parsedFence = parseFence(line)
+    if (parsedFence) {
+      if (!fence) {
+        fence = parsedFence
+      } else if (parsedFence.marker === fence.marker && parsedFence.length >= fence.length) {
+        fence = null
+      }
+      continue
     }
-    items.push({ id, text, level: m[1].length })
+    if (fence) continue
+
+    // 展示框内容由独立 Markdown 实例渲染，不参与正文标题锚点计数，也不进入目录。
+    const showStart = line.match(/^\s*::show_begin\{([^}]*)\}\{([\s\S]*)\}\s*$/i)
+    if (showStart) {
+      let end = index + 1
+      while (end < lines.length && !/^\s*::show_end\s*$/i.test(lines[end])) end += 1
+      if (end < lines.length) {
+        index = end
+        continue
+      }
+    }
+
+    const calloutClose = line.match(/^ *(:{3,})\s*$/)
+    if (calloutClose && callouts.length > 0) {
+      const colons = calloutClose[1].length
+      const top = callouts[callouts.length - 1]
+      if (colons >= top) {
+        callouts.pop()
+        continue
+      }
+    }
+
+    const calloutOpen = line.match(
+      /^ *(:{3,})(info|success|warning|error|note|tip|danger)(?:\[([\s\S]*?)\])?(?:\{open\})?\s*$/i,
+    )
+    if (calloutOpen) {
+      callouts.push(calloutOpen[1].length)
+      continue
+    }
+
+    const heading = line.match(/^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/)
+    if (!heading) continue
+
+    const text = stripMarkdown(heading[2])
+    const level = heading[1].length
+    const id = slugHeading(text, used)
+    // 折叠框内的标题不显示在目录中；仍参与 slug 计数，以匹配正文渲染后的锚点后缀。
+    if (callouts.length === 0 && level >= 2 && level <= 4) {
+      items.push({ id, text, level })
+    }
   }
   return items
 }
