@@ -187,7 +187,7 @@ export function BackgroundProvider({ children }: { children: ReactNode }) {
     commit({ ...DEFAULT_BACKGROUND, updatedAt: Date.now() })
   }, [commit])
 
-  // Match the comments' browser-store behaviour: updates are immediately visible
+  // Browser-store updates are immediately visible in other tabs and views.
   // to other mounted views and other tabs without a repository write.
   useEffect(() => {
     const sync = () => {

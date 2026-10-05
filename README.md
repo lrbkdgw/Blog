@@ -268,8 +268,8 @@ GitHub 的授权端点（`github.com/login/*`）不返回 CORS 头，浏览器�
 **本地草稿会丢吗？**
 草稿存在浏览器 `localStorage`，清除浏览器数据会丢失。重要内容请及时「发布到 GitHub」，或在设置页「导出全部草稿」。
 
-**想加评论？**
-推荐 [giscus](https://giscus.app/zh-CN)（基于 GitHub Discussions），纯静态站点友好，几行代码就能接入。
+**评论保存在哪里？**
+每篇文章的评论会写入目标仓库的 GitHub Discussions（默认使用 `General` 分类），不再只存在当前浏览器。访客使用 GitHub 登录后即可加载、发表和按 GitHub 权限删除评论；目标仓库需要开启 Discussions。旧版本遗留的本机评论会继续显示迁移提示，但不会自动上传。
 
 ---
 

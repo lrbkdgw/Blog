@@ -339,7 +339,7 @@ export function FontProvider({ children }: { children: ReactNode }) {
     [commit],
   )
 
-  // Keep settings in other tabs/views in sync, just like the comments list.
+  // Keep settings in other tabs and views in sync.
   useEffect(() => {
     const sync = () => {
       const next = readLocal()
