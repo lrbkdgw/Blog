@@ -14,7 +14,7 @@ function readAll(): PersonalSettings {
 }
 
 /**
- * Personal preferences use the same storage model as comments: a browser-local
+ * Personal preferences use a browser-local
  * JSON store and a custom event so every open view can refresh immediately.
  * `legacyKey` keeps installations made before the consolidated store working.
  */

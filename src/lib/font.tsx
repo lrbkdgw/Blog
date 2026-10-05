@@ -8,9 +8,15 @@ import { useAuth } from './auth'
 export type FontSource = 'default' | 'local' | 'cloud'
 export type FontStatus = 'idle' | 'checking-local' | 'loading-cloud' | 'ready' | 'fallback'
 
+export const FONT_SIZE_MIN = 80
+export const FONT_SIZE_MAX = 130
+export const DEFAULT_FONT_SIZE = 100
+
 export interface FontPreference {
   /** 字体列表，按优先级从前到后排列 */
   families: string[]
+  /** 全站字号百分比；标题、正文、公式和界面文字会一起缩放。 */
+  sizePercent: number
   /** 兼容旧版单个字体字段 */
   family?: string
   source?: FontSource
@@ -31,11 +37,17 @@ interface FontCtx {
   moveFont: (index: number, direction: 'up' | 'down') => Promise<FontPreference>
   /** 兼容旧版单个字体设置方法 */
   setFont: (family: string, knownLocal?: boolean) => Promise<FontPreference>
+  /** 调整全站字号，标题、正文与公式同步缩放。 */
+  setFontSize: (sizePercent: number) => FontPreference
   resetFont: () => void
   saveForGithub: () => Promise<void>
 }
 
-const DEFAULT_FONT: FontPreference = { families: [], updatedAt: 0 }
+const DEFAULT_FONT: FontPreference = {
+  families: [],
+  sizePercent: DEFAULT_FONT_SIZE,
+  updatedAt: 0,
+}
 const CLOUD_TIMEOUT = 5000
 const cloudStyles = new Map<string, HTMLStyleElement>()
 const Ctx = createContext<FontCtx>({
@@ -47,6 +59,7 @@ const Ctx = createContext<FontCtx>({
   removeFont: async () => DEFAULT_FONT,
   moveFont: async () => DEFAULT_FONT,
   setFont: async () => DEFAULT_FONT,
+  setFontSize: () => DEFAULT_FONT,
   resetFont: () => {},
   saveForGithub: async () => {},
 })
@@ -64,9 +77,36 @@ function quoteFamily(family: string): string {
   return `"${family.replace(/["\\]/g, '\\$&')}"`
 }
 
-function applyToDocument(families: string[]) {
+export function normalizeFontSize(value: unknown): number {
+  const parsed = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && value.trim()
+      ? Number(value)
+      : Number.NaN
+  if (!Number.isFinite(parsed)) return DEFAULT_FONT_SIZE
+  return Math.round(Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, parsed)))
+}
+
+function normalizePreference(preference: FontPreference): FontPreference {
+  return {
+    ...preference,
+    families: preference.families.map(normalizeFamily).filter(Boolean),
+    sizePercent: normalizeFontSize(preference.sizePercent),
+  }
+}
+
+function applyToDocument(preference: FontPreference) {
   const root = document.documentElement
-  const valid = families.map(normalizeFamily).filter(Boolean)
+  const normalized = normalizePreference(preference)
+  const valid = normalized.families
+
+  if (normalized.sizePercent === DEFAULT_FONT_SIZE) {
+    root.style.removeProperty('--site-font-size')
+    root.removeAttribute('data-font-size')
+  } else {
+    root.style.setProperty('--site-font-size', `${normalized.sizePercent}%`)
+    root.dataset.fontSize = String(normalized.sizePercent)
+  }
 
   if (valid.length === 0) {
     root.style.removeProperty('--font-sans')
@@ -97,23 +137,22 @@ function readLocal(): FontPreference {
     const parsed = readPersonalSetting<{
       families?: unknown
       family?: unknown
+      sizePercent?: unknown
       updatedAt?: unknown
     }>('font', STORAGE_KEYS.font)
     if (parsed && typeof parsed === 'object') {
-      if (Array.isArray(parsed.families)) {
-        return {
-          families: parsed.families
+      const families = Array.isArray(parsed.families)
+        ? parsed.families
             .filter((family): family is string => typeof family === 'string')
             .map(normalizeFamily)
-            .filter(Boolean),
-          updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
-        }
-      }
-      if (typeof parsed.family === 'string' && parsed.family.trim()) {
-        return {
-          families: [normalizeFamily(parsed.family)],
-          updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
-        }
+            .filter(Boolean)
+        : typeof parsed.family === 'string' && parsed.family.trim()
+          ? [normalizeFamily(parsed.family)]
+          : []
+      return {
+        families,
+        sizePercent: normalizeFontSize(parsed.sizePercent),
+        updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
       }
     }
   } catch {
@@ -196,12 +235,15 @@ export async function requestCloudFont(family: string, timeout = CLOUD_TIMEOUT):
 export function FontProvider({ children }: { children: ReactNode }) {
   const { ghUser, canPublish, loading: authLoading } = useAuth()
   const [font, setFontState] = useState<FontPreference>(readLocal)
+  const fontRef = useRef(font)
   const [status, setStatus] = useState<FontStatus>('idle')
   const [accountSync, setAccountSync] = useState<FontCtx['accountSync']>('idle')
   const accountRef = useRef('')
 
-  const commit = useCallback((next: FontPreference, nextStatus: FontStatus = 'ready') => {
-    applyToDocument(next.families)
+  const commit = useCallback((candidate: FontPreference, nextStatus: FontStatus = 'ready') => {
+    const next = normalizePreference(candidate)
+    fontRef.current = next
+    applyToDocument(next)
     writeLocal(next)
     setFontState(next)
     setStatus(nextStatus)
@@ -213,12 +255,19 @@ export function FontProvider({ children }: { children: ReactNode }) {
   }, [commit])
 
   const setFonts = useCallback(
-    async (rawFamilies: string[]): Promise<FontPreference> => {
+    async (
+      rawFamilies: string[],
+      sizePercent?: number,
+    ): Promise<FontPreference> => {
       const unique = [
         ...new Set(rawFamilies.map(normalizeFamily).filter((f) => Boolean(f))),
       ]
       if (unique.length === 0) {
-        return commit({ families: [], updatedAt: Date.now() }, 'idle')
+        return commit({
+          families: [],
+          sizePercent: normalizeFontSize(sizePercent ?? fontRef.current.sizePercent),
+          updatedAt: Date.now(),
+        }, 'idle')
       }
 
       // 尝试为不在本机的字体请求云端
@@ -232,7 +281,11 @@ export function FontProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      return commit({ families: unique, updatedAt: Date.now() }, 'ready')
+      return commit({
+        families: unique,
+        sizePercent: normalizeFontSize(sizePercent ?? fontRef.current.sizePercent),
+        updatedAt: Date.now(),
+      }, 'ready')
     },
     [commit],
   )
@@ -272,17 +325,26 @@ export function FontProvider({ children }: { children: ReactNode }) {
   const setFont = useCallback(
     async (value: string): Promise<FontPreference> => {
       const normalized = normalizeFamily(value)
-      if (!normalized) return resetFont(), DEFAULT_FONT
-      return setFonts([normalized])
+      return setFonts(normalized ? [normalized] : [])
     },
-    [resetFont, setFonts],
+    [setFonts],
   )
 
-  // Keep settings in other tabs/views in sync, just like the comments list.
+  const setFontSize = useCallback(
+    (sizePercent: number): FontPreference => commit({
+      ...fontRef.current,
+      sizePercent: normalizeFontSize(sizePercent),
+      updatedAt: Date.now(),
+    }),
+    [commit],
+  )
+
+  // Keep settings in other tabs and views in sync.
   useEffect(() => {
     const sync = () => {
       const next = readLocal()
-      applyToDocument(next.families)
+      fontRef.current = next
+      applyToDocument(next)
       setFontState(next)
     }
     window.addEventListener('starlog:settings-changed', sync)
@@ -294,12 +356,9 @@ export function FontProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (font.families && font.families.length > 0) {
-      applyToDocument(font.families)
-    } else {
-      applyToDocument([])
-    }
-  }, [font.families])
+    fontRef.current = font
+    applyToDocument(font)
+  }, [font])
 
   useEffect(() => {
     if (authLoading || !canPublish || !ghUser) {
@@ -317,8 +376,8 @@ export function FontProvider({ children }: { children: ReactNode }) {
     const restore = async () => {
       try {
         const cached = readAccountCache()[login]
-        if (cached && Array.isArray(cached.families) && cached.families.length > 0) {
-          await setFonts(cached.families)
+        if (cached && Array.isArray(cached.families)) {
+          await setFonts(cached.families, cached.sizePercent)
         }
 
         const remote = await fetchGithubFontPreference(login)
@@ -327,11 +386,9 @@ export function FontProvider({ children }: { children: ReactNode }) {
           const list = remote.family
             ? remote.family.split(/[,，]/).map((f) => f.trim()).filter(Boolean)
             : []
-          if (list.length > 0) {
-            const restored = await setFonts(list)
-            if (!active) return
-            writeAccountCache(login, restored)
-          }
+          const restored = await setFonts(list, remote.sizePercent)
+          if (!active) return
+          writeAccountCache(login, restored)
         }
         setAccountSync('synced')
       } catch {
@@ -349,6 +406,7 @@ export function FontProvider({ children }: { children: ReactNode }) {
     if (!canPublish || !ghUser) throw new Error('请先登录并连接具备 Contents 写入权限的 GitHub 账号')
     await saveGithubFontPreference(ghUser.login, {
       family: font.families.join(', '),
+      sizePercent: font.sizePercent,
       updatedAt: font.updatedAt || Date.now(),
     })
     writeAccountCache(ghUser.login, font)
@@ -365,6 +423,7 @@ export function FontProvider({ children }: { children: ReactNode }) {
       removeFont,
       moveFont,
       setFont,
+      setFontSize,
       resetFont,
       saveForGithub,
     }),
@@ -377,6 +436,7 @@ export function FontProvider({ children }: { children: ReactNode }) {
       removeFont,
       moveFont,
       setFont,
+      setFontSize,
       resetFont,
       saveForGithub,
     ],

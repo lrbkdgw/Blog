@@ -421,7 +421,7 @@ export const Markdown = memo(function Markdown({ content }: { content: string })
   const processedContent = useMemo(() => preprocessMarkdown(content), [content])
 
   return (
-    <div className="prose prose-lg dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight">
+    <div className="prose prose-base dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[

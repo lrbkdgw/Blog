@@ -8,6 +8,7 @@
     --font-sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
     --font-serif: Georgia, "Songti SC", STSong, SimSun, "Noto Serif SC", serif;
     --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --site-font-size: 100%;
     --site-background: #fbfbfd;
     --site-background-dark: #0d1017;
     /* 基础双渐变始终保留；设置页只在其上叠加选中的颜色。 */
@@ -28,6 +29,8 @@
 
   html {
     -webkit-tap-highlight-color: transparent;
+    /* 字号偏好在根节点统一缩放，因此正文、标题和 KaTeX 公式保持比例。 */
+    font-size: var(--site-font-size);
   }
 
   body {

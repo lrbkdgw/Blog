@@ -1,4 +1,4 @@
-import { githubConfig, oauthConfig, STORAGE_KEYS } from './config'
+import { commentsConfig, githubConfig, oauthConfig, STORAGE_KEYS } from './config'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 
 export interface RepoTarget {
@@ -66,6 +66,43 @@ async function gh<T>(path: string, init: RequestInit = {}, token = getToken()): 
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
+}
+
+interface GraphqlResponse<T> {
+  data?: T
+  errors?: { message?: string; type?: string }[]
+}
+
+async function githubGraphql<T>(
+  query: string,
+  variables: Record<string, unknown>,
+  token = getToken(),
+): Promise<T> {
+  if (!token) throw new Error('请先使用 GitHub 登录后再访问评论')
+  const response = await fetch(`${API}/graphql`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    body: JSON.stringify({ query, variables }),
+  })
+  let payload: GraphqlResponse<T> = {}
+  try {
+    payload = await response.json() as GraphqlResponse<T>
+  } catch {
+    // Use the HTTP error below when GitHub did not return JSON.
+  }
+  if (!response.ok || payload.errors?.length || !payload.data) {
+    let message = payload.errors?.map((error) => error.message).filter(Boolean).join('；')
+      || `${response.status} ${response.statusText}`
+    if (response.status === 401) message = 'GitHub 授权已失效，请重新登录'
+    if (response.status === 403) message = '当前 GitHub 授权无法访问 Discussions，请确认仓库已开启讨论功能'
+    throw new Error(message)
+  }
+  return payload.data
 }
 
 /* --------------------------------- 认证 ---------------------------------- */
@@ -611,10 +648,280 @@ export async function closePublicationPR(
   })
 }
 
+/* -------------------------- GitHub Discussions 评论 ------------------------- */
+
+export interface BlogDiscussionComment {
+  id: string
+  body: string
+  createdAt: string
+  updatedAt: string
+  url: string
+  viewerCanDelete: boolean
+  viewerDidAuthor: boolean
+  authorAssociation: string
+  author: {
+    login: string
+    avatarUrl: string
+    url: string
+  } | null
+}
+
+export interface BlogDiscussionThread {
+  id: string
+  number: number
+  url: string
+}
+
+export interface BlogCommentsResult {
+  repositoryId: string
+  categoryId: string
+  discussion: BlogDiscussionThread | null
+  comments: BlogDiscussionComment[]
+}
+
+interface DiscussionCategoryNode {
+  id: string
+  name: string
+}
+
+function discussionMarker(postSlug: string): string {
+  return `<!-- starlog-comments:${encodeURIComponent(postSlug)} -->`
+}
+
+async function getDiscussionRepository(
+  target: RepoTarget,
+): Promise<{ repositoryId: string; categoryId: string }> {
+  const data = await githubGraphql<{
+    repository: {
+      id: string
+      hasDiscussionsEnabled: boolean
+      discussionCategories: { nodes: DiscussionCategoryNode[] }
+    } | null
+  }>(
+    `query DiscussionRepository($owner: String!, $repo: String!) {
+      repository(owner: $owner, name: $repo) {
+        id
+        hasDiscussionsEnabled
+        discussionCategories(first: 100) {
+          nodes { id name }
+        }
+      }
+    }`,
+    { owner: target.owner, repo: target.repo },
+  )
+  const repository = data.repository
+  if (!repository) throw new Error('找不到评论所使用的 GitHub 仓库')
+  if (!repository.hasDiscussionsEnabled) {
+    throw new Error('目标仓库尚未开启 GitHub Discussions，请先在仓库 Settings → Features 中启用')
+  }
+  const category = repository.discussionCategories.nodes.find(
+    (item) => item.name.toLowerCase() === commentsConfig.category.toLowerCase(),
+  )
+  if (!category) {
+    throw new Error(`GitHub Discussions 中没有“${commentsConfig.category}”分类，请修改 commentsConfig.category`)
+  }
+  return { repositoryId: repository.id, categoryId: category.id }
+}
+
+interface DiscussionCommentConnection {
+  nodes: BlogDiscussionComment[]
+  pageInfo: { hasNextPage: boolean; endCursor: string | null }
+}
+
+interface DiscussionNode extends BlogDiscussionThread {
+  body: string
+  comments: DiscussionCommentConnection
+}
+
+async function findBlogDiscussion(
+  postSlug: string,
+  categoryId: string,
+  target: RepoTarget,
+): Promise<DiscussionNode | null> {
+  const marker = discussionMarker(postSlug)
+  let after: string | null = null
+  do {
+    const data: {
+      repository: {
+        discussions: {
+          nodes: DiscussionNode[]
+          pageInfo: { hasNextPage: boolean; endCursor: string | null }
+        }
+      } | null
+    } = await githubGraphql(
+      `query BlogDiscussions(
+        $owner: String!
+        $repo: String!
+        $categoryId: ID!
+        $after: String
+      ) {
+        repository(owner: $owner, name: $repo) {
+          discussions(
+            first: 50
+            after: $after
+            categoryId: $categoryId
+            orderBy: { field: UPDATED_AT, direction: DESC }
+          ) {
+            nodes {
+              id number url body
+              comments(first: 100) {
+                nodes {
+                  id body createdAt updatedAt url viewerCanDelete viewerDidAuthor authorAssociation
+                  author { login avatarUrl url }
+                }
+                pageInfo { hasNextPage endCursor }
+              }
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }`,
+      {
+        owner: target.owner,
+        repo: target.repo,
+        categoryId,
+        after,
+      },
+    )
+    if (!data.repository) throw new Error('找不到评论所使用的 GitHub 仓库')
+    const match = data.repository.discussions.nodes.find((discussion) => discussion.body.includes(marker))
+    if (match) return match
+    const pageInfo = data.repository.discussions.pageInfo
+    if (!pageInfo.hasNextPage || !pageInfo.endCursor) return null
+    after = pageInfo.endCursor
+  } while (after)
+  return null
+}
+
+async function loadRemainingDiscussionComments(
+  discussion: DiscussionNode,
+  target: RepoTarget,
+): Promise<BlogDiscussionComment[]> {
+  const comments = [...discussion.comments.nodes]
+  let pageInfo = discussion.comments.pageInfo
+  while (pageInfo.hasNextPage && pageInfo.endCursor) {
+    const data: {
+      repository: {
+        discussion: { comments: DiscussionCommentConnection } | null
+      } | null
+    } = await githubGraphql(
+      `query BlogDiscussionComments(
+        $owner: String!
+        $repo: String!
+        $number: Int!
+        $after: String
+      ) {
+        repository(owner: $owner, name: $repo) {
+          discussion(number: $number) {
+            comments(first: 100, after: $after) {
+              nodes {
+                id body createdAt updatedAt url viewerCanDelete viewerDidAuthor authorAssociation
+                author { login avatarUrl url }
+              }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
+        }
+      }`,
+      {
+        owner: target.owner,
+        repo: target.repo,
+        number: discussion.number,
+        after: pageInfo.endCursor,
+      },
+    )
+    const connection = data.repository?.discussion?.comments
+    if (!connection) break
+    comments.push(...connection.nodes)
+    pageInfo = connection.pageInfo
+  }
+  return comments
+}
+
+export async function loadBlogDiscussionComments(
+  postSlug: string,
+  target = getRepoTarget(),
+): Promise<BlogCommentsResult> {
+  const repository = await getDiscussionRepository(target)
+  const discussion = await findBlogDiscussion(postSlug, repository.categoryId, target)
+  const comments = discussion ? await loadRemainingDiscussionComments(discussion, target) : []
+  return {
+    ...repository,
+    discussion: discussion
+      ? { id: discussion.id, number: discussion.number, url: discussion.url }
+      : null,
+    comments: comments.sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+  }
+}
+
+export async function createBlogDiscussion(
+  repositoryId: string,
+  categoryId: string,
+  postSlug: string,
+  postTitle: string,
+): Promise<BlogDiscussionThread> {
+  const title = `${commentsConfig.titlePrefix} ${postTitle.trim() || postSlug}`.slice(0, 180)
+  const body = [
+    `此讨论用于文章「${postTitle.trim() || postSlug}」的评论。`,
+    '',
+    '评论请遵守 GitHub 社区准则。',
+    '',
+    discussionMarker(postSlug),
+  ].join('\n')
+  const data = await githubGraphql<{
+    createDiscussion: { discussion: BlogDiscussionThread | null }
+  }>(
+    `mutation CreateBlogDiscussion(
+      $repositoryId: ID!
+      $categoryId: ID!
+      $title: String!
+      $body: String!
+    ) {
+      createDiscussion(input: {
+        repositoryId: $repositoryId
+        categoryId: $categoryId
+        title: $title
+        body: $body
+      }) {
+        discussion { id number url }
+      }
+    }`,
+    { repositoryId, categoryId, title, body },
+  )
+  if (!data.createDiscussion.discussion) throw new Error('无法创建文章对应的 GitHub Discussion')
+  return data.createDiscussion.discussion
+}
+
+export async function addBlogDiscussionComment(
+  discussionId: string,
+  body: string,
+): Promise<void> {
+  await githubGraphql(
+    `mutation AddBlogDiscussionComment($discussionId: ID!, $body: String!) {
+      addDiscussionComment(input: { discussionId: $discussionId, body: $body }) {
+        comment { id }
+      }
+    }`,
+    { discussionId, body },
+  )
+}
+
+export async function deleteBlogDiscussionComment(commentId: string): Promise<void> {
+  await githubGraphql(
+    `mutation DeleteBlogDiscussionComment($commentId: ID!) {
+      deleteDiscussionComment(input: { id: $commentId }) {
+        comment { id }
+      }
+    }`,
+    { commentId },
+  )
+}
+
 /* ---------------------------- 账号外观偏好 ---------------------------- */
 
 export interface GithubFontPreference {
   family: string
+  sizePercent: number
   updatedAt: number
 }
 
@@ -636,6 +943,7 @@ export async function fetchGithubFontPreference(
     if (!parsed || typeof parsed.family !== 'string') return null
     return {
       family: parsed.family,
+      sizePercent: typeof parsed.sizePercent === 'number' ? parsed.sizePercent : 100,
       updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
     }
   } catch (err) {
@@ -654,10 +962,15 @@ export async function saveGithubFontPreference(
   await gh(`/repos/${target.owner}/${target.repo}/contents/${encodeURI(path)}`, {
     method: 'PUT',
     body: JSON.stringify({
-      message: `chore(settings): 保存 @${login} 的字体偏好`,
+      message: `chore(settings): 保存 @${login} 的字体与字号偏好`,
       content: encodeBase64(
         JSON.stringify(
-          { version: 1, family: preference.family, updatedAt: preference.updatedAt || Date.now() },
+          {
+            version: 2,
+            family: preference.family,
+            sizePercent: preference.sizePercent,
+            updatedAt: preference.updatedAt || Date.now(),
+          },
           null,
           2,
         ) + '\n',

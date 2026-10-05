@@ -45,6 +45,12 @@ Write article and upd it to github.
 ::::
 :::
 
+#### 交互展示框
+
+::show_begin{定向取整测试}{a:Q=1.239[-5,5,0.001]{faster_set}}
+当前值：*&show(a)*&。向下保留两位：&*floor(a,2)&*；向上保留两位：&*ceil(a,2)&*。
+::show_end
+
 #### 公式
 
 $$

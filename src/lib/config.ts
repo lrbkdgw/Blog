@@ -66,6 +66,13 @@ export const githubConfig = {
  * 配置也可以用环境变量（本地 .env.local / CI 变量，避免改代码）：
  *    VITE_GITHUB_CLIENT_ID / VITE_OAUTH_RELAY_URL
  */
+export const commentsConfig = {
+  /** GitHub Discussions 中用于保存文章评论的分类。 */
+  category: 'General',
+  /** 每篇文章对应讨论标题的前缀。 */
+  titlePrefix: '[文章评论]',
+}
+
 export const oauthConfig = {
   /** OAuth App 的 Client ID */
   clientId: 'Ov23lid9P8sdNuiKhkzy',
@@ -88,7 +95,7 @@ export const STORAGE_KEYS = {
   fontAccounts: 'starlog:font-accounts',
   background: 'starlog:background',
   backgroundAccounts: 'starlog:background-accounts',
-  /** 集中保存个人偏好；采用和评论区一致的 localStorage + 事件更新方式。 */
+  /** 集中保存个人偏好，使用 localStorage + 事件更新。 */
   personalSettings: 'starlog:personal-settings',
   session: 'starlog:session',
   /** GitHub OAuth 授权拿到的访问令牌（仅存于浏览器本地） */
