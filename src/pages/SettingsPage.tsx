@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Github,
   Loader2,
+  LockKeyhole,
   LogOut,
   Paintbrush,
   Plus,
@@ -32,6 +33,7 @@ import GithubConnect from '../components/GithubConnect'
 import { getRepoTarget, setRepoTarget } from '../lib/github'
 import { getLocalPosts, serializePost } from '../lib/posts'
 import { STORAGE_KEYS } from '../lib/config'
+import { clearRememberedPostUnlocks } from '../lib/crypto'
 
 type LocalFontData = { family?: string }
 
@@ -226,6 +228,16 @@ export default function SettingsPage() {
     localStorage.removeItem(STORAGE_KEYS.drafts)
     window.dispatchEvent(new CustomEvent('starlog:posts-changed'))
     toast('本地草稿已清空', 'info')
+  }
+
+  const clearArticleUnlocks = async () => {
+    if (!confirm('清除后，所有加密文章下次查看时都需要重新输入密码。确定？')) return
+    try {
+      await clearRememberedPostUnlocks()
+      toast('已清除本设备记住的文章解锁状态', 'info')
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '清除文章解锁状态失败', 'error')
+    }
   }
 
   const fontList = font.families || []
@@ -659,7 +671,7 @@ export default function SettingsPage() {
         {/* ------------------------------ 本地数据 ------------------------------- */}
         <Section
           title="本地数据管理"
-          desc="草稿与个性化偏好保存在浏览器 localStorage 中，清除浏览器缓存会一并丢失。"
+          desc="草稿与个性化偏好保存在 localStorage；加密文章的不可导出解锁密钥保存在 IndexedDB。清除站点数据会一并移除。"
           icon={Download}
         >
           <div className="flex flex-wrap gap-2">
@@ -670,6 +682,10 @@ export default function SettingsPage() {
             <button onClick={clearDrafts} className="btn-danger h-9">
               <Trash2 size={15} />
               清空本地草稿
+            </button>
+            <button onClick={() => void clearArticleUnlocks()} className="btn-outline h-9">
+              <LockKeyhole size={15} />
+              忘记文章解锁状态
             </button>
             {isAuthed && (
               <button onClick={logout} className="btn-ghost ml-auto h-9">

@@ -36,7 +36,7 @@ import { Markdown } from '../components/Markdown'
 import { PasswordPrompt } from '../components/PasswordPrompt'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../lib/auth'
-import { decryptPost, encryptPostMarkdown } from '../lib/crypto'
+import { decryptPost, encryptPostMarkdown, restorePostUnlock } from '../lib/crypto'
 import {
   checkUserRepoPermissions,
   commitPost,
@@ -121,7 +121,7 @@ export default function Editor() {
   const protectedExisting = encryptedSource || prefetchedProtected
   const originalSlug = useRef(existing?.slug)
 
-  const [title, setTitle] = useState(encryptedSource ? '' : (initial?.title ?? ''))
+  const [title, setTitle] = useState(initial?.title ?? '')
   const [slug, setSlug] = useState(encryptedSource ? '' : (initial?.slug ?? ''))
   const [date, setDate] = useState(encryptedSource ? today() : (initial?.date ?? today()))
   const [tagsText, setTagsText] = useState(encryptedSource ? '' : (initial?.tags.join(', ') ?? ''))
@@ -142,6 +142,7 @@ export default function Editor() {
   const [canDirectPush, setCanDirectPush] = useState(false)
   const [isRepoAdmin, setIsRepoAdmin] = useState(false)
   const [unlocked, setUnlocked] = useState(!encryptedSource)
+  const [restoringUnlock, setRestoringUnlock] = useState(encryptedSource)
   const [encryptOnPublish, setEncryptOnPublish] = useState(protectedExisting)
   const [encryptionPassword, setEncryptionPassword] = useState('')
   const [encryptionConfirm, setEncryptionConfirm] = useState('')
@@ -191,15 +192,33 @@ export default function Editor() {
   }, [])
 
   useEffect(() => {
+    let active = true
     const incoming = (location.state as { draft?: Post } | null)?.draft ?? existing
     if (existing?.encryption) {
+      setTitle(existing.title)
       setUnlocked(false)
+      setRestoringUnlock(true)
       setEncryptOnPublish(true)
-      return
+      void restorePostUnlock(existing).then((restored) => {
+        if (!active) return
+        if (restored) {
+          hydratePost(restored)
+          originalSlug.current = restored.slug
+          setUnlocked(true)
+        }
+        setRestoringUnlock(false)
+      })
+      return () => {
+        active = false
+      }
     }
     setUnlocked(true)
+    setRestoringUnlock(false)
     setEncryptOnPublish(prefetchedProtected)
     if (incoming) hydratePost(incoming)
+    return () => {
+      active = false
+    }
   }, [routeSlug, sourceParam, location.state, existing, prefetchedProtected, hydratePost])
 
   useEffect(() => {
@@ -231,6 +250,7 @@ export default function Editor() {
     const decrypted = await decryptPost(existing, password)
     hydratePost(decrypted)
     originalSlug.current = decrypted.slug
+    setRestoringUnlock(false)
     setUnlocked(true)
   }
 
@@ -528,11 +548,19 @@ export default function Editor() {
   if (protectedExisting && !unlocked) {
     return (
       <div className="container-page flex min-h-[65vh] items-center justify-center py-10">
-        <PasswordPrompt
-          title="解锁后编辑文章"
-          description="该 GitHub 文章以密码加密。请输入密码后才会将内容载入编辑器。"
-          onUnlock={unlockExisting}
-        />
+        {restoringUnlock ? (
+          <div className="card flex w-full max-w-md flex-col items-center p-7 text-center">
+            <Loader2 size={24} className="animate-spin text-brand-500" />
+            <h1 className="mt-4 font-serif text-xl font-bold text-ink-900 dark:text-white">{existing?.title}</h1>
+            <p className="mt-2 text-sm text-ink-500">正在读取此设备保存的解锁状态…</p>
+          </div>
+        ) : (
+          <PasswordPrompt
+            title={`解锁后编辑「${existing?.title || '加密文章'}」`}
+            description="文章标题公开可见，正文及其他信息已加密。请输入密码后才会将内容载入编辑器。"
+            onUnlock={unlockExisting}
+          />
+        )}
       </div>
     )
   }
@@ -796,7 +824,7 @@ export default function Editor() {
                       </div>
                     )}
                     <p className="mt-2 text-xs leading-relaxed text-ink-500 dark:text-ink-400">
-                      使用浏览器 Web Crypto 加密完整文章后再提交；密码不会写入 GitHub 或本机。之后查看和编辑都需要该密码。
+                      标题会公开显示；正文与其他文章信息使用浏览器 Web Crypto 加密后再提交。密码不会写入 GitHub 或本机，成功解锁后本设备会记住不可导出的解锁密钥。
                     </p>
                   </div>
                 )}

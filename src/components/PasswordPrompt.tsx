@@ -11,7 +11,7 @@ interface PasswordPromptProps {
 /** Password is kept only in this controlled input while an unlock attempt runs. */
 export function PasswordPrompt({
   title = '这是一篇加密文章',
-  description = '文章正文及其信息已使用密码加密。请输入密码后继续。',
+  description = '文章正文及其他信息已使用密码加密。请输入密码后继续。',
   onUnlock,
   className = '',
 }: PasswordPromptProps) {
@@ -65,7 +65,9 @@ export function PasswordPrompt({
         {busy ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
         {busy ? '正在解锁…' : '解锁文章'}
       </button>
-      <p className="mt-3 text-[11px] leading-relaxed text-ink-400">密码不会上传或保存在浏览器中。</p>
+      <p className="mt-3 text-[11px] leading-relaxed text-ink-400">
+        密码不会上传或保存；成功后本设备仅记住不可导出的解锁密钥。
+      </p>
     </form>
   )
 }

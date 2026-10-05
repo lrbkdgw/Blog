@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { ArrowUpRight, Clock, FileEdit, Pin } from 'lucide-react'
+import { ArrowUpRight, Clock, FileEdit, LockKeyhole, Pin } from 'lucide-react'
 import type { Post } from '../lib/types'
 import { formatDate } from '../lib/posts'
 
@@ -34,6 +34,12 @@ export function PostCard({ post, index = 0 }: { post: Post; index?: number }) {
           <span className="flex items-center gap-1 text-amber-500">
             <Pin size={12} />
             置顶
+          </span>
+        )}
+        {post.encryption && (
+          <span className="flex items-center gap-1 text-brand-600 dark:text-brand-300">
+            <LockKeyhole size={12} />
+            正文加密
           </span>
         )}
         {post.draft && (

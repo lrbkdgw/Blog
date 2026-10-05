@@ -32,7 +32,7 @@ import {
   getPostBySlug,
   postFingerprint,
 } from '../lib/posts'
-import { decryptPost, isEncryptedPost } from '../lib/crypto'
+import { decryptPost, isEncryptedPost, restorePostUnlock } from '../lib/crypto'
 import {
   fetchPostHistoryMarkdown,
   getRepoTarget,
@@ -186,6 +186,7 @@ export default function PostPage() {
   const [compareOpen, setCompareOpen] = useState(false)
   const [historicalPost, setHistoricalPost] = useState<Post | null>(null)
   const [unlockedPost, setUnlockedPost] = useState<Post | null>(null)
+  const [restoringUnlock, setRestoringUnlock] = useState(false)
   const [copyOpen, setCopyOpen] = useState(false)
   const copyMenuRef = useRef<HTMLDivElement>(null)
 
@@ -203,12 +204,32 @@ export default function PostPage() {
   useEffect(() => {
     setHistoricalPost(null)
     setUnlockedPost(null)
+    setRestoringUnlock(false)
     setHistoryOpen(false)
     setCompareOpen(false)
     setHistory([])
     setHistoryError('')
     setCopyOpen(false)
   }, [slug])
+
+  useEffect(() => {
+    let active = true
+    if (!snapshot?.encryption) {
+      setRestoringUnlock(false)
+      return () => {
+        active = false
+      }
+    }
+    setRestoringUnlock(true)
+    void restorePostUnlock(snapshot).then((restored) => {
+      if (!active) return
+      if (restored) setUnlockedPost(restored)
+      setRestoringUnlock(false)
+    })
+    return () => {
+      active = false
+    }
+  }, [snapshot])
 
   useEffect(() => {
     const closeCopyMenu = (event: MouseEvent) => {
@@ -350,7 +371,19 @@ export default function PostPage() {
               <FileClock size={14} /> 正在查看一个历史版本；解锁后可阅读其内容。
             </div>
           )}
-          <PasswordPrompt onUnlock={unlock} />
+          {restoringUnlock ? (
+            <div className="card mx-auto flex max-w-md flex-col items-center p-7 text-center">
+              <Loader2 size={24} className="animate-spin text-brand-500" />
+              <h1 className="mt-4 font-serif text-xl font-bold text-ink-900 dark:text-white">{snapshot.title}</h1>
+              <p className="mt-2 text-sm text-ink-500">正在读取此设备保存的解锁状态…</p>
+            </div>
+          ) : (
+            <PasswordPrompt
+              title={snapshot.title}
+              description="文章标题公开可见，正文及其他信息已使用密码加密。请输入密码后继续。"
+              onUnlock={unlock}
+            />
+          )}
           <div className="mt-5 text-center">
             <button type="button" onClick={openHistory} className="btn-ghost h-8 text-xs"><History size={13} />历史版本</button>
           </div>
