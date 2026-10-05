@@ -34,7 +34,7 @@ export function ShowBox({ title, variableSpec, body }: { title: string; variable
         <span>{title || '交互展示'}</span>
       </div>
       <div className="show-box-content px-4 py-4">
-        <Markdown content={rendered} />
+        <Markdown content={rendered} headingAnchors={false} />
       </div>
       {variables.length > 0 && (
         <div className="grid gap-3 border-t border-ink-200/80 bg-white/50 p-4 sm:grid-cols-2 dark:border-white/10 dark:bg-black/10">

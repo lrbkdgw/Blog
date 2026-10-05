@@ -102,6 +102,49 @@ function Heading({ level, id, children }: { level: 2 | 3 | 4; id?: string; child
   )
 }
 
+type RehypeNode = {
+  type?: string
+  tagName?: string
+  properties?: Record<string, unknown>
+  children?: RehypeNode[]
+}
+
+function classNames(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String)
+  if (typeof value === 'string') return value.split(/\s+/).filter(Boolean)
+  return []
+}
+
+function isHeadingNode(node: RehypeNode): boolean {
+  return node.type === 'element' && /^h[1-6]$/.test(node.tagName || '')
+}
+
+function isCalloutNode(node: RehypeNode): boolean {
+  if (node.type !== 'element' || node.tagName !== 'details') return false
+  const properties = node.properties || {}
+  return Boolean(
+    properties.dataCallout ||
+      properties['data-callout'] ||
+      classNames(properties.className).includes('callout'),
+  )
+}
+
+// 折叠框/展示框里的标题不作为正文锚点暴露，避免目录滚动定位命中框内标题。
+function rehypeRemoveHeadingIds({ calloutsOnly = false }: { calloutsOnly?: boolean } = {}) {
+  return function removeHeadingIdsPlugin() {
+    return (tree: RehypeNode) => {
+      const visit = (node: RehypeNode, insideCallout: boolean) => {
+        const nextInsideCallout = insideCallout || isCalloutNode(node)
+        if (isHeadingNode(node) && (!calloutsOnly || nextInsideCallout)) {
+          delete node.properties?.id
+        }
+        for (const child of node.children || []) visit(child, nextInsideCallout)
+      }
+      visit(tree, false)
+    }
+  }
+}
+
 /** 预处理 Markdown，支持折叠框与 Tuack 风格表格 */
 export function preprocessMarkdown(md: string): string {
   if (!md) return ''
@@ -417,7 +460,12 @@ function SmartTable({ children, className, ...props }: HTMLAttributes<HTMLTableE
   )
 }
 
-export const Markdown = memo(function Markdown({ content }: { content: string }) {
+interface MarkdownProps {
+  content: string
+  headingAnchors?: boolean
+}
+
+export const Markdown = memo(function Markdown({ content, headingAnchors = true }: MarkdownProps) {
   const processedContent = useMemo(() => preprocessMarkdown(content), [content])
 
   return (
@@ -426,7 +474,9 @@ export const Markdown = memo(function Markdown({ content }: { content: string })
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[
           rehypeRaw,
-          rehypeSlug,
+          ...(headingAnchors
+            ? [rehypeSlug, rehypeRemoveHeadingIds({ calloutsOnly: true })]
+            : [rehypeRemoveHeadingIds()]),
           [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
           [rehypeHighlight, { detect: true, ignoreMissing: true }],
         ]}
