@@ -360,7 +360,7 @@ export default function Editor() {
             v,
             s,
             e,
-            '::show_begin{二次函数展示}{a:Z=1[-5,5,1]; b:Q=0[-10,10,0.5]{faster_set}}\\n当 *&show(a)*&、*&show(b)*& 时，$a^2+b$ = *&hs(a^2+b)*&。\\n*&a:{-1,负一;0,零;1,正一}*&\\n::show_end\\n',
+            '::show_begin{二次函数展示}{a:Z=1[-5,5,1]; b:Q=0[-10,10,0.5]{faster_set}}\n当 *&show(a)*&、*&show(b)*& 时，$a^2+b$ = *&hs(a^2+b)*&。\n向下保留两位：&*floor(a^2+b,2)&*；向上保留两位：&*ceil(a^2+b,2)&*。\n*&a:{-1,负一;0,零;1,正一}*&\n::show_end\n',
           ),
         ),
     },

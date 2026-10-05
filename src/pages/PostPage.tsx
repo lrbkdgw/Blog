@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
   ArrowUp,
+  ChevronDown,
   Clock,
+  Code2,
+  Copy,
   FileClock,
   FileEdit,
+  FileText,
   GitCompareArrows,
   Hash,
   History,
@@ -40,6 +44,7 @@ import { usePosts } from '../lib/usePosts'
 import { useAuth } from '../lib/auth'
 import { useToast } from '../components/Toast'
 import { siteConfig } from '../lib/config'
+import { convertMarkdownForCopy, type MarkdownCopyTarget } from '../lib/markdownSource'
 
 function ReadingProgress() {
   const [progress, setProgress] = useState(0)
@@ -60,6 +65,29 @@ function ReadingProgress() {
       />
     </div>
   )
+}
+
+async function writeClipboard(text: string): Promise<void> {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable')
+    await navigator.clipboard.writeText(text)
+    return
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    let copied = false
+    try {
+      copied = document.execCommand('copy')
+    } finally {
+      textarea.remove()
+    }
+    if (!copied) throw new Error('Clipboard copy failed')
+  }
 }
 
 function HistoryDialog({
@@ -158,6 +186,8 @@ export default function PostPage() {
   const [compareOpen, setCompareOpen] = useState(false)
   const [historicalPost, setHistoricalPost] = useState<Post | null>(null)
   const [unlockedPost, setUnlockedPost] = useState<Post | null>(null)
+  const [copyOpen, setCopyOpen] = useState(false)
+  const copyMenuRef = useRef<HTMLDivElement>(null)
 
   const post = useMemo(() => posts.find((item) => item.slug === slug), [posts, slug])
   const repoPost = useMemo(() => getPostBySlug(slug, 'repo'), [slug])
@@ -177,7 +207,23 @@ export default function PostPage() {
     setCompareOpen(false)
     setHistory([])
     setHistoryError('')
+    setCopyOpen(false)
   }, [slug])
+
+  useEffect(() => {
+    const closeCopyMenu = (event: MouseEvent) => {
+      if (copyMenuRef.current && !copyMenuRef.current.contains(event.target as Node)) setCopyOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCopyOpen(false)
+    }
+    document.addEventListener('mousedown', closeCopyMenu)
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeCopyMenu)
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [])
 
   useEffect(() => {
     if (visiblePost) document.title = `${visiblePost.title} · ${siteConfig.title}`
@@ -252,12 +298,23 @@ export default function PostPage() {
     setUnlockedPost(await decryptPost(snapshot, password))
   }
 
-  const copyLink = async () => {
+  const copyArticle = async (target: 'link' | MarkdownCopyTarget) => {
+    if (!visiblePost || isEncryptedPost(visiblePost)) return
+    setCopyOpen(false)
+    const labels: Record<typeof target, string> = {
+      link: '链接',
+      direct: '原始源码',
+      luogu: '洛谷源码',
+      basic: '基本 Markdown 源码',
+    }
     try {
-      await navigator.clipboard.writeText(window.location.href)
-      toast('链接已复制到剪贴板', 'success')
+      const text = target === 'link'
+        ? window.location.href
+        : convertMarkdownForCopy(visiblePost.content, target)
+      await writeClipboard(text)
+      toast(`${labels[target]}已复制到剪贴板`, 'success')
     } catch {
-      toast('无法访问剪贴板，请手动复制地址', 'warning')
+      toast('无法访问剪贴板，请检查浏览器权限后重试', 'warning')
     }
   }
 
@@ -330,11 +387,45 @@ export default function PostPage() {
               <span className="flex items-center gap-1.5"><User size={13} />{article.author?.trim() || siteConfig.author.name}</span>
               {article.updated && article.updated !== article.date && <span className="flex items-center gap-1.5">更新于 {formatDate(article.updated)}</span>}
               <span className="flex items-center gap-1.5"><Clock size={13} />约 {article.readingTime} 分钟</span>
-              <span className="ml-auto flex flex-wrap items-center gap-1.5">
-                <button onClick={copyLink} className="btn-ghost no-print h-7 !px-2 text-xs"><Link2 size={13} />复制链接</button>
+              <div className="ml-auto flex flex-wrap items-center gap-1.5">
+                <div ref={copyMenuRef} className="relative no-print">
+                  <button
+                    type="button"
+                    onClick={() => setCopyOpen((open) => !open)}
+                    className="btn-ghost h-7 !px-2 text-xs"
+                    aria-haspopup="menu"
+                    aria-expanded={copyOpen}
+                  >
+                    <Copy size={13} />复制<ChevronDown size={12} className={`transition-transform ${copyOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {copyOpen && (
+                    <div
+                      role="menu"
+                      aria-label="复制文章"
+                      className="card absolute right-0 top-8 z-40 w-52 animate-scale-in overflow-hidden p-1.5 !bg-white/95 text-left shadow-xl dark:!bg-ink-900/95"
+                    >
+                      <button type="button" role="menuitem" onClick={() => copyArticle('link')} className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition hover:bg-ink-100 dark:hover:bg-white/5">
+                        <Link2 size={14} className="mt-0.5 shrink-0 text-ink-400" />
+                        <span><span className="block text-xs font-medium text-ink-700 dark:text-ink-200">复制链接</span><span className="mt-0.5 block text-[10px] text-ink-400">当前文章地址</span></span>
+                      </button>
+                      <button type="button" role="menuitem" onClick={() => copyArticle('direct')} className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition hover:bg-ink-100 dark:hover:bg-white/5">
+                        <Code2 size={14} className="mt-0.5 shrink-0 text-ink-400" />
+                        <span><span className="block text-xs font-medium text-ink-700 dark:text-ink-200">直接复制源码</span><span className="mt-0.5 block text-[10px] text-ink-400">保留全部扩展语法</span></span>
+                      </button>
+                      <button type="button" role="menuitem" onClick={() => copyArticle('luogu')} className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition hover:bg-ink-100 dark:hover:bg-white/5">
+                        <FileText size={14} className="mt-0.5 shrink-0 text-ink-400" />
+                        <span><span className="block text-xs font-medium text-ink-700 dark:text-ink-200">复制洛谷源码</span><span className="mt-0.5 block text-[10px] text-ink-400">转换 Blog 展示框语法</span></span>
+                      </button>
+                      <button type="button" role="menuitem" onClick={() => copyArticle('basic')} className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition hover:bg-ink-100 dark:hover:bg-white/5">
+                        <FileText size={14} className="mt-0.5 shrink-0 text-ink-400" />
+                        <span><span className="block text-xs font-medium text-ink-700 dark:text-ink-200">复制基本源码</span><span className="mt-0.5 block text-[10px] text-ink-400">转换全部扩展语法</span></span>
+                      </button>
+                    </div>
+                  )}
+                </div>
                 {repoPost && <button onClick={openHistory} className="btn-ghost no-print h-7 !px-2 text-xs"><History size={13} />历史</button>}
                 {isAuthed && <button type="button" onClick={editCurrentVersion} className="btn-ghost no-print h-7 !px-2 text-xs"><PenLine size={13} />编辑</button>}
-              </span>
+              </div>
             </div>
           </header>
           {article.cover && <img src={article.cover} alt="" className="mt-8 w-full rounded-2xl object-cover shadow-xl" />}

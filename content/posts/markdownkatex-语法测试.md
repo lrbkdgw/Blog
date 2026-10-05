@@ -1,8 +1,8 @@
 ---
 title: "Markdown、KaTeX 与交互展示框语法测试"
 date: "2026-10-04"
-updated: "2026-10-04"
-summary: "集中测试合并表格、Tuack 表格、折叠提示框、KaTeX 公式，以及新增的可交互展示框语法。"
+updated: "2026-10-05"
+summary: "集中测试合并表格、Tuack 表格、折叠提示框、KaTeX 公式，以及含定向取整的交互展示框语法。"
 tags: ["Markdown", "KaTeX", "交互展示"]
 ---
 
@@ -54,6 +54,8 @@ tags: ["Markdown", "KaTeX", "交互展示"]
 ::show_begin{二次函数小实验}{a:Z=1[-2,2,1]; b:Q=0.5[-2,2,0.25]{faster_set}; name:S=Starlog[0,12]}
 你好，*&show(name)*&！当前 $a$ 为 *&show(a)*&、$b$ 为 *&show(b)*&，所以 $a^2+b$ 的值为 *&hs(a^2+b)*&。
 
+向下保留两位：&*floor(a^2+b,2)&*；向上保留两位：&*ceil(a^2+b,2)&*。
+
 $a$ 的文字映射：*&a:{-2,很小;-1,负一;0,零;1,正一;2,很大}*&
 ::show_end
 
@@ -62,6 +64,8 @@ $a$ 的文字映射：*&a:{-2,很小;-1,负一;0,零;1,正一;2,很大}*&
 ```markdown
 ::show_begin{二次函数小实验}{a:Z=1[-2,2,1]; b:Q=0.5[-2,2,0.25]{faster_set}; name:S=Starlog[0,12]}
 你好，*&show(name)*&！当前 $a$ 为 *&show(a)*&、$b$ 为 *&show(b)*&，所以 $a^2+b$ 的值为 *&hs(a^2+b)*&。
+
+向下保留两位：&*floor(a^2+b,2)&*；向上保留两位：&*ceil(a^2+b,2)&*。
 
 $a$ 的文字映射：*&a:{-2,很小;-1,负一;0,零;1,正一;2,很大}*&
 ::show_end
