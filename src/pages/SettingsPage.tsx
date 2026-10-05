@@ -20,7 +20,12 @@ import {
   X,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
-import { useFont } from '../lib/font'
+import {
+  DEFAULT_FONT_SIZE,
+  FONT_SIZE_MAX,
+  FONT_SIZE_MIN,
+  useFont,
+} from '../lib/font'
 import { useBackground } from '../lib/background'
 import { useToast } from '../components/Toast'
 import GithubConnect from '../components/GithubConnect'
@@ -85,6 +90,7 @@ export default function SettingsPage() {
     addFont,
     removeFont,
     moveFont,
+    setFontSize,
     resetFont,
     saveForGithub,
   } = useFont()
@@ -166,7 +172,7 @@ export default function SettingsPage() {
     setSavingFont(true)
     try {
       await saveForGithub()
-      toast(`字体偏好已保存到 GitHub 账号 @${ghUser?.login}`, 'success')
+      toast(`字体与字号偏好已保存到 GitHub 账号 @${ghUser?.login}`, 'success')
     } catch (err) {
       toast(err instanceof Error ? err.message : '保存字体偏好失败', 'error')
     } finally {
@@ -242,55 +248,98 @@ export default function SettingsPage() {
       <div className="space-y-5">
         {/* ------------------------------ 多字体设置（优先级回退） ----------------------------- */}
         <Section
-          title="字体设置（多字体按优先级生效）"
-          desc="可以配置多个字体，系统将按从上到下的优先级依次尝试渲染。支持手动输入系统字体或 Google Fonts 云端字体。"
+          title="字体与字号设置"
+          desc="字号会按比例调整全站正文、标题、公式和界面文字；多个字体则按从上到下的优先级依次尝试渲染。"
           icon={Type}
         >
-          {/* 添加新字体 */}
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="rounded-xl border border-ink-200/80 bg-ink-50/60 p-4 dark:border-white/10 dark:bg-white/[0.025]">
+            <div className="mb-2 flex items-center justify-between gap-4">
+              <label htmlFor="font-size" className="text-xs font-medium text-ink-600 dark:text-ink-300">
+                全站字体大小
+              </label>
+              <span className="font-mono text-xs font-bold text-brand-600 dark:text-brand-300">
+                {font.sizePercent}%
+              </span>
+            </div>
             <input
-              id="font-family-input"
-              list="font-family-suggestions"
-              value={newFontInput}
-              onChange={(e) => setNewFontInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  handleAddFont()
-                }
-              }}
-              placeholder="输入字体名称，例如：霞鹜文楷、PingFang SC、Fira Code"
-              className="input flex-1"
-              autoComplete="off"
+              id="font-size"
+              type="range"
+              min={FONT_SIZE_MIN}
+              max={FONT_SIZE_MAX}
+              step="5"
+              value={font.sizePercent}
+              onChange={(event) => setFontSize(Number(event.target.value))}
+              className="h-2 w-full cursor-pointer accent-brand-500"
+              aria-valuetext={`${font.sizePercent}%`}
             />
-            <datalist id="font-family-suggestions">
-              {localFonts.map((fam) => (
-                <option key={fam} value={fam} />
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              {[85, 90, DEFAULT_FONT_SIZE, 110, 120].map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => setFontSize(size)}
+                  className={`rounded-lg border px-2.5 py-1 text-xs transition ${
+                    font.sizePercent === size
+                      ? 'border-brand-400 bg-brand-500/10 font-semibold text-brand-600 dark:text-brand-300'
+                      : 'border-ink-200 bg-white/70 text-ink-500 hover:border-brand-300 dark:border-white/10 dark:bg-white/5 dark:text-ink-400'
+                  }`}
+                >
+                  {size}%
+                </button>
               ))}
-              {PRESET_FONTS.map((fam) => (
-                <option key={fam} value={fam} />
-              ))}
-            </datalist>
-
-            <button
-              type="button"
-              onClick={() => handleAddFont()}
-              disabled={!newFontInput.trim()}
-              className="btn-primary h-10 shrink-0"
-            >
-              <Plus size={15} />
-              添加字体
-            </button>
-            <button
-              type="button"
-              onClick={loadLocalFonts}
-              disabled={loadingFonts}
-              className="btn-outline h-10 shrink-0"
-            >
-              {loadingFonts ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
-              {localFonts.length > 0 ? `本机 (${localFonts.length})` : '读取本机字体'}
-            </button>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-ink-400">
+              会即时缩放文章正文、文章标题、Markdown 标题与 KaTeX 公式，并自动保存到当前浏览器。
+            </p>
           </div>
+
+          {/* 添加新字体 */}
+          <div className="mt-5 border-t border-ink-200/70 pt-5 dark:border-white/10">
+            <p className="mb-2 text-xs font-medium text-ink-500">字体优先级</p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                id="font-family-input"
+                list="font-family-suggestions"
+                value={newFontInput}
+                onChange={(e) => setNewFontInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    handleAddFont()
+                  }
+                }}
+                placeholder="输入字体名称，例如：霞鹜文楷、PingFang SC、Fira Code"
+                className="input flex-1"
+                autoComplete="off"
+              />
+              <datalist id="font-family-suggestions">
+                {localFonts.map((fam) => (
+                  <option key={fam} value={fam} />
+                ))}
+                {PRESET_FONTS.map((fam) => (
+                  <option key={fam} value={fam} />
+                ))}
+              </datalist>
+
+              <button
+                type="button"
+                onClick={() => handleAddFont()}
+                disabled={!newFontInput.trim()}
+                className="btn-primary h-10 shrink-0"
+              >
+                <Plus size={15} />
+                添加字体
+              </button>
+              <button
+                type="button"
+                onClick={loadLocalFonts}
+                disabled={loadingFonts}
+                className="btn-outline h-10 shrink-0"
+              >
+                {loadingFonts ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+                {localFonts.length > 0 ? `本机 (${localFonts.length})` : '读取本机字体'}
+              </button>
+            </div>
 
           {/* 推荐预设字体快捷点击 */}
           <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-ink-500">
@@ -373,14 +422,15 @@ export default function SettingsPage() {
               type="button"
               onClick={() => {
                 resetFont()
-                toast('已恢复默认字体', 'success')
+                toast('已恢复默认字体与字号', 'success')
               }}
               className="btn-outline h-9"
             >
               <RotateCcw size={14} />
-              恢复默认字体
+              恢复默认字体与字号
             </button>
             <span className="text-xs text-ink-400">设置自动保存至当前浏览器</span>
+          </div>
           </div>
 
           {canPublish && ghUser ? (
@@ -396,15 +446,15 @@ export default function SettingsPage() {
               </button>
               <span className="text-xs text-ink-400">
                 {accountSync === 'loading'
-                  ? '正在同步账号字体偏好…'
+                  ? '正在同步账号字体与字号偏好…'
                   : accountSync === 'synced'
-                    ? '已与 GitHub 账号同步'
+                    ? '字体与字号已与 GitHub 账号同步'
                     : '保存后可在多台设备登录同一账号自动恢复'}
               </span>
             </div>
           ) : (
             <p className="mt-4 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
-              访客设置已直接生效并保存在本地。登录 GitHub 账号后还可将字体偏好同步至云端。
+              访客设置已直接生效并保存在本地。登录 GitHub 账号后还可将字体与字号偏好同步至云端。
             </p>
           )}
         </Section>

@@ -14,7 +14,7 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | --- | --- |
 | 📝 **在线编辑** | 分栏实时预览、工具栏、快捷键、滚动同步、自动保存草稿 |
 | 🧮 **KaTeX 公式** | 行内 `$…$` 与独立 `$$…$$`，支持 `aligned`、矩阵、分段函数 |
-| 🎨 **深色模式** | 跟随系统 / 手动固定，无刷新闪白，支持 View Transition 平滑切换 |
+| 🎨 **个性化外观** | 深浅色模式、多字体优先级、80%–130% 全站字号与渐变背景 |
 | 🔐 **GitHub OAuth 授权** | 基于 Device Flow 极简一键登录，令牌仅保存在浏览器本地 |
 | 🚀 **一键发布** | 浏览器直接调用 GitHub API 提交 Markdown，Actions 自动部署 |
 | 🔍 **全文搜索** | <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>K</kbd> 唤起，支持方向键选择 |

@@ -19,6 +19,15 @@
 
           var personalSettings = JSON.parse(localStorage.getItem('starlog:personal-settings') || 'null')
           var savedFont = (personalSettings && personalSettings.font) || JSON.parse(localStorage.getItem('starlog:font') || 'null')
+          var savedFontSize = savedFont && typeof savedFont.sizePercent === 'number'
+            ? savedFont.sizePercent
+            : NaN
+          if (isFinite(savedFontSize)) {
+            savedFontSize = Math.round(Math.max(80, Math.min(130, savedFontSize)))
+            if (savedFontSize !== 100) {
+              document.documentElement.style.setProperty('--site-font-size', savedFontSize + '%')
+            }
+          }
           var families = savedFont && Array.isArray(savedFont.families)
             ? savedFont.families
             : savedFont && typeof savedFont.family === 'string'

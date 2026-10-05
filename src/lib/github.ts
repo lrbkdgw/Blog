@@ -615,6 +615,7 @@ export async function closePublicationPR(
 
 export interface GithubFontPreference {
   family: string
+  sizePercent: number
   updatedAt: number
 }
 
@@ -636,6 +637,7 @@ export async function fetchGithubFontPreference(
     if (!parsed || typeof parsed.family !== 'string') return null
     return {
       family: parsed.family,
+      sizePercent: typeof parsed.sizePercent === 'number' ? parsed.sizePercent : 100,
       updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
     }
   } catch (err) {
@@ -654,10 +656,15 @@ export async function saveGithubFontPreference(
   await gh(`/repos/${target.owner}/${target.repo}/contents/${encodeURI(path)}`, {
     method: 'PUT',
     body: JSON.stringify({
-      message: `chore(settings): 保存 @${login} 的字体偏好`,
+      message: `chore(settings): 保存 @${login} 的字体与字号偏好`,
       content: encodeBase64(
         JSON.stringify(
-          { version: 1, family: preference.family, updatedAt: preference.updatedAt || Date.now() },
+          {
+            version: 2,
+            family: preference.family,
+            sizePercent: preference.sizePercent,
+            updatedAt: preference.updatedAt || Date.now(),
+          },
           null,
           2,
         ) + '\n',
