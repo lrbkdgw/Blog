@@ -1,0 +1,10 @@
+{
+  "Starlog 交互展示框": { "prefix": "showbox", "body": ["::show_begin{${1:标题}}{${2:n:Z=1[0,10,1]}}", "${3:当前值：*&show(n)*&}", "::show_end"], "description": "插入交互展示框" },
+  "Starlog 提示框": { "prefix": "callout", "body": [":::${1|info,note,tip,success,warning,error,danger|}[${2:标题}]${3:{open}}", "${4:内容}", ":::"], "description": "插入可折叠提示框" },
+  "Starlog Tuack 表格": { "prefix": "tuack", "body": ["::cute-table{tuack}", "", "| ${1:列一} | ${2:列二} |", "| :--- | :--- |", "| ${3:内容} | ${4:内容} |"], "description": "插入 Tuack 三线表" },
+  "展示变量": { "prefix": "showvar", "body": "*&show(${1:name})*&", "description": "显示展示框变量" },
+  "展示表达式": { "prefix": "showexpr", "body": "*&hs(${1:a+b})*&", "description": "计算展示框表达式" },
+  "向下取整": { "prefix": "showfloor", "body": "&*floor(${1:value},${2:2})&*", "description": "按位数向下取整" },
+  "向上取整": { "prefix": "showceil", "body": "&*ceil(${1:value},${2:2})&*", "description": "按位数向上取整" },
+  "变量映射": { "prefix": "showmap", "body": "*&${1:name}:{${2:0,否;1,是}}*&", "description": "变量值到显示内容的映射" }
+}

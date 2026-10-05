@@ -1,0 +1,47 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Starlog Markdown Extensions",
+  "scopeName": "starlog.injection.markdown",
+  "injectionSelector": "L:text.html.markdown -comment -markup.fenced_code.block.markdown -markup.inline.raw.string.markdown",
+  "patterns": [
+    { "include": "#showBlock" }, { "include": "#callout" }, { "include": "#tuack" },
+    { "include": "#placeholders" }, { "include": "#mergedCell" }
+  ],
+  "repository": {
+    "showBlock": {
+      "name": "meta.embedded.block.starlog",
+      "begin": "^(\\s*)(::show_begin)(\\{)([^}]*)(\\})(\\{)(.*)(\\})\\s*$",
+      "beginCaptures": {
+        "2": { "name": "keyword.control.directive.begin.starlog" }, "3": { "name": "punctuation.definition.bracket.starlog" },
+        "4": { "name": "string.unquoted.title.starlog" }, "5": { "name": "punctuation.definition.bracket.starlog" },
+        "6": { "name": "punctuation.definition.bracket.starlog" }, "7": { "name": "meta.variable.definition.starlog" },
+        "8": { "name": "punctuation.definition.bracket.starlog" }
+      },
+      "end": "^(\\s*)(::show_end)\\s*$",
+      "endCaptures": { "2": { "name": "keyword.control.directive.end.starlog" } },
+      "patterns": [{ "include": "#placeholders" }]
+    },
+    "callout": {
+      "name": "meta.block.callout.starlog",
+      "match": "^(\\s*)(:{3,})(info|note|tip|success|warning|error|danger)(?:\\[([^]]*)\\])?(\\{open\\})?\\s*$",
+      "captures": {
+        "2": { "name": "punctuation.definition.directive.starlog" }, "3": { "name": "support.type.callout.starlog" },
+        "4": { "name": "string.unquoted.title.starlog" }, "5": { "name": "storage.modifier.open.starlog" }
+      }
+    },
+    "tuack": {
+      "name": "meta.directive.table.starlog",
+      "match": "^(\\s*)(:{2,})(cute-table)(\\{)(tuack)(\\})\\s*$",
+      "captures": { "2": { "name": "punctuation.definition.directive.starlog" }, "3": { "name": "keyword.other.directive.starlog" }, "4": { "name": "punctuation.definition.bracket.starlog" }, "5": { "name": "constant.language.style.starlog" }, "6": { "name": "punctuation.definition.bracket.starlog" } }
+    },
+    "placeholders": {
+      "patterns": [
+        { "name": "meta.interpolation.show.starlog", "match": "(\\*&)(show)(\\()([^)]+)(\\)\\*&)", "captures": { "1": { "name": "punctuation.definition.interpolation.starlog" }, "2": { "name": "support.function.show.starlog" }, "3": { "name": "punctuation.definition.parameters.starlog" }, "4": { "name": "variable.other.starlog" }, "5": { "name": "punctuation.definition.interpolation.starlog" } } },
+        { "name": "meta.interpolation.formula.starlog", "match": "(\\*&)(hs)(\\()([^)]*)(\\)\\*&)", "captures": { "1": { "name": "punctuation.definition.interpolation.starlog" }, "2": { "name": "support.function.formula.starlog" }, "3": { "name": "punctuation.definition.parameters.starlog" }, "4": { "name": "string.unquoted.expression.starlog" }, "5": { "name": "punctuation.definition.interpolation.starlog" } } },
+        { "name": "meta.interpolation.round.starlog", "match": "(&\\*)(floor|ceil)(\\()([^)]*)(\\)&\\*)", "captures": { "1": { "name": "punctuation.definition.interpolation.starlog" }, "2": { "name": "support.function.round.starlog" }, "3": { "name": "punctuation.definition.parameters.starlog" }, "4": { "name": "string.unquoted.expression.starlog" }, "5": { "name": "punctuation.definition.interpolation.starlog" } } },
+        { "name": "meta.mapping.starlog", "match": "(\\*&)([^:*&{}()\\s]+)(:)(\\{)(.*?)(\\}\\*&)", "captures": { "1": { "name": "punctuation.definition.interpolation.starlog" }, "2": { "name": "variable.other.starlog" }, "3": { "name": "punctuation.separator.key-value.starlog" }, "4": { "name": "punctuation.definition.mapping.starlog" }, "5": { "name": "string.unquoted.mapping.starlog" }, "6": { "name": "punctuation.definition.interpolation.starlog" } } }
+      ]
+    },
+    "mergedCell": { "name": "keyword.operator.merge-cell.starlog", "match": "(?<=\\|)\\s*(?:\\^|<)\\s*(?=\\|)" }
+  }
+}

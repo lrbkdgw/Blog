@@ -1,0 +1,32 @@
+{
+  "name": "starlog-blog-markdown",
+  "displayName": "Starlog Blog Markdown",
+  "description": "Starlog Blog 特殊 Markdown 语法的高亮、补全、悬停说明与诊断。",
+  "version": "1.0.0",
+  "publisher": "starlog",
+  "license": "MIT",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages", "Snippets", "Linters"],
+  "keywords": ["markdown", "blog", "starlog", "callout", "tuack"],
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:markdown"],
+  "contributes": {
+    "grammars": [{
+      "scopeName": "starlog.injection.markdown",
+      "path": "./syntaxes/starlog-markdown.tmLanguage.json",
+      "injectTo": ["text.html.markdown"],
+      "embeddedLanguages": { "meta.embedded.block.starlog": "markdown" }
+    }],
+    "snippets": [{ "language": "markdown", "path": "./snippets/starlog-markdown.json" }],
+    "configuration": {
+      "title": "Starlog Blog Markdown",
+      "properties": {
+        "starlogBlogMarkdown.diagnostics.enabled": {
+          "type": "boolean", "default": true,
+          "description": "检查未闭合或格式错误的 Starlog 特殊语法。"
+        }
+      }
+    }
+  },
+  "scripts": { "test": "node test/syntax.test.js", "check": "node --check extension.js && npm test" }
+}
