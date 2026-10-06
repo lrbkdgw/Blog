@@ -48,6 +48,7 @@ import {
   countWords,
   deleteLocalPost,
   excerpt,
+  getEncryptedRepoPost,
   getPostBySlug,
   readingTime,
   recordPublishTime,
@@ -108,18 +109,28 @@ export default function Editor() {
     return params.get('source') as Post['source'] | undefined
   }, [location.search])
 
-  const existing = useMemo(
-    () => (routeSlug ? getPostBySlug(routeSlug, sourceParam) : undefined),
-    [routeSlug, sourceParam],
-  )
+  const existing = useMemo(() => {
+    if (!routeSlug) return undefined
+    if (sourceParam === 'repo') return getPostBySlug(routeSlug, 'repo')
+    // source=local 或未指定来源时优先加载本地草稿：
+    // 加密文章解锁修改后保存的草稿要能直接继续编辑，而不是再次要求密码。
+    // 本地草稿已被删除时（如重新发布加密版本后）回退到聚合结果。
+    return getPostBySlug(routeSlug, 'local') ?? getPostBySlug(routeSlug)
+  }, [routeSlug, sourceParam])
   const prefetchedDraft = (location.state as { draft?: Post } | null)?.draft
   // A historic version that has no matching editable post arrives here as a new local draft.
   const initial = prefetchedDraft ?? existing
   const prefetchedProtected = (location.state as { protected?: boolean } | null)?.protected === true
   const encryptedSource = Boolean(existing?.encryption)
-  // Historic protected versions arrive already decrypted, but must still never
-  // be written back as a plaintext local draft.
+  // Historic protected versions arrive already decrypted.
   const protectedExisting = encryptedSource || prefetchedProtected
+  // 该 slug 在仓库中是否为加密文章：即使当前加载的是明文本地草稿，
+  // 也属于「加密文章的草稿」，发布时必须保持加密。
+  const repoEncrypted = useMemo(
+    () => (routeSlug ? Boolean(getEncryptedRepoPost(routeSlug)) : false),
+    [routeSlug],
+  )
+  const protectedLineage = protectedExisting || repoEncrypted
   const originalSlug = useRef(existing?.slug)
 
   const [title, setTitle] = useState(initial?.title ?? '')
@@ -145,7 +156,7 @@ export default function Editor() {
   const [isRepoAdmin, setIsRepoAdmin] = useState(false)
   const [unlocked, setUnlocked] = useState(!encryptedSource)
   const [restoringUnlock, setRestoringUnlock] = useState(encryptedSource)
-  const [encryptOnPublish, setEncryptOnPublish] = useState(protectedExisting)
+  const [encryptOnPublish, setEncryptOnPublish] = useState(protectedLineage)
   const [encryptionPassword, setEncryptionPassword] = useState('')
   const [encryptionConfirm, setEncryptionConfirm] = useState('')
 
@@ -216,12 +227,13 @@ export default function Editor() {
     }
     setUnlocked(true)
     setRestoringUnlock(false)
-    setEncryptOnPublish(prefetchedProtected)
+    // 加密文章的本地草稿重新打开时，仍默认「发布为加密文章」。
+    setEncryptOnPublish(prefetchedProtected || repoEncrypted)
     if (incoming) hydratePost(incoming)
     return () => {
       active = false
     }
-  }, [routeSlug, sourceParam, location.state, existing, prefetchedProtected, hydratePost])
+  }, [routeSlug, sourceParam, location.state, existing, prefetchedProtected, repoEncrypted, hydratePost])
 
   useEffect(() => {
     document.title = `${title || '未命名文章'} · 编辑器`
@@ -254,31 +266,35 @@ export default function Editor() {
     originalSlug.current = decrypted.slug
     setRestoringUnlock(false)
     setUnlocked(true)
+    toast('已解锁。修改会自动保存为明文本地草稿（仅本机可见）；发布时会重新加密', 'info')
   }
 
   /* ------------------------------- 保存草稿 ------------------------------- */
   const save = useCallback(
     (silent = false) => {
       const post = buildDraftPost()
-      // Never leave a decrypted protected article in localStorage. A published
-      // encrypted version must always require its password when reopened.
-      if (protectedExisting) {
-        setSavedAt(Date.now())
-        setDirty(false)
-        if (!silent) toast('已保留在当前编辑器中；发布时会再次加密，不会写入明文草稿', 'info')
-        return post
-      }
+      // 加密文章的修改同样保存为本地草稿（明文，仅保存在本浏览器）。
+      // 公开页面仍显示仓库中的加密版本（getAllPosts 不会让明文草稿顶替加密文章），
+      // 发布时也会重新加密。
       saveLocalPost(post, originalSlug.current)
       originalSlug.current = post.slug
       setSavedAt(Date.now())
       setDirty(false)
       if (!silent) {
-        toast('已保存到本地草稿', 'success')
-        if (routeSlug !== post.slug) navigate(`/admin/edit/${post.slug}`, { replace: true })
+        toast(
+          protectedLineage
+            ? '已保存到本地草稿（明文，仅保存在本浏览器）；发布时会重新加密'
+            : '已保存到本地草稿',
+          protectedLineage ? 'info' : 'success',
+        )
+        // 指向本地草稿，刷新后能直接继续编辑，而不是回到仓库里的旧版本。
+        if (routeSlug !== post.slug || sourceParam === 'repo') {
+          navigate(`/admin/edit/${post.slug}?source=local`, { replace: true })
+        }
       }
       return post
     },
-    [buildDraftPost, navigate, protectedExisting, routeSlug, toast],
+    [buildDraftPost, navigate, protectedLineage, routeSlug, sourceParam, toast],
   )
 
   // 自动保存
@@ -999,7 +1015,7 @@ export default function Editor() {
                       </div>
                     )}
                     <p className="mt-2 text-xs leading-relaxed text-ink-500 dark:text-ink-400">
-                      标题会公开显示；正文与其他文章信息使用浏览器 Web Crypto 加密后再提交。密码不会写入 GitHub 或本机，成功解锁后本设备会记住不可导出的解锁密钥。
+                      标题会公开显示；正文与其他文章信息使用浏览器 Web Crypto 加密后再提交。密码不会写入 GitHub 或本机，成功解锁后本设备会记住不可导出的解锁密钥。解锁编辑期间的修改会以明文保存在本浏览器的本地草稿中；重新发布加密版本后会自动清除该草稿，公开页面始终需要密码。
                     </p>
                   </div>
                 )}

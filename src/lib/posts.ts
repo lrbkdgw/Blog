@@ -255,6 +255,12 @@ export function getRepoPosts(): Post[] {
   )
 }
 
+/** 指定 slug 对应的仓库加密文章（不存在则返回 undefined）。
+ *  用于识别「加密文章的本地草稿」：这类草稿发布时必须重新加密。 */
+export function getEncryptedRepoPost(slug: string): Post | undefined {
+  return getRepoPosts().find((p) => p.slug === slug && p.encryption)
+}
+
 function sortPosts(posts: Post[]): Post[] {
   return posts.sort((a, b) => {
     if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1
@@ -262,11 +268,16 @@ function sortPosts(posts: Post[]): Post[] {
   })
 }
 
-/** 公开聚合：本地草稿与仓库文章同名时，以本地版本为准 */
+/** 公开聚合：本地草稿与仓库文章同名时，以本地版本为准。
+ * 例外：仓库中的加密文章不能被同名的明文本地草稿顶替，
+ * 否则公开页面会绕过密码直接显示明文内容。 */
 export function getAllPosts(): Post[] {
   const map = new Map<string, Post>()
   for (const p of getRepoPosts()) map.set(p.slug, p)
-  for (const p of getLocalPosts()) map.set(p.slug, p)
+  for (const p of getLocalPosts()) {
+    if (map.get(p.slug)?.encryption) continue
+    map.set(p.slug, p)
+  }
   return sortPosts([...map.values()])
 }
 
