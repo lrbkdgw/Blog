@@ -1,0 +1,159 @@
+{
+  "name": "starlog-markdown",
+  "displayName": "星野笔记特殊语法 (Starlog Markdown)",
+  "description": "在 VS Code 中书写与预览星野笔记 Blog 的特殊 Markdown 语法：交互展示框、折叠框、Tuack 表格与单元格合并；同时兼容 Markdown Preview Enhanced。",
+  "version": "1.0.0",
+  "publisher": "lrbkdgw",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters",
+    "Other"
+  ],
+  "keywords": [
+    "markdown",
+    "starlog",
+    "markdown-preview-enhanced",
+    "luogu",
+    "tuack"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lrbkdgw/Blog.git",
+    "directory": "vscode_extensions/v1"
+  },
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:markdown"
+  ],
+  "contributes": {
+    "markdown.markdownItPlugins": true,
+    "markdown.previewStyles": [
+      "./media/preview.css"
+    ],
+    "markdown.previewScripts": [
+      "./out/preview.js"
+    ],
+    "grammars": [
+      {
+        "scopeName": "markdown.starlog.injection",
+        "path": "./syntaxes/starlog.injection.json",
+        "injectTo": [
+          "text.html.markdown"
+        ]
+      }
+    ],
+    "snippets": [
+      {
+        "language": "markdown",
+        "path": "./snippets/starlog.code-snippets"
+      }
+    ],
+    "commands": [
+      {
+        "command": "starlog.setupMpe",
+        "title": "星野笔记: 安装 Markdown Preview Enhanced 支持",
+        "category": "Starlog"
+      },
+      {
+        "command": "starlog.setupMpeGlobal",
+        "title": "星野笔记: 安装 MPE 支持（全局 ~/.crossnote）",
+        "category": "Starlog"
+      },
+      {
+        "command": "starlog.setupMpeWorkspace",
+        "title": "星野笔记: 安装 MPE 支持（当前工作区）",
+        "category": "Starlog"
+      },
+      {
+        "command": "starlog.removeMpe",
+        "title": "星野笔记: 移除 Markdown Preview Enhanced 支持",
+        "category": "Starlog"
+      },
+      {
+        "command": "starlog.insertShowBox",
+        "title": "星野笔记: 插入交互展示框",
+        "category": "Starlog"
+      },
+      {
+        "command": "starlog.insertCallout",
+        "title": "星野笔记: 插入折叠框",
+        "category": "Starlog"
+      },
+      {
+        "command": "starlog.insertTuackTable",
+        "title": "星野笔记: 插入 Tuack 表格",
+        "category": "Starlog"
+      },
+      {
+        "command": "starlog.copyAsLuogu",
+        "title": "星野笔记: 复制为洛谷源码",
+        "category": "Starlog"
+      },
+      {
+        "command": "starlog.copyAsBasic",
+        "title": "星野笔记: 复制为基本 Markdown 源码",
+        "category": "Starlog"
+      },
+      {
+        "command": "starlog.openCheatsheet",
+        "title": "星野笔记: 打开语法示例文档",
+        "category": "Starlog"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "starlog.insertShowBox",
+          "when": "editorLangId == markdown"
+        },
+        {
+          "command": "starlog.insertCallout",
+          "when": "editorLangId == markdown"
+        },
+        {
+          "command": "starlog.insertTuackTable",
+          "when": "editorLangId == markdown"
+        },
+        {
+          "command": "starlog.copyAsLuogu",
+          "when": "editorLangId == markdown"
+        },
+        {
+          "command": "starlog.copyAsBasic",
+          "when": "editorLangId == markdown"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "星野笔记特殊语法",
+      "properties": {
+        "starlog.mpe.promptForSetup": {
+          "type": "boolean",
+          "default": true,
+          "description": "检测到 Markdown Preview Enhanced 且尚未安装语法支持时，提示一键安装。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs",
+    "package": "node build.mjs && vsce package --no-dependencies -o starlog-markdown-1.0.0.vsix",
+    "vscode:prepublish": "node build.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/vscode": "^1.75.0",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.24.2",
+    "jsdom": "^30.1.2",
+    "markdown-it": "^14.1.0",
+    "typescript": "^5.7.2"
+  }
+}

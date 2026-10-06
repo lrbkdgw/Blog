@@ -1,0 +1,275 @@
+/*
+ * 星野笔记特殊语法 · 预览样式
+ *
+ * 这份文件同时用于：
+ *   - VS Code 内置 Markdown 预览（contributes.markdown.previewStyles）
+ *   - Markdown Preview Enhanced（构建时包装成 ~/.crossnote/style.less）
+ *
+ * 因此只使用与主题无关的半透明色，深色 / 浅色主题下都能看清。
+ */
+
+.starlog-showbox {
+  margin: 1.4em 0;
+  border: 1px solid rgba(127, 127, 127, 0.32);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(127, 127, 127, 0.05);
+}
+
+.starlog-showbox-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.5em 0.9em;
+  font-size: 0.82em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid rgba(127, 127, 127, 0.24);
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.starlog-showbox-icon {
+  font-size: 0.95em;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+.starlog-showbox-body {
+  padding: 0.2em 1em;
+}
+
+.starlog-showbox-body > :first-child {
+  margin-top: 0.6em;
+}
+
+.starlog-showbox-body > :last-child {
+  margin-bottom: 0.6em;
+}
+
+.starlog-dyn {
+  border-bottom: 1px dotted rgba(127, 127, 127, 0.55);
+  transition: background-color 0.18s ease;
+}
+
+.starlog-showbox-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.75em 1.2em;
+  padding: 0.85em 1em;
+  border-top: 1px solid rgba(127, 127, 127, 0.24);
+  background: rgba(127, 127, 127, 0.04);
+}
+
+.starlog-ctl {
+  display: block;
+  min-width: 0;
+  font-size: 0.85em;
+}
+
+.starlog-ctl-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6em;
+  margin-bottom: 0.35em;
+}
+
+.starlog-ctl-name {
+  font-family: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-weight: 600;
+}
+
+.starlog-ctl-meta,
+.starlog-var-meta {
+  font-size: 0.86em;
+  opacity: 0.62;
+}
+
+.starlog-ctl-inputs {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.starlog-ctl-number,
+.starlog-ctl-text {
+  box-sizing: border-box;
+  padding: 0.25em 0.45em;
+  border: 1px solid rgba(127, 127, 127, 0.45);
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.08);
+  color: inherit;
+  font-family: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.95em;
+}
+
+.starlog-ctl-number {
+  width: 6.5em;
+  flex: none;
+}
+
+.starlog-ctl-text {
+  width: 100%;
+}
+
+.starlog-ctl-range {
+  flex: 1 1 auto;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.starlog-showbox-vars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em 1.1em;
+  padding: 0.7em 1em;
+  border-top: 1px solid rgba(127, 127, 127, 0.24);
+  background: rgba(127, 127, 127, 0.04);
+  font-size: 0.82em;
+}
+
+.starlog-var {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4em;
+}
+
+.starlog-var-value::before {
+  content: '= ';
+  opacity: 0.6;
+}
+
+/* ------------------------------ 折叠框 ------------------------------ */
+
+.starlog-callout {
+  margin: 1.2em 0;
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-left-width: 4px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(127, 127, 127, 0.05);
+}
+
+.starlog-callout-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.55em 0.9em;
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+  user-select: none;
+}
+
+.starlog-callout-summary::-webkit-details-marker {
+  display: none;
+}
+
+.starlog-callout-summary::after {
+  content: '›';
+  margin-left: auto;
+  opacity: 0.5;
+  transform: rotate(0deg);
+  transition: transform 0.18s ease;
+}
+
+.starlog-callout[open] > .starlog-callout-summary::after {
+  transform: rotate(90deg);
+}
+
+.starlog-callout-icon {
+  flex: none;
+  font-size: 0.95em;
+  line-height: 1;
+}
+
+.starlog-callout-content {
+  padding: 0.1em 1em 0.2em;
+  border-top: 1px solid rgba(127, 127, 127, 0.2);
+}
+
+.starlog-callout-content > :first-child {
+  margin-top: 0.7em;
+}
+
+.starlog-callout-content > :last-child {
+  margin-bottom: 0.7em;
+}
+
+.starlog-callout-info,
+.starlog-callout-note {
+  border-left-color: #3b82f6;
+}
+
+.starlog-callout-info .starlog-callout-icon,
+.starlog-callout-note .starlog-callout-icon {
+  color: #3b82f6;
+}
+
+.starlog-callout-tip,
+.starlog-callout-success {
+  border-left-color: #10b981;
+}
+
+.starlog-callout-tip .starlog-callout-icon,
+.starlog-callout-success .starlog-callout-icon {
+  color: #10b981;
+}
+
+.starlog-callout-warning {
+  border-left-color: #f59e0b;
+}
+
+.starlog-callout-warning .starlog-callout-icon {
+  color: #f59e0b;
+}
+
+.starlog-callout-error,
+.starlog-callout-danger {
+  border-left-color: #ef4444;
+}
+
+.starlog-callout-error .starlog-callout-icon,
+.starlog-callout-danger .starlog-callout-icon {
+  color: #ef4444;
+}
+
+/* ------------------------------ 表格 ------------------------------ */
+
+.starlog-table-wrapper {
+  overflow-x: auto;
+  margin: 1.2em 0;
+}
+
+.starlog-table-wrapper table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.starlog-table-tuack table,
+.starlog-table-wrapper table {
+  border: 1px solid rgba(127, 127, 127, 0.35);
+}
+
+.starlog-table-tuack th,
+.starlog-table-tuack td {
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  padding: 0.42em 0.8em;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.starlog-table-tuack th {
+  font-weight: 600;
+  background: rgba(127, 127, 127, 0.1);
+}
+
+.starlog-table-tuack tr:nth-child(even) td {
+  background: rgba(127, 127, 127, 0.04);
+}
+
+table td[rowspan],
+table td[colspan] {
+  vertical-align: middle;
+  text-align: center;
+}

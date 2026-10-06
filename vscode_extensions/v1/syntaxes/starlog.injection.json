@@ -1,0 +1,133 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "scopeName": "markdown.starlog.injection",
+  "injectionSelector": "L:text.html.markdown -(meta.embedded | comment)",
+  "patterns": [
+    { "include": "#show-begin" },
+    { "include": "#show-end" },
+    { "include": "#callout-open" },
+    { "include": "#callout-close" },
+    { "include": "#cute-table" },
+    { "include": "#inline-tokens" }
+  ],
+  "repository": {
+    "show-begin": {
+      "name": "meta.starlog.showbox.begin.markdown",
+      "begin": "(?i)^\\s*(::show_begin)(\\{)([^}]*)(\\})(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.starlog.markdown" },
+        "2": { "name": "punctuation.definition.starlog.markdown" },
+        "3": { "name": "entity.name.section.starlog.markdown" },
+        "4": { "name": "punctuation.definition.starlog.markdown" },
+        "5": { "name": "punctuation.definition.starlog.markdown" }
+      },
+      "end": "(\\})\\s*$",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.starlog.markdown" }
+      },
+      "patterns": [
+        {
+          "match": "([^\\s:=\\[\\](){},;]+)\\s*(:)\\s*(Z|Q|S|int|integer|整数|rational|number|float|有理数|string|text|字符串)\\b",
+          "captures": {
+            "1": { "name": "variable.parameter.starlog.markdown" },
+            "2": { "name": "punctuation.separator.starlog.markdown" },
+            "3": { "name": "storage.type.starlog.markdown" }
+          }
+        },
+        { "match": "\\{faster_set\\}", "name": "keyword.other.starlog.markdown" },
+        { "match": "-?\\d+(?:\\.\\d+)?", "name": "constant.numeric.starlog.markdown" },
+        { "match": "[,;]", "name": "punctuation.separator.starlog.markdown" },
+        { "match": "[\\[\\]()]", "name": "punctuation.definition.starlog.markdown" },
+        { "match": "=", "name": "keyword.operator.assignment.starlog.markdown" }
+      ]
+    },
+    "show-end": {
+      "match": "(?i)^\\s*(::show_end)\\s*$",
+      "captures": {
+        "1": { "name": "keyword.control.starlog.markdown" }
+      }
+    },
+    "callout-open": {
+      "match": "(?i)^\\s*(:{3,})(info|success|warning|error|note|tip|danger)(?:(\\[)([^\\]]*)(\\]))?(?:(\\{)(open)(\\}))?\\s*$",
+      "captures": {
+        "1": { "name": "punctuation.definition.starlog.markdown" },
+        "2": { "name": "keyword.control.starlog.callout.markdown" },
+        "3": { "name": "punctuation.definition.starlog.markdown" },
+        "4": { "name": "entity.name.section.starlog.markdown" },
+        "5": { "name": "punctuation.definition.starlog.markdown" },
+        "6": { "name": "punctuation.definition.starlog.markdown" },
+        "7": { "name": "keyword.other.starlog.markdown" },
+        "8": { "name": "punctuation.definition.starlog.markdown" }
+      }
+    },
+    "callout-close": {
+      "match": "^\\s*(:{3,})\\s*$",
+      "captures": {
+        "1": { "name": "punctuation.definition.starlog.markdown" }
+      }
+    },
+    "cute-table": {
+      "match": "(?i)^\\s*(:{2,})(cute-table)\\s*(\\{)([^}]+)(\\})\\s*$",
+      "captures": {
+        "1": { "name": "punctuation.definition.starlog.markdown" },
+        "2": { "name": "keyword.control.starlog.markdown" },
+        "3": { "name": "punctuation.definition.starlog.markdown" },
+        "4": { "name": "support.constant.starlog.markdown" },
+        "5": { "name": "punctuation.definition.starlog.markdown" }
+      }
+    },
+    "inline-tokens": {
+      "patterns": [
+        {
+          "name": "meta.starlog.mapping.markdown",
+          "match": "(\\*&)([^:*&{}()\\s]+)(:)(\\{)([^{}]*)(\\})(\\*&)",
+          "captures": {
+            "1": { "name": "punctuation.definition.starlog.markdown" },
+            "2": { "name": "variable.other.starlog.markdown" },
+            "3": { "name": "punctuation.separator.starlog.markdown" },
+            "4": { "name": "punctuation.definition.starlog.markdown" },
+            "5": { "name": "string.unquoted.starlog.markdown" },
+            "6": { "name": "punctuation.definition.starlog.markdown" },
+            "7": { "name": "punctuation.definition.starlog.markdown" }
+          }
+        },
+        {
+          "name": "meta.starlog.show.markdown",
+          "match": "(\\*&)(show)(\\()([^)]+)(\\))(\\*&)",
+          "captures": {
+            "1": { "name": "punctuation.definition.starlog.markdown" },
+            "2": { "name": "support.function.starlog.markdown" },
+            "3": { "name": "punctuation.definition.starlog.markdown" },
+            "4": { "name": "variable.other.starlog.markdown" },
+            "5": { "name": "punctuation.definition.starlog.markdown" },
+            "6": { "name": "punctuation.definition.starlog.markdown" }
+          }
+        },
+        {
+          "name": "meta.starlog.formula.markdown",
+          "match": "(\\*&)(hs)(\\()([^)]*)(\\))(\\*&)",
+          "captures": {
+            "1": { "name": "punctuation.definition.starlog.markdown" },
+            "2": { "name": "support.function.starlog.markdown" },
+            "3": { "name": "punctuation.definition.starlog.markdown" },
+            "4": { "name": "meta.embedded.expression.starlog" },
+            "5": { "name": "punctuation.definition.starlog.markdown" },
+            "6": { "name": "punctuation.definition.starlog.markdown" }
+          }
+        },
+        {
+          "name": "meta.starlog.round.markdown",
+          "match": "(&\\*|\\*&)(floor|ceil)(\\()([^)]*)(\\))(&\\*|\\*&)",
+          "captures": {
+            "1": { "name": "punctuation.definition.starlog.markdown" },
+            "2": { "name": "support.function.starlog.markdown" },
+            "3": { "name": "punctuation.definition.starlog.markdown" },
+            "4": { "name": "meta.embedded.expression.starlog" },
+            "5": { "name": "punctuation.definition.starlog.markdown" },
+            "6": { "name": "punctuation.definition.starlog.markdown" }
+          }
+        }
+      ]
+    }
+  }
+}
