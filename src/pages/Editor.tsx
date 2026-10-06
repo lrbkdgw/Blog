@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   AlertCircle,
@@ -111,7 +111,16 @@ export default function Editor() {
 
   const existing = useMemo(() => {
     if (!routeSlug) return undefined
-    if (sourceParam === 'repo') return getPostBySlug(routeSlug, 'repo')
+    if (sourceParam === 'repo') {
+      const repoPost = getPostBySlug(routeSlug, 'repo')
+      // 仓库加密文章若有本地草稿，说明发布后又在本地改过（发布时会清除旧草稿），
+      // 优先加载较新的草稿，避免旧版本把草稿里的正文、标签、摘要等覆盖掉。
+      if (repoPost?.encryption) {
+        const localDraft = getPostBySlug(routeSlug, 'local')
+        if (localDraft) return localDraft
+      }
+      return repoPost
+    }
     // source=local 或未指定来源时优先加载本地草稿：
     // 加密文章解锁修改后保存的草稿要能直接继续编辑，而不是再次要求密码。
     // 本地草稿已被删除时（如重新发布加密版本后）回退到聚合结果。
@@ -156,7 +165,9 @@ export default function Editor() {
   const [isRepoAdmin, setIsRepoAdmin] = useState(false)
   const [unlocked, setUnlocked] = useState(!encryptedSource)
   const [restoringUnlock, setRestoringUnlock] = useState(encryptedSource)
-  const [encryptOnPublish, setEncryptOnPublish] = useState(protectedLineage)
+  const [encryptOnPublish, setEncryptOnPublish] = useState(
+    protectedLineage || Boolean(initial?.encryptIntent),
+  )
   const [encryptionPassword, setEncryptionPassword] = useState('')
   const [encryptionConfirm, setEncryptionConfirm] = useState('')
 
@@ -187,7 +198,21 @@ export default function Editor() {
     [tagsText],
   )
   const effectiveSlug = slug.trim() || slugify(title) || 'untitled'
-  const words = useMemo(() => countWords(content), [content])
+  // 长文时每次按键都完整重渲染 Markdown 会明显卡顿：
+  // 1) 先对内容做 150ms 防抖，连续输入只触发一次预览重渲；
+  // 2) 再用 useDeferredValue 让预览、字数统计等重活在低优先级渲染中更新，
+  //    输入框本体始终保持即时响应。
+  const [debouncedContent, setDebouncedContent] = useState(content)
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedContent(content), 150)
+    return () => clearTimeout(t)
+  }, [content])
+  const deferredContent = useDeferredValue(debouncedContent)
+  const words = useMemo(() => countWords(deferredContent), [deferredContent])
+  const readingMinutes = useMemo(() => Math.max(1, Math.round(words / 400)), [words])
+
+  // 加密文章是否已把解密后的内容载入编辑器（防止解锁完成前把空白表单存成草稿）。
+  const hydratedRef = useRef(false)
 
   const hydratePost = useCallback((post: Post) => {
     setTitle(post.title)
@@ -202,10 +227,12 @@ export default function Editor() {
     setContent(post.content)
     setSavedAt(post.savedAt ?? null)
     setDirty(false)
+    hydratedRef.current = true
   }, [])
 
   useEffect(() => {
     let active = true
+    hydratedRef.current = false
     const incoming = (location.state as { draft?: Post } | null)?.draft ?? existing
     if (existing?.encryption) {
       setTitle(existing.title)
@@ -227,8 +254,10 @@ export default function Editor() {
     }
     setUnlocked(true)
     setRestoringUnlock(false)
-    // 加密文章的本地草稿重新打开时，仍默认「发布为加密文章」。
-    setEncryptOnPublish(prefetchedProtected || repoEncrypted)
+    // 加密文章的草稿（或勾选过加密发布的新草稿）重新打开时，恢复「发布为加密文章」。
+    setEncryptOnPublish(
+      prefetchedProtected || repoEncrypted || Boolean(incoming?.encryptIntent),
+    )
     if (incoming) hydratePost(incoming)
     return () => {
       active = false
@@ -238,6 +267,15 @@ export default function Editor() {
   useEffect(() => {
     document.title = `${title || '未命名文章'} · 编辑器`
   }, [title])
+
+  // 从仓库入口（?source=repo）打开加密文章时，若存在较新的本地草稿则改为加载草稿。
+  const loadedLocalInstead = sourceParam === 'repo' && existing?.source === 'local'
+  useEffect(() => {
+    if (loadedLocalInstead) {
+      toast('检测到这篇加密文章在本机有未发布的修改，已载入较新的本地草稿', 'info')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedLocalInstead])
 
   const buildDraftPost = useCallback(
     (): Post => ({
@@ -253,10 +291,12 @@ export default function Editor() {
       pinned,
       content,
       source: 'local',
+      // 记住「发布为加密文章」的勾选状态，重新打开草稿时恢复。
+      encryptIntent: encryptOnPublish || undefined,
       wordCount: words,
       readingTime: readingTime(content),
     }),
-    [effectiveSlug, title, date, summary, author, content, tags, cover, draft, pinned, existing, words],
+    [effectiveSlug, title, date, summary, author, content, tags, cover, draft, pinned, existing, encryptOnPublish, words],
   )
 
   const unlockExisting = async (password: string) => {
@@ -276,6 +316,11 @@ export default function Editor() {
       // 加密文章的修改同样保存为本地草稿（明文，仅保存在本浏览器）。
       // 公开页面仍显示仓库中的加密版本（getAllPosts 不会让明文草稿顶替加密文章），
       // 发布时也会重新加密。
+      // 防御：加密文章在解锁数据载入编辑器之前，不允许把空白的标题/标签/摘要写成草稿。
+      if (protectedExisting && !hydratedRef.current) {
+        if (!silent) toast('文章尚未解锁完成，请稍候再保存', 'warning')
+        return post
+      }
       saveLocalPost(post, originalSlug.current)
       originalSlug.current = post.slug
       setSavedAt(Date.now())
@@ -294,7 +339,7 @@ export default function Editor() {
       }
       return post
     },
-    [buildDraftPost, navigate, protectedLineage, routeSlug, sourceParam, toast],
+    [buildDraftPost, navigate, protectedLineage, protectedExisting, routeSlug, sourceParam, toast],
   )
 
   // 自动保存
@@ -720,8 +765,6 @@ export default function Editor() {
     return () => window.removeEventListener('keydown', onKey)
   }, [fullscreen])
 
-  const previewPost = buildDraftPost()
-
   if (protectedExisting && !unlocked) {
     return (
       <div className="container-page flex min-h-[65vh] items-center justify-center py-10">
@@ -954,7 +997,7 @@ export default function Editor() {
                     markDirty()
                   }}
                   rows={2}
-                  placeholder={excerpt(content, 80)}
+                  placeholder={excerpt(deferredContent, 80)}
                   className="input resize-none"
                 />
               </div>
@@ -1076,7 +1119,7 @@ export default function Editor() {
 
             <div className="ml-auto flex items-center gap-3 pr-2 text-xs text-ink-400">
               <span className="hidden sm:inline">
-                {words} 字 · 约 {previewPost.readingTime} 分钟
+                {words} 字 · 约 {readingMinutes} 分钟
               </span>
               <span className="flex items-center gap-1">
                 {dirty ? (
@@ -1142,7 +1185,7 @@ export default function Editor() {
                     {title || '未命名文章'}
                   </h1>
                 )}
-                <Markdown content={content} sourceLineMarkers={view === 'split'} />
+                <Markdown content={deferredContent} sourceLineMarkers={view === 'split'} />
               </div>
             )}
           </div>

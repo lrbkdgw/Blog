@@ -165,6 +165,8 @@ interface StoredDraft {
   slug: string
   raw: string
   savedAt: number
+  /** 是否打算以加密方式发布（仅本地草稿使用，见 Post.encryptIntent）。 */
+  encrypt?: boolean
 }
 
 function readStore(): StoredDraft[] {
@@ -183,9 +185,10 @@ function writeStore(items: StoredDraft[]) {
 }
 
 export function getLocalPosts(): Post[] {
-  return readStore().map((d) =>
-    buildPost(d.raw, { slug: d.slug, source: 'local', savedAt: d.savedAt }),
-  )
+  return readStore().map((d) => ({
+    ...buildPost(d.raw, { slug: d.slug, source: 'local', savedAt: d.savedAt }),
+    encryptIntent: d.encrypt === true,
+  }))
 }
 
 export function saveLocalPost(
@@ -195,9 +198,9 @@ export function saveLocalPost(
   const items = readStore().filter((d) => d.slug !== post.slug && d.slug !== prevSlug)
   const raw = serializePost(post)
   const savedAt = Date.now()
-  items.unshift({ slug: post.slug, raw, savedAt })
+  items.unshift({ slug: post.slug, raw, savedAt, encrypt: post.encryptIntent === true })
   writeStore(items)
-  return buildPost(raw, { slug: post.slug, source: 'local', savedAt })
+  return { ...buildPost(raw, { slug: post.slug, source: 'local', savedAt }), encryptIntent: post.encryptIntent === true }
 }
 
 export function deleteLocalPost(slug: string) {

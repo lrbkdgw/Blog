@@ -17,6 +17,11 @@ export interface PostMeta {
   author?: string
   /** 加密文章的序列化信封；标题公开，content 仅是占位内容，需要密码或本机密钥解锁。 */
   encryption?: string
+  /**
+   * 本地草稿专用：作者勾选了「发布为带密码的加密文章」但尚未发布。
+   * 只保存在浏览器的草稿存储里，不会写入仓库；重新打开草稿时恢复勾选状态。
+   */
+  encryptIntent?: boolean
 }
 
 export interface Post extends PostMeta {
