@@ -1,4 +1,4 @@
-import { Children, cloneElement, isValidElement, memo, useMemo, useState } from 'react'
+import { Children, cloneElement, createElement, isValidElement, memo, useCallback, useMemo, useState } from 'react'
 import type { HTMLAttributes, ReactNode } from 'react'
 import 'katex/dist/katex.min.css'
 import katex from 'katex'
@@ -38,7 +38,13 @@ function languageOf(node: ReactNode): string {
   return ''
 }
 
-function CodeBlock({ children }: { children?: ReactNode }) {
+function CodeBlock({
+  children,
+  sourceLine,
+}: {
+  children?: ReactNode
+  sourceLine?: number
+}) {
   const [copied, setCopied] = useState(false)
   const lang = languageOf(children)
   const text = extractText(children)
@@ -59,7 +65,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   }
 
   return (
-    <div className="group relative my-6">
+    <div className="group relative my-6" data-source-line={sourceLine}>
       <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-2">
         {lang && (
           <span className="rounded-md bg-ink-900/[.06] px-2 py-0.5 font-mono text-[11px] uppercase tracking-wide text-ink-500 dark:bg-white/10 dark:text-ink-400">
@@ -82,10 +88,20 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   )
 }
 
-function Heading({ level, id, children }: { level: 2 | 3 | 4; id?: string; children?: ReactNode }) {
+function Heading({
+  level,
+  id,
+  sourceLine,
+  children,
+}: {
+  level: 2 | 3 | 4
+  id?: string
+  sourceLine?: number
+  children?: ReactNode
+}) {
   const Tag = `h${level}` as 'h2' | 'h3' | 'h4'
   return (
-    <Tag id={id} className="group/heading relative">
+    <Tag id={id} data-source-line={sourceLine} className="group/heading relative">
       {children}
       {id && (
         <a
@@ -107,6 +123,7 @@ type RehypeNode = {
   tagName?: string
   properties?: Record<string, unknown>
   children?: RehypeNode[]
+  position?: { start?: { line?: number }; end?: { line?: number } }
 }
 
 function classNames(value: unknown): string[] {
@@ -145,13 +162,93 @@ function rehypeRemoveHeadingIds({ calloutsOnly = false }: { calloutsOnly?: boole
   }
 }
 
+function isBlockMathElement(node: RehypeNode): boolean {
+  if (node.type !== 'element') return false
+  const cls = classNames(node.properties?.className)
+  // remark-math 的块级公式（$$…$$）。
+  if (cls.includes('math-display')) return true
+  // ```math 代码围栏：rehype-katex 会连外层 pre 一起替换。
+  if (
+    node.tagName === 'pre' &&
+    (node.children || []).some(
+      (child) => child.type === 'element' && classNames(child.properties?.className).includes('language-math'),
+    )
+  ) {
+    return true
+  }
+  return false
+}
+
+/**
+ * 给块级公式包一层保留 position 的透明容器：
+ * rehype-katex 渲染时会整体替换公式节点且不回填 position，
+ * 不包一层的话双栏滚动同步会丢失公式块的行号锚点。
+ */
+function rehypeMarkBlockMath() {
+  return function markBlockMathPlugin() {
+    return (tree: RehypeNode) => {
+      const walk = (node: RehypeNode) => {
+        const children = node.children
+        if (!children) return
+        for (let i = 0; i < children.length; i++) {
+          const child = children[i]
+          if (isBlockMathElement(child) && child.position) {
+            children[i] = {
+              type: 'element',
+              tagName: 'div',
+              properties: {},
+              position: child.position,
+              children: [child],
+            }
+          } else {
+            walk(child)
+          }
+        }
+      }
+      walk(tree)
+    }
+  }
+}
+
+/** 上层元素缺失 position 时从第一个有 position 的子元素回填（如 rehype-raw 生成的 details）。 */
+function rehypeInheritPositions() {
+  return function inheritPositionsPlugin() {
+    return (tree: RehypeNode) => {
+      const walk = (node: RehypeNode) => {
+        for (const child of node.children || []) walk(child)
+        if (node.type === 'element' && !node.position) {
+          const first = (node.children || []).find((child) => child.position)
+          if (first) node.position = first.position
+        }
+      }
+      walk(tree)
+    }
+  }
+}
+
+export interface PreprocessedMarkdown {
+  text: string
+  /**
+   * lineMap[i] 为处理后第 i 行（0 基）对应的原始 Markdown 行号（0 基）。
+   * 指令（折叠框、Tuack 表格等）展开出的行都会映射回其指令行，
+   * 供编辑器把渲染结果对齐回源文本行号。
+   */
+  lineMap: number[]
+}
+
 /** 预处理 Markdown，支持折叠框与 Tuack 风格表格 */
-export function preprocessMarkdown(md: string): string {
-  if (!md) return ''
+export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
+  if (!md) return { text: '', lineMap: [] }
   const lines = md.split('\n')
   const result: string[] = []
+  const lineMap: number[] = []
   const stack: { colonsCount: number; type: string }[] = []
   let inCodeFence = false
+
+  const push = (line: string, sourceLine: number) => {
+    result.push(line)
+    lineMap.push(sourceLine)
+  }
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -159,11 +256,11 @@ export function preprocessMarkdown(md: string): string {
     // 扩展指令不应解析代码示例；否则文档中的语法会被执行而无法展示源码。
     if (/^\s*(`{3,}|~{3,})/.test(line)) {
       inCodeFence = !inCodeFence
-      result.push(line)
+      push(line, i)
       continue
     }
     if (inCodeFence) {
-      result.push(line)
+      push(line, i)
       continue
     }
 
@@ -181,10 +278,11 @@ export function preprocessMarkdown(md: string): string {
         end += 1
       }
       if (end < lines.length) {
-        result.push(
+        push(
           `<div data-show-box="true" data-show-title="${encodeURIComponent(showMatch[1])}" data-show-vars="${encodeURIComponent(showMatch[2])}" data-show-content="${encodeURIComponent(body.join('\n'))}"></div>`,
+          i,
         )
-        result.push('')
+        push('', i)
         i = end
         continue
       }
@@ -193,8 +291,8 @@ export function preprocessMarkdown(md: string): string {
     // ::cute-table{tuack} 或 :::cute-table{tuack}
     const tuackMatch = line.match(/^ *(?:::+|:::+)(?:cute-table)\s*\{([^}]+)\}\s*$/i)
     if (tuackMatch) {
-      result.push('<div class="table-tuack-wrapper">')
-      result.push('')
+      push('<div class="table-tuack-wrapper">', i)
+      push('', i)
       let j = i + 1
       while (j < lines.length && lines[j].trim() === '') {
         j++
@@ -203,12 +301,12 @@ export function preprocessMarkdown(md: string): string {
         j < lines.length &&
         (lines[j].trim().startsWith('|') || lines[j].trim().includes('|'))
       ) {
-        result.push(lines[j])
+        push(lines[j], j)
         j++
       }
-      result.push('')
-      result.push('</div>')
-      result.push('')
+      push('', i)
+      push('</div>', i)
+      push('', i)
       i = j - 1
       continue
     }
@@ -220,10 +318,10 @@ export function preprocessMarkdown(md: string): string {
       const top = stack[stack.length - 1]
       if (colons >= top.colonsCount) {
         stack.pop()
-        result.push('')
-        result.push('</div>')
-        result.push('</details>')
-        result.push('')
+        push('', i)
+        push('</div>', i)
+        push('</details>', i)
+        push('', i)
         continue
       }
     }
@@ -240,30 +338,37 @@ export function preprocessMarkdown(md: string): string {
 
       stack.push({ colonsCount, type })
       const encodedTitle = encodeURIComponent(rawTitle)
-      result.push('')
-      result.push(
+      push('', i)
+      push(
         `<details class="callout callout-${type}" data-callout="${type}" data-title="${encodedTitle}" ${
           isOpen ? 'open' : ''
         }>`,
+        i,
       )
-      result.push(
+      push(
         `<summary class="callout-summary" data-callout="${type}" data-title="${encodedTitle}">${rawTitle}</summary>`,
+        i,
       )
-      result.push('<div class="callout-content">')
-      result.push('')
+      push('<div class="callout-content">', i)
+      push('', i)
       continue
     }
 
-    result.push(line)
+    push(line, i)
   }
 
   while (stack.pop()) {
-    result.push('')
-    result.push('</div>')
-    result.push('</details>')
+    const last = lines.length - 1
+    push('', last)
+    push('</div>', last)
+    push('</details>', last)
   }
 
-  return result.join('\n')
+  return { text: result.join('\n'), lineMap }
+}
+
+export function preprocessMarkdown(md: string): string {
+  return preprocessMarkdownDetailed(md).text
 }
 
 function decodeShowAttribute(value: string | undefined): string {
@@ -317,8 +422,15 @@ function renderMathInText(text: string): ReactNode {
 
 function CalloutSummary({
   children,
+  node: _node,
+  sourceLine,
   ...props
-}: HTMLAttributes<HTMLElement> & { 'data-callout'?: string; 'data-title'?: string }) {
+}: HTMLAttributes<HTMLElement> & {
+  'data-callout'?: string
+  'data-title'?: string
+  node?: unknown
+  sourceLine?: number
+}) {
   const calloutType = props['data-callout'] || 'info'
   const rawTitle = props['data-title'] ? decodeURIComponent(props['data-title']) : extractText(children)
 
@@ -344,7 +456,7 @@ function CalloutSummary({
           : Info
 
   return (
-    <summary {...props} className="callout-summary group/summary">
+    <summary {...props} data-source-line={sourceLine} className="callout-summary group/summary">
       <IconComponent size={16} className="shrink-0 transition-transform group-hover/summary:scale-110" />
       <span className="flex-1 font-semibold">{titleNode}</span>
       <ChevronRight
@@ -356,7 +468,13 @@ function CalloutSummary({
 }
 
 /** 智能表格：支持向上合并 (^) 与向左合并 (<) */
-function SmartTable({ children, className, ...props }: HTMLAttributes<HTMLTableElement>) {
+function SmartTable({
+  children,
+  node: _node,
+  className,
+  sourceLine,
+  ...props
+}: HTMLAttributes<HTMLTableElement> & { node?: unknown; sourceLine?: number }) {
   const isTuack = className?.includes('table-tuack')
 
   const childrenArray = Children.toArray(children)
@@ -452,6 +570,7 @@ function SmartTable({ children, className, ...props }: HTMLAttributes<HTMLTableE
       role="region"
       aria-label="文章表格"
       tabIndex={0}
+      data-source-line={sourceLine}
     >
       <table className={`markdown-table ${className || ''} ${isTuack ? 'table-tuack' : ''}`} {...props}>
         {newChildren}
@@ -463,10 +582,144 @@ function SmartTable({ children, className, ...props }: HTMLAttributes<HTMLTableE
 interface MarkdownProps {
   content: string
   headingAnchors?: boolean
+  /**
+   * 为块级元素标注其对应的原始 Markdown 行号（data-source-line，1 基）。
+   * 编辑器双栏视图用它做滚动同步锚点；其他场景保持关闭即可。
+   */
+  sourceLineMarkers?: boolean
 }
 
-export const Markdown = memo(function Markdown({ content, headingAnchors = true }: MarkdownProps) {
-  const processedContent = useMemo(() => preprocessMarkdown(content), [content])
+type SourceLineResolver = (node: unknown) => number | undefined
+
+/** 在 sourceLineMarkers 关闭时不标注任何行号。 */
+const noSourceLine: SourceLineResolver = () => undefined
+
+/** 直接透传的块级标签（双栏同步时作为候选锚点）。 */
+const MARKER_TAGS = [
+  'p',
+  'h1',
+  'h5',
+  'h6',
+  'ul',
+  'ol',
+  'li',
+  'blockquote',
+  'hr',
+  'figure',
+  'span',
+  'details',
+] as const
+
+function buildComponents(marker: SourceLineResolver | null) {
+  const toSourceLine: SourceLineResolver = marker ?? noSourceLine
+  const passthrough = (tag: string) => {
+    return function MarkerBlock({ node, ...rest }: { node?: unknown } & Record<string, unknown>) {
+      return createElement(tag, {
+        ...(rest as Record<string, unknown>),
+        'data-source-line': toSourceLine(node),
+      })
+    }
+  }
+
+  return {
+    pre: ({ node, children }: { node?: unknown; children?: ReactNode }) => (
+      <CodeBlock sourceLine={toSourceLine(node)}>{children}</CodeBlock>
+    ),
+    h2: ({ node, id, children }: { node?: unknown; id?: string; children?: ReactNode }) => (
+      <Heading level={2} id={id} sourceLine={toSourceLine(node)}>
+        {children}
+      </Heading>
+    ),
+    h3: ({ node, id, children }: { node?: unknown; id?: string; children?: ReactNode }) => (
+      <Heading level={3} id={id} sourceLine={toSourceLine(node)}>
+        {children}
+      </Heading>
+    ),
+    h4: ({ node, id, children }: { node?: unknown; id?: string; children?: ReactNode }) => (
+      <Heading level={4} id={id} sourceLine={toSourceLine(node)}>
+        {children}
+      </Heading>
+    ),
+    a: ({ node, href, children, ...rest }: { node?: unknown; href?: string; children?: ReactNode }) => {
+      const external = !!href && /^https?:\/\//.test(href)
+      return (
+        <a
+          href={href}
+          {...rest}
+          {...(external ? { target: '_blank', rel: 'noreferrer noopener' } : {})}
+        >
+          {children}
+        </a>
+      )
+    },
+    img: ({ src, alt }: { src?: string; alt?: string }) => (
+      <img src={typeof src === 'string' ? src : ''} alt={alt ?? ''} loading="lazy" decoding="async" />
+    ),
+    table: ({
+      node,
+      children,
+      className,
+      ...props
+    }: {
+      node?: unknown
+      children?: ReactNode
+      className?: string
+    } & HTMLAttributes<HTMLTableElement>) => (
+      <SmartTable sourceLine={toSourceLine(node)} className={className} {...props}>
+        {children}
+      </SmartTable>
+    ),
+    div: ({ node, children, ...props }: { node?: unknown; children?: ReactNode }) => {
+      const attributes = props as React.HTMLAttributes<HTMLDivElement> & {
+        'data-show-box'?: string
+        'data-show-title'?: string
+        'data-show-vars'?: string
+        'data-show-content'?: string
+      }
+      if (attributes['data-show-box'] === 'true') {
+        return (
+          <ShowBox
+            title={decodeShowAttribute(attributes['data-show-title'])}
+            variableSpec={decodeShowAttribute(attributes['data-show-vars'])}
+            body={decodeShowAttribute(attributes['data-show-content'])}
+            sourceLine={toSourceLine(node)}
+          />
+        )
+      }
+      return <div {...props} data-source-line={toSourceLine(node)}>{children}</div>
+    },
+    summary: ({ node, ...props }: { node?: unknown } & HTMLAttributes<HTMLElement>) => (
+      <CalloutSummary {...props} sourceLine={toSourceLine(node)} />
+    ),
+    ...(marker
+      ? Object.fromEntries(MARKER_TAGS.map((tag) => [tag, passthrough(tag)]))
+      : {}),
+  }
+}
+
+export const Markdown = memo(function Markdown({
+  content,
+  headingAnchors = true,
+  sourceLineMarkers = false,
+}: MarkdownProps) {
+  const processed = useMemo(() => preprocessMarkdownDetailed(content), [content])
+
+  const toSourceLine = useCallback<SourceLineResolver>(
+    (node) => {
+      if (!sourceLineMarkers) return undefined
+      const position = (node as { position?: { start?: { line?: number } } } | undefined)?.position
+      const processedLine = position?.start?.line
+      if (typeof processedLine !== 'number') return undefined
+      const sourceIndex = processed.lineMap[processedLine - 1]
+      return sourceIndex === undefined ? undefined : sourceIndex + 1
+    },
+    [sourceLineMarkers, processed.lineMap],
+  )
+
+  const components = useMemo(
+    () => buildComponents(sourceLineMarkers ? toSourceLine : noSourceLine),
+    [sourceLineMarkers, toSourceLine],
+  )
 
   return (
     <div className="prose prose-base dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight">
@@ -477,64 +730,14 @@ export const Markdown = memo(function Markdown({ content, headingAnchors = true 
           ...(headingAnchors
             ? [rehypeSlug, rehypeRemoveHeadingIds({ calloutsOnly: true })]
             : [rehypeRemoveHeadingIds()]),
+          ...(sourceLineMarkers ? [rehypeMarkBlockMath()] : []),
           [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
           [rehypeHighlight, { detect: true, ignoreMissing: true }],
+          ...(sourceLineMarkers ? [rehypeInheritPositions()] : []),
         ]}
-        components={{
-          pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
-          h2: ({ id, children }) => (
-            <Heading level={2} id={id}>
-              {children}
-            </Heading>
-          ),
-          h3: ({ id, children }) => (
-            <Heading level={3} id={id}>
-              {children}
-            </Heading>
-          ),
-          h4: ({ id, children }) => (
-            <Heading level={4} id={id}>
-              {children}
-            </Heading>
-          ),
-          a: ({ href, children, ...rest }) => {
-            const external = !!href && /^https?:\/\//.test(href)
-            return (
-              <a
-                href={href}
-                {...rest}
-                {...(external ? { target: '_blank', rel: 'noreferrer noopener' } : {})}
-              >
-                {children}
-              </a>
-            )
-          },
-          img: ({ src, alt }) => (
-            <img src={typeof src === 'string' ? src : ''} alt={alt ?? ''} loading="lazy" decoding="async" />
-          ),
-          table: SmartTable,
-          div: ({ children, ...props }) => {
-            const attributes = props as React.HTMLAttributes<HTMLDivElement> & {
-              'data-show-box'?: string
-              'data-show-title'?: string
-              'data-show-vars'?: string
-              'data-show-content'?: string
-            }
-            if (attributes['data-show-box'] === 'true') {
-              return (
-                <ShowBox
-                  title={decodeShowAttribute(attributes['data-show-title'])}
-                  variableSpec={decodeShowAttribute(attributes['data-show-vars'])}
-                  body={decodeShowAttribute(attributes['data-show-content'])}
-                />
-              )
-            }
-            return <div {...props}>{children}</div>
-          },
-          summary: CalloutSummary,
-        }}
+        components={components}
       >
-        {processedContent}
+        {processed.text}
       </ReactMarkdown>
     </div>
   )

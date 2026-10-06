@@ -59,6 +59,7 @@ import {
 import { siteConfig } from '../lib/config'
 import { handleEditorKey, insertBlock, toggleLinePrefix, toggleWrap } from '../lib/editor'
 import type { EditAction } from '../lib/editor'
+import { useEditorScrollSync } from '../lib/editorSettings'
 import type { Post } from '../lib/types'
 
 type ViewMode = 'split' | 'edit' | 'preview'
@@ -135,6 +136,7 @@ export default function Editor() {
   const [view, setView] = useState<ViewMode>('split')
   const [metaOpen, setMetaOpen] = useState(!existing)
   const [fullscreen, setFullscreen] = useState(false)
+  const [scrollSync] = useEditorScrollSync()
   const [dirty, setDirty] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(existing?.savedAt ?? null)
   const [publishing, setPublishing] = useState(false)
@@ -445,9 +447,14 @@ export default function Editor() {
 
   /* ------------------------------ 发布或提交 PR ---------------------------- */
   const publishOrSubmitPR = async () => {
+    // 全屏时看不到文章信息面板，先退出全屏再提示补充信息。
+    const revealMeta = () => {
+      setFullscreen(false)
+      setMetaOpen(true)
+    }
     if (!title.trim()) {
       toast('请先填写标题', 'warning')
-      setMetaOpen(true)
+      revealMeta()
       return
     }
     const post = save(true)
@@ -466,12 +473,12 @@ export default function Editor() {
       }
       if (!encryptionPassword) {
         toast('请输入文章加密密码', 'warning')
-        setMetaOpen(true)
+        revealMeta()
         return
       }
       if (encryptionPassword !== encryptionConfirm) {
         toast('两次输入的密码不一致', 'warning')
-        setMetaOpen(true)
+        revealMeta()
         return
       }
     }
@@ -534,14 +541,168 @@ export default function Editor() {
     navigate('/admin')
   }
 
-  /* ------------------------------ 滚动同步 -------------------------------- */
+  /* ------------------------------ 滚动同步 --------------------------------
+   * 双栏视图下，用「源文本行 ↔ 渲染块」锚点做对齐：预览区的顶层块级元素带有
+   * data-source-line（原始 Markdown 行号），编辑区一侧用一个同宽同字体的隐藏
+   * 镜像层测出每行在 textarea 里的像素位置，滚动时在相邻锚点间线性插值。
+   * 这样左侧第 N 行滚到视口顶部时，右侧对应的渲染块也正好位于顶部，
+   * 而不是简单按总高度比例换算（公式、表格、折叠框会让比例逐渐漂移）。
+   * 在「设置」里关闭自动同步滚动后，两侧各自独立滚动。
+   * ------------------------------------------------------------------------ */
+  const mirrorRef = useRef<HTMLDivElement>(null)
+  const anchorsDirtyRef = useRef(true)
+
+  const escapeHtml = (text: string) =>
+    text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+
+  /** 用与 textarea 完全一致的样式重建隐藏镜像层，用于测量每行的纵向像素位置。 */
+  const rebuildLineMirror = (ta: HTMLTextAreaElement) => {
+    const mirror = mirrorRef.current
+    if (!mirror) return
+    mirror.style.width = `${ta.clientWidth}px`
+    // 每个源码行一个块级 div：块内换行行为与 textarea 的逐行换行一致，
+    // 空行用零宽字符撑起行高，保证 offsetTop 对每一行都可靠。
+    mirror.innerHTML = ta.value
+      .split('\n')
+      .map(
+        (line, index) =>
+          `<div data-l="${index + 1}">${line ? escapeHtml(line) : '&#8203;'}</div>`,
+      )
+      .join('')
+  }
+
+  /** 内容、视图或尺寸变化后，下次滚动时重建锚点。 */
+  useEffect(() => {
+    anchorsDirtyRef.current = true
+  }, [content, view, scrollSync, fullscreen])
+
+  // 空闲时（停止输入约 200ms）提前重建镜像层，让下一次滚动无需现算。
+  useEffect(() => {
+    if (view !== 'split' || !scrollSync) return
+    const timer = window.setTimeout(() => {
+      const ta = textareaRef.current
+      const mirror = mirrorRef.current
+      const pv = previewRef.current
+      // 窄屏（md 以下）双栏里的预览是隐藏的，无需测量。
+      if (!ta || !mirror || !pv || pv.clientHeight === 0) return
+      rebuildLineMirror(ta)
+      anchorsDirtyRef.current = false
+    }, 200)
+    return () => window.clearTimeout(timer)
+  }, [content, view, scrollSync, fullscreen])
+
+  // 视图或开关变化后重新挂载镜像层 / 尺寸变化（窗口缩放、全屏切换）都会使行位置失效。
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (!ta || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      anchorsDirtyRef.current = true
+    })
+    observer.observe(ta)
+    return () => observer.disconnect()
+  }, [view, scrollSync])
+
+  // 云端字体加载完成后行高会变化，同样需要重测。
+  useEffect(() => {
+    let active = true
+    document.fonts?.ready.then(() => {
+      if (active) anchorsDirtyRef.current = true
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
   const syncScroll = () => {
     const ta = textareaRef.current
     const pv = previewRef.current
-    if (!ta || !pv || view !== 'split') return
-    const ratio = ta.scrollTop / Math.max(1, ta.scrollHeight - ta.clientHeight)
-    pv.scrollTop = ratio * (pv.scrollHeight - pv.clientHeight)
+    if (!ta || !pv || view !== 'split' || !scrollSync) return
+
+    const maxTa = ta.scrollHeight - ta.clientHeight
+    const maxPv = pv.scrollHeight - pv.clientHeight
+    if (maxTa <= 0 || maxPv <= 0) return
+
+    if (anchorsDirtyRef.current) {
+      rebuildLineMirror(ta)
+      anchorsDirtyRef.current = false
+    }
+
+    // 读取所有写值前的测量，避免布局抖动。
+    const pvTop = pv.getBoundingClientRect().top
+    const pvScrollTop = pv.scrollTop
+    const mirror = mirrorRef.current
+    const anchors: { ta: number; pv: number }[] = []
+
+    if (mirror) {
+      const marked = pv.querySelectorAll<HTMLElement>('[data-source-line]')
+      for (const el of marked) {
+        // 只取最外层块：嵌套在折叠框、表格里的标注不参与对齐。
+        if (el.parentElement?.closest('[data-source-line]')) continue
+        const line = Number(el.dataset.sourceLine)
+        if (!Number.isInteger(line) || line < 1) continue
+        const lineEl = mirror.querySelector<HTMLElement>(`div[data-l="${line}"]`)
+        if (!lineEl) continue
+        const taY = lineEl.offsetTop
+        const pvY = el.getBoundingClientRect().top - pvTop + pvScrollTop
+        const prev = anchors[anchors.length - 1]
+        if (prev && (taY <= prev.ta || pvY <= prev.pv)) continue
+        anchors.push({ ta: taY, pv: pvY })
+      }
+    }
+
+    const scroll = ta.scrollTop
+    // 只保留编辑区实际能滚到的锚点；更靠下的锚点只可能出现在视口下部，
+    // 让尾部平滑过渡到「两侧同时见底」。
+    const usable = anchors.filter((a) => a.ta < maxTa - 0.5)
+    let target: number
+    if (usable.length === 0) {
+      // 没有可用锚点时退回按总高度比例同步。
+      target = (scroll / maxTa) * maxPv
+    } else if (scroll <= usable[0].ta) {
+      // 顶部到第一个锚点之间。
+      target =
+        usable[0].ta > 0 ? (scroll / usable[0].ta) * usable[0].pv : usable[0].pv
+    } else if (scroll >= usable[usable.length - 1].ta) {
+      // 最后一个可达锚点到末尾：过渡到预览区底部。
+      const last = usable[usable.length - 1]
+      const span = maxTa - last.ta
+      target =
+        span < 1
+          ? scroll >= maxTa - 0.5
+            ? maxPv
+            : last.pv
+          : last.pv + ((scroll - last.ta) / span) * (maxPv - last.pv)
+    } else {
+      // 在相邻两个锚点之间线性插值。
+      let lo = 0
+      let hi = usable.length - 1
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1
+        if (usable[mid].ta <= scroll) lo = mid
+        else hi = mid
+      }
+      const a = usable[lo]
+      const b = usable[hi]
+      target = a.pv + ((scroll - a.ta) / (b.ta - a.ta)) * (b.pv - a.pv)
+    }
+
+    pv.scrollTop = Math.max(0, Math.min(maxPv, target))
   }
+
+  // 全屏时按 Esc 退出（输入法组合键中的 Esc 用于取消候选，不退出全屏）。
+  useEffect(() => {
+    if (!fullscreen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.isComposing) setFullscreen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [fullscreen])
 
   const previewPost = buildDraftPost()
 
@@ -566,10 +727,22 @@ export default function Editor() {
   }
 
   return (
-    <div className={fullscreen ? 'fixed inset-0 z-[80] overflow-y-auto bg-white p-6 dark:bg-ink-950' : 'container-page pt-8'}>
-      <div className="max-w-6xl mx-auto">
+    <div
+      className={
+        fullscreen
+          ? 'fixed inset-0 z-[80] flex h-screen flex-col overflow-hidden bg-white dark:bg-ink-950'
+          : 'container-page pt-8'
+      }
+    >
+      <div className={fullscreen ? 'flex min-h-0 flex-1 flex-col' : 'mx-auto max-w-6xl'}>
         {/* 顶部栏 */}
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div
+          className={
+            fullscreen
+              ? 'flex shrink-0 flex-wrap items-center gap-3 border-b border-ink-200/70 px-4 py-2 dark:border-white/10'
+              : 'mb-4 flex flex-wrap items-center justify-between gap-3'
+          }
+        >
           <input
             value={title}
             onChange={(e) => {
@@ -577,7 +750,7 @@ export default function Editor() {
               markDirty()
             }}
             placeholder="输入文章标题…"
-            className="flex-1 min-w-[15rem] font-serif text-2xl font-bold bg-transparent outline-none text-ink-900 placeholder:text-ink-400 dark:text-white"
+            className="flex-1 min-w-[15rem] bg-transparent font-serif text-2xl font-bold outline-none text-ink-900 placeholder:text-ink-400 dark:text-white"
           />
 
           <div className="flex items-center gap-2">
@@ -608,7 +781,7 @@ export default function Editor() {
             <button
               onClick={() => setFullscreen((v) => !v)}
               className="btn-ghost h-9 w-9 !px-0"
-              title="全屏"
+              title={fullscreen ? '退出全屏 (Esc)' : '全屏编辑 (Esc 退出)'}
             >
               {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
@@ -657,6 +830,8 @@ export default function Editor() {
         </div>
 
         {/* ------------------------------ 元信息面板 ----------------------------- */}
+        {/* 全屏时隐藏元信息面板，把整块屏幕留给编辑区。 */}
+        {!fullscreen && (
         <div className="card mb-4 overflow-hidden">
           <button
             onClick={() => setMetaOpen((v) => !v)}
@@ -838,11 +1013,19 @@ export default function Editor() {
             </div>
           )}
         </div>
+        )}
 
         {/* -------------------------------- 编辑区 ------------------------------- */}
-        <div className="card overflow-hidden">
+        {/* 全屏：编辑区铺满整个屏幕（顶部只保留一条紧凑工具栏），不再有页边距与最大宽度限制。 */}
+        <div
+          className={
+            fullscreen
+              ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
+              : 'card overflow-hidden'
+          }
+        >
           {/* 工具栏 */}
-          <div className="flex flex-wrap items-center gap-0.5 border-b border-ink-200/70 px-2 py-1.5 dark:border-white/10">
+          <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-ink-200/70 px-2 py-1.5 dark:border-white/10">
             {tools.map((t) => (
               <button
                 key={t.title}
@@ -897,23 +1080,35 @@ export default function Editor() {
 
           {/* 编辑 / 预览 */}
           <div
-            className={`grid ${view === 'split' ? 'md:grid-cols-2' : 'grid-cols-1'}`}
-            style={{ height: fullscreen ? 'calc(100vh - 13rem)' : 'min(68vh, 44rem)' }}
+            className={`grid ${view === 'split' ? 'md:grid-cols-2' : 'grid-cols-1'} ${
+              fullscreen ? 'min-h-0 flex-1' : ''
+            }`}
+            style={fullscreen ? undefined : { height: 'min(68vh, 44rem)' }}
           >
             {view !== 'preview' && (
-              <textarea
-                ref={textareaRef}
-                value={content}
-                onChange={(e) => {
-                  setContent(e.target.value)
-                  markDirty()
-                }}
-                onKeyDown={onKeyDown}
-                onScroll={syncScroll}
-                spellCheck={false}
-                placeholder="在这里用 Markdown 写作…"
-                className="editor-textarea h-full w-full resize-none bg-transparent p-5 font-mono text-[14px] text-ink-800 outline-none placeholder:text-ink-400 dark:text-ink-100"
-              />
+              <div className="relative min-h-0">
+                <textarea
+                  ref={textareaRef}
+                  value={content}
+                  onChange={(e) => {
+                    setContent(e.target.value)
+                    markDirty()
+                  }}
+                  onKeyDown={onKeyDown}
+                  onScroll={syncScroll}
+                  spellCheck={false}
+                  placeholder="在这里用 Markdown 写作…"
+                  className="editor-textarea h-full w-full resize-none bg-transparent p-5 font-mono text-[14px] text-ink-800 outline-none placeholder:text-ink-400 dark:text-ink-100"
+                />
+                {/* 滚动同步用的隐藏镜像层：与 textarea 同字体同宽度，用于测量每行的像素位置。 */}
+                {view === 'split' && scrollSync && (
+                  <div
+                    ref={mirrorRef}
+                    aria-hidden="true"
+                    className="editor-textarea invisible absolute left-0 top-0 w-0 whitespace-pre-wrap break-words p-5 font-mono text-[14px] pointer-events-none"
+                  />
+                )}
+              </div>
             )}
 
             {view !== 'edit' && (
@@ -925,16 +1120,20 @@ export default function Editor() {
                     : ''
                 }`}
               >
-                <h1 className="mb-6 font-serif text-2xl font-bold tracking-tight text-ink-900 dark:text-white">
-                  {title || '未命名文章'}
-                </h1>
-                <Markdown content={content} />
+                {/* 双栏视图不渲染文章标题，保证左右两侧的第一个内容块从同一高度开始，滚动时才能对齐。 */}
+                {view !== 'split' && (
+                  <h1 className="mb-6 font-serif text-2xl font-bold tracking-tight text-ink-900 dark:text-white">
+                    {title || '未命名文章'}
+                  </h1>
+                )}
+                <Markdown content={content} sourceLineMarkers={view === 'split'} />
               </div>
             )}
           </div>
         </div>
 
-        {/* 提示栏 */}
+        {/* 提示栏（全屏时隐藏） */}
+        {!fullscreen && (
         <div className="mb-16 mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-400">
           <span className="flex items-center gap-1.5">
             <AlertCircle size={13} />
@@ -957,6 +1156,7 @@ export default function Editor() {
           )}
           <span className="hidden sm:inline">快捷键：⌘S 保存 · ⌘B 粗体 · ⌘I 斜体 · ⌘K 链接</span>
         </div>
+        )}
       </div>
     </div>
   )
