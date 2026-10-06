@@ -65,6 +65,12 @@ export default function Admin() {
     setPosts(getAllAdminPosts())
   }
 
+  // 仓库中加密文章的 slug 集合：这些文章的明文本地草稿不能从列表直推发布。
+  const encryptedRepoSlugs = useMemo(
+    () => new Set(posts.filter((p) => p.source === 'repo' && p.encryption).map((p) => p.slug)),
+    [posts],
+  )
+
   useEffect(() => {
     reloadPosts()
     const handler = () => reloadPosts()
@@ -126,6 +132,12 @@ export default function Admin() {
   const publishOne = async (post: Post) => {
     if (!canPublish) {
       toast('请先在「设置」中连接 GitHub', 'warning')
+      return
+    }
+    // 加密文章的明文草稿不能从这里直推：那会用明文覆盖仓库中的加密版本。
+    // 需要进入编辑器勾选加密并输入密码后发布。
+    if (encryptedRepoSlugs.has(post.slug)) {
+      toast('这篇文章在仓库中是加密文章，请在编辑器中以加密方式重新发布', 'warning')
       return
     }
     const busyKey = `${post.source}-${post.slug}`
@@ -390,6 +402,14 @@ export default function Admin() {
                       ) : (
                         <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
                           已发布到 GitHub
+                        </span>
+                      )}
+                      {isLocalDraft && encryptedRepoSlugs.has(post.slug) && (
+                        <span
+                          className="shrink-0 rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] font-medium text-brand-600 dark:text-brand-300"
+                          title="仓库中同名文章为加密文章；发布时会在编辑器中重新加密"
+                        >
+                          加密文章草稿
                         </span>
                       )}
                       {post.draft && (

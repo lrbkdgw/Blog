@@ -11,7 +11,18 @@ import {
   type ShowVariable,
 } from '../lib/showBox'
 
-export function ShowBox({ title, variableSpec, body }: { title: string; variableSpec: string; body: string }) {
+export function ShowBox({
+  title,
+  variableSpec,
+  body,
+  sourceLine,
+}: {
+  title: string
+  variableSpec: string
+  body: string
+  /** 原始 Markdown 行号（双栏编辑器滚动同步锚点用）。 */
+  sourceLine?: number
+}) {
   const variables = useMemo(() => parseShowVariables(variableSpec, body), [variableSpec, body])
   const mappings = useMemo(() => parseShowMappings(body), [body])
   const initialValues = useMemo(
@@ -28,7 +39,10 @@ export function ShowBox({ title, variableSpec, body }: { title: string; variable
   }
 
   return (
-    <section className="show-box not-prose my-6 overflow-hidden rounded-xl border border-ink-200 bg-ink-50/70 shadow-sm dark:border-white/10 dark:bg-white/[0.035]">
+    <section
+      className="show-box not-prose my-6 overflow-hidden rounded-xl border border-ink-200 bg-ink-50/70 shadow-sm dark:border-white/10 dark:bg-white/[0.035]"
+      data-source-line={sourceLine}
+    >
       <div className="flex items-center gap-2 border-b border-ink-200/80 bg-white/75 px-4 py-2.5 font-sans text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/[0.035] dark:text-ink-200">
         <SlidersHorizontal size={14} className="text-brand-500" />
         <span>{title || '交互展示'}</span>

@@ -5,6 +5,7 @@ import {
   ArrowUp,
   CheckCircle2,
   Cloud,
+  Columns2,
   Download,
   ExternalLink,
   Github,
@@ -34,6 +35,7 @@ import { getRepoTarget, setRepoTarget } from '../lib/github'
 import { getLocalPosts, serializePost } from '../lib/posts'
 import { STORAGE_KEYS } from '../lib/config'
 import { clearRememberedPostUnlocks } from '../lib/crypto'
+import { useEditorScrollSync } from '../lib/editorSettings'
 
 type LocalFontData = { family?: string }
 
@@ -104,6 +106,7 @@ export default function SettingsPage() {
     saveForGithub: saveBackgroundForGithub,
   } = useBackground()
   const toast = useToast()
+  const [editorScrollSync, setEditorScrollSync] = useEditorScrollSync()
 
   const [repo, setRepo] = useState(getRepoTarget())
   const [newFontInput, setNewFontInput] = useState('')
@@ -583,6 +586,45 @@ export default function SettingsPage() {
               访客设置已直接保存在本地。
             </p>
           )}
+        </Section>
+
+        {/* ------------------------------ 编辑器行为 ----------------------------- */}
+        <Section
+          title="编辑器"
+          desc="调整双栏编辑器的工作方式，设置即时生效并自动保存到当前浏览器。"
+          icon={Columns2}
+        >
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-ink-200/80 bg-ink-50/60 p-4 dark:border-white/10 dark:bg-white/[0.025]">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-ink-800 dark:text-ink-100">
+                双栏自动同步滚动
+              </p>
+              <p className="mt-0.5 text-xs leading-relaxed text-ink-400 dark:text-ink-500">
+                开启后，编辑区滚动时预览区会跟随到对应内容位置；关闭后两侧各自独立滚动。
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={editorScrollSync}
+              onClick={() => setEditorScrollSync(!editorScrollSync)}
+              title={editorScrollSync ? '点击关闭自动同步' : '点击开启自动同步'}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                editorScrollSync
+                  ? 'bg-brand-500'
+                  : 'bg-ink-300 dark:bg-white/15'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all duration-150 ${
+                  editorScrollSync ? 'left-[1.375rem]' : 'left-0.5'
+                }`}
+              />
+            </button>
+          </div>
+          <p className="mt-2.5 text-xs leading-relaxed text-ink-400">
+            全屏编辑时可按 <kbd className="rounded border border-ink-200 px-1 font-mono text-[10px] dark:border-white/15">Esc</kbd> 或点击右上角按钮退出。
+          </p>
         </Section>
 
         {/* ------------------------------ GitHub 连接 ----------------------------- */}
