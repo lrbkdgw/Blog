@@ -380,9 +380,20 @@ export default function PostPage() {
           ) : (
             <PasswordPrompt
               title={snapshot.title}
-              description="文章标题公开可见，正文及其他信息已使用密码加密。请输入密码后继续。"
+              description="文章标题与标签公开可见，正文及其他信息已使用密码加密。请输入密码后继续。"
               onUnlock={unlock}
             />
+          )}
+          {/* 标签不参与加密，锁定状态下也能直接跳转到对应标签页。 */}
+          {snapshot.tags.length > 0 && (
+            <div className="mx-auto mt-4 flex max-w-md flex-wrap items-center justify-center gap-1.5">
+              {snapshot.tags.map((tag) => (
+                <Link key={tag} to={`/tags/${encodeURIComponent(tag)}`} className="chip">
+                  <Hash size={11} />
+                  {tag}
+                </Link>
+              ))}
+            </div>
           )}
           <div className="mt-5 text-center">
             <button type="button" onClick={openHistory} className="btn-ghost h-8 text-xs"><History size={13} />历史版本</button>

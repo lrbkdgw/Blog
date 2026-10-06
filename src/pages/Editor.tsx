@@ -145,7 +145,8 @@ export default function Editor() {
   const [title, setTitle] = useState(initial?.title ?? '')
   const [slug, setSlug] = useState(encryptedSource ? '' : (initial?.slug ?? ''))
   const [date, setDate] = useState(encryptedSource ? today() : (initial?.date ?? today()))
-  const [tagsText, setTagsText] = useState(encryptedSource ? '' : (initial?.tags.join(', ') ?? ''))
+  // 标签不参与加密：加密文章的标签同样公开保存在 frontmatter 中，解锁前即可编辑。
+  const [tagsText, setTagsText] = useState(initial?.tags.join(', ') ?? '')
   const [summary, setSummary] = useState(encryptedSource ? '' : (initial?.summary ?? ''))
   const [author, setAuthor] = useState(encryptedSource ? '' : (initial?.author ?? ''))
   const [cover, setCover] = useState(encryptedSource ? '' : (initial?.cover ?? ''))
@@ -236,6 +237,8 @@ export default function Editor() {
     const incoming = (location.state as { draft?: Post } | null)?.draft ?? existing
     if (existing?.encryption) {
       setTitle(existing.title)
+      // 标题与标签是公开信息，解锁前就能显示。
+      setTagsText(existing.tags.join(', '))
       setUnlocked(false)
       setRestoringUnlock(true)
       setEncryptOnPublish(true)
@@ -316,7 +319,7 @@ export default function Editor() {
       // 加密文章的修改同样保存为本地草稿（明文，仅保存在本浏览器）。
       // 公开页面仍显示仓库中的加密版本（getAllPosts 不会让明文草稿顶替加密文章），
       // 发布时也会重新加密。
-      // 防御：加密文章在解锁数据载入编辑器之前，不允许把空白的标题/标签/摘要写成草稿。
+      // 防御：加密文章在解锁数据载入编辑器之前，不允许把空白的标题/摘要/正文写成草稿。
       if (protectedExisting && !hydratedRef.current) {
         if (!silent) toast('文章尚未解锁完成，请稍候再保存', 'warning')
         return post
@@ -777,7 +780,7 @@ export default function Editor() {
         ) : (
           <PasswordPrompt
             title={`解锁后编辑「${existing?.title || '加密文章'}」`}
-            description="文章标题公开可见，正文及其他信息已加密。请输入密码后才会将内容载入编辑器。"
+            description="文章标题与标签公开可见，正文及其他信息已加密。请输入密码后才会将内容载入编辑器。"
             onUnlock={unlockExisting}
           />
         )}

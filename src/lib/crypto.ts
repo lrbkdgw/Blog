@@ -3,9 +3,10 @@ import { buildPost } from './posts'
 import type { Post, PostSource } from './types'
 
 /**
- * The encrypted wrapper keeps the article title public so readers can identify it.
- * All remaining frontmatter and the body are encrypted in the browser before a
- * GitHub commit is created.
+ * The encrypted wrapper keeps the article title and tags public so readers can
+ * identify it and so the tag cloud / tag pages keep working. All remaining
+ * frontmatter and the body are encrypted in the browser before a GitHub commit
+ * is created.
  */
 export interface ArticleEncryptionEnvelope {
   version: 1
@@ -198,13 +199,16 @@ export async function encryptPostMarkdown(post: Post, password: string): Promise
   // never written to browser storage. Failure to cache must not block publishing.
   await storeUnlockKey({ slug: post.slug, encryption }, key).catch(() => undefined)
 
-  // Keep the requested public title, but do not expose tags, summary or real date.
+  // Keep the public title and tags, but do not expose summary, cover or real date.
   return stringifyFrontmatter(
     {
       title: post.title,
       // Keep a valid but non-identifying date so the public article index can
       // still sort the opaque wrapper without exposing its real metadata.
       date: '1970-01-01',
+      // Tags are deliberately published in clear text: they are classification
+      // metadata, not content, and the tag cloud / tag pages need them.
+      tags: post.tags,
       encrypted: true,
       encryption,
     },
@@ -219,7 +223,7 @@ function serializePlainPost(post: Post): string {
       date: post.date,
       updated: post.updated,
       summary: post.summary,
-      tags: post.tags,
+      // 标签不加密：它只保存在公开的 frontmatter 里（见 encryptPostMarkdown）。
       cover: post.cover,
       draft: post.draft || undefined,
       pinned: post.pinned || undefined,
@@ -276,7 +280,11 @@ async function decryptPostWithKey(
   // The returned object is intentionally plain. The encrypted wrapper stays in
   // the caller's source post; carrying it here would make an already-unlocked
   // article look locked to renderers and could accidentally re-publish stale data.
-  return rebuilt
+  //
+  // Tags live in the public frontmatter, so they win over anything stored inside
+  // the envelope. Articles encrypted by older versions kept their tags in the
+  // ciphertext only; those are preserved through the fallback.
+  return { ...rebuilt, tags: post.tags.length > 0 ? [...post.tags] : rebuilt.tags }
 }
 
 /**
