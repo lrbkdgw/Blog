@@ -135,6 +135,20 @@ Pages 项目 **Settings → Environment variables** 中新增 `VITE_GITHUB_CLIEN
 
 ---
 
+## 🧩 VS Code 插件：Markdown 语法拓展
+
+仓库自带可直接安装的 **Markdown 语法拓展**插件。它在 VS Code **内置 Markdown 预览**中直接复用本站的 React 渲染组件、KaTeX / 高亮配置与 Tailwind 样式，展示框中的公式、表格和代码也会随变量实时更新。
+
+```bash
+code --install-extension vscode_extensions/v1/starlog-markdown-2.0.0.vsix --force
+```
+
+安装后打开 `.md` 并使用 `Ctrl/⌘+K V` 分屏预览；命令 **Markdown 语法拓展: 打开语法示例文档**可用于对照检查。成品内嵌所需脚本、样式与公式字体，无需额外插件或本地博客服务。MPE 保留为可选静态兼容模式，完整同款交互效果请使用内置预览。
+
+安装、语法和开发说明见 [插件 README](vscode_extensions/v1/README.md)。在根目录安装依赖并执行 `npm ci --prefix vscode_extensions/v1` 后，可运行 `npm run extension:test` / `npm run extension:package` 验证或重新打包。
+
+---
+
 ## ✍️ 两种写作方式
 
 ### 方式 A：在站内写（推荐）
@@ -235,6 +249,7 @@ pinned: false    # true 则置顶到首页
 │   ├── styles/index.css           # Tailwind + 代码高亮 + 排版细节
 │   ├── App.tsx                    # 路由
 │   └── main.tsx                   # 入口
+├── vscode_extensions/v1/         # Markdown 语法拓展插件与可安装 VSIX
 ├── index.html
 ├── tailwind.config.js
 └── vite.config.ts                 # base path + SPA 404 兜底

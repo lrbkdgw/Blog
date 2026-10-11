@@ -1,5 +1,15 @@
-/** 仅供测试使用的聚合入口（不依赖 vscode 模块）。 */
+/** 仅供测试使用，不引入 vscode。参考输出直接来自博客组件，不经过宿主桥接。 */
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { Markdown } from '../../../src/components/Markdown'
+
+export function renderReference(content: string): string {
+  return renderToStaticMarkup(createElement(Markdown, { content, sourceLineMarkers: true }))
+}
+
 export { extendMarkdownIt } from './markdownIt'
+export { renderBlogPreview, addSourceLineMarkers } from './render'
+export { readPreviewModel, previewUrlTransform } from './preview/model'
 export { transformMarkdown, renderShowBox, convertMergeMarkersForMpe } from './core/transform'
 export { convertMarkdownForCopy } from './core/sourceConvert'
-export { evaluateShowFormula, formatDirectionalRound, parseShowVariables, renderShowContent } from './core/showBox'
+export { evaluateShowFormula, parseShowVariables, renderShowContent } from './core/showBox'

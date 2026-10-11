@@ -1,8 +1,8 @@
 {
   "name": "starlog-markdown",
-  "displayName": "星野笔记特殊语法 (Starlog Markdown)",
-  "description": "在 VS Code 中书写与预览星野笔记 Blog 的特殊 Markdown 语法：交互展示框、折叠框、Tuack 表格与单元格合并；同时兼容 Markdown Preview Enhanced。",
-  "version": "1.0.0",
+  "displayName": "Markdown 语法拓展",
+  "description": "直接复用博客的 Markdown 渲染组件与样式：交互展示框、折叠框、合并表格、KaTeX 公式与代码高亮，在 VS Code 内置预览中获得同款效果。",
+  "version": "2.0.0",
   "publisher": "lrbkdgw",
   "license": "MIT",
   "engines": {
@@ -32,7 +32,7 @@
   "contributes": {
     "markdown.markdownItPlugins": true,
     "markdown.previewStyles": [
-      "./media/preview.css"
+      "./out/preview.css"
     ],
     "markdown.previewScripts": [
       "./out/preview.js"
@@ -55,53 +55,53 @@
     "commands": [
       {
         "command": "starlog.setupMpe",
-        "title": "星野笔记: 安装 Markdown Preview Enhanced 支持",
-        "category": "Starlog"
+        "title": "安装 Markdown Preview Enhanced 静态兼容支持",
+        "category": "Markdown 语法拓展"
       },
       {
         "command": "starlog.setupMpeGlobal",
-        "title": "星野笔记: 安装 MPE 支持（全局 ~/.crossnote）",
-        "category": "Starlog"
+        "title": "安装 MPE 静态兼容支持（全局 ~/.crossnote）",
+        "category": "Markdown 语法拓展"
       },
       {
         "command": "starlog.setupMpeWorkspace",
-        "title": "星野笔记: 安装 MPE 支持（当前工作区）",
-        "category": "Starlog"
+        "title": "安装 MPE 静态兼容支持（当前工作区）",
+        "category": "Markdown 语法拓展"
       },
       {
         "command": "starlog.removeMpe",
-        "title": "星野笔记: 移除 Markdown Preview Enhanced 支持",
-        "category": "Starlog"
+        "title": "移除 Markdown Preview Enhanced 静态兼容支持",
+        "category": "Markdown 语法拓展"
       },
       {
         "command": "starlog.insertShowBox",
-        "title": "星野笔记: 插入交互展示框",
-        "category": "Starlog"
+        "title": "插入交互展示框",
+        "category": "Markdown 语法拓展"
       },
       {
         "command": "starlog.insertCallout",
-        "title": "星野笔记: 插入折叠框",
-        "category": "Starlog"
+        "title": "插入折叠框",
+        "category": "Markdown 语法拓展"
       },
       {
         "command": "starlog.insertTuackTable",
-        "title": "星野笔记: 插入 Tuack 表格",
-        "category": "Starlog"
+        "title": "插入 Tuack 表格",
+        "category": "Markdown 语法拓展"
       },
       {
         "command": "starlog.copyAsLuogu",
-        "title": "星野笔记: 复制为洛谷源码",
-        "category": "Starlog"
+        "title": "复制为洛谷源码",
+        "category": "Markdown 语法拓展"
       },
       {
         "command": "starlog.copyAsBasic",
-        "title": "星野笔记: 复制为基本 Markdown 源码",
-        "category": "Starlog"
+        "title": "复制为基本 Markdown 源码",
+        "category": "Markdown 语法拓展"
       },
       {
         "command": "starlog.openCheatsheet",
-        "title": "星野笔记: 打开语法示例文档",
-        "category": "Starlog"
+        "title": "打开语法示例文档",
+        "category": "Markdown 语法拓展"
       }
     ],
     "menus": {
@@ -129,12 +129,12 @@
       ]
     },
     "configuration": {
-      "title": "星野笔记特殊语法",
+      "title": "Markdown 语法拓展",
       "properties": {
         "starlog.mpe.promptForSetup": {
           "type": "boolean",
-          "default": true,
-          "description": "检测到 Markdown Preview Enhanced 且尚未安装语法支持时，提示一键安装。"
+          "default": false,
+          "description": "检测到 Markdown Preview Enhanced 时提示安装静态兼容模式。与博客完全一致的交互渲染请使用 VS Code 内置 Markdown 预览，无需额外安装或配置。"
         }
       }
     }
@@ -143,17 +143,20 @@
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.mjs",
-    "package": "node build.mjs && vsce package --no-dependencies -o starlog-markdown-1.0.0.vsix",
-    "vscode:prepublish": "node build.mjs"
+    "test": "npm run build && node --test test/*.test.mjs",
+    "package": "vsce package --no-dependencies",
+    "vscode:prepublish": "node build.mjs",
+    "test:browser": "npm run build && node --test test/browser.test.mjs"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.2.0",
     "@types/node": "^22.10.2",
     "@types/vscode": "^1.75.0",
     "@vscode/vsce": "^3.2.1",
     "esbuild": "^0.24.2",
     "jsdom": "^30.1.2",
     "markdown-it": "^14.1.0",
+    "playwright-core": "^1.64.0",
     "typescript": "^5.7.2"
   }
 }

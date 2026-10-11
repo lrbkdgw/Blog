@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
+import type { UrlTransform } from 'react-markdown'
 import { Markdown } from './Markdown'
 import {
   clampShowVariable,
@@ -16,12 +17,14 @@ export function ShowBox({
   variableSpec,
   body,
   sourceLine,
+  urlTransform,
 }: {
   title: string
   variableSpec: string
   body: string
   /** 原始 Markdown 行号（双栏编辑器滚动同步锚点用）。 */
   sourceLine?: number
+  urlTransform?: UrlTransform
 }) {
   const variables = useMemo(() => parseShowVariables(variableSpec, body), [variableSpec, body])
   const mappings = useMemo(() => parseShowMappings(body), [body])
@@ -48,7 +51,7 @@ export function ShowBox({
         <span>{title || '交互展示'}</span>
       </div>
       <div className="show-box-content px-4 py-4">
-        <Markdown content={rendered} headingAnchors={false} />
+        <Markdown content={rendered} headingAnchors={false} urlTransform={urlTransform} />
       </div>
       {variables.length > 0 && (
         <div className="grid gap-3 border-t border-ink-200/80 bg-white/50 p-4 sm:grid-cols-2 dark:border-white/10 dark:bg-black/10">

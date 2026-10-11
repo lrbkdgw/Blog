@@ -1,3 +1,6 @@
+/* 固定公式样式与正文样式的加载顺序，博客和 VS Code 使用同一入口。 */
+@import "katex/dist/katex.min.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

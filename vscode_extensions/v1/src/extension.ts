@@ -1,8 +1,8 @@
 /**
- * 星野笔记特殊语法 · VS Code 扩展入口。
+ * Markdown 语法拓展 · VS Code 扩展入口。
  *
  * 导出 `extendMarkdownIt` 给内置 Markdown 预览；同时注册命令，用于：
- *   - 向 Markdown Preview Enhanced 安装 / 卸载同款语法支持；
+ *   - 向 Markdown Preview Enhanced 安装 / 卸载静态兼容支持；
  *   - 插入展示框 / 折叠框 / Tuack 表格模板；
  *   - 把当前文档转换（复制）为洛谷源码或基本 Markdown。
  */
@@ -49,7 +49,7 @@ async function runInstall(context: vscode.ExtensionContext, scope?: MpeScope): P
     if (result.parserBackup) notes.push(`原有 parser.js 已备份为 ${result.parserBackup}`)
     if (switched) notes.push('已开启 MPE 的「扩展表格语法」以支持单元格合并')
     const action = await vscode.window.showInformationMessage(
-      'Markdown Preview Enhanced 支持已安装：' + notes.join('；') + '。重新打开 MPE 预览即可生效。',
+      'Markdown Preview Enhanced 静态兼容支持已安装：' + notes.join('；') + '。重新打开 MPE 预览即可生效。',
       '打开配置目录',
     )
     if (action === '打开配置目录') {
@@ -98,12 +98,12 @@ async function insertCallout(): Promise<void> {
 }
 
 async function maybePromptForMpe(context: vscode.ExtensionContext): Promise<void> {
-  if (!vscode.workspace.getConfiguration('starlog').get<boolean>('mpe.promptForSetup', true)) return
+  if (!vscode.workspace.getConfiguration('starlog').get<boolean>('mpe.promptForSetup', false)) return
   if (!isMpeInstalled()) return
   if (installedParserVersion('global') || installedParserVersion('workspace')) return
   if (context.globalState.get<boolean>(STATE_PROMPTED)) return
   const action = await vscode.window.showInformationMessage(
-    '检测到 Markdown Preview Enhanced。是否安装星野笔记特殊语法支持（展示框 / 折叠框 / Tuack 表格）？',
+    '检测到 Markdown Preview Enhanced。完整同款交互请使用内置 Markdown 预览；是否另外安装 MPE 静态兼容支持？',
     '安装（全局）',
     '以后再说',
     '不再提示',

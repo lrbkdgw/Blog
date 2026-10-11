@@ -7,3 +7,5 @@ test/**
 node_modules/**
 package-lock.json
 **/*.map
+*.vsix
+media/**

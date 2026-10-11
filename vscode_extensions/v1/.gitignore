@@ -1,2 +1,6 @@
 node_modules
 *.vsix.tmp
+# 构建生成并内嵌在 VSIX 中，不逐个提交字体等衍生文件。
+out/fonts/
+out/preview.css
+resources/third-party-notices.txt
