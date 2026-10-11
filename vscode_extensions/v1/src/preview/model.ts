@@ -8,6 +8,8 @@ export interface PreviewModel {
   resourceMap: Record<string, string>
   /** VS Code 将工作区根目录转换成的 webview URI，用于动态生成的根路径图片。 */
   resourceRoot: string
+  /** 是否应用博客的渐变背景；默认关闭。 */
+  enableGradientBackground: boolean
 }
 
 export function readPreviewModel(element: Element): PreviewModel | undefined {
@@ -20,10 +22,11 @@ export function readPreviewModel(element: Element): PreviewModel | undefined {
       !Number.isInteger(model.lineOffset) || model.lineOffset < 0 ||
       typeof model.documentUri !== 'string' ||
       typeof model.resourceRoot !== 'string' ||
+      (model.enableGradientBackground !== undefined && typeof model.enableGradientBackground !== 'boolean') ||
       !model.resourceMap || typeof model.resourceMap !== 'object' || Array.isArray(model.resourceMap) ||
       !Object.values(model.resourceMap).every((value) => typeof value === 'string')
     ) return undefined
-    return model
+    return { ...model, enableGradientBackground: model.enableGradientBackground === true }
   } catch {
     return undefined
   }

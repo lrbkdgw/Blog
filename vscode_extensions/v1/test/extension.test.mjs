@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import vm from 'node:vm'
-import { blogMarkup, core, documentOf, engine, render, root } from './helpers.mjs'
+import { blogMarkup, core, documentOf, engine, MarkdownIt, render, root } from './helpers.mjs'
 
 const corpus = [
   '# 标题\n\n## 正文标题\n\n**粗体**、*斜体*、~~删除~~、[链接](https://example.com)。\n\n- [x] 已完成\n- [ ] 未完成\n\n> 引用\n\n---',
@@ -126,4 +126,34 @@ test('求值、取整与映射使用博客的边界规则', () => {
   assert.equal(core.evaluateShowFormula('a+1', { a: 2 }), 3)
   assert.equal(core.evaluateShowFormula('a+', { a: 2 }), null)
   assert.equal(core.renderShowContent('&*floor(1.239,2)&* / &*ceil(1.231,2)&* / &*ceil(0.1+0.2,1)&*', {}, []), '1.23 / 1.24 / 0.3')
+})
+
+test('渐变默认关闭，配置在渲染缓存 token 时按当前文档重新读取', () => {
+  let enabled = false
+  const resources = []
+  const md = core.extendMarkdownIt(new MarkdownIt({ html: true }), (documentUri) => {
+    resources.push(documentUri)
+    return { enableGradientBackground: enabled }
+  })
+  const tokens = md.parse('正文', {})
+  const env = { currentDocument: { toString: () => 'file:///workspace/demo.md' } }
+  const model = () => core.readPreviewModel(documentOf(md.renderer.render(tokens, md.options, env)).querySelector('[data-markdown-model]'))
+  assert.equal(model().enableGradientBackground, false)
+  enabled = true
+  assert.equal(model().enableGradientBackground, true)
+  enabled = false
+  assert.equal(model().enableGradientBackground, false)
+  assert.deepEqual(resources, Array(3).fill('file:///workspace/demo.md'))
+})
+
+test('预览模型拒绝非布尔背景配置，并兼容未配置背景的旧模型', () => {
+  const wrapper = documentOf(render('正文')).querySelector('[data-markdown-model]')
+  const model = core.readPreviewModel(wrapper)
+  for (const value of ['true', 1, null, {}]) {
+    wrapper.setAttribute('data-markdown-model', encodeURIComponent(JSON.stringify({ ...model, enableGradientBackground: value })))
+    assert.equal(core.readPreviewModel(wrapper), undefined)
+  }
+  delete model.enableGradientBackground
+  wrapper.setAttribute('data-markdown-model', encodeURIComponent(JSON.stringify(model)))
+  assert.equal(core.readPreviewModel(wrapper).enableGradientBackground, false)
 })

@@ -27,6 +27,14 @@ body.markdown-extension-active {
   font-family: var(--font-sans);
   font-size: 1rem;
 }
+/* 渐变默认关闭；开启后直接使用博客原始 body 渐变，不再复制一份背景定义。 */
+body:not(.markdown-extension-gradient-background) {
+  background-image: none;
+}
+/* 内置 markdown-body 只存放渲染模型，React 正文在其外面的兄弟容器中。 */
+.markdown-extension-source {
+  display: none !important;
+}
 /* 内置预览样式会给所有表格行染色；博客表格没有斑马纹。 */
 .markdown-extension-preview .prose table.markdown-table tr {
   background: transparent;

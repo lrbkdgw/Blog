@@ -114,6 +114,12 @@ async function maybePromptForMpe(context: vscode.ExtensionContext): Promise<void
 
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('starlog.preview.enableGradientBackground')) {
+        // 官方 Markdown 命令清理渲染缓存并刷新已打开的预览；无需重新加载窗口。
+        void vscode.commands.executeCommand('markdown.api.reloadPlugins')
+      }
+    }),
     vscode.commands.registerCommand('starlog.setupMpe', () => runInstall(context)),
     vscode.commands.registerCommand('starlog.setupMpeGlobal', () => runInstall(context, 'global')),
     vscode.commands.registerCommand('starlog.setupMpeWorkspace', () => runInstall(context, 'workspace')),
@@ -147,7 +153,11 @@ export function activate(context: vscode.ExtensionContext) {
 
   return {
     extendMarkdownIt(md: any) {
-      return extendMarkdownIt(md)
+      return extendMarkdownIt(md, (documentUri) => ({
+        enableGradientBackground: vscode.workspace.getConfiguration(
+          'starlog', documentUri ? vscode.Uri.parse(documentUri) : undefined,
+        ).get<boolean>('preview.enableGradientBackground', false),
+      }))
     },
     /** 方便其他扩展/脚本复用的转换函数。 */
     convertMarkdownForCopy,

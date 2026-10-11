@@ -2,7 +2,7 @@
   "name": "starlog-markdown",
   "displayName": "Markdown 语法拓展",
   "description": "直接复用博客的 Markdown 渲染组件与样式：交互展示框、折叠框、合并表格、KaTeX 公式与代码高亮，在 VS Code 内置预览中获得同款效果。",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "publisher": "lrbkdgw",
   "license": "MIT",
   "engines": {
@@ -131,6 +131,12 @@
     "configuration": {
       "title": "Markdown 语法拓展",
       "properties": {
+        "starlog.preview.enableGradientBackground": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "description": "在 VS Code 内置 Markdown 预览中应用博客的渐变背景。默认关闭，关闭时使用博客的纯色背景；修改后自动刷新已打开的预览。"
+        },
         "starlog.mpe.promptForSetup": {
           "type": "boolean",
           "default": false,
@@ -156,6 +162,7 @@
     "esbuild": "^0.24.2",
     "jsdom": "^30.1.2",
     "markdown-it": "^14.1.0",
+    "morphdom": "^2.7.8",
     "playwright-core": "^1.64.0",
     "typescript": "^5.7.2"
   }

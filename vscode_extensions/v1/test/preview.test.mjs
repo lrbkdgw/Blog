@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { close, preview, setInput, settle, update } from './helpers.mjs'
+import { close, preview, render, setInput, settle, update } from './helpers.mjs'
 
 const interactive = [
   '## 正文',
@@ -134,5 +134,77 @@ test('监听 VS Code 深浅主题而不是复制编辑器配色', async (t) => {
   document.body.classList.replace('vscode-light', 'vscode-high-contrast')
   await settle()
   assert.equal(document.documentElement.classList.contains('dark'), true)
+  assert.deepEqual(errors, [])
+})
+
+test('真实 morphdom 更新只管理模型入口，创建/编辑/删除展示框不会触碰 React 正文', async (t) => {
+  const base = '## 开始\n\n正文 $x^2$。\n\n```cpp\nint a = 1;\n```\n\n## 结尾'
+  const box = '::show_begin{新建变量}{n:Z=3[1,9,1]}\n值 *&show(n)*&\n::show_end'
+  const { dom, document, errors } = await preview(base)
+  t.after(() => close(dom))
+  const mount = document.querySelector('.markdown-extension-mount')
+  const nativeBody = document.querySelector('.markdown-body')
+  assert.equal(nativeBody.contains(mount), false)
+  assert.ok(nativeBody.classList.contains('markdown-extension-source'))
+  assert.equal(document.querySelectorAll('#开始').length, 1)
+
+  for (let i = 0; i < 3; ++i) {
+    await update(dom, base + '\n\n' + box)
+    assert.equal(document.querySelectorAll('.show-box').length, 1)
+    assert.equal(document.querySelector('.markdown-extension-mount'), mount)
+    await setInput(dom, document.querySelector('input[type="range"]'), '5')
+    await update(dom, base + '\n\n' + box)
+    assert.equal(document.querySelector('input[type="number"]').value, '5')
+    await update(dom, base)
+    assert.equal(document.querySelector('.show-box'), null)
+    assert.match(mount.textContent, /开始[\s\S]*结尾/)
+    assert.ok(mount.querySelector('.katex'))
+    assert.ok(mount.querySelector('.hljs-type'))
+    assert.equal(nativeBody.querySelector('.markdown-extension-mount'), null)
+    assert.equal(nativeBody.querySelector('.code-line'), null)
+    const nativeLines = dom.window.nativeCodeLineElements
+    assert.ok(nativeLines.every((element) => element.isConnected && document.querySelector('.markdown-extension-host').contains(element)))
+    assert.equal(nativeLines[0].getAttribute('data-line'), '0')
+    assert.equal(nativeLines.at(-1).getAttribute('data-line'), String(base.split('\n').length))
+    assert.deepEqual(errors, [])
+  }
+  await update(dom, '')
+  assert.equal(mount.textContent, '')
+  await update(dom, base)
+  assert.match(mount.textContent, /结尾/)
+  assert.deepEqual(errors, [])
+})
+
+test('预览模型的渐变默认关闭，参数开关实时应用且不重置展示框变量', async (t) => {
+  const { dom, document, errors } = await preview(interactive)
+  t.after(() => close(dom))
+  const enabled = () => document.body.classList.contains('markdown-extension-gradient-background')
+  assert.equal(enabled(), false)
+  await setInput(dom, document.querySelector('input[type="range"]'), '5')
+  await update(dom, interactive, 'file:///workspace/demo.md', { enableGradientBackground: true })
+  assert.equal(enabled(), true)
+  document.body.className = 'vscode-dark' // 原生主题更新可能重写 body 的全部类。
+  await settle()
+  assert.equal(enabled(), true)
+  assert.ok(document.documentElement.classList.contains('dark'))
+  assert.equal(document.querySelector('input[type="number"]').value, '5')
+  await update(dom, interactive, 'file:///workspace/demo.md', { enableGradientBackground: false })
+  assert.equal(enabled(), false)
+  assert.equal(document.querySelector('input[type="number"]').value, '5')
+  assert.deepEqual(errors, [])
+})
+
+test('延迟插入原生预览正文也能挂载；原生模型消失时清理 React 容器并恢复回退内容', async (t) => {
+  const { dom, document, errors } = await preview('开始')
+  t.after(() => close(dom))
+  document.querySelector('.markdown-body').innerHTML = '<p>原生回退</p>'
+  await settle()
+  assert.equal(document.querySelector('.markdown-extension-host'), null)
+  assert.equal(document.querySelector('.markdown-body').classList.contains('markdown-extension-source'), false)
+  assert.equal(document.querySelector('.markdown-body').textContent, '原生回退')
+  document.querySelector('.markdown-body').innerHTML = render(interactive) // 不发更新事件，模拟延迟插入。
+  await settle()
+  assert.equal(document.querySelectorAll('.markdown-extension-host').length, 1)
+  assert.ok(document.querySelector('input[type="range"]'))
   assert.deepEqual(errors, [])
 })

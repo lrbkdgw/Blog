@@ -8,6 +8,7 @@
 import type MarkdownIt from 'markdown-it'
 import type Token from 'markdown-it/lib/token.mjs'
 import { renderBlogPreview } from './render'
+import type { RenderOptions } from './render'
 
 interface RenderEnvironment {
   currentDocument?: { toString(): string }
@@ -16,7 +17,10 @@ interface RenderEnvironment {
 
 const extended = new WeakSet<MarkdownIt>()
 
-export function extendMarkdownIt(md: MarkdownIt): MarkdownIt {
+export function extendMarkdownIt(
+  md: MarkdownIt,
+  readConfiguration?: (documentUri: string) => Pick<RenderOptions, 'enableGradientBackground'>,
+): MarkdownIt {
   if (extended.has(md)) return md
   extended.add(md)
 
@@ -50,8 +54,10 @@ export function extendMarkdownIt(md: MarkdownIt): MarkdownIt {
       md.renderer.rules.image?.([image], 0, options, imageEnv, md.renderer)
       return image.attrGet('src') ?? url
     }
+    const documentUri = env.currentDocument?.toString() ?? ''
     return renderBlogPreview(source, {
-      documentUri: env.currentDocument?.toString(),
+      ...readConfiguration?.(documentUri),
+      documentUri,
       resolveImage,
       // 根 URI 只是动态图片的解析基准，不应该注册成要监视的“图片”。
       resourceRoot: resolveImage('/', { ...env, containingImages: new Set<string>() }),

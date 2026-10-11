@@ -9,6 +9,7 @@ export interface RenderOptions {
   documentUri?: string
   resolveImage?: (url: string) => string
   resourceRoot?: string
+  enableGradientBackground?: boolean
 }
 
 /** 保留博客块级行号，同时提供 VS Code 的 0 基 code-line 锚点。 */
@@ -49,6 +50,7 @@ export function renderBlogPreview(source: string, options: RenderOptions = {}): 
     documentUri: options.documentUri ?? '',
     resourceMap,
     resourceRoot: options.resourceRoot ?? '/',
+    enableGradientBackground: options.enableGradientBackground === true,
   }
   // encodeURIComponent 不含双引号或 HTML 标签；源码不能逃逸出 data 属性。
   const encoded = encodeURIComponent(JSON.stringify(model))

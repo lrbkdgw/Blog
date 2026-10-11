@@ -566,7 +566,7 @@ function SmartTable({
 
   return (
     <div
-      className="markdown-table-wrapper"
+      className={`markdown-table-wrapper${isTuack ? ' table-tuack-wrapper' : ''}`}
       role="region"
       aria-label="文章表格"
       tabIndex={0}

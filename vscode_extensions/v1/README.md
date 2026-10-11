@@ -2,14 +2,14 @@
 
 安装后，在 **VS Code 内置 Markdown 预览**中使用与本仓库博客相同的正文渲染：同一份 React 组件、Markdown 插件链、KaTeX、代码高亮、交互展示框和 Tailwind 样式，而不是另写一套近似实现。
 
-当前版本：**2.0.0**。目录 `v1/` 与扩展 ID `lrbkdgw.starlog-markdown` 保留以兼容旧版；插件展示名称、设置标题、命令分类均为 **Markdown 语法拓展**。
+当前版本：**2.0.1**。目录 `v1/` 与扩展 ID `lrbkdgw.starlog-markdown` 保留以兼容旧版；插件展示名称、设置标题、命令分类均为 **Markdown 语法拓展**。
 
 ## 安装与使用
 
 在仓库根目录执行：
 
 ```bash
-code --install-extension vscode_extensions/v1/starlog-markdown-2.0.0.vsix --force
+code --install-extension vscode_extensions/v1/starlog-markdown-2.0.1.vsix --force
 ```
 
 也可以在扩展侧边栏的 `…` 菜单选择 **从 VSIX 安装…**，安装上面的文件。升级后按 VS Code 的提示重新加载窗口，并重新打开预览。
@@ -19,6 +19,20 @@ code --install-extension vscode_extensions/v1/starlog-markdown-2.0.0.vsix --forc
 3. 命令 **Markdown 语法拓展: 打开语法示例文档**可打开随包附带的示例并分屏预览。
 
 **无需安装额外的公式插件、MPE、Node.js 或启动博客服务。** React、公式渲染、高亮、CSS 和全部 KaTeX 字体均内嵌在 VSIX 中，安装后离线可用（文档中使用的外链图片仍需网络）。
+
+## 预览背景设置
+
+VS Code **Settings** 中搜索 `@ext:lrbkdgw.starlog-markdown` 或「渐变」，使用 **Starlog › Preview: Enable Gradient Background** 开关。也可以在用户或工作区的 `settings.json` 中设置：
+
+```json
+{
+  "starlog.preview.enableGradientBackground": false
+}
+```
+
+默认 `false`：使用与博客主题对应的纯色背景；设为 `true`：使用博客同款渐变背景。修改设置后，已打开的内置预览会自动刷新，无需重新加载窗口。这只切换页面背景，不改变正文、公式、代码或展示框的样式。设置变更使用内置刷新命令，VS Code 重新载入预览时，展示框变量会恢复默认值。
+
+普通 Markdown 表格和非 Tuack 合并表格默认靠左，单元格遵循列分隔符中的对齐设置（`:--` 左、`:--:` 中、`--:` 右）；只有 Tuack 表格整体居中。此规则来自博客的共享样式，博客和插件同步生效。
 
 ## 为什么可以保持一致
 
@@ -39,6 +53,7 @@ code --install-extension vscode_extensions/v1/starlog-markdown-2.0.0.vsix --forc
 - 随 VS Code 的深浅色主题选择博客对应的配色；博客网页上个人设置的字体、字号和背景偏好不会自动跨应用同步。
 - YAML frontmatter 与博客一样不作为正文渲染，源行号保留原始偏移。
 - 本地图片经过 VS Code 的资源转换；相对链接仍由内置预览打开。
+- React 正文永久位于内置 `markdown-body` 的外面，避免内置 DOM 更新破坏创建、删除展示框后的渲染；隐藏入口不留下重复标题或滚动锚点。
 - 同源码刷新保留交互状态；源码改变时沿用博客组件的重置规则，切换文档不共享变量状态。
 - 保留内置预览的原始 token 分析与滚动行号，不放宽预览安全策略，也不重复调用 `acquireVsCodeApi`。
 
@@ -107,7 +122,7 @@ npm ci --prefix vscode_extensions/v1
 npm run build                              # 博客类型检查与生产构建
 npm --prefix vscode_extensions/v1 run typecheck
 npm run extension:test                     # 构建 + DOM / CSS / jsdom / 主进程 / MPE 回归
-npm run extension:package                  # 构建并生成 starlog-markdown-2.0.0.vsix
+npm run extension:package                  # 构建并生成 starlog-markdown-2.0.1.vsix
 npm --prefix vscode_extensions/v1 run watch # 监听共享源码、样式、Tailwind 配置与 MPE 源码
 ```
 
@@ -117,7 +132,7 @@ npm --prefix vscode_extensions/v1 run watch # 监听共享源码、样式、Tail
 BROWSER_EXECUTABLE_PATH=/path/to/chrome npm --prefix vscode_extensions/v1 run test:browser
 ```
 
-测试同时加载 VS Code 默认样式，逐项比较深浅主题下标题、代码、表格、折叠框、展示框和公式的计算样式，并验证变量改变后公式更新。不设置该环境变量时，仅跳过这两项浏览器测试，其余测试照常运行。
+测试同时加载 VS Code 默认样式，逐项比较深浅主题下标题、代码、普通/合并/Tuack 表格、折叠框、展示框和公式的计算样式，并验证变量更新及渐变开关。另用真实 `morphdom` 与异步 `postMessage`，在宿主/插件两种加载顺序下回归创建、删除、再次创建展示框、未闭合编辑、清空和切换文档。不设置该环境变量时，仅跳过四项浏览器测试，其余测试照常运行；这不是启动 VS Code/Electron 的端到端测试。
 
 关键目录：
 

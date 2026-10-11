@@ -35,10 +35,15 @@ const selectors = [
   '.prose pre',
   '.prose h2',
   '.prose blockquote',
+  '.prose .markdown-table-wrapper',
   '.prose table.markdown-table',
   '.prose table.markdown-table th',
   '.prose table.markdown-table td',
+  '.prose .table-tuack-wrapper',
+  '.prose .table-tuack-wrapper .markdown-table-wrapper',
   '.prose .table-tuack-wrapper table',
+  '.prose .table-tuack-wrapper table th',
+  '.prose .table-tuack-wrapper table td',
   '.dark .prose .table-tuack-wrapper table',
   '.prose details.callout',
   '.prose details.callout summary.callout-summary',
@@ -82,7 +87,7 @@ test('插件名、命令分类、预览贡献与实际构建产物一致', () =>
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
   assert.equal(manifest.displayName, 'Markdown 语法拓展')
   assert.equal(manifest.name, 'starlog-markdown') // 保留扩展 ID，旧用户直接升级。
-  assert.equal(manifest.version, '2.0.0')
+  assert.equal(manifest.version, '2.0.1')
   assert.ok(manifest.contributes.commands.every((command) => command.category === 'Markdown 语法拓展'))
   for (const file of [manifest.main, ...manifest.contributes['markdown.previewStyles'], ...manifest.contributes['markdown.previewScripts']]) {
     assert.ok(existsSync(resolve(root, file)), file)
@@ -90,4 +95,29 @@ test('插件名、命令分类、预览贡献与实际构建产物一致', () =>
   const notices = readFileSync(join(root, 'resources/third-party-notices.txt'), 'utf8')
   assert.match(notices, /react 19\./)
   assert.match(notices, /katex 0\.16\./)
+})
+
+test('普通/合并表格默认靠左，Tuack 外壳和内部表格仍居中', () => {
+  assert.equal(declarations(extension, '.markdown-extension-preview .prose .markdown-table-wrapper')['justify-content'], 'flex-start')
+  for (const selector of ['table.markdown-table', 'table.markdown-table th', 'table.markdown-table td']) {
+    assert.equal(declarations(extension, '.markdown-extension-preview .prose ' + selector)['text-align'], 'left')
+  }
+  assert.equal(declarations(extension, '.markdown-extension-preview .prose .table-tuack-wrapper .markdown-table-wrapper')['justify-content'], 'center')
+  assert.equal(declarations(extension, '.markdown-extension-preview .prose .table-tuack-wrapper table th')['text-align'], 'center')
+  assert.equal(declarations(extension, '.markdown-extension-preview .prose .table-tuack-wrapper table td')['text-align'], 'center')
+  // 静态兼容层也不能额外强制普通合并单元格居中，Tuack 的专用居中规则仍保留。
+  const mpe = postcss.parse(readFileSync(join(root, 'media/mpe.css'), 'utf8'))
+  assert.equal(declarations(mpe, 'table td[colspan]')['text-align'], undefined)
+  assert.equal(declarations(mpe, '.starlog-table-tuack td')['text-align'], 'center')
+})
+
+test('Settings 暴露默认关闭的渐变背景开关，并保留共享背景而不是重新定义渐变', () => {
+  const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const setting = manifest.contributes.configuration.properties['starlog.preview.enableGradientBackground']
+  assert.equal(setting.type, 'boolean')
+  assert.equal(setting.default, false)
+  assert.equal(setting.scope, 'resource')
+  assert.equal(declarations(extension, 'body:not(.markdown-extension-gradient-background)')['background-image'], 'none')
+  assert.ok(declarations(extension, 'body')['background-image'].includes('radial-gradient'))
+  assert.equal(declarations(extension, '.markdown-extension-source').display, 'none!important')
 })

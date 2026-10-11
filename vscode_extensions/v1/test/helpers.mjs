@@ -35,6 +35,23 @@ export function render(source, documentUri = 'file:///workspace/demo.md') {
   return engine().render(source, { currentDocument: { toString: () => documentUri } })
 }
 
+export function nativeContent(source, documentUri = 'file:///workspace/demo.md', options = {}) {
+  const html = core.renderBlogPreview(source, { ...options, documentUri })
+  return `<div class="markdown-body" dir="auto">${html}<div class="code-line" data-line="${source.replace(/\r\n?/g, '\n').split('\n').length}"></div></div>`
+}
+
+const nativeBundle = await build({
+  absWorkingDir: root,
+  entryPoints: ['test/fixtures/vscode-update.mjs'],
+  bundle: true,
+  write: false,
+  platform: 'browser',
+  format: 'iife',
+  target: ['es2020'],
+  logLevel: 'silent',
+})
+export const nativePreviewScript = nativeBundle.outputFiles[0].text
+
 export function documentOf(html) {
   return new JSDOM('<!doctype html><html><body>' + html + '</body></html>').window.document
 }
@@ -53,9 +70,9 @@ export function blogMarkup(html) {
 const script = readFileSync(join(root, 'out/preview.js'), 'utf8')
 export const settle = () => new Promise((resolve) => setTimeout(resolve, 15))
 
-export async function preview(source, className = 'vscode-light') {
+export async function preview(source, className = 'vscode-light', options = {}) {
   const errors = []
-  const dom = new JSDOM(`<!doctype html><html><body class="${className}"><main class="markdown-body">${render(source)}</main></body></html>`, {
+  const dom = new JSDOM(`<!doctype html><html><body class="${className}"><main class="markdown-body">${core.renderBlogPreview(source, { documentUri: 'file:///workspace/demo.md', ...options })}</main></body></html>`, {
     runScripts: 'outside-only',
     pretendToBeVisual: true,
     url: 'https://preview.test/workspace/demo.md',
@@ -69,15 +86,10 @@ export async function preview(source, className = 'vscode-light') {
   if (dom.window.document.readyState === 'loading') {
     await new Promise((resolve) => dom.window.addEventListener('load', resolve, { once: true }))
   }
+  // 与内置预览一样，先注册宿主，再加载插件；使用真实 morphdom 而非 innerHTML 模拟。
+  dom.window.eval(nativePreviewScript)
   dom.window.eval(script)
   await settle()
-
-  // 模拟 VS Code 在捕获阶段之后执行的 DOM 更新。
-  dom.window.addEventListener('message', (event) => {
-    if (event.data?.type !== 'updateContent') return
-    dom.window.document.querySelector('.markdown-body').innerHTML = event.data.content
-    dom.window.dispatchEvent(new dom.window.CustomEvent('vscode.markdown.updateContent'))
-  })
   return { dom, document: dom.window.document, errors }
 }
 
@@ -89,9 +101,9 @@ export async function setInput(dom, input, value) {
   await settle()
 }
 
-export async function update(dom, source, documentUri = 'file:///workspace/demo.md') {
+export async function update(dom, source, documentUri = 'file:///workspace/demo.md', options = {}) {
   dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
-    data: { type: 'updateContent', source: documentUri, content: render(source, documentUri) },
+    data: { type: 'updateContent', source: documentUri, content: nativeContent(source, documentUri, options) },
   }))
   await settle()
 }
