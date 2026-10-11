@@ -7,7 +7,7 @@
       "::show_end",
       ""
     ],
-    "description": "星野笔记：交互展示框 ::show_begin … ::show_end"
+    "description": "Markdown 语法拓展：交互展示框 ::show_begin … ::show_end"
   },
   "展示框变量 · 整数": {
     "prefix": "varz",
@@ -57,7 +57,7 @@
       ":::",
       ""
     ],
-    "description": "星野笔记：折叠框 / 提示框"
+    "description": "Markdown 语法拓展：折叠框 / 提示框"
   },
   "Tuack 表格": {
     "prefix": ["::cute-table", "tuack"],
@@ -71,6 +71,6 @@
       "| ^ | ${6:内容} |",
       "$0"
     ],
-    "description": "星野笔记：Tuack 风格表格，< 向左合并、^ 向上合并"
+    "description": "Markdown 语法拓展：Tuack 风格表格，< 向左合并、^ 向上合并"
   }
 }

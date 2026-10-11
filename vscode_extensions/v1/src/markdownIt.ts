@@ -1,146 +1,68 @@
 /**
- * VS Code 内置 Markdown 预览使用的 markdown-it 插件。
+ * 内置预览的宿主桥接层。
  *
- * 1. 在 normalize 之前把 Blog 的特殊语法转成「Markdown + HTML」；
- * 2. 在 inline 解析之后，把表格里的 `^` / `<` 合并标记变成 rowspan / colspan。
+ * 不再让 markdown-it 重新实现博客语法。保留其原始 tokens 供 VS Code 的目录、
+ * 链接分析和缓存使用，仅在整篇文档的 render 阶段调用博客的 React 渲染器。
+ * renderInline 不受影响；本地图片仍经过 VS Code 自己的资源转换器。
  */
+import type MarkdownIt from 'markdown-it'
+import type Token from 'markdown-it/lib/token.mjs'
+import { renderBlogPreview } from './render'
+import type { RenderOptions } from './render'
 
-import { transformMarkdown } from './core/transform'
-
-type AnyToken = {
-  type: string
-  tag: string
-  content: string
-  hidden: boolean
-  attrSet(name: string, value: string): void
-  attrGet(name: string): string | null
+interface RenderEnvironment {
+  currentDocument?: { toString(): string }
+  containingImages?: Set<string>
 }
 
-interface MarkdownIt {
-  set(options: Record<string, unknown>): MarkdownIt
-  core: { ruler: { before(name: string, id: string, fn: (state: any) => void): void; push(id: string, fn: (state: any) => void): void } }
-}
+const extended = new WeakSet<MarkdownIt>()
 
-interface Cell {
-  open: number
-  inline: number
-  close: number
-  text: string
-  row: number
-  col: number
-  rowspan: number
-  colspan: number
-  hidden: boolean
-  parent: Cell | null
-}
+export function extendMarkdownIt(
+  md: MarkdownIt,
+  readConfiguration?: (documentUri: string) => Pick<RenderOptions, 'enableGradientBackground'>,
+): MarkdownIt {
+  if (extended.has(md)) return md
+  extended.add(md)
 
-/** 把 `<`（向左合并）与 `^`（向上合并）标记转成 colspan / rowspan。 */
-function mergeTableCells(state: { tokens: AnyToken[] }): void {
-  const tokens = state.tokens
-  const removed: boolean[] = []
+  const sources = new WeakMap<Token[], string>()
+  const originalSource = Symbol('markdown-extension-source')
+  let TokenConstructor: typeof Token
 
-  for (let index = 0; index < tokens.length; index += 1) {
-    if (tokens[index].type !== 'tbody_open') continue
-    const bodyStart = index
-    let bodyEnd = index
-    let depth = 0
-    for (let scan = index; scan < tokens.length; scan += 1) {
-      if (tokens[scan].type === 'tbody_open') depth += 1
-      if (tokens[scan].type === 'tbody_close') {
-        depth -= 1
-        if (depth === 0) {
-          bodyEnd = scan
-          break
-        }
-      }
+  md.core.ruler.before('normalize', 'markdown_extension_source', (state) => {
+    if (state.inlineMode) return
+    TokenConstructor = state.Token
+    // 必须在 normalize/frontmatter 等规则之前保存原文和原始行号。
+    ;(state as unknown as Record<symbol, string>)[originalSource] = state.src
+  })
+  md.core.ruler.push('markdown_extension_remember', (state) => {
+    if (!state.inlineMode) {
+      sources.set(state.tokens, (state as unknown as Record<symbol, string>)[originalSource])
     }
-
-    const rows: Cell[][] = []
-    let current: Cell[] | null = null
-    for (let scan = bodyStart + 1; scan < bodyEnd; scan += 1) {
-      const token = tokens[scan]
-      if (token.type === 'tr_open') {
-        current = []
-        rows.push(current)
-        continue
-      }
-      if (token.type === 'td_open' && current) {
-        const inline = scan + 1 < bodyEnd && tokens[scan + 1].type === 'inline' ? scan + 1 : -1
-        let close = scan + 1
-        while (close < bodyEnd && tokens[close].type !== 'td_close') close += 1
-        current.push({
-          open: scan,
-          inline,
-          close,
-          text: inline >= 0 ? tokens[inline].content.trim() : '',
-          row: rows.length - 1,
-          col: current.length,
-          rowspan: 1,
-          colspan: 1,
-          hidden: false,
-          parent: null,
-        })
-      }
-    }
-
-    if (rows.length) {
-      const width = Math.max.apply(null, rows.map((row) => row.length))
-      const root = (row: number, col: number): Cell | null => {
-        let cell = rows[row] && rows[row][col] ? rows[row][col] : null
-        while (cell && cell.parent) cell = cell.parent
-        return cell
-      }
-      for (let r = 0; r < rows.length; r += 1) {
-        for (let c = 0; c < width; c += 1) {
-          const cell = rows[r] && rows[r][c]
-          if (!cell) continue
-          if (cell.text === '<' && c > 0) {
-            const target = root(r, c - 1)
-            if (target) {
-              if (target.row === r) target.colspan += 1
-              cell.hidden = true
-              cell.parent = target
-            }
-          } else if (cell.text === '^' && r > 0) {
-            const target = root(r - 1, c)
-            if (target) {
-              if (target.col === c) target.rowspan += 1
-              cell.hidden = true
-              cell.parent = target
-            }
-          }
-        }
-      }
-      for (const row of rows) {
-        for (const cell of row) {
-          if (cell.hidden) {
-            for (let scan = cell.open; scan <= cell.close; scan += 1) removed[scan] = true
-            continue
-          }
-          if (cell.rowspan > 1) tokens[cell.open].attrSet('rowspan', String(cell.rowspan))
-          if (cell.colspan > 1) tokens[cell.open].attrSet('colspan', String(cell.colspan))
-        }
-      }
-    }
-
-    index = bodyEnd
-  }
-
-  if (removed.length) {
-    state.tokens = tokens.filter((_token, position) => !removed[position])
-  }
-}
-
-export function extendMarkdownIt(md: MarkdownIt): MarkdownIt {
-  md.set({ html: true })
-
-  md.core.ruler.before('normalize', 'starlog_preprocess', (state: { src: string }) => {
-    state.src = transformMarkdown(state.src, { interactive: true })
   })
 
-  md.core.ruler.push('starlog_table_merge', (state: any) => {
-    mergeTableCells(state)
-  })
+  const render = md.renderer.render.bind(md.renderer)
+  md.renderer.render = (tokens, options, env: RenderEnvironment = {}) => {
+    const source = sources.get(tokens)
+    if (source === undefined) return render(tokens, options, env)
+
+    const resolveImage = (url: string, imageEnv = env) => {
+      // VS Code 在加载扩展后包装 image rule；调用时再读取，不能提前缓存。
+      const image = new TokenConstructor('image', 'img', 0)
+      image.attrSet('src', url)
+      image.attrSet('alt', '')
+      image.children = []
+      md.renderer.rules.image?.([image], 0, options, imageEnv, md.renderer)
+      return image.attrGet('src') ?? url
+    }
+    const documentUri = env.currentDocument?.toString() ?? ''
+    return renderBlogPreview(source, {
+      ...readConfiguration?.(documentUri),
+      documentUri,
+      resolveImage,
+      // 根 URI 只是动态图片的解析基准，不应该注册成要监视的“图片”。
+      resourceRoot: resolveImage('/', { ...env, containingImages: new Set<string>() }),
+    })
+  }
 
   return md
 }

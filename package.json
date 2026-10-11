@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "extension:build": "npm --prefix vscode_extensions/v1 run build",
+    "extension:test": "npm --prefix vscode_extensions/v1 test",
+    "extension:package": "npm --prefix vscode_extensions/v1 run package"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",

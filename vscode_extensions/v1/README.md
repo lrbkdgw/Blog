@@ -1,106 +1,150 @@
-# 星野笔记特殊语法 · VS Code 扩展（v1）
+# Markdown 语法拓展 · VS Code 插件
 
-把 [星野笔记 Blog](../../README.md) 的专属 Markdown 语法搬进 VS Code：在编辑器里高亮、补全，在预览里实时渲染，并且**同时支持 VS Code 内置 Markdown 预览与 Markdown Preview Enhanced（MPE）**。
+安装后，在 **VS Code 内置 Markdown 预览**中使用与本仓库博客相同的正文渲染：同一份 React 组件、Markdown 插件链、KaTeX、代码高亮、交互展示框和 Tailwind 样式，而不是另写一套近似实现。
 
-```
-vscode_extensions/v1/starlog-markdown-1.0.0.vsix   ← 可直接安装的扩展包
-```
+当前版本：**2.0.1**。目录 `v1/` 与扩展 ID `lrbkdgw.starlog-markdown` 保留以兼容旧版；插件展示名称、设置标题、命令分类均为 **Markdown 语法拓展**。
 
-## 一、安装
+## 安装与使用
 
-方式 A（命令行）：
+在仓库根目录执行：
 
 ```bash
-code --install-extension vscode_extensions/v1/starlog-markdown-1.0.0.vsix
+code --install-extension vscode_extensions/v1/starlog-markdown-2.0.1.vsix --force
 ```
 
-方式 B（界面）：扩展侧边栏 → 右上角 `…` → **从 VSIX 安装…** → 选择上面的 `.vsix`。
+也可以在扩展侧边栏的 `…` 菜单选择 **从 VSIX 安装…**，安装上面的文件。升级后按 VS Code 的提示重新加载窗口，并重新打开预览。
 
-安装后打开任意 `.md` 文件，命令面板执行 **「星野笔记: 打开语法示例文档」** 即可对照预览效果。
+1. 打开任意 `.md` 文件。
+2. 执行 **Markdown: 打开侧边预览**（Windows/Linux：`Ctrl+K V`；macOS：`⌘+K V`），或使用 `Ctrl/⌘+Shift+V` 打开内置预览。
+3. 命令 **Markdown 语法拓展: 打开语法示例文档**可打开随包附带的示例并分屏预览。
 
-## 二、支持的语法
+**无需安装额外的公式插件、MPE、Node.js 或启动博客服务。** React、公式渲染、高亮、CSS 和全部 KaTeX 字体均内嵌在 VSIX 中，安装后离线可用（文档中使用的外链图片仍需网络）。
+
+## 预览背景设置
+
+VS Code **Settings** 中搜索 `@ext:lrbkdgw.starlog-markdown` 或「渐变」，使用 **Starlog › Preview: Enable Gradient Background** 开关。也可以在用户或工作区的 `settings.json` 中设置：
+
+```json
+{
+  "starlog.preview.enableGradientBackground": false
+}
+```
+
+默认 `false`：使用与博客主题对应的纯色背景；设为 `true`：使用博客同款渐变背景。修改设置后，已打开的内置预览会自动刷新，无需重新加载窗口。这只切换页面背景，不改变正文、公式、代码或展示框的样式。设置变更使用内置刷新命令，VS Code 重新载入预览时，展示框变量会恢复默认值。
+
+普通 Markdown 表格和非 Tuack 合并表格默认靠左，单元格遵循列分隔符中的对齐设置（`:--` 左、`:--:` 中、`--:` 右）；只有 Tuack 表格整体居中。此规则来自博客的共享样式，博客和插件同步生效。
+
+## 为什么可以保持一致
+
+| 内容 | 唯一来源 |
+| --- | --- |
+| Markdown、GFM、公式、高亮、折叠框、智能表格、代码复制按钮、标题锚点 | `src/components/Markdown.tsx` |
+| 展示框布局、数字框 / 滑动条 / 文本框及实时重渲染 | `src/components/ShowBox.tsx` |
+| 变量解析、映射、表达式与取整 | `src/lib/showBox.ts` |
+| 复制为洛谷 / 基本 Markdown | `src/lib/markdownSource.ts` |
+| 默认排版、深浅色主题与控件样式 | `src/styles/index.css`、`tailwind.config.js` |
+| React / KaTeX / remark / rehype 的版本 | 仓库根目录 `package-lock.json` |
+
+扩展主进程用博客组件生成初始 HTML；预览脚本再直接挂载同一组件。改变变量后，**整段 Markdown 源码重新经过博客的渲染链**，所以公式、表格、行内代码、围栏代码、映射生成的 Markdown 都会一起更新，而不只是替换正文中的几个 span。
+
+样式在构建时直接从博客生成，并加正文作用域；宿主适配层仅中和 VS Code 自带的字号、标题下边距、引用圆角等冲突，不维护另一份博客主题。公式 CSS 也放在同一样式入口中，确保加载顺序一致。
+
+- 默认采用博客的字体栈与 16px 基准字号，不使用 `markdown.preview.fontFamily` / `fontSize` 改写正文。
+- 随 VS Code 的深浅色主题选择博客对应的配色；博客网页上个人设置的字体、字号和背景偏好不会自动跨应用同步。
+- YAML frontmatter 与博客一样不作为正文渲染，源行号保留原始偏移。
+- 本地图片经过 VS Code 的资源转换；相对链接仍由内置预览打开。
+- React 正文永久位于内置 `markdown-body` 的外面，避免内置 DOM 更新破坏创建、删除展示框后的渲染；隐藏入口不留下重复标题或滚动锚点。
+- 同源码刷新保留交互状态；源码改变时沿用博客组件的重置规则，切换文档不共享变量状态。
+- 保留内置预览的原始 token 分析与滚动行号，不放宽预览安全策略，也不重复调用 `acquireVsCodeApi`。
+
+同款效果针对 **Markdown 正文**，不包含博客的导航、文章元信息、评论和网页布局。其它改变整篇 Markdown 渲染的扩展可能发生冲突，建议不要同时启用。
+
+## 支持语法
 
 | 语法 | 说明 |
 | --- | --- |
-| `::show_begin{标题}{变量定义}` … `::show_end` | 交互展示框，变量实时驱动正文 |
-| `*&show(变量)*&` | 输出变量当前值 |
+| `::show_begin{标题}{变量定义}` … `::show_end` | 交互展示框 |
+| `*&show(变量)*&` | 输出当前变量值 |
 | `*&hs(表达式)*&` | 计算只含 `+ - * / ^ ()` 与数值变量的式子 |
-| `&*floor(数值,位数)&*` / `&*ceil(数值,位数)&*` | 按位数向下 / 向上取整（兼容旧写法 `*&floor(…)*&`） |
-| `*&变量:{键,内容;…}*&` | 取值到展示内容的映射；未声明的变量会自动生成控件 |
-| `:::info[标题]{open}` … `:::` | 折叠框，支持 `info/note/tip/success/warning/error/danger` 与多层嵌套（`::::`） |
-| `::cute-table{tuack}` | 下一张表格使用 Tuack 风格 |
-| 表格里的 `<` / `^` | 向左 / 向上合并单元格（colspan / rowspan） |
+| `&*floor(数值,位数)&*` / `&*ceil(数值,位数)&*` | 按位数向下 / 向上取整，兼容旧写法 `*&floor(…)*&` |
+| `*&变量:{键,内容;…}*&` | 变量到 Markdown 内容的映射，未声明的变量自动生成控件 |
+| `:::info[标题]{open}` … `:::` | 折叠框，支持 `info/note/tip/success/warning/error/danger` 与多层嵌套 |
+| `::cute-table{tuack}` | Tuack 表格 |
+| 表格内的 `<` / `^` | 向左 / 向上合并单元格 |
+| `$…$`、`$$` 块、`math` 围栏 | 与博客相同的 KaTeX 公式 |
+| 普通 Markdown / GFM | 高亮代码、任务列表、删除线、脚注、表格、原始 HTML 等 |
 
-变量定义：`名字:类型=默认值[最小,最大,步长]`，类型用 `Z`（整数）、`Q`（有理数）、`S`（字符串）。
-整数默认带滑动条；有理数需在定义末尾加 `{faster_set}` 才显示滑动条；字符串的两个限制值是最小、最大长度。
+变量定义：`名字:类型=默认值[最小,最大,步长]`。`Z` 为整数，`Q` 为有理数，`S` 为字符串。整数默认有滑动条；有理数需加 `{faster_set}` 才显示滑动条；字符串的两个限制是最小、最大长度。
 
-这些规则与 Blog 前端（`src/lib/showBox.ts`、`src/components/Markdown.tsx`、`src/lib/markdownSource.ts`）完全一致——扩展直接移植了同一套解析 / 求值代码，所以站内与本地预览结果相同。
+````markdown
+::show_begin{二次函数}{a:Z=1[-5,5,1]; b:Q=0[-10,10,0.5]{faster_set}; name:S=星野[0,12]}
+你好，*&show(name)*&。结果是 *&hs(a^2+b)*&。
 
-## 三、两条预览路线
+$$
+x_{*&show(a)*&}=*&hs(a^2+b)*&
+$$
 
-### 1. VS Code 内置 Markdown 预览（开箱即用，**可交互**）
+```cpp
+int a = *&show(a)*&;
+```
+::show_end
+````
 
-扩展通过 `markdown.markdownItPlugins` 注入 markdown-it 插件，并附带预览样式与脚本：
+## 命令与片段
 
-- 展示框带数字框 / 滑动条 / 文本框，拖动即时刷新正文中的 `show` / `hs` / `floor` / `ceil` / 映射结果；
-- 文档重新渲染后仍会记住当前取值（按展示框内容哈希）；
-- 公式 `$…$`、行内代码与代码块里的记号按默认值静态替换，避免破坏 KaTeX 与代码高亮。
+命令面板中的分类统一为 **Markdown 语法拓展**：
 
-### 2. Markdown Preview Enhanced（需一键安装，**静态渲染**）
+- 插入交互展示框 / 折叠框 / Tuack 表格。
+- 复制为洛谷源码 / 基本 Markdown 源码（有选区时只转换选区）。
+- 打开语法示例文档。
+- 安装 / 移除 Markdown Preview Enhanced 静态兼容支持。
 
-MPE 不会加载其它扩展注册的 markdown-it 插件，但它支持「扩展解析器」。执行命令：
+旧的 `starlog.*` 命令 ID 和设置键保留，原有快捷键无需修改。
 
-> **星野笔记: 安装 Markdown Preview Enhanced 支持**（可选全局 `~/.crossnote` 或当前工作区 `.crossnote`）
+代码片段包括 `show`、`varz`、`varq`、`vars`、`show(`、`hs(`、`floor(`、`ceil(`、`map`、`callout`、`tuack`。
 
-该命令会：
+## Markdown Preview Enhanced（可选，静态兼容）
 
-1. 写入 `parser.js`——一个**自包含、单表达式**的脚本（兼容 crossnote ≥ 0.9.30 的 QuickJS 沙箱，不含 `require` / Node API），在 `onWillParseMarkdown` 阶段把特殊语法展开；
-2. 把配套样式合并进 `style.less`（只替换 `starlog-markdown:begin/end` 标记之间的内容，你原有的样式会保留）；
-3. 打开 MPE 的 `enableExtendedTableSyntax`，让 `<` / `^` 能生成 colspan / rowspan；
-4. 若已存在他人写的 `parser.js`，会先备份为 `parser.js.bak-<时间戳>` 再覆盖，并在通知里告诉你路径。
+**要与博客的交互渲染一致，请使用上面的 VS Code 内置预览。** MPE 使用自己独立的渲染引擎，不加载本扩展的 React 预览脚本，不能提供同款交互。
 
-MPE 预览里展示框按**变量默认值**静态渲染，并在底部列出变量清单（MPE 预览不执行扩展提供的脚本，因此没有滑动条）；折叠框、Tuack 表格、单元格合并、框内的 Markdown 与公式都正常。
+为兼容已有工作流，保留 MPE 的安装 / 移除命令：它们会写入全局 `~/.crossnote` 或当前工作区 `.crossnote` 的单表达式 `parser.js`、合并 `style.less`，并开启扩展表格语法。其它解析器会在覆盖前备份，原有样式保留。
 
-卸载：**星野笔记: 移除 Markdown Preview Enhanced 支持**。
+该路线只按变量默认值静态展开展示框，不保证与博客的完整视觉效果一致。自动安装提示默认关闭，安装本插件不会擅自修改 MPE 配置。
 
-## 四、命令一览
+## 开发与验证
 
-| 命令 | 作用 |
-| --- | --- |
-| 星野笔记: 安装 / 移除 Markdown Preview Enhanced 支持 | 读写 `.crossnote/parser.js` 与 `style.less` |
-| 星野笔记: 插入交互展示框 / 折叠框 / Tuack 表格 | 带占位符的代码片段 |
-| 星野笔记: 复制为洛谷源码 | 展示框按默认值展开，保留折叠框与表格扩展 |
-| 星野笔记: 复制为基本 Markdown 源码 | 再把折叠框转引用、展开合并单元格、去掉 Tuack 指令（有选中内容时只转换选区） |
-| 星野笔记: 打开语法示例文档 | 打开 `samples/syntax-demo.md` 并分屏预览 |
-
-还有一批代码片段：`show`、`varz`、`varq`、`vars`、`hs(`、`floor(`、`ceil(`、`map`、`callout`、`tuack`。
-
-## 五、已知差异
-
-- 预处理会插入若干行 HTML，预览的滚动同步在展示框 / 折叠框之后可能有几行偏移。
-- 折叠框标题按纯文本渲染（Blog 站内会额外渲染标题里的 KaTeX）。
-- MPE 路线下 `<` 依赖 MPE 的「扩展表格语法」；安装命令已自动开启，若手动关闭则合并失效。
-
-## 六、本地开发
+扩展必须在本仓库内构建，因为它引用博客源码和根目录锁定的依赖；安装成品 VSIX 不需要仓库。
 
 ```bash
-cd vscode_extensions/v1
-npm install
-npm run build      # 产出 out/ 与 resources/mpe/
-npm test           # markdown-it / QuickJS 单表达式 / jsdom 交互 回归测试
-npm run typecheck
-npm run package    # 重新生成 .vsix
+# 仓库根目录
+npm ci
+npm ci --prefix vscode_extensions/v1
+npm run build                              # 博客类型检查与生产构建
+npm --prefix vscode_extensions/v1 run typecheck
+npm run extension:test                     # 构建 + DOM / CSS / jsdom / 主进程 / MPE 回归
+npm run extension:package                  # 构建并生成 starlog-markdown-2.0.1.vsix
+npm --prefix vscode_extensions/v1 run watch # 监听共享源码、样式、Tailwind 配置与 MPE 源码
 ```
 
-目录结构：
+另外提供可选的真实 Chromium 对照测试。先构建博客，再指定本机 Chrome/Chromium 可执行文件：
 
+```bash
+BROWSER_EXECUTABLE_PATH=/path/to/chrome npm --prefix vscode_extensions/v1 run test:browser
 ```
-src/core/showBox.ts       从 Blog 移植的解析 / 求值 / 渲染核心（无依赖）
-src/core/transform.ts     特殊语法 → Markdown + HTML
-src/core/sourceConvert.ts 洛谷 / 基本 Markdown 降级
-src/markdownIt.ts         内置预览的 markdown-it 插件（含表格合并）
-src/preview/preview.ts    内置预览的交互脚本
-src/mpe/parserEntry.ts    MPE 扩展解析器入口
-src/mpeSetup.ts           .crossnote 安装 / 卸载逻辑
-resources/mpe/            构建产物：parser.js、style.less
+
+测试同时加载 VS Code 默认样式，逐项比较深浅主题下标题、代码、普通/合并/Tuack 表格、折叠框、展示框和公式的计算样式，并验证变量更新及渐变开关。另用真实 `morphdom` 与异步 `postMessage`，在宿主/插件两种加载顺序下回归创建、删除、再次创建展示框、未闭合编辑、清空和切换文档。不设置该环境变量时，仅跳过四项浏览器测试，其余测试照常运行；这不是启动 VS Code/Electron 的端到端测试。
+
+关键目录：
+
+```text
+src/render.tsx           博客组件的服务端渲染 + frontmatter / 行号适配
+src/markdownIt.ts        内置预览桥接，保留 VS Code token 缓存与图片转换
+src/preview/preview.tsx  挂载博客 React 组件，隔离 VS Code 的 DOM 更新
+src/core/showBox.ts      博客求值器的直接 re-export
+src/core/sourceConvert.ts 博客源码转换的直接 re-export
+src/core/transform.ts    仅用于 MPE 的静态兼容转换
+media/preview.css        很薄的 VS Code 外壳适配
+out/                    打包的主进程、脚本、正文 CSS、KaTeX 字体
+resources/mpe/          MPE 静态兼容构建产物
+resources/third-party-notices.txt  打包依赖与字体的许可证
 ```

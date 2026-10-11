@@ -1,3 +1,6 @@
+/* 固定公式样式与正文样式的加载顺序，博客和 VS Code 使用同一入口。 */
+@import "katex/dist/katex.min.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -243,14 +246,14 @@
 }
 
 /* -------------------------------------------------------------------------- */
-/*              1. 标准表格 & 合并表格（仿洛谷：居中、浅淡边框、表头无底色）         */
+/*              1. 标准表格 & 合并表格（靠左、浅淡边框、表头无底色）                 */
 /* -------------------------------------------------------------------------- */
 .prose .markdown-table-wrapper {
-  @apply my-8 flex w-full justify-center overflow-x-auto;
+  @apply my-8 flex w-full justify-start overflow-x-auto;
 }
 
 .prose table.markdown-table {
-  @apply !my-0 w-auto table-auto border-collapse text-center text-base leading-relaxed;
+  @apply !my-0 w-auto table-auto border-collapse text-left text-base leading-relaxed;
   border: 1px solid #e5e7eb;
 }
 .dark .prose table.markdown-table {
@@ -258,7 +261,7 @@
 }
 
 .prose table.markdown-table th {
-  @apply px-4 py-2.5 font-bold text-ink-900 text-center align-middle whitespace-nowrap bg-transparent;
+  @apply px-4 py-2.5 font-bold text-ink-900 text-left align-middle whitespace-nowrap bg-transparent;
   border: 1px solid #e5e7eb;
 }
 .dark .prose table.markdown-table th {
@@ -267,7 +270,7 @@
 }
 
 .prose table.markdown-table td {
-  @apply px-4 py-2.5 text-ink-800 text-center align-middle bg-transparent;
+  @apply px-4 py-2.5 text-ink-800 text-left align-middle bg-transparent;
   border: 1px solid #e5e7eb;
 }
 .dark .prose table.markdown-table td {
@@ -289,6 +292,10 @@
   @apply my-8 flex w-full justify-center overflow-x-auto;
 }
 
+.prose .table-tuack-wrapper .markdown-table-wrapper {
+  justify-content: center;
+}
+
 .prose table.table-tuack,
 .prose .table-tuack-wrapper table {
   @apply !my-0 w-auto table-auto border-collapse text-center text-base leading-relaxed;
@@ -304,7 +311,7 @@
 }
 
 .prose table.table-tuack th,
-.prose .table-tuack-wrapper th {
+.prose .table-tuack-wrapper table th {
   @apply px-4 py-2.5 font-bold text-ink-900 text-center align-middle bg-transparent whitespace-nowrap;
   border-top: none !important;
   border-bottom: 2px solid #111827 !important;
@@ -312,7 +319,7 @@
   border-right: 1.2px solid #111827;
 }
 .dark .prose table.table-tuack th,
-.dark .prose .table-tuack-wrapper th {
+.dark .prose .table-tuack-wrapper table th {
   @apply text-white;
   border-bottom-color: #ffffff !important;
   border-left-color: rgba(255, 255, 255, 0.6);
@@ -320,7 +327,7 @@
 }
 
 .prose table.table-tuack td,
-.prose .table-tuack-wrapper td {
+.prose .table-tuack-wrapper table td {
   @apply px-4 py-2 text-ink-900 text-center align-middle bg-transparent;
   border-top: 1.2px solid #111827;
   border-bottom: 1.2px solid #111827;
@@ -328,7 +335,7 @@
   border-right: 1.2px solid #111827;
 }
 .dark .prose table.table-tuack td,
-.dark .prose .table-tuack-wrapper td {
+.dark .prose .table-tuack-wrapper table td {
   @apply text-ink-100;
   border-top-color: rgba(255, 255, 255, 0.6);
   border-bottom-color: rgba(255, 255, 255, 0.6);
@@ -339,14 +346,14 @@
 /* 去除 Tuack 表格最外侧左右边框 (Open sides) */
 .prose table.table-tuack th:first-child,
 .prose table.table-tuack td:first-child,
-.prose .table-tuack-wrapper th:first-child,
-.prose .table-tuack-wrapper td:first-child {
+.prose .table-tuack-wrapper table th:first-child,
+.prose .table-tuack-wrapper table td:first-child {
   border-left: none !important;
 }
 .prose table.table-tuack th:last-child,
 .prose table.table-tuack td:last-child,
-.prose .table-tuack-wrapper th:last-child,
-.prose .table-tuack-wrapper td:last-child {
+.prose .table-tuack-wrapper table th:last-child,
+.prose .table-tuack-wrapper table td:last-child {
   border-right: none !important;
 }
 

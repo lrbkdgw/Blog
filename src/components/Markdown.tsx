@@ -1,8 +1,8 @@
 import { Children, cloneElement, createElement, isValidElement, memo, useCallback, useMemo, useState } from 'react'
 import type { HTMLAttributes, ReactNode } from 'react'
-import 'katex/dist/katex.min.css'
 import katex from 'katex'
 import ReactMarkdown from 'react-markdown'
+import type { UrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeRaw from 'rehype-raw'
@@ -566,7 +566,7 @@ function SmartTable({
 
   return (
     <div
-      className="markdown-table-wrapper"
+      className={`markdown-table-wrapper${isTuack ? ' table-tuack-wrapper' : ''}`}
       role="region"
       aria-label="文章表格"
       tabIndex={0}
@@ -582,6 +582,8 @@ function SmartTable({
 interface MarkdownProps {
   content: string
   headingAnchors?: boolean
+  /** 预览宿主可重写本地资源 URL；博客默认使用 react-markdown 的安全规则。 */
+  urlTransform?: UrlTransform
   /**
    * 为块级元素标注其对应的原始 Markdown 行号（data-source-line，1 基）。
    * 编辑器双栏视图用它做滚动同步锚点；其他场景保持关闭即可。
@@ -610,7 +612,7 @@ const MARKER_TAGS = [
   'details',
 ] as const
 
-function buildComponents(marker: SourceLineResolver | null) {
+function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTransform) {
   const toSourceLine: SourceLineResolver = marker ?? noSourceLine
   const passthrough = (tag: string) => {
     return function MarkerBlock({ node, ...rest }: { node?: unknown } & Record<string, unknown>) {
@@ -683,6 +685,7 @@ function buildComponents(marker: SourceLineResolver | null) {
             variableSpec={decodeShowAttribute(attributes['data-show-vars'])}
             body={decodeShowAttribute(attributes['data-show-content'])}
             sourceLine={toSourceLine(node)}
+            urlTransform={urlTransform}
           />
         )
       }
@@ -701,6 +704,7 @@ export const Markdown = memo(function Markdown({
   content,
   headingAnchors = true,
   sourceLineMarkers = false,
+  urlTransform,
 }: MarkdownProps) {
   const processed = useMemo(() => preprocessMarkdownDetailed(content), [content])
 
@@ -717,13 +721,14 @@ export const Markdown = memo(function Markdown({
   )
 
   const components = useMemo(
-    () => buildComponents(sourceLineMarkers ? toSourceLine : noSourceLine),
-    [sourceLineMarkers, toSourceLine],
+    () => buildComponents(sourceLineMarkers ? toSourceLine : noSourceLine, urlTransform),
+    [sourceLineMarkers, toSourceLine, urlTransform],
   )
 
   return (
     <div className="prose prose-base dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight">
       <ReactMarkdown
+        urlTransform={urlTransform}
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[
           rehypeRaw,
