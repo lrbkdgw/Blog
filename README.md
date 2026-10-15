@@ -1,9 +1,9 @@
 # 星野笔记 · Starlog
 
-一个托管在 **GitHub Pages** 上的静态博客，但支持**登录**和**在线编辑**：内置 Markdown 编辑器（含 KaTeX 数学公式与代码高亮），写完先加入本地**待更新队列**，再统一批量提交回仓库并自动重新部署。提供 8 套完整主题、深浅色与随系统模式，以及可关闭的背景氛围和轻量交互动效。
+一个托管在 **GitHub Pages** 上的静态博客，但支持**登录**和**在线编辑**：内置 Markdown 编辑器（含 KaTeX 数学公式与代码高亮），写完先加入本地**待更新队列**，再统一批量提交回仓库并自动重新部署。提供 8 套完整主题、深浅色与随系统模式，以及可关闭的背景氛围和轻量交互动效。页面实际集成 **Magic UI** 开源组件，提供流光边框、渐变标题与交互卡片。
 
 ```
-React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
+React 19 + TypeScript + Vite + Tailwind CSS 3 + Magic UI（源码组件）+ Motion + react-markdown + KaTeX
 ```
 
 ---
@@ -16,6 +16,7 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 🧮 **KaTeX 公式** | 行内 `$…$` 与独立 `$$…$$`，支持 `aligned`、矩阵、分段函数 |
 | 🎨 **个性化外观** | 8 套主题、浅色/深色/随系统、多字体优先级、80%–130% 字号与自定义渐变；首页可快捷换色 |
 | ✨ **背景与动效** | 雨夜、阳光、星空、极光、樱落、萤火、轻雪、海波；参数独立记忆，关闭/轻量/完整三档，遵循系统减少动态效果 |
+| 🪄 **Magic UI** | 六个官方源码组件：聚光/光球卡片、流光边框、微光按钮、模糊显现、渐变文字和选中边框；随主题与动效偏好适配 |
 | 🔐 **GitHub OAuth 授权** | 基于 Device Flow 极简一键登录，令牌仅保存在浏览器本地 |
 | 🚀 **待更新队列** | 发布/删除文章、上传图片、发表申请、偏好同步等仓库操作先保存在本地，可勾选部分或全部**一次批量更新**（合并为一次提交、一次部署） |
 | 🔍 **全文搜索** | <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>K</kbd> 唤起，支持方向键选择 |
@@ -42,7 +43,7 @@ npm run dev        # http://localhost:5173
 ```bash
 npm run build      # 类型检查 + 生产构建到 dist/
 npm run preview -- --base /Blog/  # 预览默认 /Blog/ 构建；根路径构建改为 --base /
-npm test           # 外观配置、初始化一致性、色彩对比度、场景渲染回归
+npm test           # 外观配置、色彩/场景回归、Magic UI 语义与来源/依赖约束
 ```
 
 ### 2. 部署
@@ -100,7 +101,26 @@ Workflow 会自动判断 base path：
 - **保存与重置**：主题/明暗/动效保存在 `starlog:personal-settings.appearance`，场景仍使用其中的 `animatedBackground` 字段，仅存本设备，不写入 GitHub。旧版 `starlog:theme` 与原有场景参数可继续读取，同源标签页即时同步。「重置主题与特效」不会清除字体、字号、自定义渐变或文章。
 - **自定义渐变优先级**：主题提供底色，自定义渐变在其上叠加，透明动态场景位于最上方。渐变强度接近 100% 时会覆盖主题底色；想恢复主题底色，可在「背景渐变与透明度」中恢复默认。
 
-默认组合为 **星野经典 + 跟随系统 + 轻量动效 + 纯净背景**。所有新增插画与特效均由本地 CSS / SVG / Canvas 实现，不依赖远程图片、字体服务或第三方 UI 特效库。
+默认组合为 **星野经典 + 跟随系统 + 轻量动效 + 纯净背景**。原创 SVG 插画与 Canvas 场景保留；新增 UI 动效使用本地集成的 Magic UI 和 Motion，不依赖远程图片、字体服务或在线演示资源。
+
+### Magic UI 开源组件集成
+
+采用 [Magic UI](https://github.com/magicuidesign/magicui) 的 **MIT 官方源码组件**，实际参与页面渲染，而非仅安装依赖或模仿样式：
+
+| 组件 | 位置与表现 |
+| --- | --- |
+| **Magic Card** | 文章卡片的跟随聚光与边缘渐变；极光/霓虹主题使用 spring 光球。仅「完整」动效 + 支持悬停的鼠标指针时启用。 |
+| **Border Beam** | 紧凑首页介绍区的缓慢流光边缘；离开视口时停止 Motion 循环。 |
+| **Shimmer Button** | 「开始阅读」「写下第一篇」和「再读一些」，使用微光边缘；链接仍为真实路由锚点，按钮仍为原生 button。 |
+| **Blur Fade** | 文章进入视口时轻微显现；键盘聚焦立即显示，关闭动效/缺失观察 API 时可直接阅读。 |
+| **Aurora Text** | 首页强调标题的渐变流动；不摇晃、不缩放文字，保留单一无障碍读法与打印回退。 |
+| **Shine Border** | 设置页选中主题的流动细边框；保留原生 radio、方向键与焦点提示。 |
+
+源码位于 `src/components/magicui/`，固定上游版本 **`85f97fd27b053339af74ba9dd4ca428ee25989fb`**。完整出处、逐项适配和升级说明见 [组件说明](src/components/magicui/README.md)，原始 [MIT 许可](public/licenses/magic-ui-MIT.txt) 随生产站点一起分发。
+
+- **没有引入 Radix UI**，也不通过 cmdk、shadcn 脚手架或 Magic UI 的 Next.js 文档站间接引入。仅增加 `motion`、`clsx`、Tailwind 3 兼容的 `tailwind-merge` 运行时依赖；继续使用已有 React 19、Tailwind 3 与主题 Provider。
+- **动效策略一致**：`VisualEffectsProvider` 配合 `LazyMotion + domAnimation + m`，除 CSS 停用外，还在关闭/减少动态效果/页面隐藏/打印时切实结束显现、移除无限 Motion 轨迹并停止 spring；「关闭」不会留下后台持续动画循环。
+- **不改写内容流程**：原有搜索、通知、Markdown/KaTeX、写作发布、草稿和本地偏好机制保留。Magic UI 样式只从网页入口引入，不进入 VS Code 共享 Markdown 样式入口。
 
 ---
 
@@ -275,15 +295,17 @@ pinned: false    # true 则置顶到首页
 │   ├── about.md                   # 「关于」页内容
 │   └── posts/*.md                 # 所有文章
 ├── public/_redirects              # Cloudflare Pages 的 SPA 路由兜底
+├── public/licenses/               # 随站点分发的 Magic UI MIT 声明
 ├── src/
 │   ├── components/                # 页面组件、外观面板、主题插画、视口入场与动态背景
+│   │   └── magicui/               # 六个 Magic UI 官方源码组件及来源/适配说明
 │   ├── lib/                       # 文章/认证/GitHub/队列，以及 appearance/scenes 外观配置
 │   │   └── backdrop/renderers.ts  # 8 种透明 Canvas 场景，共用粒子与光场渲染器
 │   ├── pages/                     # 首页 / 文章 / 归档 / 标签 / 关于 / 登录 / 后台 / 编辑器
-│   ├── styles/                    # index.css 排版；themes.css 色彩；appearance.css 外观动效
+│   ├── styles/                    # 排版、色彩、外观；magicui.css 为网页专用组件样式
 │   ├── App.tsx                    # 路由
 │   └── main.tsx                   # 入口
-├── test/                         # 外观单元回归与可选 Chromium 浏览器回归
+├── test/                         # 外观/Magic UI 单元回归与可选 Chromium 浏览器回归
 ├── vscode_extensions/v1/          # Markdown 语法拓展插件与可安装 VSIX
 ├── AI_README.md                   # AI 协作维护规范（更新时必读）
 ├── ChangeLog.md                   # 更新日志（每次更新必须补充）
@@ -334,7 +356,7 @@ GitHub 的授权端点（`github.com/login/*`）不返回 CORS 头，浏览器�
 
 ```bash
 npm ci
-npm test               # 无需浏览器：配置校验、旧设置兼容、首屏初始化一致性、强调色对比度、8 个渲染器
+npm test               # 无需浏览器：外观配置、8 个渲染器、Magic UI 静态渲染/语义/许可与无 Radix 约束
 npm run build          # TypeScript 检查与生产构建
 ```
 
@@ -352,7 +374,7 @@ BLOG_TEST_URL=http://127.0.0.1:4173/Blog/ npm run test:browser
 BROWSER_EXECUTABLE_PATH=/path/to/chromium npm run extension:test
 ```
 
-浏览器回归覆盖主题/明暗切换、场景与参数保存、跨标签页同步、减少动态效果、可见性暂停、存储失败、缺失可选浏览器 API、首页筛选/搜索/文章渲染、移动端及 130% 字号布局。未设置浏览器路径时，浏览器测试会明确跳过，不代表已经完成视觉验证。可用 `BLOG_SCREENSHOT_DIR` 将代表性截图保存到本地临时目录；不要提交浏览器下载、截图或构建产物。
+浏览器回归覆盖主题/明暗切换、场景与参数保存、跨标签页同步、减少动态效果、可见性暂停、存储失败、缺失可选浏览器 API、首页筛选/搜索/文章渲染、移动端及 130% 字号布局。Magic UI 专项验证真实组件渲染、渐变/光球模式切换、键盘链接与分页、触屏与强制颜色、视口外停止、CSS 动画与实际 requestAnimationFrame 回调在隐藏/关闭/减少动态效果/打印时停止。未设置浏览器路径时，浏览器测试会明确跳过，不代表已经完成视觉验证。可用 `BLOG_SCREENSHOT_DIR` 将代表性截图保存到本地临时目录；不要提交浏览器下载、截图或构建产物。
 
 ---
 
@@ -365,4 +387,4 @@ BROWSER_EXECUTABLE_PATH=/path/to/chromium npm run extension:test
 
 ## 📄 License
 
-MIT
+MIT。Magic UI 衍生组件的版权归 Magic UI，保留其 [MIT 许可与版权声明](public/licenses/magic-ui-MIT.txt)；来源及本地适配详见 [组件说明](src/components/magicui/README.md)。

@@ -4,6 +4,7 @@ import { PALETTES, type ColorMode, type EffectsLevel } from '../lib/appearance'
 import { SCENES, findScene, getSceneValues, resetAnimatedBackground, resetSceneValues, setAnimatedScene, setSceneValue, useAnimatedBackground, type SceneId } from '../lib/animatedBackground'
 import { useTheme } from '../lib/theme'
 import { ThemeArtwork } from './ThemeArtwork'
+import { ShineBorder } from './magicui/shine-border'
 
 const SCENE_ICONS: Record<SceneId, LucideIcon> = { none: Ban, rain: CloudRain, sunshine: Sun, stars: Star, aurora: Sparkles, petals: Flower2, fireflies: Leaf, snow: Snowflake, waves: Waves }
 const MODES: { id: ColorMode; label: string; icon: LucideIcon }[] = [{ id: 'light', label: '浅色', icon: Sun }, { id: 'dark', label: '深色', icon: Moon }, { id: 'system', label: '跟随系统', icon: Monitor }]
@@ -46,6 +47,7 @@ export function AppearanceSettings() {
             <label key={item.id} className="theme-choice">
               <input className="sr-only" type="radio" name="palette" value={item.id} checked={appearance.palette === item.id} onChange={() => setPalette(item.id)} aria-label={item.name} />
               <span className="theme-option-content">
+                {appearance.palette === item.id && <ShineBorder borderWidth={2} duration={12} shineColor={[item.swatches[0], item.swatches[1]]} />}
                 <span className="theme-preview" style={{ '--art-primary': item.swatches[0], '--art-secondary': item.swatches[1], '--art-bg': theme === 'dark' ? item.dark : item.light, backgroundColor: theme === 'dark' ? item.dark : item.light } as CSSProperties}>
                   <ThemeArtwork palette={item.id} miniature />
                   <span className="theme-preview-label">{item.english}</span>

@@ -3,11 +3,13 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { ThemeProvider } from './lib/theme'
+import { VisualEffectsProvider } from './lib/visualEffects'
 import { FontProvider } from './lib/font'
 import { BackgroundProvider } from './lib/background'
 import { AuthProvider } from './lib/auth'
 import { ToastProvider } from './components/Toast'
 import './styles/index.css'
+import './styles/magicui.css'
 
 const basename = import.meta.env.BASE_URL.replace(/\/$/, '')
 
@@ -15,15 +17,17 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter basename={basename || '/'}>
       <ThemeProvider>
-        <AuthProvider>
-          <FontProvider>
-            <BackgroundProvider>
-              <ToastProvider>
-                <App />
-              </ToastProvider>
-            </BackgroundProvider>
-          </FontProvider>
-        </AuthProvider>
+        <VisualEffectsProvider>
+          <AuthProvider>
+            <FontProvider>
+              <BackgroundProvider>
+                <ToastProvider>
+                  <App />
+                </ToastProvider>
+              </BackgroundProvider>
+            </FontProvider>
+          </AuthProvider>
+        </VisualEffectsProvider>
       </ThemeProvider>
     </BrowserRouter>
   </StrictMode>,

@@ -1,0 +1,68 @@
+/* Magic UI (MIT, Copyright (c) Magic UI), adapted from registry-ui.ts and component styles.
+   Source pin / changes: ../components/magicui/README.md. License: public/licenses/magic-ui-MIT.txt.
+   App-only entry: intentionally not imported by the shared Markdown / VS Code stylesheet. */
+:root { --magic-heading-from: rgb(var(--brand-600)); --magic-heading-to: rgb(var(--brand-800)); }
+.dark { --magic-heading-from: rgb(var(--brand-200)); --magic-heading-to: rgb(var(--brand-300)); }
+
+/* Aurora Text: retain the flowing gradient, not upstream's rotating/scaling text. */
+.magic-aurora-text { position: relative; background-size: 200% auto; animation: magic-aurora 8s ease-in-out infinite alternate; }
+@supports ((background-clip: text) or (-webkit-background-clip: text)) {
+  .magic-aurora-text { background-clip: text; -webkit-background-clip: text; color: transparent; -webkit-text-fill-color: transparent; }
+}
+@keyframes magic-aurora {
+  0%, 100% { background-position: 0% 50%; }
+  25% { background-position: 50% 100%; }
+  50% { background-position: 100% 50%; }
+  75% { background-position: 50% 0%; }
+}
+
+/* Border Beam: exclude the center so only the border catches the moving light. */
+.magic-border-beam { position: absolute; inset: 0; z-index: 2; pointer-events: none; border: var(--border-width) solid transparent; border-radius: inherit; mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0) border-box; mask-composite: exclude; -webkit-mask-composite: xor; }
+.magic-border-beam-trace { position: absolute; aspect-ratio: 1; background: linear-gradient(to left, var(--color-from), var(--color-to), transparent); will-change: offset-distance; }
+
+/* Shimmer Button: source conic spark, sliding/rotating layers and inset backdrop. */
+.magic-shimmer { position: relative; isolation: isolate; z-index: 0; display: inline-flex; align-items: center; justify-content: center; min-height: 42px; max-width: 100%; padding: .7rem 1.25rem; overflow: hidden; border: 1px solid rgb(var(--brand-300) / .3); border-radius: var(--radius); background: var(--bg); color: white; font-size: .8125rem; font-weight: 500; line-height: 1.5; white-space: nowrap; cursor: pointer; box-shadow: 0 7px 17px -10px rgb(var(--brand-700) / .65); transition: transform .25s ease, box-shadow .25s ease; }
+.magic-shimmer-content { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.magic-shimmer-content > svg { flex-shrink: 0; }
+.magic-shimmer-spark-container { position: absolute; inset: 0; z-index: -30; container-type: size; overflow: visible; filter: blur(2px); pointer-events: none; }
+.magic-shimmer-slide { position: absolute; top: 0; left: 0; height: 100cqh; width: 100cqh; aspect-ratio: 1; animation: magic-shimmer-slide var(--speed) ease-in-out infinite alternate; }
+.magic-shimmer-spin { position: absolute; inset: -100%; background: conic-gradient(from calc(270deg - (var(--spread) * .5)), transparent 0, var(--shimmer-color) var(--spread), transparent var(--spread)); animation: magic-spin-around calc(var(--speed) * 2) infinite linear; }
+.magic-shimmer-highlight { position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 -8px 10px #ffffff1f; transition: box-shadow .3s; pointer-events: none; }
+.magic-shimmer-backdrop { position: absolute; inset: var(--cut); z-index: -20; border-radius: var(--radius); background: var(--bg); pointer-events: none; }
+.magic-shimmer-secondary { color: var(--text-secondary); border-color: var(--line-color); box-shadow: 0 5px 12px -10px rgb(var(--brand-900) / .3); }
+.magic-shimmer:disabled { opacity: .55; cursor: not-allowed; }
+.magic-shimmer[data-animating="false"] .magic-shimmer-slide, .magic-shimmer[data-animating="false"] .magic-shimmer-spin { animation-play-state: paused; }
+@media (hover: hover) and (pointer: fine) {
+  .magic-shimmer:hover:not(:disabled) { box-shadow: 0 9px 22px -11px rgb(var(--brand-700) / .65); }
+  .magic-shimmer:hover:not(:disabled) .magic-shimmer-highlight { box-shadow: inset 0 -6px 10px #ffffff3f; }
+}
+.magic-shimmer:active:not(:disabled) { transform: translateY(1px); }
+@keyframes magic-shimmer-slide { to { transform: translate(calc(100cqw - 100%), 0); } }
+@keyframes magic-spin-around {
+  0% { transform: translateZ(0) rotate(0); }
+  15%, 35% { transform: translateZ(0) rotate(90deg); }
+  65%, 85% { transform: translateZ(0) rotate(270deg); }
+  100% { transform: translateZ(0) rotate(360deg); }
+}
+
+/* Shine Border: a masked radial highlight around the selected native radio tile. */
+.magic-shine-border { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; border-radius: inherit; background-size: 300% 300%; pointer-events: none; animation: magic-shine var(--duration) infinite linear; }
+@keyframes magic-shine { 0%, 100% { background-position: 0% 0%; } 50% { background-position: 100% 100%; } }
+
+/* Keep keyboard focus immediately readable, even before an entrance animation completes. */
+.reveal:focus-within { opacity: 1 !important; transform: none !important; filter: none !important; }
+.magic-card[data-interactive="false"] .magic-card-orb { visibility: hidden; will-change: auto !important; }
+:root[data-effects="off"] .magic-shimmer:active { transform: none; }
+@media (prefers-reduced-motion: reduce) { .magic-shimmer:active { transform: none; } }
+@media (forced-colors: active) {
+  .magic-aurora-text { background: none !important; color: CanvasText; -webkit-text-fill-color: CanvasText; }
+  .magic-border-beam, .magic-shine-border, .magic-shimmer-spark-container, .magic-shimmer-highlight, .magic-shimmer-backdrop, .magic-card > [aria-hidden="true"] { display: none; }
+  .magic-card { border-color: CanvasText; }
+  .magic-shimmer { border-color: ButtonText; background: ButtonFace; color: ButtonText; }
+}
+@media print {
+  [data-magic-ui], [data-magic-ui] * { animation: none !important; transition: none !important; }
+  .magic-border-beam, .magic-shine-border, .magic-shimmer-spark-container, .magic-shimmer-highlight, .magic-shimmer-backdrop, .magic-card > [aria-hidden="true"] { display: none !important; }
+  .magic-aurora-text { background: none !important; color: #111 !important; -webkit-text-fill-color: #111 !important; }
+  .magic-shimmer, .magic-card { background: white !important; color: #111 !important; border-color: #aaa !important; box-shadow: none !important; }
+}

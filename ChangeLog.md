@@ -6,6 +6,44 @@
 
 ---
 
+## 2026-10-15 · 集成 Magic UI 官方组件，完善动效生命周期
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（具体底层模型未公开） |
+| 模型版本号 | 未公开（平台未提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（平台未提供统一口径） |
+
+### 新增
+- **实际接入六个 Magic UI 官方源码组件**：Magic Card 用于文章聚光/光球卡片，Border Beam 用于首页流光边缘，Shimmer Button 用于阅读/空状态/分页操作，Blur Fade 用于视口显现，Aurora Text 用于标题，Shine Border 用于选中主题。不是仅安装依赖或借鉴效果。
+- 固定上游 `magicuidesign/magicui@85f97fd27b053339af74ba9dd4ca428ee25989fb`；`src/components/magicui/README.md` 记录源码链接与逐项适配，完整 MIT 声明保留在 `public/licenses/magic-ui-MIT.txt` 并随站点分发。
+- `VisualEffectsProvider` 统一有效动效档位、页面可见性、打印与精细指针策略，采用 `LazyMotion + domAnimation + m`；Border Beam 离开视口后停止，Magic Card 仅在完整动效且鼠标可悬停时跟踪指针。
+- 增加 7 项无浏览器组件/来源/依赖回归及 6 项真实 Chromium 集成回归，检查真实组件使用、链接/按钮语义、模式切换、动效停止和无障碍回退。
+
+### 调整
+- 按用户指定使用 **Magic UI，不使用 Radix UI**；撤销先前未接入的 Radix/cmdk/Sonner 依赖与包装代码。新增运行时依赖仅为 `motion`、`clsx` 与 Tailwind 3 兼容的 `tailwind-merge`，依赖树测试禁止直接或间接引入 Radix。
+- 官方 Tailwind 4 样式移植为当前 Tailwind 3 / 标准 CSS；Magic Card 的 next-themes 改为现有主题 Provider，不引入 Next.js 文档站或 shadcn 脚手架。
+- 替换原有手写卡片聚光和显现实现，保留八套主题、原创 SVG、八种 Canvas 氛围、独立本地偏好、字体/字号、搜索通知、写作及发布流程。极光/霓虹卡片使用 spring 光球，其余主题使用径向聚光。
+- ShimmerLink 保持真实路由锚点和部署 base，按钮默认 `type="button"`，不嵌套链接与按钮；保留 article、标题链接、日期/时长/置顶/加密/草稿/本地等元信息。
+- Aurora Text 只流动渐变、不摇晃或缩放文字。装饰不拦截指针，并补充聚焦、强制颜色与打印回退；Magic UI CSS 仅由网页入口导入，不进入 VS Code 共享 Markdown 样式入口。同步更新 README。
+
+### 修复
+- 显现动画进行中，仅把 transition.duration 改成零并不能终止目标未变化的动画：禁用/隐藏/打印时显式调用动画 controls.stop / set，立即恢复静态可读内容。
+- 停止 spring 时同时重置排队的目标，避免清理后被已排队的帧重新启动；页面隐藏时取消未完成的 CSS 过渡。
+- 将 Magic Card 的 Motion template hooks 移到固定位置，避免主题切换 gradient / orb 模式时改变 Hook 顺序；保留主题圆角而非从列表容器继承错误圆角。
+- 缺少 IntersectionObserver 时不创建观察器、不启动流光轨迹，文章保持可见；关闭/减少动态效果/打印时清除显现模糊，键盘聚焦不必等待入场。
+
+### 验证
+- `npm test`：**29 项通过，无跳过**，涵盖原有外观回归及真实 TSX 静态渲染、语义、安全按钮类型、路由 base、来源/许可、Tailwind 合并、无 Radix 直接/间接依赖约束。
+- `npm run build`：TypeScript 与 `/Blog/` 生产构建通过；Magic UI MIT 许可随构建分发。
+- `npm run test:browser`（真实 Chromium，针对 `/Blog/` 生产预览）：**15 项通过，无跳过**。保留原有主题/场景/存储/阅读/搜索/320–1440px/130% 字号回归，新增六组件实际使用、gradient/orb 切换、键盘阅读/分页/文章链接、触屏、强制颜色、视口外停止与恢复；核验隐藏、系统减少动态效果、打印、实时关闭时 CSS/Web Animations 与持续 rAF 循环停止，内容保持可读。
+- 同一套 **15 项浏览器测试在 Vite 开发预览（React StrictMode）下也全部通过**，无跳过。
+- `npm run extension:test`（配置同一 Chromium）：**61 项通过，无跳过**；测试生成的插件构建产物已还原，不随功能改动提交。
+- `npm audit` 仍报告原有 13 项告警（4 低、3 中、6 高），本次新增 UI 包不在告警列表中；未强制升级无关依赖。
+- `git diff --check` 通过，已检查桌面极光、霓虹卡片和移动樱色视图。浏览器测试模拟 GitHub 离线响应，未执行真实登录/文章发布，也未进行 Safari/Firefox、真实移动硬件或 GPU 帧率测试。
+
+---
+
 ## 2026-10-15 · 八套主题、氛围特效与首页视觉升级
 
 | 模型信息 | |

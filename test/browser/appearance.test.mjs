@@ -43,6 +43,11 @@ async function snapshot(page, filename) {
   const dir = process.env.BLOG_SCREENSHOT_DIR
   if (!dir) return
   await mkdir(dir, { recursive: true })
+  await page.evaluate(async () => { await document.fonts.ready })
+  await page.waitForFunction(() => [...document.querySelectorAll('.reveal')].filter((el) => {
+    const rect = el.getBoundingClientRect()
+    return rect.top < innerHeight - 24 && rect.bottom > 0
+  }).every((el) => getComputedStyle(el).opacity === '1'))
   await page.screenshot({ path: join(dir, filename) })
 }
 
@@ -272,5 +277,212 @@ test('missing optional browser APIs and malformed stored preferences degrade to 
   await ready(page)
   assert.equal(await rootValue(page, 'palette'), 'forest')
   assert.equal(await page.locator('.reveal').first().evaluate((el) => getComputedStyle(el).opacity), '1')
+  assert.equal(await page.locator('.magic-border-beam-trace').count(), 0)
+  assert.equal(await page.locator('[data-magic-ui="border-beam"]').getAttribute('data-animating'), 'false')
+  assert.equal(await page.locator('[data-magic-ui="blur-fade"]').first().getAttribute('data-motion-enabled'), 'false')
   assert.ok(await page.locator('.post-card').count() > 0)
+})
+
+test('Magic UI is mounted in real pages; shimmer links and buttons preserve keyboard navigation and semantics', options, async (t) => {
+  const { page } = await setup(t)
+  await ready(page)
+  await page.locator('#home-title').waitFor()
+  const kinds = new Set(await page.locator('[data-magic-ui]').evaluateAll((els) => els.map((el) => el.dataset.magicUi)))
+  for (const kind of ['magic-card', 'blur-fade', 'border-beam', 'aurora-text', 'shimmer-button']) assert.ok(kinds.has(kind), kind)
+  assert.equal(await page.locator('[data-magic-ui="magic-card"]').first().getAttribute('data-interactive'), 'false', 'Default subtle mode has no pointer tracking')
+  assert.equal(await page.locator('.post-card article').count(), await page.locator('.post-card').count())
+  assert.equal(await page.locator('.magic-shimmer button, .magic-shimmer a').count(), 0, 'No nested interactive controls')
+  const read = page.getByRole('link', { name: '开始阅读', exact: true })
+  assert.equal(await read.evaluate((el) => el.tagName), 'A')
+  assert.equal(new URL(await read.getAttribute('href'), base).pathname.replace(/\/$/, ''), new URL(base).pathname.replace(/\/$/, ''))
+  await read.focus()
+  assert.ok(await read.evaluate((el) => parseFloat(getComputedStyle(el).outlineWidth)) >= 2)
+  await read.press('Enter')
+  await page.waitForURL((url) => url.hash === '#posts')
+  await page.waitForFunction(() => document.getElementById('posts').getBoundingClientRect().top < 200)
+  const before = await page.locator('.post-card').count()
+  const more = page.getByRole('button', { name: /再读一些/ })
+  if (await more.count()) {
+    assert.equal(await more.getAttribute('data-magic-ui'), 'shimmer-button')
+    assert.equal(await more.getAttribute('type'), 'button')
+    await more.focus()
+    await more.press('Space')
+    assert.ok(await page.locator('.post-card').count() > before)
+  }
+  const title = page.locator('.post-title a').first()
+  await title.focus()
+  assert.equal(await page.locator('.reveal').first().evaluate((el) => getComputedStyle(el).opacity), '1')
+  assert.equal(await page.locator('.reveal').first().evaluate((el) => getComputedStyle(el).filter), 'none')
+  await title.press('Enter')
+  await page.locator('.reading-surface h1').waitFor()
+  assert.ok(new URL(page.url()).pathname.includes('/posts/'))
+  const license = await page.request.get(new URL('licenses/magic-ui-MIT.txt', base).href)
+  assert.equal(license.status(), 200)
+  assert.match(await license.text(), /Copyright \(c\) Magic UI/)
+})
+
+test('Magic Card responds only in full desktop mode and switches all palettes without hook-order errors', options, async (t) => {
+  const { page } = await setup(t)
+  await ready(page, 'settings')
+  await choose(page, '完整'); await choose(page, '深色')
+  await ready(page)
+  const card = page.locator('[data-magic-ui="magic-card"]').first()
+  await card.waitFor()
+  for (const [id, name] of palettes) {
+    await page.getByRole('button', { name: `切换主题：${name}`, exact: true }).click()
+    await page.waitForFunction((palette) => document.documentElement.dataset.palette === palette, id)
+    assert.equal(await card.getAttribute('data-interactive'), 'true')
+    assert.equal(await card.getAttribute('data-mode'), ['aurora', 'neon'].includes(id) ? 'orb' : 'gradient')
+    const before = await card.getAttribute('style')
+    await card.hover({ position: { x: 120, y: 85 } })
+    await page.waitForFunction((element) => !element.style.background.includes('at -320px -320px'), await card.elementHandle())
+    assert.notEqual(await card.getAttribute('style'), before)
+    const radius = await card.evaluate((el) => ({ actual: parseFloat(getComputedStyle(el).borderRadius), expected: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--card-radius')) }))
+    assert.equal(radius.actual, radius.expected)
+    if (['aurora', 'neon'].includes(id)) await page.waitForFunction((element) => Number(getComputedStyle(element.querySelector('.magic-card-orb')).opacity) > 0.01, await card.elementHandle())
+  }
+  await page.getByRole('button', { name: '切换主题：霓虹夜航', exact: true }).click()
+  await card.hover({ position: { x: 220, y: 100 } })
+  await page.waitForFunction((element) => Number(getComputedStyle(element.querySelector('.magic-card-orb')).opacity) > 0.1, await card.elementHandle())
+  await snapshot(page, 'magic-card-neon-desktop.png')
+})
+
+async function assertMagicMotionStopped(page, reason) {
+  const sample = await page.evaluate(async () => {
+    // Allow the final render/cleanup frame, then measure with timers, not rAF polling.
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    const startFrames = window.__magicAnimationFrames
+    const styles = [...document.querySelectorAll('[data-magic-ui]')].map((el) => el.getAttribute('style'))
+    await new Promise((resolve) => setTimeout(resolve, 220))
+    const middleFrames = window.__magicAnimationFrames
+    await new Promise((resolve) => setTimeout(resolve, 220))
+    return {
+      frames: [middleFrames - startFrames, window.__magicAnimationFrames - middleFrames],
+      running: document.getAnimations().filter((animation) => animation.playState === 'running').length,
+      beam: document.querySelectorAll('.magic-border-beam-trace').length,
+      unchanged: JSON.stringify(styles) === JSON.stringify([...document.querySelectorAll('[data-magic-ui]')].map((el) => el.getAttribute('style'))),
+    }
+  })
+  // Media-query layout changes can queue a final cleanup frame, but never a continuing frame loop.
+  assert.ok(sample.frames[0] <= 2, `${reason}: continuing animation frames ${sample.frames}`)
+  assert.equal(sample.frames[1], 0, `${reason}: animation did not settle`)
+  assert.deepEqual({ running: sample.running, beam: sample.beam, unchanged: sample.unchanged }, { running: 0, beam: 0, unchanged: true }, reason)
+  assert.equal(await page.locator('[data-magic-ui][data-animating="true"], [data-magic-ui="magic-card"][data-interactive="true"]').count(), 0, reason)
+}
+
+test('Magic UI stops real CSS, Motion and spring animation for hidden pages, reduced motion, print and live off', options, async (t) => {
+  // Keep both the hero and the whole first card in view; hover must not scroll the beam out of view.
+  const { context, page } = await setup(t, { viewport: { width: 1440, height: 1200 } })
+  await context.addInitScript(() => {
+    const raf = window.requestAnimationFrame.bind(window)
+    window.__magicAnimationFrames = 0
+    window.requestAnimationFrame = (callback) => raf((time) => { window.__magicAnimationFrames += 1; callback(time) })
+  })
+  await ready(page, 'settings')
+  await choose(page, '完整'); await choose(page, '霓虹夜航')
+  await ready(page)
+  const card = page.locator('[data-magic-ui="magic-card"]').first()
+  const resume = async () => {
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }))
+    await page.mouse.move(10, 300)
+    // Raw mouse input avoids Playwright's hover scroll retries moving the hero offscreen.
+    const bounds = await card.boundingBox()
+    assert.ok(bounds && bounds.y + 70 < 1200 && bounds.y > 0)
+    await page.mouse.move(bounds.x + 120, bounds.y + 70)
+    await page.waitForFunction((element) => Number(getComputedStyle(element.querySelector('.magic-card-orb')).opacity) > 0.03, await card.elementHandle())
+    try {
+      await page.locator('[data-magic-ui="border-beam"][data-animating="true"]').waitFor({ timeout: 3000 })
+    } catch (error) {
+      const details = await page.evaluate(() => {
+        const beam = document.querySelector('[data-magic-ui="border-beam"]')
+        return { beam: beam.outerHTML, rect: beam.getBoundingClientRect().toJSON(), card: document.querySelector('.post-card').getBoundingClientRect().toJSON(), viewport: [innerWidth, innerHeight], display: getComputedStyle(beam).display, visibility: getComputedStyle(beam).visibility, hidden: document.hidden, state: document.visibilityState, scroll: scrollY, effects: document.documentElement.dataset.effects, printing: matchMedia('print').matches, observer: typeof IntersectionObserver }
+      })
+      throw new Error(`Beam did not resume: ${JSON.stringify(details)}`, { cause: error })
+    }
+  }
+  await resume()
+  await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')) })
+  await assertMagicMotionStopped(page, 'Hidden page')
+  await page.evaluate(() => { delete document.hidden; document.dispatchEvent(new Event('visibilitychange')) })
+  await resume()
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.waitForFunction(() => document.documentElement.dataset.effects === 'off')
+  await assertMagicMotionStopped(page, 'OS reduced motion')
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('starlog:personal-settings')).appearance.effects), 'full')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await resume()
+  await page.emulateMedia({ media: 'print' })
+  await assertMagicMotionStopped(page, 'Printing')
+  assert.equal(await page.locator('.magic-aurora-text').evaluate((el) => getComputedStyle(el).webkitTextFillColor), 'rgb(17, 17, 17)')
+  await page.emulateMedia({ media: 'screen' })
+  await resume()
+  // Exercise live preference sync without unmounting an actively hovered Magic Card.
+  await page.evaluate(() => {
+    const key = 'starlog:personal-settings'
+    const settings = JSON.parse(localStorage.getItem(key))
+    settings.appearance.effects = 'off'
+    localStorage.setItem(key, JSON.stringify(settings))
+    window.dispatchEvent(new StorageEvent('storage', { key }))
+  })
+  await page.waitForFunction(() => document.documentElement.dataset.effects === 'off')
+  await assertMagicMotionStopped(page, 'User effects off')
+  for (const opacity of await page.locator('.reveal').evaluateAll((els) => els.map((el) => getComputedStyle(el).opacity))) assert.equal(opacity, '1')
+})
+
+test('Border Beam moves along a real CSS path, unmounts offscreen and resumes on return', options, async (t) => {
+  const { page } = await setup(t)
+  await ready(page)
+  const beam = page.locator('.magic-border-beam-trace')
+  await beam.waitFor()
+  const motion = await beam.evaluate(async (el) => {
+    const before = getComputedStyle(el).offsetDistance
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    return { before, after: getComputedStyle(el).offsetDistance, path: getComputedStyle(el).offsetPath }
+  })
+  assert.notEqual(motion.path, 'none')
+  assert.notEqual(motion.after, motion.before)
+  await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' }))
+  await page.waitForFunction(() => document.querySelector('[data-magic-ui="border-beam"]').dataset.animating === 'false')
+  assert.equal(await beam.count(), 0)
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }))
+  await beam.waitFor()
+})
+
+test('Shine Border decorates only the selected native theme radio and respects keyboard focus and effects off', options, async (t) => {
+  const { page } = await setup(t)
+  await ready(page, 'settings')
+  const border = page.locator('[data-magic-ui="shine-border"]')
+  assert.equal(await border.count(), 1)
+  assert.equal(await border.evaluate((el) => el.closest('label').querySelector('input').value), 'classic')
+  assert.equal(await border.evaluate((el) => getComputedStyle(el).pointerEvents), 'none')
+  assert.equal(await border.evaluate((el) => getComputedStyle(el).animationName), 'magic-shine')
+  await page.getByRole('radio', { name: '星野经典', exact: true }).focus()
+  await page.keyboard.press('ArrowRight')
+  await page.waitForFunction(() => document.documentElement.dataset.palette === 'aurora')
+  assert.equal(await border.count(), 1)
+  assert.equal(await border.evaluate((el) => el.closest('label').querySelector('input').value), 'aurora')
+  assert.ok(await page.locator('input[name="palette"]:checked + .theme-option-content').evaluate((el) => parseFloat(getComputedStyle(el).outlineWidth)) >= 2)
+  await choose(page, '关闭')
+  assert.equal(await border.getAttribute('data-animating'), 'false')
+  assert.equal(await border.evaluate((el) => getComputedStyle(el).animationName), 'none')
+})
+
+test('Touch devices never enable Magic Card pointer tracking; forced colors keep the gradient title and CTA readable', options, async (t) => {
+  const { page } = await setup(t, { viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true })
+  await ready(page, 'settings')
+  await choose(page, '完整')
+  await ready(page)
+  const card = page.locator('[data-magic-ui="magic-card"]').first()
+  await card.waitFor()
+  assert.equal(await card.getAttribute('data-interactive'), 'false')
+  const style = await card.getAttribute('style')
+  await card.dispatchEvent('pointermove', { pointerType: 'mouse', clientX: 100, clientY: 200 })
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 60)))
+  assert.equal(await card.getAttribute('style'), style)
+  await noOverflow(page)
+  await page.emulateMedia({ forcedColors: 'active' })
+  assert.equal(await page.locator('.magic-aurora-text').evaluate((el) => getComputedStyle(el).backgroundImage), 'none')
+  assert.notEqual(await page.locator('.magic-aurora-text').evaluate((el) => getComputedStyle(el).webkitTextFillColor), 'rgba(0, 0, 0, 0)')
+  assert.equal(await page.locator('.hero-read .magic-shimmer-spark-container').evaluate((el) => getComputedStyle(el).display), 'none')
+  assert.ok(await page.getByRole('link', { name: '开始阅读', exact: true }).isVisible())
 })
