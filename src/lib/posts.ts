@@ -339,12 +339,19 @@ export interface TocItem {
 interface MarkdownFence {
   marker: '`' | '~'
   length: number
+  /** 能否作为闭合围栏：CommonMark 规定闭合围栏必须同字符、长度不短于开启围栏、且不带 info string。 */
+  canClose: boolean
 }
 
 function parseFence(line: string): MarkdownFence | null {
-  const match = line.match(/^\s*([`~]{3,})/)
+  // 标记必须是连续的同一种字符（``` 或 ~~~），最多缩进 3 空格，其后可以跟 info string。
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/)
   if (!match) return null
-  return { marker: match[1][0] as '`' | '~', length: match[1].length }
+  return {
+    marker: match[1][0] as '`' | '~',
+    length: match[1].length,
+    canClose: match[2].trim() === '',
+  }
 }
 
 function slugHeading(text: string, used: Map<string, number>): string {
@@ -376,7 +383,7 @@ export function extractToc(md: string): TocItem[] {
     if (parsedFence) {
       if (!fence) {
         fence = parsedFence
-      } else if (parsedFence.marker === fence.marker && parsedFence.length >= fence.length) {
+      } else if (parsedFence.canClose && parsedFence.marker === fence.marker && parsedFence.length >= fence.length) {
         fence = null
       }
       continue

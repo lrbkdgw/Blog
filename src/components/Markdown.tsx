@@ -244,7 +244,8 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
   const result: string[] = []
   const lineMap: number[] = []
   const stack: { colonsCount: number; type: string }[] = []
-  let inCodeFence = false
+  // 打开中的代码围栏：按 CommonMark 跟踪，闭合围栏必须同标记字符、长度不短于开启围栏且不带 info string。
+  let openFence: { marker: string; length: number } | null = null
 
   const push = (line: string, sourceLine: number) => {
     result.push(line)
@@ -255,12 +256,22 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
     const line = lines[i]
 
     // 扩展指令不应解析代码示例；否则文档中的语法会被执行而无法展示源码。
-    if (/^\s*(`{3,}|~{3,})/.test(line)) {
-      inCodeFence = !inCodeFence
+    // 开启围栏可带 info string（如 ~~~markdown），闭合围栏不能带，
+    // 因此 ~~~ts 不会误闭合 ~~~~markdown，围栏内示例才能原样展示。
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/)
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0]
+      const length = fenceMatch[1].length
+      const info = fenceMatch[2].trim()
+      if (!openFence) {
+        openFence = { marker, length }
+      } else if (openFence.marker === marker && length >= openFence.length && info === '') {
+        openFence = null
+      }
       push(line, i)
       continue
     }
-    if (inCodeFence) {
+    if (openFence) {
       push(line, i)
       continue
     }

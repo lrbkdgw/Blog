@@ -142,15 +142,36 @@ export function convertMergeMarkersForMpe(markdown: string): string {
   })
 }
 
+/** CommonMark 围栏解析：开启围栏可带 info string，闭合围栏必须同字符、长度不短且不带 info string。 */
+function parseFenceLine(line: string): { marker: string; length: number; canClose: boolean } | null {
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/)
+  if (!match) return null
+  return { marker: match[1][0], length: match[1].length, canClose: match[2].trim() === '' }
+}
+
+function stepFence(
+  fence: { marker: string; length: number } | null,
+  line: string,
+): { matched: boolean; fence: { marker: string; length: number } | null } {
+  const parsed = parseFenceLine(line)
+  if (!parsed) return { matched: false, fence }
+  if (!fence) {
+    return { matched: true, fence: { marker: parsed.marker, length: parsed.length } }
+  }
+  if (parsed.canClose && parsed.marker === fence.marker && parsed.length >= fence.length) {
+    return { matched: true, fence: null }
+  }
+  return { matched: true, fence }
+}
+
 function mapOutsideFences(markdown: string, mapper: (line: string) => string): string {
   const lines = markdown.split('\n')
-  let fence: string | null = null
+  let fence: { marker: string; length: number } | null = null
   return lines
     .map((line) => {
-      const marker = line.match(/^\s*(`{3,}|~{3,})/)
-      if (marker) {
-        if (!fence) fence = marker[1][0]
-        else if (fence === marker[1][0]) fence = null
+      const stepped = stepFence(fence, line)
+      if (stepped.matched) {
+        fence = stepped.fence
         return line
       }
       return fence ? line : mapper(line)
@@ -171,18 +192,20 @@ export function transformMarkdown(markdown: string, options: TransformOptions = 
   const lines = markdown.split('\n')
   const result: string[] = []
   const stack: Array<{ colonsCount: number; type: string }> = []
-  let inCodeFence = false
+  let codeFence: { marker: string; length: number } | null = null
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i]
 
     // 扩展指令不应解析代码示例，否则文档中的语法会被执行而无法展示源码。
-    if (/^\s*(`{3,}|~{3,})/.test(line)) {
-      inCodeFence = !inCodeFence
+    // 围栏匹配遵循 CommonMark：~~~ts 不能闭合 ~~~~markdown，闭合围栏不得带 info string。
+    const fenceStep = stepFence(codeFence, line)
+    if (fenceStep.matched) {
+      codeFence = fenceStep.fence
       result.push(line)
       continue
     }
-    if (inCodeFence) {
+    if (codeFence) {
       result.push(line)
       continue
     }

@@ -180,16 +180,16 @@ author: "作者名"
 
 ### 链接、图片、引用与代码
 
-~~~markdown
+~~~~markdown
 [链接文字](https://example.com "可选标题")
 ![替代文字](https://example.com/image.png)
 
 > 这是引用，可以写成多行。
 
 ~~~ts
-const hello = (name: string) => \`你好，\${name}\`
+const hello = (name: string) => `你好，${name}`
 ~~~
-~~~
+~~~~
 
 外部链接会在新标签页打开，代码块会自动高亮并提供复制按钮。编辑器上传图片后会自动插入图片语法。
 

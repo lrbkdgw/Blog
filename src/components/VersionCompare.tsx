@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeftRight, Columns2, FileText, GitCompareArrows, Loader2, X } from 'lucide-react'
 import { fetchPostHistoryMarkdown, getRepoTarget } from '../lib/github'
 import type { PostHistoryVersion } from '../lib/github'
+import { parseFrontmatter } from '../lib/frontmatter'
 import { collapseContext, diffLines, diffStats } from '../lib/diff'
 import type { DiffLine } from '../lib/diff'
 import { Markdown } from './Markdown'
@@ -258,7 +259,8 @@ export function VersionCompare({
                     </span>
                   </header>
                   <div className="prose prose-sm dark:prose-invert max-w-none flex-1 overflow-y-auto px-4 py-3">
-                    <Markdown content={pane.text} />
+                    {/* 历史版本拉到的是完整文件源码：渲染对比要先剥离 frontmatter，否则 YAML 元数据会被当成正文渲染。 */}
+                    <Markdown content={parseFrontmatter(pane.text).content} />
                   </div>
                 </section>
               ))}

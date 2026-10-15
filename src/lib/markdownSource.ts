@@ -7,9 +7,35 @@ import {
 
 export type MarkdownCopyTarget = 'direct' | 'luogu' | 'basic'
 
-function fenceMarker(line: string): string | null {
-  const match = line.match(/^\s*(`{3,}|~{3,})/)
-  return match ? match[1][0] : null
+interface FenceInfo {
+  marker: string
+  length: number
+  /** 闭合围栏不能带 info string（CommonMark），例如 ~~~ts 不能闭合 ~~~~markdown。 */
+  canClose: boolean
+}
+
+function parseFenceLine(line: string): FenceInfo | null {
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/)
+  if (!match) return null
+  return { marker: match[1][0], length: match[1].length, canClose: match[2].trim() === '' }
+}
+
+interface FenceState {
+  marker: string
+  length: number
+}
+
+/** 围栏状态推进：命中围栏行时按 CommonMark 规则更新状态并返回 true。 */
+function stepFence(fence: FenceState | null, line: string): { matched: boolean; fence: FenceState | null } {
+  const parsed = parseFenceLine(line)
+  if (!parsed) return { matched: false, fence }
+  if (!fence) {
+    return { matched: true, fence: { marker: parsed.marker, length: parsed.length } }
+  }
+  if (parsed.canClose && parsed.marker === fence.marker && parsed.length >= fence.length) {
+    return { matched: true, fence: null }
+  }
+  return { matched: true, fence }
 }
 
 function escapePlainMarkdown(value: string): string {
@@ -20,14 +46,13 @@ function escapePlainMarkdown(value: string): string {
 export function convertShowBoxesToMarkdown(markdown: string): string {
   const lines = markdown.split('\n')
   const output: string[] = []
-  let fence: string | null = null
+  let fence: FenceState | null = null
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
-    const marker = fenceMarker(line)
-    if (marker) {
-      if (!fence) fence = marker
-      else if (fence === marker) fence = null
+    const stepped = stepFence(fence, line)
+    if (stepped.matched) {
+      fence = stepped.fence
       output.push(line)
       continue
     }
@@ -136,14 +161,13 @@ function serializeTableRow(cells: string[]): string {
 export function expandMergedTableCells(markdown: string): string {
   const lines = markdown.split('\n')
   const output: string[] = []
-  let fence: string | null = null
+  let fence: FenceState | null = null
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
-    const marker = fenceMarker(line)
-    if (marker) {
-      if (!fence) fence = marker
-      else if (fence === marker) fence = null
+    const stepped = stepFence(fence, line)
+    if (stepped.matched) {
+      fence = stepped.fence
       output.push(line)
       continue
     }
@@ -204,13 +228,12 @@ export function convertLuoguExtensionsToMarkdown(markdown: string): string {
   const lines = markdown.split('\n')
   const output: string[] = []
   const callouts: number[] = []
-  let fence: string | null = null
+  let fence: FenceState | null = null
 
   for (const line of lines) {
-    const marker = fenceMarker(line)
-    if (marker) {
-      if (!fence) fence = marker
-      else if (fence === marker) fence = null
+    const stepped = stepFence(fence, line)
+    if (stepped.matched) {
+      fence = stepped.fence
       output.push(`${quotePrefix(callouts.length)}${line}`)
       continue
     }
