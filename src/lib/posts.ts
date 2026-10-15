@@ -8,15 +8,22 @@ import type { Post, PostMeta } from './types'
 
 // Vite 专属 API：在 VS Code 插件等非 Vite 打包环境（esbuild cjs/iife）中为空，
 // 用 typeof 守卫避免在那些环境里加载即抛错。
-const rawModules = (
-  typeof import.meta.glob === 'function'
-    ? import.meta.glob('/content/posts/**/*.md', {
-        query: '?raw',
-        import: 'default',
-        eager: true,
-      })
-    : {}
-) as Record<string, string>
+// 注意：不能用 `typeof import.meta.glob === 'function'` 做守卫——Vite 生产构建只会替换
+// `import.meta.glob(...)` 调用本身，守卫在浏览器里恒为 false，会导致仓库文章全部丢失。
+// 因此改为直接调用并用 try/catch 兜底（非 Vite 环境下调用会抛错，此时返回空对象）。
+function readRepoPostSources(): Record<string, string> {
+  try {
+    return import.meta.glob('/content/posts/**/*.md', {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    }) as Record<string, string>
+  } catch {
+    return {}
+  }
+}
+
+const rawModules = readRepoPostSources()
 
 /* -------------------------------------------------------------------------- */
 /*                                 工具函数                                    */
@@ -179,7 +186,12 @@ function readStore(): StoredDraft[] {
   if (typeof localStorage === 'undefined') return []
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.drafts) || '[]')
-    return Array.isArray(parsed) ? parsed : []
+    if (!Array.isArray(parsed)) return []
+    // 只保留结构完整的条目：slug 与 raw 必须是字符串
+    return parsed.filter(
+      (d): d is StoredDraft =>
+        !!d && typeof d === 'object' && typeof d.slug === 'string' && typeof d.raw === 'string',
+    )
   } catch {
     return []
   }
@@ -191,10 +203,19 @@ function writeStore(items: StoredDraft[]) {
 }
 
 export function getLocalPosts(): Post[] {
-  return readStore().map((d) => ({
-    ...buildPost(d.raw, { slug: d.slug, source: 'local', savedAt: d.savedAt }),
-    encryptIntent: d.encrypt === true,
-  }))
+  const posts: Post[] = []
+  for (const d of readStore()) {
+    // 单条损坏的草稿（缺字段、格式错误）只跳过它，不能让整个文章列表失效
+    try {
+      posts.push({
+        ...buildPost(d.raw, { slug: d.slug, source: 'local', savedAt: d.savedAt }),
+        encryptIntent: d.encrypt === true,
+      })
+    } catch (err) {
+      console.warn('[posts] 跳过无法解析的本地草稿：', d?.slug, err)
+    }
+  }
+  return posts
 }
 
 export function saveLocalPost(
@@ -211,6 +232,19 @@ export function saveLocalPost(
 
 export function deleteLocalPost(slug: string) {
   writeStore(readStore().filter((d) => d.slug !== slug))
+}
+
+/**
+ * 文章已成功提交到仓库后，删除内容完全相同的本地草稿。
+ * 草稿仍在覆盖公开版本（getAllPosts 中本地优先），不删除会导致仓库里的新版本永远看不到。
+ * 若草稿在提交之后又被修改（内容不同），则保留，避免丢失用户的新改动。
+ */
+export function removeLocalPostIfSynced(slug: string, markdown: string): boolean {
+  const items = readStore()
+  const match = items.find((d) => d.slug === slug)
+  if (!match || match.raw !== markdown) return false
+  writeStore(items.filter((d) => d.slug !== slug))
+  return true
 }
 
 export function localPostExists(slug: string): boolean {
@@ -309,10 +343,18 @@ export function getAllTags(posts: Post[]): { name: string; count: number }[] {
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
 }
 
+/** 加密文章在公开 frontmatter 中使用的占位日期（真实日期只存在于密文里）。 */
+export const ENCRYPTED_PLACEHOLDER_DATE = '1970-01-01'
+
+/** 文章的日期是否可以公开展示：加密文章的占位日期不是真实发布日期，不应显示。 */
+export function hasPublicDate(post: Pick<Post, 'date' | 'encryption'>): boolean {
+  return !(post.encryption && post.date === ENCRYPTED_PLACEHOLDER_DATE)
+}
+
 export function getArchive(posts: Post[]): { year: string; posts: Post[] }[] {
   const map = new Map<string, Post[]>()
   for (const p of posts) {
-    const year = (p.date || '').slice(0, 4) || '其他'
+    const year = hasPublicDate(p) ? (p.date || '').slice(0, 4) || '其他' : '其他'
     if (!map.has(year)) map.set(year, [])
     map.get(year)!.push(p)
   }

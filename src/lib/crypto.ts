@@ -1,5 +1,5 @@
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter'
-import { buildPost } from './posts'
+import { buildPost, ENCRYPTED_PLACEHOLDER_DATE } from './posts'
 import type { Post, PostSource } from './types'
 
 /**
@@ -205,7 +205,7 @@ export async function encryptPostMarkdown(post: Post, password: string): Promise
       title: post.title,
       // Keep a valid but non-identifying date so the public article index can
       // still sort the opaque wrapper without exposing its real metadata.
-      date: '1970-01-01',
+      date: ENCRYPTED_PLACEHOLDER_DATE,
       // Tags are deliberately published in clear text: they are classification
       // metadata, not content, and the tag cloud / tag pages need them.
       tags: post.tags,

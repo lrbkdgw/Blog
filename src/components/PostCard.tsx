@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, Clock, FileEdit, LockKeyhole, Pin } from 'lucide-react'
 import type { Post } from '../lib/types'
-import { formatDate } from '../lib/posts'
+import { formatDate, hasPublicDate } from '../lib/posts'
 import { resolvePendingImageSrc } from '../lib/updateQueue'
 
 export function PostCard({ post, index = 0 }: { post: Post; index?: number }) {
@@ -24,9 +24,11 @@ export function PostCard({ post, index = 0 }: { post: Post; index?: number }) {
       )}
 
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-400">
-        <time dateTime={post.date} className="font-mono">
-          {formatDate(post.date)}
-        </time>
+        {hasPublicDate(post) && (
+          <time dateTime={post.date} className="font-mono">
+            {formatDate(post.date)}
+          </time>
+        )}
         <span className="flex items-center gap-1">
           <Clock size={12} />
           {post.readingTime} 分钟

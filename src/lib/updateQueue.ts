@@ -17,6 +17,7 @@ import {
   type FileChange,
 } from './github'
 import { recordPublishTime } from './publishTimes'
+import { removeLocalPostIfSynced } from './posts'
 
 export type QueueItemKind =
   | 'post-publish'
@@ -35,6 +36,8 @@ export interface QueueItem {
   createdAt: number
   /** post-publish / post-pr：待写入的完整 Markdown */
   markdown?: string
+  /** post-pr：修改 slug 时旧文件的 slug，PR 中一并删除它 */
+  renamedFrom?: string
   /** settings-sync：待写入的文本内容 */
   text?: string
   /** image-upload：本地 data URL 与最终仓库访问地址 */
@@ -67,11 +70,22 @@ const POST_KINDS: QueueItemKind[] = ['post-publish', 'post-delete', 'post-pr']
 /** localStorage 存不下超大图片（base64 还会膨胀约 1/3），提前拦截。 */
 const MAX_IMAGE_DATAURL_CHARS = 3_200_000
 
+const QUEUE_KINDS: QueueItemKind[] = ['post-publish', 'post-delete', 'post-pr', 'image-upload', 'settings-sync']
+
 function readStore(): QueueItem[] {
   if (typeof localStorage === 'undefined') return []
   try {
     const parsed = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]')
-    return Array.isArray(parsed) ? parsed : []
+    if (!Array.isArray(parsed)) return []
+    // 丢弃结构损坏的条目，避免它们在批量更新时抛错
+    return parsed.filter(
+      (item): item is QueueItem =>
+        !!item &&
+        typeof item === 'object' &&
+        typeof item.id === 'string' &&
+        typeof item.target === 'string' &&
+        QUEUE_KINDS.includes(item.kind),
+    )
   } catch {
     return []
   }
@@ -138,12 +152,14 @@ export function enqueuePostDelete(slug: string, title: string): QueueItem {
 export function enqueuePostPr(
   post: { slug: string; title: string },
   markdown: string,
+  renamedFrom?: string,
 ): QueueItem {
   return enqueueUpdate({
     kind: 'post-pr',
     title: post.title || post.slug,
     target: post.slug,
     markdown,
+    renamedFrom: renamedFrom && renamedFrom !== post.slug ? renamedFrom : undefined,
   })
 }
 
@@ -259,6 +275,15 @@ function buildCommitMessage(fileItems: QueueItem[]): string {
   return `chore(blog): 批量更新 ${fileItems.length} 项内容\n\n${lines.join('\n')}`
 }
 
+/** 远端操作已成功后的本地收尾工作：失败只记录，不影响更新结果。 */
+function bestEffort(fn: () => unknown) {
+  try {
+    fn()
+  } catch (err) {
+    console.warn('[updateQueue] 本地收尾操作失败（不影响已提交的更新）：', err)
+  }
+}
+
 /**
  * 执行队列更新：
  *   - 文件类更改（文章、图片、设置）合并为一次 Git 提交（一次部署）；
@@ -266,7 +291,25 @@ function buildCommitMessage(fileItems: QueueItem[]): string {
  * 失败的条目会保留在队列中，成功的条目自动移除。
  */
 export async function flushUpdateQueue(selected?: QueueItem[]): Promise<FlushResult> {
-  const wanted = selected ?? getUpdateQueue()
+  const queue = getUpdateQueue()
+  const wanted = [...(selected ?? queue)]
+  // 文章引用的图片必须与文章一起提交，否则已发布的文章会指向尚不存在的图片。
+  // 把"已选文章中引用到、但未被选中"的待上传图片自动加入本次更新。
+  const included = new Set(wanted.map((item) => item.id))
+  for (const article of wanted.slice()) {
+    if (!article.markdown) continue
+    for (const image of queue) {
+      if (
+        image.kind === 'image-upload' &&
+        image.url &&
+        !included.has(image.id) &&
+        article.markdown.includes(image.url)
+      ) {
+        included.add(image.id)
+        wanted.push(image)
+      }
+    }
+  }
   const fileItems: QueueItem[] = []
   const prItems: QueueItem[] = []
   for (const item of wanted) {
@@ -294,7 +337,11 @@ export async function flushUpdateQueue(selected?: QueueItem[]): Promise<FlushRes
       const res = await commitFileChanges(changes, buildCommitMessage(fileItems))
       commitUrl = res.commitUrl
       for (const item of fileItems) {
-        if (item.kind === 'post-publish') recordPublishTime(item.target, Date.now())
+        if (item.kind === 'post-publish') {
+          // 提交已经成功：本地记录失败（如存储空间不足）不能让这次提交被误报为失败
+          bestEffort(() => recordPublishTime(item.target, Date.now()))
+          if (item.markdown) bestEffort(() => removeLocalPostIfSynced(item.target, item.markdown!))
+        }
         succeeded.push(item)
       }
     } catch (err) {
@@ -305,8 +352,11 @@ export async function flushUpdateQueue(selected?: QueueItem[]): Promise<FlushRes
 
   for (const item of prItems) {
     try {
-      const pr = await submitPublicationPR(item.target, item.markdown ?? '', item.title)
+      const pr = await submitPublicationPR(item.target, item.markdown ?? '', item.title, undefined, {
+        deleteSlug: item.renamedFrom,
+      })
       prUrls.push(pr.html_url)
+      if (item.markdown) bestEffort(() => removeLocalPostIfSynced(item.target, item.markdown!))
       succeeded.push(item)
     } catch (err) {
       failed.push({ item, message: err instanceof Error ? err.message : '创建发表申请失败' })

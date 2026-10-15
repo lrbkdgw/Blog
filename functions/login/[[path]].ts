@@ -48,7 +48,8 @@ export const onRequest = async (context: NextableContext): Promise<Response> => 
   } catch {
     return json({ error: 'bad_request' }, 400)
   }
-  if (body.length > MAX_BODY_BYTES) {
+  // 按字节计算（body.length 统计的是字符数，中文等多字节字符会被低估）
+  if (new TextEncoder().encode(body).byteLength > MAX_BODY_BYTES) {
     return json({ error: 'payload_too_large' }, 413)
   }
 
