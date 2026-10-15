@@ -582,7 +582,8 @@ export default function Editor() {
         )
       } else {
         // 普通已登录用户：待更新队列里保存为发表申请 PR，统一更新时创建
-        enqueuePostPr(post, markdown)
+        // 修改了 slug 时，PR 中一并删除旧路径的文件（旧文件不存在时会自动跳过）
+        enqueuePostPr(post, markdown, routeSlug || undefined)
         toast('发表申请已加入待更新队列，统一更新时创建审核 PR', 'success', {
           label: '查看队列',
           href: '/admin?tab=queue',

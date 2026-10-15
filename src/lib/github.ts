@@ -561,32 +561,62 @@ export function saveLocalPR(pr: PublicationPR) {
   writeLocalPRs(list)
 }
 
-/** 提交文章发表申请（创建 PR） */
+interface CreatedPullRequest {
+  number: number
+  html_url: string
+  title: string
+  state: string
+  created_at: string
+  updated_at: string
+  user: { login: string; avatar_url: string }
+}
+
+/** 新建 Fork 后，GitHub 需要几秒才能完成复制；遇到“找不到资源”时稍后重试。 */
+async function retryWhileForkPreparing<T>(fn: () => Promise<T>, attempts = 6): Promise<T> {
+  let lastError: unknown
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fn()
+    } catch (err) {
+      lastError = err
+      if ((err as { status?: number }).status !== 404 && (err as { status?: number }).status !== 422) throw err
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+    }
+  }
+  throw lastError
+}
+
+/** 提交文章发表申请（创建 PR）。
+ *  - 更新已有文章时会带上基础分支上的文件 sha（否则 contents API 返回 422）；
+ *  - 可选 deleteSlug：同一 PR 中删除旧 slug 的文件（修改 slug 后避免重复文章）；
+ *  - Fork 是异步创建的，建分支时会短暂重试，直到 Fork 可用为止；
+ *  - PR 创建失败时删除刚建的分支，避免留下孤立分支。 */
 export async function submitPublicationPR(
   slug: string,
   markdown: string,
   title: string,
   target = getRepoTarget(),
+  options: { deleteSlug?: string } = {},
 ): Promise<PublicationPR> {
   const token = getToken()
   if (!token) throw new Error('请先使用 GitHub 账号登录')
   const user = await verifyToken(token)
 
   const filePath = `${target.postsDir}/${slug}.md`
+  const deletePath =
+    options.deleteSlug && options.deleteSlug !== slug
+      ? `${target.postsDir}/${options.deleteSlug}.md`
+      : undefined
   const branchName = `submit-post-${slug}-${Date.now().toString(36)}`
 
-  // 1. 尝试在用户 Fork 或原仓库创建分支并提交文件
+  // 1. 确定分支所在仓库：有写权限直接用目标仓库，否则使用用户的 Fork
   let headRef = ''
   let repoOwnerForBranch = target.owner
 
   const perms = await checkUserRepoPermissions(user.login, target)
   if (!perms.canPush) {
-    // 非仓库写权限用户：检查/创建 Fork
-    try {
-      await gh(`/repos/${target.owner}/${target.repo}/forks`, { method: 'POST' })
-    } catch {
-      /* fork 可能已存在 */
-    }
+    // Fork 已存在时 GitHub 同样返回成功；真正的失败会在后面建分支时暴露
+    await gh(`/repos/${target.owner}/${target.repo}/forks`, { method: 'POST' }).catch(() => undefined)
     repoOwnerForBranch = user.login
     headRef = `${user.login}:${branchName}`
   } else {
@@ -599,43 +629,67 @@ export async function submitPublicationPR(
   )
   const baseSha = baseBranchData.object.sha
 
-  // 在目标仓库或 Fork 仓库中创建新分支
-  await gh(`/repos/${repoOwnerForBranch}/${target.repo}/git/refs`, {
-    method: 'POST',
-    body: JSON.stringify({
-      ref: `refs/heads/${branchName}`,
-      sha: baseSha,
+  // 在目标仓库或 Fork 中创建新分支（Fork 刚创建时可能还不可用，短暂重试）
+  await retryWhileForkPreparing(() =>
+    gh(`/repos/${repoOwnerForBranch}/${target.repo}/git/refs`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ref: `refs/heads/${branchName}`,
+        sha: baseSha,
+      }),
     }),
-  })
+  )
 
-  // 在新分支上提交文章
-  await gh(`/repos/${repoOwnerForBranch}/${target.repo}/contents/${encodeRepoPath(filePath)}`, {
-    method: 'PUT',
-    body: JSON.stringify({
-      message: `post(blog): 申请发表《${title}》`,
-      content: encodeBase64(markdown),
-      branch: branchName,
-    }),
-  })
+  let prRes: CreatedPullRequest
+  try {
+    // 在新分支上写入文章；若基础分支已有该文件，必须带上它的 sha 才能更新
+    const existingSha = await getSha(filePath, target)
+    await gh(`/repos/${repoOwnerForBranch}/${target.repo}/contents/${encodeRepoPath(filePath)}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        message: `post(blog): 申请发表《${title}》`,
+        content: encodeBase64(markdown),
+        branch: branchName,
+        ...(existingSha ? { sha: existingSha } : {}),
+      }),
+    })
 
-  // 创建 Pull Request
-  const prRes = await gh<{
-    number: number
-    html_url: string
-    title: string
-    state: string
-    created_at: string
-    updated_at: string
-    user: { login: string; avatar_url: string }
-  }>(`/repos/${target.owner}/${target.repo}/pulls`, {
-    method: 'POST',
-    body: JSON.stringify({
-      title: `post(submit): ${title} (${slug})`,
-      head: headRef,
-      base: target.branch,
-      body: `### 文章发表申请\n\n- **文章标题**：${title}\n- **URL 别名**：${slug}\n- **提交作者**：@${user.login}\n\n*由 Starlog 在线编辑器自动创建*`,
-    }),
-  })
+    // 修改了 slug：在同一分支删除旧文件（只在旧文件确实存在时）
+    if (deletePath) {
+      const oldSha = await getSha(deletePath, target)
+      if (oldSha) {
+        await gh(`/repos/${repoOwnerForBranch}/${target.repo}/contents/${encodeRepoPath(deletePath)}`, {
+          method: 'DELETE',
+          body: JSON.stringify({
+            message: `chore(blog): 申请发表《${title}》时移除旧路径 ${options.deleteSlug}`,
+            sha: oldSha,
+            branch: branchName,
+          }),
+        })
+      }
+    }
+
+    // 创建 Pull Request
+    prRes = await gh<CreatedPullRequest>(`/repos/${target.owner}/${target.repo}/pulls`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: `post(submit): ${title} (${slug})`,
+        head: headRef,
+        base: target.branch,
+        body: `### 文章发表申请\n\n- **文章标题**：${title}\n- **URL 别名**：${slug}${
+          options.deleteSlug && options.deleteSlug !== slug
+            ? `\n- **旧 URL 别名（将被删除）**：${options.deleteSlug}`
+            : ''
+        }\n- **提交作者**：@${user.login}\n\n*由 Starlog 在线编辑器自动创建*`,
+      }),
+    })
+  } catch (err) {
+    // 写入或创建 PR 失败：清理刚建的分支，避免留下孤立分支
+    await gh(`/repos/${repoOwnerForBranch}/${target.repo}/git/refs/heads/${encodeURIComponent(branchName)}`, {
+      method: 'DELETE',
+    }).catch(() => undefined)
+    throw err
+  }
 
   const newPR: PublicationPR = {
     number: prRes.number,
