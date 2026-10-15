@@ -10,7 +10,7 @@ import { MemoryRouter } from 'react-router-dom'
 
 const root = new URL('../', import.meta.url)
 const read = (path) => readFile(new URL(path, root), 'utf8')
-const components = ['magic-card', 'border-beam', 'shimmer-button', 'blur-fade', 'aurora-text', 'shine-border']
+const components = ['magic-card', 'border-beam', 'shimmer-button', 'blur-fade', 'aurora-text', 'shine-border', 'bento-grid', 'dock', 'number-ticker', 'scroll-progress']
 const pin = '85f97fd27b053339af74ba9dd4ca428ee25989fb'
 // Use Vite's existing compiler in memory; exercise the real TSX without generated files or a new test framework.
 const { outputFiles } = await build({
@@ -19,7 +19,7 @@ const { outputFiles } = await build({
 })
 const module = { exports: {} }
 new Function('module', 'exports', 'require', outputFiles[0].text)(module, module.exports, createRequire(import.meta.url))
-const { MagicCard, BorderBeam, ShimmerButton, ShimmerLink, BlurFade, AuroraText, ShineBorder, cn } = module.exports
+const { MagicCard, BorderBeam, ShimmerButton, ShimmerLink, BlurFade, AuroraText, ShineBorder, BentoGrid, BentoCard, Dock, DockIcon, NumberTicker, ScrollProgress, cn } = module.exports
 const render = (component, props, children) => renderToStaticMarkup(h(component, props, children))
 
 test('Magic UI has pinned, attributed source and a shipped MIT notice; no direct or transitive Radix', async () => {
@@ -112,4 +112,59 @@ test('Magic UI animation CSS is app-only and uses the official, namespaced keyfr
   assert.match(css, /@media \(forced-colors: active\)/)
   assert.match(css, /@media print/)
   assert.match(css, /pointer-events: none/)
+})
+
+
+test('transparent Magic Cards remove the solid fill in both modes and use a masked border', async () => {
+  for (const mode of ['gradient', 'orb']) {
+    const card = render(MagicCard, { mode, surface: 'transparent' }, h('article', null, '透明文章'))
+    assert.match(card, /data-surface="transparent"/)
+    assert.match(card, /style="background:transparent"/)
+    assert.match(card, /class="magic-card-border"/)
+    assert.doesNotMatch(card, /data-magic-card-fill/)
+  }
+  assert.match(render(MagicCard, {}, '保留通用实色模式'), /data-magic-card-fill="true"/)
+  const css = await read('src/styles/magicui.css')
+  assert.match(css, /\.magic-card-border[^}]+mask-composite: exclude/)
+  assert.match(await read('src/styles/appearance.css'), /\.reading-surface \{[^}]+background: transparent/)
+})
+
+test('Bento Grid and Card keep a single title link, semantic article, cover and metadata slots', () => {
+  const card = h(BentoCard, { name: '文章标题', description: '文章摘要', href: '/posts/example', background: h('img', { src: '/cover.png', alt: '' }), metadata: h('time', { dateTime: '2026-10-16' }, '日期'), footer: h('span', null, '#测试') })
+  const html = renderToStaticMarkup(h(MemoryRouter, { basename: '/Blog', initialEntries: ['/Blog/'] }, h(BentoGrid, null, card)))
+  assert.match(html, /data-magic-ui="bento-grid"/)
+  assert.match(html, /<article[^>]+data-magic-ui="bento-card"/)
+  assert.equal((html.match(/<a\s/g) || []).length, 1)
+  assert.match(html, /href="\/Blog\/posts\/example"/)
+  assert.match(html, /<h2[^>]+><a[^>]+>文章标题<\/a><\/h2>/)
+  for (const text of ['文章摘要', '#测试', 'dateTime="2026-10-16"', '/cover.png']) assert.ok(html.includes(text), text)
+  assert.doesNotMatch(html, /<button/)
+})
+
+test('Dock preserves native links and its configured size without enabled interactive motion', () => {
+  const html = render(Dock, { iconSize: 48 }, h(DockIcon, null, h('a', { href: '/archive' }, '归档')))
+  assert.match(html, /data-magic-ui="dock"/)
+  assert.match(html, /data-interactive="false"/)
+  assert.match(html, /width:48px;height:48px/)
+  assert.match(html, /<a href="\/archive">归档<\/a>/)
+  assert.doesNotMatch(html, /tabindex|<button/i)
+})
+
+test('Number Ticker exposes the true count immediately, including no-observer and decimal fallbacks', () => {
+  for (const [props, expected] of [[{ value: 8 }, '8'], [{ value: 0 }, '0'], [{ value: 1234.25, decimalPlaces: 2 }, '1,234.25'], [{ value: 9, startValue: 2, direction: 'down' }, '2']]) {
+    const html = render(NumberTicker, props)
+    assert.match(html, /data-animating="false"/)
+    assert.ok(html.includes(`<span class="sr-only">${expected}</span>`))
+    assert.ok(html.includes(`aria-hidden="true" class="magic-number-visual">${expected}</span>`))
+  }
+})
+
+test('Scroll Progress has a real named progressbar and starts at zero without browser layout', () => {
+  const html = render(ScrollProgress)
+  assert.match(html, /data-magic-ui="scroll-progress"/)
+  assert.match(html, /role="progressbar"/)
+  assert.match(html, /aria-label="页面阅读进度"/)
+  assert.match(html, /aria-valuenow="0"/)
+  assert.match(html, /aria-valuemax="100"/)
+  assert.match(html, /transform:scaleX\(0\)/)
 })

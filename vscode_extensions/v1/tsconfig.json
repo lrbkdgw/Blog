@@ -15,7 +15,8 @@
     "forceConsistentCasingInFileNames": true,
     "types": [
       "node",
-      "vscode"
+      "vscode",
+      "vite/client"
     ],
     "jsx": "react-jsx"
   },

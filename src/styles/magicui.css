@@ -66,3 +66,47 @@
   .magic-aurora-text { background: none !important; color: #111 !important; -webkit-text-fill-color: #111 !important; }
   .magic-shimmer, .magic-card { background: white !important; color: #111 !important; border-color: #aaa !important; box-shadow: none !important; }
 }
+
+/* Article-first Bento layout. No opaque fill, backdrop blur, or decorative image behind the text. */
+.magic-card-border { position: absolute; inset: 0; z-index: 1; border-radius: inherit; padding: 1px; pointer-events: none; mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask-composite: exclude; -webkit-mask-composite: xor; }
+.magic-bento-grid > * { min-width: 0; }
+.magic-bento-card { background: transparent; min-height: 248px; }
+.bento-title-link::after { content: ''; position: absolute; inset: 0; z-index: 1; }
+.bento-cta-label { color: var(--text-muted); font-size: .625rem; opacity: 0; transform: translateX(-5px); transition: opacity .25s, transform .25s; }
+.bento-hover-overlay { opacity: 0; background: linear-gradient(135deg, rgb(var(--brand-500) / .035), transparent 70%); transition: opacity .25s; }
+.posts-empty { border: 1px dashed var(--line-color); border-radius: var(--card-radius); background: transparent; }
+.post-card:focus-within .bento-cta-label { opacity: 1; transform: none; }
+.post-navigation-card:focus-within, .tag-card:focus-within { outline: 2px solid rgb(var(--brand-500)); outline-offset: 3px; }
+@media (min-width: 1024px) {
+  .post-card-wide .post-title { font-size: 1.6rem; line-height: 1.4; }
+  .post-card-wide .post-summary { max-width: 40rem; }
+}
+@media (hover: hover) and (pointer: fine) {
+  .post-card:hover .bento-cta-label { opacity: 1; transform: none; }
+  .post-card:hover .bento-hover-overlay { opacity: 1; }
+}
+@media (hover: none), (max-width: 639px) { .bento-cta-label { opacity: 1; transform: none; } }
+:root[data-effects="off"] .bento-cta-label { opacity: 1; transform: none; }
+
+/* The official spring-based Dock now forms the primary desktop navigation. */
+.magic-dock { min-height: 54px; border-color: var(--line-color); background: rgb(var(--brand-500) / .025); }
+.magic-dock-item { flex-shrink: 0; }
+.dock-link { position: relative; display: flex; width: 100%; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border-radius: 10px; color: var(--text-muted); transition: color .2s, background .2s; }
+.dock-link > span:not(.magic-shine-border) { font-size: .5625rem; line-height: 1; white-space: nowrap; }
+.dock-link > svg { flex-shrink: 0; }
+.dock-link.is-active { color: rgb(var(--brand-600)); background: rgb(var(--brand-500) / .085); }
+.dark .dock-link.is-active { color: rgb(var(--brand-200)); }
+.dock-link:hover { color: var(--text-primary); }
+.dock-link:focus-visible { outline: 2px solid rgb(var(--brand-500)); outline-offset: 2px; }
+.magic-number-visual { display: inline-block; min-width: 1ch; }
+.magic-scroll-progress { background: linear-gradient(to right, rgb(var(--brand-400)), rgb(var(--brand-600)), rgb(var(--theme-secondary))); }
+@media (prefers-reduced-motion: reduce) { .bento-cta-label { opacity: 1; transform: none; } }
+@media (forced-colors: active) {
+  .bento-hover-overlay { display: none; }
+  .magic-scroll-progress { background: Highlight; }
+  .dock-link.is-active { outline: 1px solid Highlight; }
+}
+@media print {
+  .magic-card[data-surface="transparent"], .magic-bento-card { background: transparent !important; }
+  .bento-hover-overlay, .bento-cta { display: none; }
+}

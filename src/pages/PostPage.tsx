@@ -23,6 +23,8 @@ import {
   X,
 } from 'lucide-react'
 import { Markdown } from '../components/Markdown'
+import { ScrollProgress } from '../components/magicui/scroll-progress'
+import { MagicCard } from '../components/magicui/magic-card'
 import { PasswordPrompt } from '../components/PasswordPrompt'
 import { Toc } from '../components/Toc'
 import { Comments } from '../components/Comments'
@@ -50,27 +52,6 @@ import { useAuth } from '../lib/auth'
 import { useToast } from '../components/Toast'
 import { siteConfig } from '../lib/config'
 import { convertMarkdownForCopy, type MarkdownCopyTarget } from '../lib/markdownSource'
-
-function ReadingProgress() {
-  const [progress, setProgress] = useState(0)
-  useEffect(() => {
-    const onScroll = () => {
-      const height = document.documentElement.scrollHeight - window.innerHeight
-      setProgress(height > 0 ? Math.min(100, (window.scrollY / height) * 100) : 0)
-    }
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
-  return (
-    <div className="no-print fixed inset-x-0 top-0 z-[60] h-0.5 bg-transparent">
-      <div
-        className="h-full bg-gradient-to-r from-brand-400 via-brand-500 to-indigo-500 transition-[width] duration-150"
-        style={{ width: `${progress}%` }}
-      />
-    </div>
-  )
-}
 
 async function writeClipboard(text: string): Promise<void> {
   try {
@@ -461,7 +442,7 @@ export default function PostPage() {
   if (locked) {
     return (
       <>
-        <ReadingProgress />
+        <ScrollProgress />
         <div className="container-page pt-12">
           <Link to="/" className="no-print group mb-8 inline-flex items-center gap-1.5 text-sm text-ink-400 transition hover:text-brand-600 dark:hover:text-brand-300">
             <ArrowLeft size={14} className="transition-transform group-hover:-translate-x-0.5" /> 返回文章列表
@@ -508,9 +489,9 @@ export default function PostPage() {
   const article = visiblePost!
   return (
     <>
-      <ReadingProgress />
+      <ScrollProgress />
       <div className="container-page grid grid-cols-1 gap-10 pt-10 xl:grid-cols-[minmax(0,1fr)_14rem]">
-        <article className="reading-surface min-w-0 animate-fade-up">
+        <article className="reading-surface min-w-0">
           <Link to="/" className="no-print group mb-8 inline-flex items-center gap-1.5 text-sm text-ink-400 transition hover:text-brand-600 dark:hover:text-brand-300">
             <ArrowLeft size={14} className="transition-transform group-hover:-translate-x-0.5" /> 返回文章列表
           </Link>
@@ -576,8 +557,8 @@ export default function PostPage() {
           <div className="mt-8"><Markdown content={article.content} /></div>
           <div className="no-print mt-16 border-t border-ink-200/60 pt-8 dark:border-white/[0.08]">
             <div className="grid gap-3 sm:grid-cols-2">
-              {previous ? <Link to={`/posts/${previous.slug}`} className="card group flex flex-col p-4 transition hover:border-brand-300 dark:hover:border-brand-400/30"><span className="text-xs text-ink-400">← 上一篇</span><span className="mt-1 line-clamp-2 text-sm font-medium text-ink-800 group-hover:text-brand-600 dark:text-ink-100 dark:group-hover:text-brand-300">{previous.title}</span></Link> : <span />}
-              {next && <Link to={`/posts/${next.slug}`} className="card group flex flex-col p-4 text-right transition hover:border-brand-300 dark:hover:border-brand-400/30"><span className="text-xs text-ink-400">下一篇 →</span><span className="mt-1 line-clamp-2 text-sm font-medium text-ink-800 group-hover:text-brand-600 dark:text-ink-100 dark:group-hover:text-brand-300">{next.title}</span></Link>}
+              {previous ? <MagicCard surface="transparent" className="post-navigation-card group"><Link to={`/posts/${previous.slug}`} className="flex h-full flex-col p-4"><span className="text-xs text-ink-400">← 上一篇</span><span className="mt-1 line-clamp-2 text-sm font-medium text-ink-800 group-hover:text-brand-600 dark:text-ink-100 dark:group-hover:text-brand-300">{previous.title}</span></Link></MagicCard> : <span />}
+              {next && <MagicCard surface="transparent" className="post-navigation-card group"><Link to={`/posts/${next.slug}`} className="flex h-full flex-col p-4 text-right"><span className="text-xs text-ink-400">下一篇 →</span><span className="mt-1 line-clamp-2 text-sm font-medium text-ink-800 group-hover:text-brand-600 dark:text-ink-100 dark:group-hover:text-brand-300">{next.title}</span></Link></MagicCard>}
             </div>
           </div>
           <Comments postSlug={article.slug} postTitle={article.title} />

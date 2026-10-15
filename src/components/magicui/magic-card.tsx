@@ -18,6 +18,7 @@ interface MagicCardBaseProps {
   className?: string
   contentClassName?: string
   interactive?: boolean
+  surface?: "solid" | "transparent"
   gradientSize?: number
   gradientFrom?: string
   gradientTo?: string
@@ -63,11 +64,12 @@ export function MagicCard(props: MagicCardProps) {
     children,
     className,
     contentClassName,
+    surface = "solid",
     gradientSize = 200,
-    gradientColor = "#262626",
-    gradientOpacity = 0.8,
-    gradientFrom = "#9E7AFF",
-    gradientTo = "#FE8BBB",
+    gradientColor = "rgb(var(--brand-400))",
+    gradientOpacity = 0.12,
+    gradientFrom = "rgb(var(--brand-400))",
+    gradientTo = "rgb(var(--theme-secondary))",
     mode = "gradient",
   } = props
 
@@ -171,14 +173,8 @@ export function MagicCard(props: MagicCardProps) {
     return stop
   }, [canInteract, gradientSize, mode, mouseX, mouseY, orbX, orbY, orbVisible])
 
-  const borderBackground = useMotionTemplate`
-          linear-gradient(rgb(var(--surface)) 0 0) padding-box,
-          radial-gradient(${gradientSize}px circle at ${mouseX}px ${mouseY}px,
-            ${gradientFrom},
-            ${gradientTo},
-            var(--line-color) 100%
-          ) border-box
-        `
+  const borderGradient = useMotionTemplate`radial-gradient(${gradientSize}px circle at ${mouseX}px ${mouseY}px, ${gradientFrom}, ${gradientTo}, var(--line-color) 100%)`
+  const borderBackground = useMotionTemplate`linear-gradient(rgb(var(--surface)) 0 0) padding-box, ${borderGradient} border-box`
   const gradientBackground = useMotionTemplate`
               radial-gradient(${gradientSize}px circle at ${mouseX}px ${mouseY}px,
                 ${gradientColor},
@@ -191,6 +187,7 @@ export function MagicCard(props: MagicCardProps) {
       data-magic-ui="magic-card"
       data-interactive={canInteract}
       data-mode={mode}
+      data-surface={surface}
       className={cn(
         "magic-card group relative isolate overflow-hidden rounded-[var(--card-radius)] border border-transparent",
         className
@@ -199,10 +196,14 @@ export function MagicCard(props: MagicCardProps) {
       onPointerLeave={canInteract ? () => reset("leave") : undefined}
       onPointerEnter={canInteract ? (event) => { if (event.pointerType === "mouse") reset("enter") } : undefined}
       style={{
-        background: borderBackground,
+        background: surface === "transparent" ? "transparent" : borderBackground,
       }}
     >
-      <div aria-hidden="true" className="pointer-events-none absolute inset-px z-20 rounded-[inherit]" style={{ background: "rgb(var(--surface))" }} />
+      {surface === "transparent" ? (
+        <motion.div aria-hidden="true" className="magic-card-border" style={{ background: borderGradient }} />
+      ) : (
+        <div aria-hidden="true" data-magic-card-fill="true" className="pointer-events-none absolute inset-px z-20 rounded-[inherit]" style={{ background: "rgb(var(--surface))" }} />
+      )}
 
       {mode === "gradient" && (
         <motion.div

@@ -1,7 +1,11 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
+  Archive,
+  BookOpen,
   Github,
+  House,
+  Tags,
   LayoutDashboard,
   LogIn,
   LogOut,
@@ -20,15 +24,17 @@ import { useTheme } from '../lib/theme'
 import { useAuth } from '../lib/auth'
 import { useAnimatedBackground, getSceneValues } from '../lib/animatedBackground'
 import { SearchDialog } from './SearchDialog'
+import { Dock, DockIcon } from './magicui/dock'
+import { ShineBorder } from './magicui/shine-border'
 import logoVenti from '../assets/logo-venti.jpg'
 
 const AnimatedBackdrop = lazy(() => import('./AnimatedBackdrop').then((module) => ({ default: module.AnimatedBackdrop })))
 
 const NAV = [
-  { to: '/', label: '首页', end: true },
-  { to: '/archive', label: '归档' },
-  { to: '/tags', label: '标签' },
-  { to: '/about', label: '帮助' },
+  { to: '/', label: '首页', end: true, icon: House },
+  { to: '/archive', label: '归档', icon: Archive },
+  { to: '/tags', label: '标签', icon: Tags },
+  { to: '/about', label: '帮助', icon: BookOpen },
 ]
 
 function ThemeToggle() {
@@ -170,30 +176,18 @@ function Header({ onSearch }: { onSearch: () => void }) {
       <div className="container-page flex h-16 items-center gap-3">
         <Logo />
 
-        <nav className="ml-4 hidden items-center gap-1 lg:flex">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                `relative rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                  isActive
-                    ? 'text-brand-600 dark:text-brand-300'
-                    : 'text-ink-500 hover:text-ink-900 dark:text-ink-400 dark:hover:text-white'
-                }`
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  {item.label}
-                  {isActive && (
-                    <span className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-brand-400 to-brand-600" />
-                  )}
-                </>
-              )}
-            </NavLink>
-          ))}
+        <nav className="ml-3 hidden lg:block" aria-label="主导航">
+          <Dock>
+            {NAV.map(({ to, label, end, icon: Icon }) => <DockIcon key={to}>
+              <NavLink to={to} end={end} className={({ isActive }) => `dock-link ${isActive ? 'is-active' : ''}`}>
+                {({ isActive }) => <>
+                  {isActive && <ShineBorder duration={16} shineColor={['rgb(var(--brand-400))', 'rgb(var(--theme-secondary))']} />}
+                  <Icon size={17} aria-hidden="true" />
+                  <span>{label}</span>
+                </>}
+              </NavLink>
+            </DockIcon>)}
+          </Dock>
         </nav>
 
         <div className="ml-auto flex items-center gap-1.5">

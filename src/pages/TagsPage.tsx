@@ -3,7 +3,10 @@ import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Hash } from 'lucide-react'
 import { usePosts } from '../lib/usePosts'
 import { getAllTags } from '../lib/posts'
-import { PostCard } from '../components/PostCard'
+import { PostGrid } from '../components/PostGrid'
+import { MagicCard } from '../components/magicui/magic-card'
+import { NumberTicker } from '../components/magicui/number-ticker'
+import { Reveal } from '../components/Reveal'
 
 export default function TagsPage() {
   const { tag } = useParams()
@@ -43,13 +46,9 @@ export default function TagsPage() {
           <Hash size={26} className="text-brand-500" />
           {decoded}
         </h1>
-        <p className="mt-2 text-sm text-ink-500">共 {filtered.length} 篇文章</p>
+        <p className="mt-2 text-sm text-ink-500">共 <NumberTicker value={filtered.length} /> 篇文章</p>
 
-        <div className="mt-10 grid gap-5 sm:grid-cols-2">
-          {filtered.map((p, i) => (
-            <PostCard key={p.slug} post={p} index={i} />
-          ))}
-        </div>
+        <PostGrid posts={filtered} className="mt-10" />
         {filtered.length === 0 && (
           <p className="py-20 text-center text-sm text-ink-400">这个标签下还没有文章</p>
         )}
@@ -64,7 +63,7 @@ export default function TagsPage() {
           标签
         </h1>
         <p className="mt-2 text-sm text-ink-500">
-          用 {tags.length} 个标签整理了 {posts.length} 篇文章。
+          用 <NumberTicker value={tags.length} /> 个标签整理了 <NumberTicker value={posts.length} /> 篇文章。
         </p>
       </header>
 
@@ -72,20 +71,19 @@ export default function TagsPage() {
         {tags.map((t, i) => {
           const scale = 0.85 + (t.count / max) * 0.45
           return (
-            <Link
-              key={t.name}
-              to={`/tags/${encodeURIComponent(t.name)}`}
-              className="card group animate-fade-up px-4 py-2.5 transition hover:-translate-y-0.5 hover:border-brand-300 dark:hover:border-brand-400/30"
-              style={{ animationDelay: `${Math.min(i, 12) * 35}ms` }}
-            >
-              <span
-                className="font-medium text-ink-700 transition group-hover:text-brand-600 dark:text-ink-200 dark:group-hover:text-brand-300"
-                style={{ fontSize: `${scale}rem` }}
-              >
-                #{t.name}
-              </span>
-              <span className="ml-2 font-mono text-xs text-ink-400">{t.count}</span>
-            </Link>
+            <Reveal key={t.name} delay={Math.min(i, 6) * 35}>
+              <MagicCard surface="transparent" className="tag-card group">
+                <Link to={`/tags/${encodeURIComponent(t.name)}`} className="block px-4 py-2.5">
+                  <span
+                    className="font-medium text-ink-700 transition group-hover:text-brand-600 dark:text-ink-200 dark:group-hover:text-brand-300"
+                    style={{ fontSize: `${scale}rem` }}
+                  >
+                    #{t.name}
+                  </span>
+                  <span className="ml-2 font-mono text-xs text-ink-400">{t.count}</span>
+                </Link>
+              </MagicCard>
+            </Reveal>
           )
         })}
         {tags.length === 0 && <p className="py-16 text-sm text-ink-400">还没有标签</p>}
