@@ -8,15 +8,22 @@ import type { Post, PostMeta } from './types'
 
 // Vite 专属 API：在 VS Code 插件等非 Vite 打包环境（esbuild cjs/iife）中为空，
 // 用 typeof 守卫避免在那些环境里加载即抛错。
-const rawModules = (
-  typeof import.meta.glob === 'function'
-    ? import.meta.glob('/content/posts/**/*.md', {
-        query: '?raw',
-        import: 'default',
-        eager: true,
-      })
-    : {}
-) as Record<string, string>
+// 注意：不能用 `typeof import.meta.glob === 'function'` 做守卫——Vite 生产构建只会替换
+// `import.meta.glob(...)` 调用本身，守卫在浏览器里恒为 false，会导致仓库文章全部丢失。
+// 因此改为直接调用并用 try/catch 兜底（非 Vite 环境下调用会抛错，此时返回空对象）。
+function readRepoPostSources(): Record<string, string> {
+  try {
+    return import.meta.glob('/content/posts/**/*.md', {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    }) as Record<string, string>
+  } catch {
+    return {}
+  }
+}
+
+const rawModules = readRepoPostSources()
 
 /* -------------------------------------------------------------------------- */
 /*                                 工具函数                                    */
