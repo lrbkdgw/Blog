@@ -697,10 +697,10 @@ export default function SettingsPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             {(
               [
-                { key: 'owner', label: '用户 / 组织', placeholder: 'lrbkdgw' },
-                { key: 'repo', label: '仓库名', placeholder: 'Blog' },
-                { key: 'branch', label: '分支', placeholder: 'main' },
-                { key: 'postsDir', label: '文章目录', placeholder: 'content/posts' },
+                { key: 'owner', label: '用户 / 组织', placeholder: 'lrbkdgw', locked: false },
+                { key: 'repo', label: '仓库名', placeholder: 'Blog', locked: false },
+                { key: 'branch', label: '分支（由构建配置决定）', placeholder: 'main', locked: true },
+                { key: 'postsDir', label: '文章目录（由构建配置决定）', placeholder: 'content/posts', locked: true },
               ] as const
             ).map((f) => (
               <div key={f.key}>
@@ -709,7 +709,9 @@ export default function SettingsPage() {
                   value={repo[f.key]}
                   onChange={(e) => setRepo({ ...repo, [f.key]: e.target.value })}
                   placeholder={f.placeholder}
-                  className="input font-mono text-xs"
+                  disabled={f.locked}
+                  title={f.locked ? '站点只读取构建时配置的分支与目录，此项不可在本地修改' : undefined}
+                  className="input font-mono text-xs disabled:opacity-60"
                 />
               </div>
             ))}

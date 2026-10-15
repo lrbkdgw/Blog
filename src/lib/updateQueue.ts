@@ -17,6 +17,7 @@ import {
   type FileChange,
 } from './github'
 import { recordPublishTime } from './publishTimes'
+import { removeLocalPostIfSynced } from './posts'
 
 export type QueueItemKind =
   | 'post-publish'
@@ -67,11 +68,22 @@ const POST_KINDS: QueueItemKind[] = ['post-publish', 'post-delete', 'post-pr']
 /** localStorage 存不下超大图片（base64 还会膨胀约 1/3），提前拦截。 */
 const MAX_IMAGE_DATAURL_CHARS = 3_200_000
 
+const QUEUE_KINDS: QueueItemKind[] = ['post-publish', 'post-delete', 'post-pr', 'image-upload', 'settings-sync']
+
 function readStore(): QueueItem[] {
   if (typeof localStorage === 'undefined') return []
   try {
     const parsed = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]')
-    return Array.isArray(parsed) ? parsed : []
+    if (!Array.isArray(parsed)) return []
+    // 丢弃结构损坏的条目，避免它们在批量更新时抛错
+    return parsed.filter(
+      (item): item is QueueItem =>
+        !!item &&
+        typeof item === 'object' &&
+        typeof item.id === 'string' &&
+        typeof item.target === 'string' &&
+        QUEUE_KINDS.includes(item.kind),
+    )
   } catch {
     return []
   }
@@ -294,7 +306,10 @@ export async function flushUpdateQueue(selected?: QueueItem[]): Promise<FlushRes
       const res = await commitFileChanges(changes, buildCommitMessage(fileItems))
       commitUrl = res.commitUrl
       for (const item of fileItems) {
-        if (item.kind === 'post-publish') recordPublishTime(item.target, Date.now())
+        if (item.kind === 'post-publish') {
+          recordPublishTime(item.target, Date.now())
+          if (item.markdown) removeLocalPostIfSynced(item.target, item.markdown)
+        }
         succeeded.push(item)
       }
     } catch (err) {
@@ -307,6 +322,7 @@ export async function flushUpdateQueue(selected?: QueueItem[]): Promise<FlushRes
     try {
       const pr = await submitPublicationPR(item.target, item.markdown ?? '', item.title)
       prUrls.push(pr.html_url)
+      if (item.markdown) removeLocalPostIfSynced(item.target, item.markdown)
       succeeded.push(item)
     } catch (err) {
       failed.push({ item, message: err instanceof Error ? err.message : '创建发表申请失败' })

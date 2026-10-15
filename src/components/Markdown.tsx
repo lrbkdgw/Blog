@@ -6,6 +6,7 @@ import type { UrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeRaw from 'rehype-raw'
+import rehypeSanitize, { defaultSchema, type Options as SanitizeOptions } from 'rehype-sanitize'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeSlug from 'rehype-slug'
@@ -21,6 +22,45 @@ import {
   Info,
   Link2,
 } from 'lucide-react'
+
+/**
+ * 原始 HTML 的净化规则（用于文章与评论）。
+ *
+ * 评论来自 GitHub Discussions，任何能评论的人都能提交内容，所以不能原样放行 HTML：
+ * 否则可以插入 <iframe>、<form> 或全屏遮罩来做钓鱼。这里以 GitHub 默认规则为基础，
+ * 只额外放行站内渲染需要的标签与属性（折叠框 callout、表格包裹、kbd 等）。
+ * 脚本、事件属性（onerror 等）、style 以及 iframe/form 等依然会被移除。
+ *
+ * 注意：本规则只作用于用户写的原始 HTML（rehype-raw 之后）；KaTeX、代码高亮、
+ * 标题锚点等由本项目自己生成的结构在之后的插件中添加，不会被过滤。
+ */
+const sanitizeSchema: SanitizeOptions = {
+  ...defaultSchema,
+  tagNames: [
+    ...(defaultSchema.tagNames ?? []),
+    'details',
+    'summary',
+    'kbd',
+    'mark',
+    'figure',
+    'figcaption',
+  ],
+  attributes: {
+    ...defaultSchema.attributes,
+    '*': [
+      ...(defaultSchema.attributes?.['*'] ?? []),
+      'className',
+      // 站内预处理生成的结构属性：折叠框与交互展示框的配置
+      'dataCallout',
+      'dataTitle',
+      'dataShowBox',
+      'dataShowTitle',
+      'dataShowVars',
+      'dataShowContent',
+    ],
+    details: [...(defaultSchema.attributes?.details ?? []), 'open'],
+  },
+}
 
 function extractText(node: ReactNode): string {
   if (node == null || typeof node === 'boolean') return ''
@@ -738,6 +778,7 @@ export const Markdown = memo(function Markdown({
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[
           rehypeRaw,
+          [rehypeSanitize, sanitizeSchema],
           ...(headingAnchors
             ? [rehypeSlug, rehypeRemoveHeadingIds({ calloutsOnly: true })]
             : [rehypeRemoveHeadingIds()]),

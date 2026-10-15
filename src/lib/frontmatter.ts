@@ -21,8 +21,15 @@ export function parseFrontmatter(raw: string): Parsed {
   return { data, content: raw.slice(match[0].length) }
 }
 
+/** 双引号 YAML 字符串转义：必须同时转义换行，否则 YAML 会把它折叠成空格，导致往返不一致。 */
 function quote(value: string) {
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\t/g, '\\t')
+  return `"${escaped}"`
 }
 
 /** 把元信息 + 正文序列化回 Markdown 文件内容 */

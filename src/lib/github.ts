@@ -19,9 +19,16 @@ const API = 'https://api.github.com'
 
 /* --------------------------------- 配置 ---------------------------------- */
 
+/**
+ * 目标仓库：owner / repo 可在「设置」里覆盖；分支与文章目录始终使用构建时的配置。
+ * 站点是静态构建的，只会读取构建时 `githubConfig.branch` 与 `githubConfig.postsDir` 下的文章。
+ * 若允许在设置里改这两项，文章会被写到站点永远不读取的位置，表现为“发布成功但看不到”。
+ */
 export function getRepoTarget(): RepoTarget {
   const stored = readPersonalSetting<Partial<RepoTarget>>('repository', STORAGE_KEYS.ghRepo)
-  if (stored && stored.owner && stored.repo) return { ...githubConfig, ...stored }
+  if (stored && stored.owner && stored.repo) {
+    return { ...githubConfig, owner: stored.owner, repo: stored.repo }
+  }
   return { ...githubConfig }
 }
 
@@ -62,7 +69,9 @@ async function gh<T>(path: string, init: RequestInit = {}, token = getToken()): 
     if (res.status === 401) message = 'GitHub 授权已失效，请重新连接'
     if (res.status === 403 && /rate limit/i.test(message)) message = 'GitHub API 调用频率超限，请稍后再试'
     if (res.status === 404) message = `找不到资源（${path}）。请检查仓库名、分支以及 OAuth 授权范围`
-    throw new Error(message)
+    const error = new Error(message) as Error & { status?: number }
+    error.status = res.status
+    throw error
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
@@ -321,14 +330,17 @@ export async function fetchRemoteFile(
   return { sha: item.sha, text: item.content ? decodeBase64(item.content) : '' }
 }
 
+/** 返回文件的 blob sha；文件不存在（404）时返回 undefined。
+ *  其他错误（鉴权失效、网络故障、限流等）必须继续抛出，否则会被误判为“文件不存在”。 */
 async function getSha(path: string, target: RepoTarget, ref = target.branch): Promise<string | undefined> {
   try {
     const item = await gh<ContentItem>(
       `/repos/${target.owner}/${target.repo}/contents/${encodeRepoPath(path)}?ref=${encodeURIComponent(ref)}`,
     )
     return item.sha
-  } catch {
-    return undefined
+  } catch (err) {
+    if ((err as { status?: number }).status === 404) return undefined
+    throw err
   }
 }
 

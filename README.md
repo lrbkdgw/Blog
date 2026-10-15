@@ -270,6 +270,7 @@ pinned: false    # true 则置顶到首页
 - OAuth 授权范围默认是 `public_repo`（公开仓库读写）；令牌存于浏览器本地，可随时在 GitHub「Settings → Applications」一键撤销。
 - OAuth 中转只转发 GitHub 的授权请求，**不持有任何机密**（Device Flow 无需 client_secret），也无法访问仓库内容。
 - 在公共电脑上用完请点「退出登录」，会清除本地保存的令牌。
+- 文章与评论中的 **原始 HTML 会经过净化**：脚本、事件属性（如 `onerror`）、`style`、`<iframe>`、`<form>` 等会被移除，避免评论区被用于钓鱼或注入脚本。折叠框、展示框、公式与代码高亮不受影响。
 
 ---
 
@@ -286,6 +287,9 @@ GitHub Actions 需要 1–2 分钟重新构建部署。可以在仓库的 Action
 
 **为什么 OAuth 还要一个中转服务？**
 GitHub 的授权端点（`github.com/login/*`）不返回 CORS 头，浏览器读不到响应，纯前端无法直接完成授权。仓库内置了两种极简中转形态，部署时自动对应：Cloudflare Pages 用同源的 Pages Function（零配置）；GitHub Pages 用 `oauth-relay/` Worker（只透传 + 补 CORS 头，不含机密）。Device Flow 本身也不需要 client_secret。
+
+**为什么设置里的「分支」和「文章目录」不能修改？**
+站点是静态构建的，只会读取构建时配置的分支与目录（`src/lib/config.ts` 中的 `githubConfig`）。若允许在本地改成别的位置，文章会被写到站点永远不读取的地方，表现为“发布成功但看不到”。只有「用户 / 组织」和「仓库名」可以在设置中覆盖。
 
 **本地草稿会丢吗？**  
 草稿存在浏览器 `localStorage`，清除浏览器数据会丢失。重要内容请及时加入**待更新队列**并统一更新到 GitHub，或在设置页「导出全部草稿」。

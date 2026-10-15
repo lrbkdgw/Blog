@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Clock, Search } from 'lucide-react'
 import { usePosts } from '../lib/usePosts'
-import { formatDate, getArchive, searchPosts } from '../lib/posts'
+import { formatDate, getArchive, hasPublicDate, searchPosts } from '../lib/posts'
 
 export default function Archive() {
   const [posts] = usePosts()
@@ -45,7 +45,9 @@ export default function Archive() {
                     to={`/posts/${post.slug}`}
                     className="group flex items-baseline gap-4 rounded-xl px-3 py-2.5 transition hover:bg-ink-900/[.035] dark:hover:bg-white/[.05]"
                   >
-                    <time className="w-14 shrink-0 font-mono text-xs text-ink-400">{formatDate(post.date, 'short')}</time>
+                    <time className="w-14 shrink-0 font-mono text-xs text-ink-400">
+                      {hasPublicDate(post) ? formatDate(post.date, 'short') : '—'}
+                    </time>
                     <span className="min-w-0 flex-1 truncate text-[15px] text-ink-700 transition group-hover:text-brand-600 dark:text-ink-200 dark:group-hover:text-brand-300">
                       {post.title}
                     </span>

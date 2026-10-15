@@ -41,6 +41,7 @@ import { checkUserRepoPermissions } from '../lib/github'
 import {
   enqueueImageUpload,
   enqueuePostPr,
+  enqueuePostDelete,
   enqueuePostPublish,
 } from '../lib/updateQueue'
 import {
@@ -560,6 +561,11 @@ export default function Editor() {
       if (canDirectPush) {
         // 管理员/直接拥有 push 权限：待更新队列里保存为直推 main 的更新
         enqueuePostPublish(post, markdown)
+        // 修改了 slug（文件名）时，仓库里旧路径的文章会留下重复副本：一并加入删除。
+        // 只处理仓库中确实存在的旧 slug，且不与新 slug 相同。
+        if (routeSlug && routeSlug !== post.slug && getPostBySlug(routeSlug, 'repo')) {
+          enqueuePostDelete(routeSlug, getPostBySlug(routeSlug, 'repo')?.title || routeSlug)
+        }
         // A plaintext local autosave must not shadow the encrypted repository
         // article on the public route after the next reload.
         if (encryptOnPublish) {
