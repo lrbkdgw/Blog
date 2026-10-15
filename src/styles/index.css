@@ -8,6 +8,18 @@
 @layer base {
   :root {
     color-scheme: light;
+    /* 配色主题：品牌色 CSS 变量（RGB 三元组），运行时可由 ColorThemeProvider 切换 */
+    --brand-50: 238 244 255;
+    --brand-100: 217 229 255;
+    --brand-200: 188 209 255;
+    --brand-300: 142 179 255;
+    --brand-400: 90 139 255;
+    --brand-500: 53 99 246;
+    --brand-600: 32 68 235;
+    --brand-700: 26 52 216;
+    --brand-800: 28 46 174;
+    --brand-900: 29 45 137;
+    --brand-950: 21 29 83;
     --font-sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
     --font-serif: Georgia, "Songti SC", STSong, SimSun, "Noto Serif SC", serif;
     --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -36,6 +48,16 @@
     font-size: var(--site-font-size);
   }
 
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.03;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
   body {
     @apply text-ink-800 antialiased dark:text-ink-200;
     background-color: var(--site-background);
@@ -85,6 +107,16 @@
   .card {
     @apply rounded-2xl border border-ink-200/70 bg-white/80 shadow-[0_1px_2px_rgba(16,24,40,.04),0_12px_32px_-12px_rgba(16,24,40,.12)] backdrop-blur
            dark:border-white/10 dark:bg-white/[0.035] dark:shadow-[0_1px_2px_rgba(0,0,0,.4),0_18px_40px_-18px_rgba(0,0,0,.7)];
+    transition: transform .25s cubic-bezier(.22,1,.36,1), box-shadow .25s cubic-bezier(.22,1,.36,1);
+  }
+  .card:hover {
+    transform: translateY(-2px);
+  }
+  .text-gradient {
+    @apply bg-gradient-to-br from-brand-500 via-indigo-500 to-fuchsia-500 bg-clip-text text-transparent;
+  }
+  .glass {
+    @apply backdrop-blur-xl bg-white/60 dark:bg-white/[0.06] border border-white/40 dark:border-white/10;
   }
 
   .btn {

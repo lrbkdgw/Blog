@@ -9,7 +9,7 @@ import { readPersonalSetting, writePersonalSetting } from './settingsStore'
  * 且相比颜色渐变更依赖设备性能。
  */
 
-export type SceneId = 'none' | 'rain' | 'sunshine' | 'stars'
+export type SceneId = 'none' | 'rain' | 'sunshine' | 'stars' | 'aurora' | 'snow' | 'fireflies' | 'sakura' | 'bubbles' | 'matrix' | 'ocean' | 'galaxy'
 export type ActiveSceneId = Exclude<SceneId, 'none'>
 /** 场景的配色基调：深色场景会让站点临时使用深色配色，保证文字可读。 */
 export type SceneTone = 'light' | 'dark'
@@ -66,6 +66,102 @@ export const SCENES: SceneSpec[] = [
       { key: 'density', label: '星星数量', hint: '星星的多少', min: 0, max: 100, step: 1, default: 50 },
       { key: 'twinkle', label: '闪烁程度', hint: '星星明暗变化的幅度', min: 0, max: 100, step: 1, default: 50 },
       { key: 'meteor', label: '流星频率', hint: '流星出现的频率，0 为没有流星', min: 0, max: 100, step: 1, default: 30 },
+      { key: 'brightness', label: '亮度', hint: '整体亮度', min: 0, max: 100, step: 1, default: 60 },
+    ],
+  },
+  {
+    id: 'aurora',
+    name: '极光',
+    desc: '夜空中的彩色极光带，缓慢流动，带有微光粒子。',
+    tone: 'dark',
+    params: [
+      { key: 'intensity', label: '极光强度', hint: '光带的明亮程度', min: 0, max: 100, step: 1, default: 60 },
+      { key: 'speed', label: '流动速度', hint: '极光带移动的快慢', min: 0, max: 100, step: 1, default: 35 },
+      { key: 'particles', label: '微光粒子', hint: '漂浮的光点数量', min: 0, max: 100, step: 1, default: 40 },
+      { key: 'brightness', label: '整体亮度', hint: '画面整体亮度', min: 0, max: 100, step: 1, default: 55 },
+    ],
+  },
+  {
+    id: 'snow',
+    name: '飘雪',
+    desc: '安静的雪夜，雪花缓缓飘落，地面泛着微光。',
+    tone: 'dark',
+    params: [
+      { key: 'density', label: '雪量', hint: '雪花数量', min: 0, max: 100, step: 1, default: 50 },
+      { key: 'speed', label: '下落速度', hint: '雪花下落的快慢', min: 0, max: 100, step: 1, default: 40 },
+      { key: 'wind', label: '风向', hint: '负数向左吹，正数向右吹', min: -100, max: 100, step: 1, default: 8 },
+      { key: 'brightness', label: '亮度', hint: '整体亮度', min: 0, max: 100, step: 1, default: 60 },
+    ],
+  },
+  {
+    id: 'fireflies',
+    name: '萤火虫',
+    desc: '夏夜草丛中的点点萤光，忽明忽暗地漂浮。',
+    tone: 'dark',
+    params: [
+      { key: 'density', label: '数量', hint: '萤火虫数量', min: 0, max: 100, step: 1, default: 45 },
+      { key: 'speed', label: '漂浮速度', hint: '萤火虫移动的快慢', min: 0, max: 100, step: 1, default: 30 },
+      { key: 'glow', label: '发光强度', hint: '光点的亮度', min: 0, max: 100, step: 1, default: 65 },
+      { key: 'brightness', label: '背景亮度', hint: '背景的明亮程度', min: 0, max: 100, step: 1, default: 35 },
+    ],
+  },
+  {
+    id: 'sakura',
+    name: '樱花',
+    desc: '春日的粉色花瓣在暖风中缓缓飘落。',
+    tone: 'light',
+    params: [
+      { key: 'density', label: '花瓣数量', hint: '飘落的花瓣多少', min: 0, max: 100, step: 1, default: 45 },
+      { key: 'speed', label: '飘落速度', hint: '花瓣下落的快慢', min: 0, max: 100, step: 1, default: 35 },
+      { key: 'wind', label: '风向', hint: '负数向左吹，正数向右吹', min: -100, max: 100, step: 1, default: 15 },
+      { key: 'brightness', label: '亮度', hint: '整体亮度', min: 0, max: 100, step: 1, default: 70 },
+    ],
+  },
+  {
+    id: 'bubbles',
+    name: '气泡',
+    desc: '清澈水中的气泡缓缓上升，折射出柔和的光。',
+    tone: 'light',
+    params: [
+      { key: 'density', label: '气泡数量', hint: '气泡的多少', min: 0, max: 100, step: 1, default: 40 },
+      { key: 'speed', label: '上升速度', hint: '气泡上升的快慢', min: 0, max: 100, step: 1, default: 40 },
+      { key: 'size', label: '气泡大小', hint: '气泡的平均大小', min: 0, max: 100, step: 1, default: 50 },
+      { key: 'brightness', label: '亮度', hint: '整体亮度', min: 0, max: 100, step: 1, default: 75 },
+    ],
+  },
+  {
+    id: 'matrix',
+    name: '数字雨',
+    desc: '绿色的字符如雨般下落，赛博朋克风格。',
+    tone: 'dark',
+    params: [
+      { key: 'density', label: '密度', hint: '字符列的数量', min: 0, max: 100, step: 1, default: 55 },
+      { key: 'speed', label: '下落速度', hint: '字符下落的快慢', min: 0, max: 100, step: 1, default: 50 },
+      { key: 'brightness', label: '亮度', hint: '字符的亮度', min: 0, max: 100, step: 1, default: 70 },
+      { key: 'glow', label: '发光', hint: '字符的发光程度', min: 0, max: 100, step: 1, default: 40 },
+    ],
+  },
+  {
+    id: 'ocean',
+    name: '海浪',
+    desc: '海面波光粼粼，浪花轻柔滚动。',
+    tone: 'light',
+    params: [
+      { key: 'waves', label: '浪花', hint: '波浪的数量与层次', min: 0, max: 100, step: 1, default: 50 },
+      { key: 'speed', label: '流速', hint: '波浪滚动的快慢', min: 0, max: 100, step: 1, default: 40 },
+      { key: 'brightness', label: '亮度', hint: '整体亮度', min: 0, max: 100, step: 1, default: 70 },
+      { key: 'foam', label: '浪花泡沫', hint: '浪尖泡沫的多少', min: 0, max: 100, step: 1, default: 35 },
+    ],
+  },
+  {
+    id: 'galaxy',
+    name: '星系',
+    desc: '旋转的星系与星云，深邃而神秘。',
+    tone: 'dark',
+    params: [
+      { key: 'speed', label: '旋转速度', hint: '星系旋转的快慢', min: 0, max: 100, step: 1, default: 30 },
+      { key: 'density', label: '星星数量', hint: '星星的多少', min: 0, max: 100, step: 1, default: 55 },
+      { key: 'nebula', label: '星云', hint: '星云的明显程度', min: 0, max: 100, step: 1, default: 60 },
       { key: 'brightness', label: '亮度', hint: '整体亮度', min: 0, max: 100, step: 1, default: 60 },
     ],
   },

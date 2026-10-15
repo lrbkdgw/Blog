@@ -447,6 +447,716 @@ function createStars(): Renderer {
   }
 }
 
+/* -------------------------------- 极光 -------------------------------- */
+
+function createAurora(): Renderer {
+  interface Particle { x: number; y: number; size: number; phase: number; speed: number }
+  let width = 0
+  let height = 0
+  let background: HTMLCanvasElement | null = null
+  let particles: Particle[] = []
+  let intensity = 0.6
+  let speed = 35
+  let particleCount = 40
+  let brightness = 0.55
+  let t = 0
+  const glow = makeGlowSprite(120, 200, 255)
+
+  const spawn = (): Particle => ({
+    x: rand(0, width),
+    y: rand(0, height),
+    size: rand(1, 3),
+    phase: rand(0, Math.PI * 2),
+    speed: rand(0.3, 1.2),
+  })
+
+  return {
+    fps: 30,
+    setup(w, h) {
+      width = w
+      height = h
+      background = paintBackground(w, h, (ctx) => {
+        const sky = ctx.createLinearGradient(0, 0, h * 0.2, h)
+        sky.addColorStop(0, '#020817')
+        sky.addColorStop(0.5, '#050d24')
+        sky.addColorStop(1, '#0a1633')
+        ctx.fillStyle = sky
+        ctx.fillRect(0, 0, w, h)
+      })
+      resizeList(particles, particles.length, spawn)
+    },
+    configure(values) {
+      intensity = clamp((values.intensity ?? 60) / 100, 0, 1)
+      speed = values.speed ?? speed
+      particleCount = Math.round(((values.particles ?? 40) / 100) * 120 * areaFactor(width, height))
+      brightness = clamp((values.brightness ?? 55) / 100, 0, 1)
+      resizeList(particles, particleCount, spawn)
+    },
+    step(dt) {
+      t += dt * (0.2 + (speed / 100) * 0.6)
+      for (const p of particles) {
+        p.phase += dt * p.speed
+        p.x += Math.sin(p.phase) * 12 * dt
+        p.y += Math.cos(p.phase * 0.7) * 6 * dt
+        if (p.x < -10) p.x = width + 10
+        if (p.x > width + 10) p.x = -10
+        if (p.y < -10) p.y = height + 10
+        if (p.y > height + 10) p.y = -10
+      }
+    },
+    draw(ctx) {
+      if (background) ctx.drawImage(background, 0, 0, width, height)
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      // 极光带
+      for (let i = 0; i < 4; i++) {
+        const baseY = height * (0.18 + i * 0.12)
+        const amp = height * (0.06 + i * 0.03)
+        ctx.beginPath()
+        for (let x = 0; x <= width; x += 8) {
+          const y = baseY + Math.sin(x * 0.003 + t * (0.6 + i * 0.2) + i) * amp
+          if (x === 0) ctx.moveTo(x, y)
+          else ctx.lineTo(x, y)
+        }
+        // 闭合到底部形成带状
+        ctx.lineTo(width, height)
+        ctx.lineTo(0, height)
+        ctx.closePath()
+        const hue = [160, 200, 260, 300][i]
+        const grad = ctx.createLinearGradient(0, baseY - amp, 0, baseY + amp * 3)
+        grad.addColorStop(0, `hsla(${hue},80%,65%,${(0.18 * intensity * brightness).toFixed(3)})`)
+        grad.addColorStop(1, `hsla(${hue},80%,65%,0)`)
+        ctx.fillStyle = grad
+        ctx.fill()
+      }
+      // 微光粒子
+      if (glow) {
+        for (const p of particles) {
+          const alpha = (0.3 + 0.5 * Math.sin(p.phase)) * brightness
+          ctx.globalAlpha = clamp(alpha, 0, 1)
+          const size = p.size * 6
+          ctx.drawImage(glow, p.x - size / 2, p.y - size / 2, size, size)
+        }
+      }
+      ctx.restore()
+    },
+  }
+}
+
+/* -------------------------------- 飘雪 -------------------------------- */
+
+function createSnow(): Renderer {
+  interface Flake { x: number; y: number; size: number; speed: number; drift: number; phase: number }
+  let width = 0
+  let height = 0
+  let background: HTMLCanvasElement | null = null
+  let flakes: Flake[] = []
+  let target = 0
+  let speed = 40
+  let wind = 8
+  let brightness = 0.6
+  const glow = makeGlowSprite(230, 240, 255)
+
+  const spawn = (): Flake => ({
+    x: rand(-40, width + 40),
+    y: rand(-height, 0),
+    size: rand(1.5, 4.5),
+    speed: rand(0.7, 1.3),
+    drift: rand(0.5, 1.5),
+    phase: rand(0, Math.PI * 2),
+  })
+
+  return {
+    fps: 30,
+    setup(w, h) {
+      width = w
+      height = h
+      background = paintBackground(w, h, (ctx) => {
+        const sky = ctx.createLinearGradient(0, 0, 0, h)
+        sky.addColorStop(0, '#0b1224')
+        sky.addColorStop(1, '#1a2340')
+        ctx.fillStyle = sky
+        ctx.fillRect(0, 0, w, h)
+        // 地面微光
+        const ground = ctx.createLinearGradient(0, h * 0.85, 0, h)
+        ground.addColorStop(0, 'rgba(180,200,255,0)')
+        ground.addColorStop(1, 'rgba(180,200,255,0.12)')
+        ctx.fillStyle = ground
+        ctx.fillRect(0, 0, w, h)
+      })
+      resizeList(flakes, flakes.length, spawn)
+    },
+    configure(values) {
+      speed = values.speed ?? speed
+      wind = values.wind ?? wind
+      const density = values.density ?? 50
+      brightness = clamp((values.brightness ?? 60) / 100, 0, 1)
+      target = Math.round((density / 100) * 600 * areaFactor(width, height))
+      resizeList(flakes, target, spawn)
+    },
+    step(dt) {
+      const fall = (40 + speed * 1.2) * dt
+      const drift = (wind / 100) * 60 * dt
+      for (const f of flakes) {
+        f.y += fall * f.speed
+        f.x += (drift + Math.sin(f.phase) * 12) * dt * f.drift
+        f.phase += dt * 0.8
+        if (f.y > height + 10) {
+          f.y = -10
+          f.x = rand(-40, width + 40)
+        }
+      }
+    },
+    draw(ctx) {
+      if (background) ctx.drawImage(background, 0, 0, width, height)
+      ctx.save()
+      for (const f of flakes) {
+        const alpha = (0.5 + 0.5 * Math.sin(f.phase)) * brightness
+        ctx.globalAlpha = clamp(alpha, 0, 1)
+        if (f.size > 2.5 && glow) {
+          const size = f.size * 5
+          ctx.drawImage(glow, f.x - size / 2, f.y - size / 2, size, size)
+        } else {
+          ctx.fillStyle = '#eaf1ff'
+          ctx.beginPath()
+          ctx.arc(f.x, f.y, f.size, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
+      ctx.restore()
+    },
+  }
+}
+
+/* -------------------------------- 萤火虫 -------------------------------- */
+
+function createFireflies(): Renderer {
+  interface Bug { x: number; y: number; vx: number; vy: number; phase: number; size: number }
+  let width = 0
+  let height = 0
+  let background: HTMLCanvasElement | null = null
+  let bugs: Bug[] = []
+  let target = 0
+  let speed = 30
+  let glowAmt = 0.65
+  let brightness = 0.35
+  const glow = makeGlowSprite(180, 255, 120)
+
+  const spawn = (): Bug => ({
+    x: rand(0, width),
+    y: rand(height * 0.3, height),
+    vx: rand(-20, 20),
+    vy: rand(-15, 15),
+    phase: rand(0, Math.PI * 2),
+    size: rand(1.5, 3),
+  })
+
+  return {
+    fps: 30,
+    setup(w, h) {
+      width = w
+      height = h
+      background = paintBackground(w, h, (ctx) => {
+        const sky = ctx.createLinearGradient(0, 0, 0, h)
+        sky.addColorStop(0, '#040a14')
+        sky.addColorStop(1, '#0a1820')
+        ctx.fillStyle = sky
+        ctx.fillRect(0, 0, w, h)
+        // 草丛剪影
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'
+        for (let i = 0; i < 8; i++) {
+          const x = (i / 7) * w
+          ctx.beginPath()
+          ctx.ellipse(x, h + 20, w * 0.18, h * 0.12, 0, Math.PI, Math.PI * 2)
+          ctx.fill()
+        }
+      })
+      resizeList(bugs, bugs.length, spawn)
+    },
+    configure(values) {
+      speed = values.speed ?? speed
+      glowAmt = clamp((values.glow ?? 65) / 100, 0, 1)
+      brightness = clamp((values.brightness ?? 35) / 100, 0, 1)
+      const density = values.density ?? 45
+      target = Math.round((density / 100) * 80 * areaFactor(width, height))
+      resizeList(bugs, target, spawn)
+    },
+    step(dt) {
+      for (const b of bugs) {
+        b.phase += dt * (0.8 + Math.random() * 0.4)
+        b.x += b.vx * dt
+        b.y += b.vy * dt
+        b.vx += rand(-8, 8) * dt
+        b.vy += rand(-8, 8) * dt
+        b.vx = clamp(b.vx, -30, 30)
+        b.vy = clamp(b.vy, -25, 25)
+        if (b.x < 0) { b.x = 0; b.vx *= -1 }
+        if (b.x > width) { b.x = width; b.vx *= -1 }
+        if (b.y < height * 0.2) { b.y = height * 0.2; b.vy *= -1 }
+        if (b.y > height) { b.y = height; b.vy *= -1 }
+      }
+      // speed factor
+      void speed
+    },
+    draw(ctx) {
+      if (background) ctx.drawImage(background, 0, 0, width, height)
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      for (const b of bugs) {
+        const pulse = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(b.phase))
+        const alpha = pulse * glowAmt * (0.6 + brightness * 0.4)
+        ctx.globalAlpha = clamp(alpha, 0, 1)
+        const size = b.size * 8
+        ctx.drawImage(glow, b.x - size / 2, b.y - size / 2, size, size)
+      }
+      ctx.restore()
+    },
+  }
+}
+
+/* -------------------------------- 樱花 -------------------------------- */
+
+function createSakura(): Renderer {
+  interface Petal { x: number; y: number; size: number; speed: number; rot: number; rotSpeed: number; sway: number; phase: number }
+  let width = 0
+  let height = 0
+  let background: HTMLCanvasElement | null = null
+  let petals: Petal[] = []
+  let target = 0
+  let speed = 35
+  let wind = 15
+  let brightness = 0.7
+
+  const spawn = (): Petal => ({
+    x: rand(-40, width + 40),
+    y: rand(-height, 0),
+    size: rand(6, 14),
+    speed: rand(0.7, 1.3),
+    rot: rand(0, Math.PI * 2),
+    rotSpeed: rand(-1.5, 1.5),
+    sway: rand(0.5, 1.5),
+    phase: rand(0, Math.PI * 2),
+  })
+
+  return {
+    fps: 30,
+    setup(w, h) {
+      width = w
+      height = h
+      background = paintBackground(w, h, (ctx) => {
+        const sky = ctx.createLinearGradient(0, 0, 0, h)
+        sky.addColorStop(0, '#fff1f7')
+        sky.addColorStop(1, '#ffe4f0')
+        ctx.fillStyle = sky
+        ctx.fillRect(0, 0, w, h)
+      })
+      resizeList(petals, petals.length, spawn)
+    },
+    configure(values) {
+      speed = values.speed ?? speed
+      wind = values.wind ?? wind
+      const density = values.density ?? 45
+      brightness = clamp((values.brightness ?? 70) / 100, 0, 1)
+      target = Math.round((density / 100) * 90 * areaFactor(width, height))
+      resizeList(petals, target, spawn)
+    },
+    step(dt) {
+      const fall = (30 + speed * 0.9) * dt
+      const drift = (wind / 100) * 50 * dt
+      for (const p of petals) {
+        p.y += fall * p.speed
+        p.x += (drift + Math.sin(p.phase) * 20) * dt * p.sway
+        p.phase += dt * 1.2
+        p.rot += p.rotSpeed * dt
+        if (p.y > height + 20) {
+          p.y = -20
+          p.x = rand(-40, width + 40)
+        }
+      }
+    },
+    draw(ctx) {
+      if (background) ctx.drawImage(background, 0, 0, width, height)
+      ctx.save()
+      for (const p of petals) {
+        ctx.globalAlpha = brightness
+        ctx.translate(p.x, p.y)
+        ctx.rotate(p.rot)
+        ctx.fillStyle = 'rgba(255,182,210,0.85)'
+        ctx.beginPath()
+        ctx.ellipse(0, 0, p.size, p.size * 0.6, 0, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.setTransform(1, 0, 0, 1, 0, 0)
+      }
+      ctx.restore()
+    },
+  }
+}
+
+/* -------------------------------- 气泡 -------------------------------- */
+
+function createBubbles(): Renderer {
+  interface Bubble { x: number; y: number; size: number; speed: number; phase: number; wobble: number }
+  let width = 0
+  let height = 0
+  let background: HTMLCanvasElement | null = null
+  let bubbles: Bubble[] = []
+  let target = 0
+  let speed = 40
+  let sizeFactor = 0.5
+  let brightness = 0.75
+  const glow = makeGlowSprite(180, 220, 255)
+
+  const spawn = (): Bubble => ({
+    x: rand(0, width),
+    y: rand(height, height + 100),
+    size: rand(4, 16),
+    speed: rand(0.7, 1.3),
+    phase: rand(0, Math.PI * 2),
+    wobble: rand(0.5, 1.5),
+  })
+
+  return {
+    fps: 30,
+    setup(w, h) {
+      width = w
+      height = h
+      background = paintBackground(w, h, (ctx) => {
+        const sky = ctx.createLinearGradient(0, 0, 0, h)
+        sky.addColorStop(0, '#e8f4ff')
+        sky.addColorStop(1, '#d6ecff')
+        ctx.fillStyle = sky
+        ctx.fillRect(0, 0, w, h)
+      })
+      resizeList(bubbles, bubbles.length, spawn)
+    },
+    configure(values) {
+      speed = values.speed ?? speed
+      sizeFactor = clamp((values.size ?? 50) / 100, 0, 1)
+      brightness = clamp((values.brightness ?? 75) / 100, 0, 1)
+      const density = values.density ?? 40
+      target = Math.round((density / 100) * 70 * areaFactor(width, height))
+      resizeList(bubbles, target, spawn)
+    },
+    step(dt) {
+      const rise = (30 + speed * 0.9) * dt
+      for (const b of bubbles) {
+        b.y -= rise * b.speed
+        b.x += Math.sin(b.phase) * 12 * dt * b.wobble
+        b.phase += dt * 1.2
+        if (b.y < -30) {
+          b.y = height + 30
+          b.x = rand(0, width)
+        }
+      }
+    },
+    draw(ctx) {
+      if (background) ctx.drawImage(background, 0, 0, width, height)
+      ctx.save()
+      for (const b of bubbles) {
+        const r = b.size * (0.6 + sizeFactor * 1.2)
+        ctx.globalAlpha = 0.55 * brightness
+        ctx.strokeStyle = 'rgba(120,180,255,0.7)'
+        ctx.lineWidth = 1.2
+        ctx.beginPath()
+        ctx.arc(b.x, b.y, r, 0, Math.PI * 2)
+        ctx.stroke()
+        // 高光
+        ctx.globalAlpha = 0.8 * brightness
+        ctx.fillStyle = 'rgba(255,255,255,0.85)'
+        ctx.beginPath()
+        ctx.arc(b.x - r * 0.3, b.y - r * 0.3, r * 0.25, 0, Math.PI * 2)
+        ctx.fill()
+        if (glow) {
+          ctx.globalAlpha = 0.15 * brightness
+          const size = r * 4
+          ctx.drawImage(glow, b.x - size / 2, b.y - size / 2, size, size)
+        }
+      }
+      ctx.restore()
+    },
+  }
+}
+
+/* -------------------------------- 数字雨 -------------------------------- */
+
+function createMatrix(): Renderer {
+  interface Column { x: number; y: number; speed: number; chars: string[]; len: number }
+  let width = 0
+  let height = 0
+  let background: HTMLCanvasElement | null = null
+  let columns: Column[] = []
+  let speed = 50
+  let brightness = 0.7
+  let glowAmt = 0.4
+  const chars = '01アイウエオカキクケコサシスセソタチツテトナニヌネノ0123456789ABCDEF'
+
+  const spawn = (x: number): Column => {
+    const len = Math.floor(rand(8, 22))
+    return {
+      x,
+      y: rand(-height, 0),
+      speed: rand(0.7, 1.3),
+      chars: Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]),
+      len,
+    }
+  }
+
+  return {
+    fps: 30,
+    setup(w, h) {
+      width = w
+      height = h
+      background = paintBackground(w, h, (ctx) => {
+        ctx.fillStyle = '#020a04'
+        ctx.fillRect(0, 0, w, h)
+      })
+      resizeList(columns, columns.length, () => spawn(0))
+    },
+    configure(values) {
+      speed = values.speed ?? speed
+      brightness = clamp((values.brightness ?? 70) / 100, 0, 1)
+      glowAmt = clamp((values.glow ?? 40) / 100, 0, 1)
+      const density = values.density ?? 55
+      const colWidth = 18
+      const count = Math.max(4, Math.round((density / 100) * (width / colWidth)))
+      // 重建列
+      columns = []
+      for (let i = 0; i < count; i++) {
+        columns.push(spawn(i * colWidth + rand(0, 6)))
+      }
+    },
+    step(dt) {
+      const fall = (80 + speed * 2.4) * dt
+      for (const c of columns) {
+        c.y += fall * c.speed
+        if (c.y - c.len * 18 > height) {
+          c.y = -c.len * 18
+          c.chars = Array.from({ length: c.len }, () => chars[Math.floor(Math.random() * chars.length)])
+        }
+        // 偶尔变换字符
+        if (Math.random() < 0.05) {
+          const idx = Math.floor(Math.random() * c.chars.length)
+          c.chars[idx] = chars[Math.floor(Math.random() * chars.length)]
+        }
+      }
+    },
+    draw(ctx) {
+      if (background) ctx.drawImage(background, 0, 0, width, height)
+      // 拖尾
+      ctx.fillStyle = 'rgba(0,10,4,0.18)'
+      ctx.fillRect(0, 0, width, height)
+      ctx.save()
+      ctx.font = '14px monospace'
+      for (const c of columns) {
+        for (let i = 0; i < c.chars.length; i++) {
+          const y = c.y - i * 18
+          if (y < -20 || y > height + 20) continue
+          const isHead = i === 0
+          const alpha = isHead ? 1 : Math.max(0, 1 - i / c.chars.length) * 0.8
+          ctx.globalAlpha = alpha * brightness
+          ctx.fillStyle = isHead ? '#b7ffb7' : `rgba(60,220,90,${(0.6 + glowAmt * 0.4).toFixed(2)})`
+          ctx.fillText(c.chars[i], c.x, y)
+        }
+      }
+      ctx.restore()
+    },
+  }
+}
+
+/* -------------------------------- 海浪 -------------------------------- */
+
+function createOcean(): Renderer {
+  interface Foam { x: number; y: number; size: number; life: number; maxLife: number }
+  let width = 0
+  let height = 0
+  let background: HTMLCanvasElement | null = null
+  let foams: Foam[] = []
+  let target = 0
+  let speed = 40
+  let waves = 50
+  let brightness = 0.7
+  let foamAmt = 0.35
+  let t = 0
+
+  const spawnFoam = (): Foam => {
+    const maxLife = rand(0.8, 1.6)
+    return { x: rand(0, width), y: height * 0.55 + rand(-10, 10), size: rand(2, 6), life: maxLife, maxLife }
+  }
+
+  return {
+    fps: 30,
+    setup(w, h) {
+      width = w
+      height = h
+      background = paintBackground(w, h, (ctx) => {
+        const sky = ctx.createLinearGradient(0, 0, 0, h * 0.55)
+        sky.addColorStop(0, '#bfe6ff')
+        sky.addColorStop(1, '#7fc8f0')
+        ctx.fillStyle = sky
+        ctx.fillRect(0, 0, w, h)
+        const sea = ctx.createLinearGradient(0, h * 0.55, 0, h)
+        sea.addColorStop(0, '#1a6fa0')
+        sea.addColorStop(1, '#0d3f66')
+        ctx.fillStyle = sea
+        ctx.fillRect(0, h * 0.55, w, h * 0.45)
+      })
+      resizeList(foams, foams.length, spawnFoam)
+    },
+    configure(values) {
+      speed = values.speed ?? speed
+      waves = values.waves ?? waves
+      brightness = clamp((values.brightness ?? 70) / 100, 0, 1)
+      foamAmt = clamp((values.foam ?? 35) / 100, 0, 1)
+      target = Math.round(foamAmt * 60 * areaFactor(width, height))
+      resizeList(foams, target, spawnFoam)
+    },
+    step(dt) {
+      t += dt * (0.3 + (speed / 100) * 0.7)
+      for (const f of foams) {
+        f.x += (speed * 0.6 + 20) * dt * 0.3
+        f.life -= dt
+        if (f.life <= 0 || f.x > width + 20) {
+          f.x = rand(0, width * 0.3)
+          f.y = height * 0.55 + rand(-8, 8)
+          f.life = f.maxLife
+        }
+      }
+      if (Math.random() < foamAmt * 0.3 * dt * 60) {
+        if (foams.length < target) foams.push(spawnFoam())
+      }
+    },
+    draw(ctx) {
+      if (background) ctx.drawImage(background, 0, 0, width, height)
+      ctx.save()
+      // 波浪
+      const waveCount = 3 + Math.round((waves / 100) * 4)
+      for (let i = 0; i < waveCount; i++) {
+        const baseY = height * (0.5 + i * 0.07)
+        const amp = 8 + i * 4
+        ctx.beginPath()
+        for (let x = 0; x <= width; x += 6) {
+          const y = baseY + Math.sin(x * 0.008 + t * (0.8 + i * 0.2) + i) * amp
+          if (x === 0) ctx.moveTo(x, y)
+          else ctx.lineTo(x, y)
+        }
+        ctx.lineTo(width, height)
+        ctx.lineTo(0, height)
+        ctx.closePath()
+        ctx.globalAlpha = (0.18 + i * 0.05) * brightness
+        ctx.fillStyle = i % 2 === 0 ? '#ffffff' : '#a8d8f0'
+        ctx.fill()
+      }
+      // 泡沫
+      for (const f of foams) {
+        const fade = clamp(f.life / f.maxLife, 0, 1)
+        ctx.globalAlpha = fade * 0.7 * brightness
+        ctx.fillStyle = '#ffffff'
+        ctx.beginPath()
+        ctx.arc(f.x, f.y, f.size, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      ctx.restore()
+    },
+  }
+}
+
+/* -------------------------------- 星系 -------------------------------- */
+
+function createGalaxy(): Renderer {
+  interface Star { x: number; y: number; size: number; phase: number; speed: number; base: number; arm: number }
+  let width = 0
+  let height = 0
+  let background: HTMLCanvasElement | null = null
+  let stars: Star[] = []
+  let target = 0
+  let speed = 30
+  let density = 55
+  let nebula = 0.6
+  let brightness = 0.6
+  let t = 0
+  const glow = makeGlowSprite(200, 180, 255)
+
+  const cx = () => width * 0.5
+  const cy = () => height * 0.5
+
+  const spawn = (): Star => {
+    const arm = Math.floor(Math.random() * 3)
+    const r = rand(0, Math.min(width, height) * 0.42)
+    const angle = (arm / 3) * Math.PI * 2 + r * 0.012 + rand(-0.4, 0.4)
+    return {
+      x: cx() + Math.cos(angle) * r,
+      y: cy() + Math.sin(angle) * r * 0.6,
+      size: rand(0.4, 1.4),
+      phase: rand(0, Math.PI * 2),
+      speed: rand(0.4, 1.4),
+      base: rand(0.4, 1),
+      arm,
+    }
+  }
+
+  return {
+    fps: 30,
+    setup(w, h) {
+      width = w
+      height = h
+      background = paintBackground(w, h, (ctx) => {
+        const sky = ctx.createRadialGradient(cx(), cy(), 0, cx(), cy(), Math.max(w, h) * 0.7)
+        sky.addColorStop(0, '#0a0620')
+        sky.addColorStop(0.5, '#05031a')
+        sky.addColorStop(1, '#02010d')
+        ctx.fillStyle = sky
+        ctx.fillRect(0, 0, w, h)
+      })
+      resizeList(stars, stars.length, spawn)
+    },
+    configure(values) {
+      speed = values.speed ?? speed
+      density = values.density ?? density
+      nebula = clamp((values.nebula ?? 60) / 100, 0, 1)
+      brightness = clamp((values.brightness ?? 60) / 100, 0, 1)
+      target = Math.round((density / 100) * 700 * areaFactor(width, height))
+      resizeList(stars, target, spawn)
+    },
+    step(dt) {
+      t += dt * (0.05 + (speed / 100) * 0.15)
+      for (const s of stars) {
+        s.phase += dt * s.speed
+      }
+    },
+    draw(ctx) {
+      if (background) ctx.drawImage(background, 0, 0, width, height)
+      ctx.save()
+      // 星云
+      ctx.globalCompositeOperation = 'screen'
+      for (let i = 0; i < 3; i++) {
+        const r = Math.min(width, height) * (0.25 + i * 0.12)
+        const grad = ctx.createRadialGradient(cx(), cy(), 0, cx(), cy(), r)
+        const hue = [260, 300, 200][i]
+        grad.addColorStop(0, `hsla(${hue},70%,55%,${(0.12 * nebula).toFixed(3)})`)
+        grad.addColorStop(1, `hsla(${hue},70%,55%,0)`)
+        ctx.fillStyle = grad
+        ctx.fillRect(0, 0, width, height)
+      }
+      // 旋转星星
+      ctx.translate(cx(), cy())
+      ctx.rotate(t)
+      ctx.translate(-cx(), -cy())
+      for (const s of stars) {
+        const alpha = clamp(s.base * brightness * (0.6 + 0.4 * Math.sin(s.phase)), 0, 1)
+        ctx.globalAlpha = alpha
+        if (s.size > 1.1 && glow) {
+          const size = s.size * 6
+          ctx.drawImage(glow, s.x - size / 2, s.y - size / 2, size, size)
+        } else {
+          ctx.fillStyle = '#e6eeff'
+          ctx.fillRect(s.x, s.y, s.size, s.size)
+        }
+      }
+      ctx.restore()
+    },
+  }
+}
+
 function createRenderer(scene: ActiveSceneId): Renderer {
   switch (scene) {
     case 'rain':
@@ -455,6 +1165,22 @@ function createRenderer(scene: ActiveSceneId): Renderer {
       return createSunshine()
     case 'stars':
       return createStars()
+    case 'aurora':
+      return createAurora()
+    case 'snow':
+      return createSnow()
+    case 'fireflies':
+      return createFireflies()
+    case 'sakura':
+      return createSakura()
+    case 'bubbles':
+      return createBubbles()
+    case 'matrix':
+      return createMatrix()
+    case 'ocean':
+      return createOcean()
+    case 'galaxy':
+      return createGalaxy()
   }
 }
 

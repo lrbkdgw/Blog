@@ -8,6 +8,14 @@ import {
   Cloud,
   CloudRain,
   Columns2,
+  Droplets,
+  Flower2,
+  Orbit,
+  Rainbow,
+  Snowflake,
+  Sparkles,
+  Terminal,
+  Waves,
   Download,
   ExternalLink,
   Github,
@@ -43,6 +51,7 @@ import {
   useFont,
 } from '../lib/font'
 import { useBackground } from '../lib/background'
+import { useColorTheme, COLOR_THEMES } from '../lib/colorTheme'
 import { useToast } from '../components/Toast'
 import GithubConnect from '../components/GithubConnect'
 import { getRepoTarget, setRepoTarget } from '../lib/github'
@@ -91,6 +100,14 @@ const SCENE_OPTIONS: { id: SceneId; label: string; icon: typeof Github }[] = [
   { id: 'rain', label: '雨夜', icon: CloudRain },
   { id: 'sunshine', label: '阳光', icon: Sun },
   { id: 'stars', label: '星空', icon: Star },
+  { id: 'aurora', label: '极光', icon: Rainbow },
+  { id: 'snow', label: '飘雪', icon: Snowflake },
+  { id: 'fireflies', label: '萤火虫', icon: Sparkles },
+  { id: 'sakura', label: '樱花', icon: Flower2 },
+  { id: 'bubbles', label: '气泡', icon: Droplets },
+  { id: 'matrix', label: '数字雨', icon: Terminal },
+  { id: 'ocean', label: '海浪', icon: Waves },
+  { id: 'galaxy', label: '星系', icon: Orbit },
 ]
 
 function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreference }) {
@@ -201,6 +218,7 @@ export default function SettingsPage() {
     saveForGithub: saveBackgroundForGithub,
   } = useBackground()
   const animatedBackground = useAnimatedBackground()
+  const { theme: colorTheme, setTheme: setColorTheme } = useColorTheme()
   const toast = useToast()
   const [editorScrollSync, setEditorScrollSync] = useEditorScrollSync()
 
@@ -692,6 +710,43 @@ export default function SettingsPage() {
               访客设置已直接保存在本地。
             </p>
           )}
+        </Section>
+
+        {/* ------------------------------ 配色主题 ------------------------------ */}
+        <Section
+          title="配色主题"
+          desc="选择站点的主色调（按钮、链接、高亮等）。仅保存在本设备，即时生效。"
+          icon={Paintbrush}
+        >
+          <div role="radiogroup" aria-label="配色主题" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {COLOR_THEMES.map((t) => {
+              const selected = colorTheme === t.id
+              const swatch = `rgb(${t.colors['500']})`
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setColorTheme(t.id)}
+                  className={`flex h-11 items-center gap-2 rounded-xl border px-3 text-sm font-medium transition ${
+                    selected
+                      ? 'border-brand-500/60 bg-brand-500/10 text-brand-700 dark:text-brand-200'
+                      : 'border-ink-200 bg-white/60 text-ink-600 hover:border-brand-300 dark:border-white/12 dark:bg-white/[0.03] dark:text-ink-300'
+                  }`}
+                >
+                  <span
+                    className="h-5 w-5 shrink-0 rounded-full border border-black/10 dark:border-white/20"
+                    style={{ backgroundColor: swatch }}
+                  />
+                  {t.name}
+                </button>
+              )
+            })}
+          </div>
+          <p className="mt-4 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
+            配色主题仅保存在本设备。切换后全站主色调即时更新。
+          </p>
         </Section>
 
         {/* ------------------------------ 动态背景 ------------------------------ */}

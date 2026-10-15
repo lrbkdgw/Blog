@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { ThemeProvider } from './lib/theme'
+import { ColorThemeProvider } from './lib/colorTheme'
 import { FontProvider } from './lib/font'
 import { BackgroundProvider } from './lib/background'
 import { AuthProvider } from './lib/auth'
@@ -15,6 +16,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter basename={basename || '/'}>
       <ThemeProvider>
+        <ColorThemeProvider>
         <AuthProvider>
           <FontProvider>
             <BackgroundProvider>
@@ -24,6 +26,7 @@ createRoot(document.getElementById('root')!).render(
             </BackgroundProvider>
           </FontProvider>
         </AuthProvider>
+        </ColorThemeProvider>
       </ThemeProvider>
     </BrowserRouter>
   </StrictMode>,
