@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react'
 
 type ToastKind = 'success' | 'error' | 'info' | 'warning'
@@ -27,6 +28,7 @@ const styles: Record<ToastKind, { icon: ReactNode; ring: string }> = {
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([])
   const seq = useRef(0)
+  const navigate = useNavigate()
 
   const remove = useCallback((id: number) => setItems((prev) => prev.filter((t) => t.id !== id)), [])
 
@@ -58,8 +60,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               {t.action && (
                 <a
                   href={t.action.href}
-                  target="_blank"
-                  rel="noreferrer"
+                  {...(/^https?:\/\//.test(t.action.href)
+                    ? { target: '_blank', rel: 'noreferrer' }
+                    : {
+                        onClick: (event: React.MouseEvent) => {
+                          event.preventDefault()
+                          remove(t.id)
+                          navigate(t.action!.href)
+                        },
+                      })}
                   className="mt-1 inline-block font-medium text-brand-600 hover:underline dark:text-brand-300"
                 >
                   {t.action.label} →

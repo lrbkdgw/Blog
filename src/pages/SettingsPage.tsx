@@ -177,7 +177,10 @@ export default function SettingsPage() {
     setSavingFont(true)
     try {
       await saveForGithub()
-      toast(`字体与字号偏好已保存到 GitHub 账号 @${ghUser?.login}`, 'success')
+      toast(`字体与字号偏好已加入待更新队列，统一更新后同步到 @${ghUser?.login}`, 'success', {
+        label: '查看队列',
+        href: '/admin?tab=queue',
+      })
     } catch (err) {
       toast(err instanceof Error ? err.message : '保存字体偏好失败', 'error')
     } finally {
@@ -200,7 +203,10 @@ export default function SettingsPage() {
     setSavingBackground(true)
     try {
       await saveBackgroundForGithub()
-      toast(`背景颜色偏好已保存到 GitHub 账号 @${ghUser?.login}`, 'success')
+      toast(`背景颜色偏好已加入待更新队列，统一更新后同步到 @${ghUser?.login}`, 'success', {
+        label: '查看队列',
+        href: '/admin?tab=queue',
+      })
     } catch (err) {
       toast(err instanceof Error ? err.message : '保存背景颜色偏好失败', 'error')
     } finally {
@@ -462,9 +468,11 @@ export default function SettingsPage() {
               <span className="text-xs text-ink-400">
                 {accountSync === 'loading'
                   ? '正在同步账号字体与字号偏好…'
-                  : accountSync === 'synced'
-                    ? '字体与字号已与 GitHub 账号同步'
-                    : '保存后可在多台设备登录同一账号自动恢复'}
+                  : accountSync === 'queued'
+                    ? '已加入待更新队列，统一更新后同步到账号'
+                    : accountSync === 'synced'
+                      ? '字体与字号已与 GitHub 账号同步'
+                      : '保存后可在多台设备登录同一账号自动恢复'}
               </span>
             </div>
           ) : (
@@ -576,9 +584,11 @@ export default function SettingsPage() {
               <span className="text-xs text-ink-400">
                 {backgroundAccountSync === 'loading'
                   ? '正在恢复账号背景偏好…'
-                  : backgroundAccountSync === 'synced'
-                    ? '已与该账号的背景偏好同步'
-                    : '保存后可在其他设备同步'}
+                  : backgroundAccountSync === 'queued'
+                    ? '已加入待更新队列，统一更新后同步到账号'
+                    : backgroundAccountSync === 'synced'
+                      ? '已与该账号的背景偏好同步'
+                      : '保存后可在其他设备同步'}
               </span>
             </div>
           ) : (

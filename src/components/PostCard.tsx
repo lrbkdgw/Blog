@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { ArrowUpRight, Clock, FileEdit, LockKeyhole, Pin } from 'lucide-react'
 import type { Post } from '../lib/types'
 import { formatDate } from '../lib/posts'
+import { resolvePendingImageSrc } from '../lib/updateQueue'
 
 export function PostCard({ post, index = 0 }: { post: Post; index?: number }) {
   return (
@@ -14,7 +15,7 @@ export function PostCard({ post, index = 0 }: { post: Post; index?: number }) {
       {post.cover && (
         <Link to={`/posts/${post.slug}`} className="-mx-6 -mt-6 mb-5 block overflow-hidden">
           <img
-            src={post.cover}
+            src={resolvePendingImageSrc(post.cover)}
             alt=""
             loading="lazy"
             className="h-44 w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"

@@ -6,11 +6,17 @@ import type { Post, PostMeta } from './types'
 /*                          仓库中的 Markdown 文章                              */
 /* -------------------------------------------------------------------------- */
 
-const rawModules = import.meta.glob('/content/posts/**/*.md', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-}) as Record<string, string>
+// Vite 专属 API：在 VS Code 插件等非 Vite 打包环境（esbuild cjs/iife）中为空，
+// 用 typeof 守卫避免在那些环境里加载即抛错。
+const rawModules = (
+  typeof import.meta.glob === 'function'
+    ? import.meta.glob('/content/posts/**/*.md', {
+        query: '?raw',
+        import: 'default',
+        eager: true,
+      })
+    : {}
+) as Record<string, string>
 
 /* -------------------------------------------------------------------------- */
 /*                                 工具函数                                    */
@@ -215,27 +221,11 @@ export function localPostExists(slug: string): boolean {
 /*                          GitHub 发布时间记录                                 */
 /* -------------------------------------------------------------------------- */
 
-const PUBLISHED_TIMES_KEY = 'starlog:published-times'
-
-function readPublishTimes(): Record<string, number> {
-  if (typeof localStorage === 'undefined') return {}
-  try {
-    const parsed = JSON.parse(localStorage.getItem(PUBLISHED_TIMES_KEY) || '{}')
-    return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-export function recordPublishTime(slug: string, timestamp = Date.now()) {
-  const store = readPublishTimes()
-  store[slug] = timestamp
-  localStorage.setItem(PUBLISHED_TIMES_KEY, JSON.stringify(store))
-  window.dispatchEvent(new CustomEvent('starlog:posts-changed'))
-}
+export { recordPublishTime } from './publishTimes'
+import { readPublishTimeStore } from './publishTimes'
 
 export function getPublishTime(post: Post): number | null {
-  const store = readPublishTimes()
+  const store = readPublishTimeStore()
   if (store[post.slug]) return store[post.slug]
 
   // 如果是仓库文章但未在当前设备单独记录过发布时间，则以文章日期作为发布时间基准

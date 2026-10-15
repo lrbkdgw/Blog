@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
+  CheckSquare,
   Clock,
   CloudUpload,
   Eye,
@@ -9,13 +10,17 @@ import {
   GitPullRequest,
   Github,
   HardDrive,
+  Image as ImageIcon,
+  ListTodo,
   Loader2,
   PenLine,
   Plus,
   RefreshCw,
   Search,
   Settings,
+  Square,
   Trash2,
+  UploadCloud,
   XCircle,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
@@ -25,7 +30,6 @@ import {
   formatDate,
   getAllAdminPosts,
   getPublishTime,
-  recordPublishTime,
   relativeTime,
   searchPosts,
   serializePost,
@@ -33,36 +37,92 @@ import {
 import {
   checkUserRepoPermissions,
   closePublicationPR,
-  commitPost,
-  deleteRemotePost,
-  getRepoTarget,
   listPublicationPRs,
   mergePublicationPR,
 } from '../lib/github'
 import type { PublicationPR } from '../lib/github'
+import {
+  clearUpdateQueue,
+  enqueuePostDelete,
+  enqueuePostPublish,
+  flushUpdateQueue,
+  getUpdateQueue,
+  removeQueueItem,
+} from '../lib/updateQueue'
+import type { QueueItem, QueueItemKind } from '../lib/updateQueue'
+import { useRepoTarget } from '../lib/useRepoTarget'
 import type { Post } from '../lib/types'
 
-type MainTab = 'posts' | 'prs'
+type MainTab = 'posts' | 'prs' | 'queue'
 type Filter = 'all' | 'repo' | 'local' | 'draft'
+
+const QUEUE_KIND_META: Record<
+  QueueItemKind,
+  { label: string; icon: typeof CloudUpload; tone: string }
+> = {
+  'post-publish': {
+    label: '更新文章',
+    icon: CloudUpload,
+    tone: 'bg-brand-500/10 text-brand-600 dark:text-brand-300',
+  },
+  'post-delete': {
+    label: '删除文章',
+    icon: Trash2,
+    tone: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+  },
+  'post-pr': {
+    label: '发表申请',
+    icon: GitPullRequest,
+    tone: 'bg-purple-500/10 text-purple-600 dark:text-purple-300',
+  },
+  'image-upload': {
+    label: '上传图片',
+    icon: ImageIcon,
+    tone: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  },
+  'settings-sync': {
+    label: '账号偏好',
+    icon: Settings,
+    tone: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  },
+}
 
 export default function Admin() {
   const { canPublish, ghUser } = useAuth()
   const toast = useToast()
+  const [searchParams] = useSearchParams()
 
   const [posts, setPosts] = useState<Post[]>(getAllAdminPosts)
   const [prs, setPrs] = useState<PublicationPR[]>([])
   const [loadingPrs, setLoadingPrs] = useState(false)
   const [isRepoAdmin, setIsRepoAdmin] = useState(false)
 
+  const [queue, setQueue] = useState<QueueItem[]>(getUpdateQueue)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [flushing, setFlushing] = useState(false)
+  const [flushErrors, setFlushErrors] = useState<Record<string, string>>({})
+
   const [mainTab, setMainTab] = useState<MainTab>('posts')
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [busy, setBusy] = useState<string | null>(null)
 
-  const target = getRepoTarget()
+  const target = useRepoTarget()
 
   const reloadPosts = () => {
     setPosts(getAllAdminPosts())
+  }
+
+  const reloadQueue = () => {
+    setQueue(getUpdateQueue())
+    setSelectedIds((prev) => {
+      const alive = new Set(getUpdateQueue().map((item) => item.id))
+      const next = new Set<string>()
+      prev.forEach((id) => {
+        if (alive.has(id)) next.add(id)
+      })
+      return next.size === prev.size ? prev : next
+    })
   }
 
   // 仓库中加密文章的 slug 集合：这些文章的明文本地草稿不能从列表直推发布。
@@ -73,16 +133,23 @@ export default function Admin() {
 
   useEffect(() => {
     reloadPosts()
-    const handler = () => reloadPosts()
+    reloadQueue()
+    const handler = () => {
+      reloadPosts()
+      reloadQueue()
+    }
     window.addEventListener('starlog:posts-changed', handler)
+    window.addEventListener('starlog:queue-changed', handler)
     window.addEventListener('storage', handler)
     return () => {
       window.removeEventListener('starlog:posts-changed', handler)
+      window.removeEventListener('starlog:queue-changed', handler)
       window.removeEventListener('storage', handler)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 检查当前用户是否有目标仓库的管理权限
+  // 检查当前用户是否有目标仓库的管理权限（target 引用稳定，仅在用户/仓库变化时重查）
   useEffect(() => {
     if (!ghUser) {
       setIsRepoAdmin(false)
@@ -92,6 +159,12 @@ export default function Admin() {
       setIsRepoAdmin(res.canPush || res.canAdmin)
     })
   }, [ghUser, target])
+
+  // 支持 /admin?tab=queue 等入口直达指定标签页
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (tab === 'posts' || tab === 'prs' || tab === 'queue') setMainTab(tab)
+  }, [searchParams])
 
   // 加载 PR 列表
   const fetchPRs = async () => {
@@ -109,6 +182,7 @@ export default function Admin() {
     const handler = () => fetchPRs()
     window.addEventListener('starlog:prs-changed', handler)
     return () => window.removeEventListener('starlog:prs-changed', handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const filtered = useMemo(() => {
@@ -129,7 +203,80 @@ export default function Admin() {
     [posts],
   )
 
-  const publishOne = async (post: Post) => {
+  const pendingSlugs = useMemo(
+    () =>
+      new Set(
+        queue
+          .filter((item) => item.kind === 'post-publish' || item.kind === 'post-pr' || item.kind === 'post-delete')
+          .map((item) => item.target),
+      ),
+    [queue],
+  )
+
+  /* --------------------------- 待更新队列操作 --------------------------- */
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) =>
+      prev.size === queue.length && queue.length > 0
+        ? new Set()
+        : new Set(queue.map((item) => item.id)),
+    )
+  }
+
+  const runFlush = async (items: QueueItem[]) => {
+    if (items.length === 0) {
+      toast('请先选择要更新的更改', 'info')
+      return
+    }
+    if (!canPublish) {
+      toast('更新仓库需要先连接 GitHub 账号', 'warning')
+      return
+    }
+    setFlushing(true)
+    setFlushErrors({})
+    try {
+      const result = await flushUpdateQueue(items)
+      reloadQueue()
+      if (result.failed.length === 0) {
+        const action = result.commitUrl
+          ? { label: '查看提交', href: result.commitUrl }
+          : result.prUrls[0]
+            ? { label: '查看 PR', href: result.prUrls[0] }
+            : undefined
+        const detail = result.commitUrl
+          ? '，GitHub Actions 部署中'
+          : result.prUrls.length > 0
+            ? '，发表申请已提交'
+            : ''
+        toast(`已更新 ${result.succeeded.length} 项更改${detail}`, 'success', action)
+      } else {
+        const errs: Record<string, string> = {}
+        for (const failure of result.failed) errs[failure.item.id] = failure.message
+        setFlushErrors(errs)
+        toast(
+          `更新完成：成功 ${result.succeeded.length} 项，失败 ${result.failed.length} 项（${result.failed[0].message}）`,
+          result.succeeded.length > 0 ? 'warning' : 'error',
+        )
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '更新失败', 'error')
+    } finally {
+      setFlushing(false)
+    }
+  }
+
+  /* ------------------------------ 文章操作 ------------------------------ */
+
+  const queueOne = (post: Post) => {
     if (!canPublish) {
       toast('请先在「设置」中连接 GitHub', 'warning')
       return
@@ -140,20 +287,15 @@ export default function Admin() {
       toast('这篇文章在仓库中是加密文章，请在编辑器中以加密方式重新发布', 'warning')
       return
     }
-    const busyKey = `${post.source}-${post.slug}`
-    setBusy(busyKey)
     try {
-      const res = await commitPost(post.slug, serializePost(post), `post(blog): ${post.title}`)
-      recordPublishTime(post.slug, Date.now())
-      reloadPosts()
-      toast(`已提交 ${res.path}，GitHub Actions 部署中…`, 'success', {
-        label: '查看提交',
-        href: res.commitUrl,
+      enqueuePostPublish(post, serializePost(post))
+      reloadQueue()
+      toast('已加入待更新队列，统一更新后才会提交到 GitHub', 'success', {
+        label: '查看队列',
+        href: '/admin?tab=queue',
       })
     } catch (err) {
-      toast(err instanceof Error ? err.message : '提交失败', 'error')
-    } finally {
-      setBusy(null)
+      toast(err instanceof Error ? err.message : '加入队列失败', 'error')
     }
   }
 
@@ -169,17 +311,16 @@ export default function Admin() {
       toast('删除仓库文章需要先连接 GitHub', 'warning')
       return
     }
-    if (!confirm(`将从 GitHub 仓库中删除「${post.title}」，确定吗？`)) return
-    const busyKey = `${post.source}-${post.slug}`
-    setBusy(busyKey)
+    if (!confirm(`将「${post.title}」加入待更新队列，统一更新后从 GitHub 仓库中删除。确定吗？`)) return
     try {
-      await deleteRemotePost(post.slug)
-      reloadPosts()
-      toast('已从仓库删除，重新部署后生效', 'success')
+      enqueuePostDelete(post.slug, post.title)
+      reloadQueue()
+      toast('删除操作已加入待更新队列，统一更新后生效', 'success', {
+        label: '查看队列',
+        href: '/admin?tab=queue',
+      })
     } catch (err) {
-      toast(err instanceof Error ? err.message : '删除失败', 'error')
-    } finally {
-      setBusy(null)
+      toast(err instanceof Error ? err.message : '加入队列失败', 'error')
     }
   }
 
@@ -212,6 +353,7 @@ export default function Admin() {
   }
 
   const openPRsCount = prs.filter((p) => p.state === 'open').length
+  const allSelected = queue.length > 0 && selectedIds.size === queue.length
 
   return (
     <div className="container-page max-w-5xl pt-12">
@@ -270,7 +412,7 @@ export default function Admin() {
         </div>
       )}
 
-      {/* 大标签切换：文章列表 vs 发表申请 (PR 审批) */}
+      {/* 大标签切换：文章列表 vs 发表申请 (PR 审批) vs 待更新队列 */}
       <div className="mt-8 flex gap-2 border-b border-ink-200/70 pb-px dark:border-white/10">
         <button
           type="button"
@@ -301,6 +443,23 @@ export default function Admin() {
           {openPRsCount > 0 && (
             <span className="rounded-full bg-brand-500 px-2 py-0.5 text-xs font-bold text-white">
               {openPRsCount} 待审核
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setMainTab('queue')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+            mainTab === 'queue'
+              ? 'border-brand-500 text-brand-600 dark:text-brand-300'
+              : 'border-transparent text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
+          }`}
+        >
+          <ListTodo size={16} />
+          待更新队列
+          {queue.length > 0 && (
+            <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
+              {queue.length} 待更新
             </span>
           )}
         </button>
@@ -370,6 +529,7 @@ export default function Admin() {
               const itemKey = `${post.source}-${post.slug}`
               const isLocalDraft = post.source === 'local'
               const publishedTime = getPublishTime(post)
+              const hasPending = pendingSlugs.has(post.slug)
 
               return (
                 <div
@@ -402,6 +562,14 @@ export default function Admin() {
                       ) : (
                         <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
                           已发布到 GitHub
+                        </span>
+                      )}
+                      {hasPending && (
+                        <span
+                          className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400"
+                          title="该文章在待更新队列中有尚未提交到仓库的更改"
+                        >
+                          待更新
                         </span>
                       )}
                       {isLocalDraft && encryptedRepoSlugs.has(post.slug) && (
@@ -463,23 +631,17 @@ export default function Admin() {
                     </Link>
                     {isLocalDraft && (
                       <button
-                        onClick={() => publishOne(post)}
-                        disabled={busy === itemKey}
+                        onClick={() => queueOne(post)}
                         className="btn-ghost h-8 w-8 !px-0 text-brand-600 dark:text-brand-300"
-                        title="发布到 GitHub"
+                        title="加入待更新队列（更新后发布到 GitHub）"
                       >
-                        {busy === itemKey ? (
-                          <Loader2 size={15} className="animate-spin" />
-                        ) : (
-                          <CloudUpload size={15} />
-                        )}
+                        <CloudUpload size={15} />
                       </button>
                     )}
                     <button
                       onClick={() => removePost(post)}
-                      disabled={busy === itemKey}
                       className="btn-ghost h-8 w-8 !px-0 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10"
-                      title={isLocalDraft ? '删除本地草稿' : '从 GitHub 仓库删除'}
+                      title={isLocalDraft ? '删除本地草稿' : '加入待更新队列（更新后从 GitHub 仓库删除）'}
                     >
                       <Trash2 size={15} />
                     </button>
@@ -490,10 +652,10 @@ export default function Admin() {
           </div>
 
           <p className="mb-16 mt-4 text-xs leading-relaxed text-ink-400">
-            当同一文章存在已发布的仓库版本与本地编辑的草稿时，列表中会同时显示为两条记录，方便分别查看与管理。
+            当同一文章存在已发布的仓库版本与本地编辑的草稿时，列表中会同时显示为两条记录，方便分别查看与管理。发布与删除等仓库操作会先进入「待更新队列」，统一更新后才会真正提交到 GitHub。
           </p>
         </>
-      ) : (
+      ) : mainTab === 'prs' ? (
         /* -------------------------- 发表申请 (PR 审批) -------------------------- */
         <div className="mt-6 space-y-4">
           <div className="flex items-center justify-between">
@@ -613,6 +775,176 @@ export default function Admin() {
               })
             )}
           </div>
+        </div>
+      ) : (
+        /* ---------------------------- 待更新队列 ---------------------------- */
+        <div className="mt-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-ink-500">
+              所有需要更新仓库的操作（发布/删除文章、上传图片、发表申请、账号偏好同步）都会先保存在本机，勾选后可一次批量更新，也可以全部更新。
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                disabled={queue.length === 0 || flushing}
+                className="btn-ghost h-8 px-2.5 text-xs"
+              >
+                {allSelected ? <Square size={13} /> : <CheckSquare size={13} />}
+                {allSelected ? '取消全选' : '全选'}
+              </button>
+              <button
+                type="button"
+                onClick={() => runFlush(queue.filter((item) => selectedIds.has(item.id)))}
+                disabled={flushing || selectedIds.size === 0}
+                className="btn-outline h-8 px-2.5 text-xs"
+                title={selectedIds.size === 0 ? '勾选要更新的更改' : `更新所选 ${selectedIds.size} 项`}
+              >
+                {flushing ? <Loader2 size={12} className="animate-spin" /> : <UploadCloud size={12} />}
+                更新所选{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+              </button>
+              <button
+                type="button"
+                onClick={() => runFlush(queue)}
+                disabled={flushing || queue.length === 0}
+                className="btn-primary h-8 px-3 text-xs"
+              >
+                {flushing ? <Loader2 size={13} className="animate-spin" /> : <CloudUpload size={13} />}
+                全部更新
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (queue.length === 0) return
+                  if (!confirm(`确定清空待更新队列中的 ${queue.length} 项更改吗？`)) return
+                  clearUpdateQueue()
+                  setFlushErrors({})
+                  toast('待更新队列已清空', 'info')
+                }}
+                disabled={queue.length === 0 || flushing}
+                className="btn-danger h-8 px-2.5 text-xs"
+              >
+                <Trash2 size={12} />
+                清空
+              </button>
+            </div>
+          </div>
+
+          {!canPublish && (
+            <div className="rounded-xl border border-amber-200/70 bg-amber-50/50 px-4 py-3 text-xs text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
+              更新仓库需要先 <Link to="/login" className="font-medium underline underline-offset-2">登录 GitHub</Link>；队列中的更改已保存在本机，不会丢失。
+            </div>
+          )}
+
+          <div className="card divide-y divide-ink-200/60 overflow-hidden dark:divide-white/[0.07]">
+            {queue.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
+                <ListTodo size={28} className="text-ink-300" />
+                <p className="text-sm text-ink-500">待更新队列为空</p>
+                <p className="max-w-sm text-xs leading-relaxed text-ink-400">
+                  在编辑器或文章列表中发布、删除文章，或上传图片后，更改会先出现在这里，等待统一更新到 GitHub。
+                </p>
+              </div>
+            ) : (
+              queue.map((item) => {
+                const meta = QUEUE_KIND_META[item.kind] ?? QUEUE_KIND_META['post-publish']
+                const Icon = meta.icon
+                const isSelected = selectedIds.has(item.id)
+                const itemError = flushErrors[item.id]
+                return (
+                  <div
+                    key={item.id}
+                    className={`flex flex-wrap items-center gap-3 px-4 py-3.5 transition hover:bg-ink-50/70 dark:hover:bg-white/[.03] ${
+                      isSelected ? 'bg-brand-50/40 dark:bg-brand-500/[0.06]' : ''
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleSelected(item.id)}
+                      disabled={flushing}
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-ink-300 text-brand-600 transition hover:border-brand-400 dark:border-white/20 dark:text-brand-300"
+                      aria-label={isSelected ? '取消选择' : '选择'}
+                    >
+                      {isSelected && <CheckSquare size={14} />}
+                    </button>
+
+                    {item.kind === 'image-upload' && item.dataUrl ? (
+                      <img
+                        src={item.dataUrl}
+                        alt=""
+                        className="h-10 w-10 shrink-0 rounded-lg border border-ink-200/60 object-cover dark:border-white/10"
+                      />
+                    ) : (
+                      <span
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${meta.tone}`}
+                      >
+                        <Icon size={16} />
+                      </span>
+                    )}
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-semibold text-ink-900 dark:text-white">
+                          {item.title}
+                        </span>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${meta.tone}`}>
+                          {meta.label}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-ink-400">
+                        <span className="truncate">
+                          {item.kind === 'post-publish' || item.kind === 'post-delete' || item.kind === 'post-pr'
+                            ? `/${item.target}`
+                            : item.target}
+                        </span>
+                        <span>·</span>
+                        <span className="flex items-center gap-1">
+                          <Clock size={11} />
+                          加入于 {relativeTime(item.createdAt)}
+                        </span>
+                      </div>
+                      {itemError && (
+                        <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">
+                          上次更新失败：{itemError}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        onClick={() => runFlush([item])}
+                        disabled={flushing}
+                        className="btn-ghost h-8 px-2 text-xs text-brand-600 dark:text-brand-300"
+                        title="立即更新这一项"
+                      >
+                        {flushing ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <UploadCloud size={14} />
+                        )}
+                        更新
+                      </button>
+                      <button
+                        onClick={() => {
+                          removeQueueItem(item.id)
+                          reloadQueue()
+                        }}
+                        disabled={flushing}
+                        className="btn-ghost h-8 w-8 !px-0 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                        title="从队列中移除"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+
+          <p className="mb-16 text-xs leading-relaxed text-ink-400">
+            更新时文件类更改（文章、图片、账号偏好）会合并为一次 Git 提交并触发一次部署；发表申请会逐个创建 PR。失败的条目会保留在队列中，可稍后重试。
+          </p>
         </div>
       )}
     </div>

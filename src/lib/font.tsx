@@ -2,7 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 import { STORAGE_KEYS } from './config'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
-import { fetchGithubFontPreference, saveGithubFontPreference } from './github'
+import { fetchGithubFontPreference, buildFontPreferenceFile, fontSettingsPath } from './github'
+import { enqueueSettingsSync, getUpdateQueue } from './updateQueue'
 import { useAuth } from './auth'
 
 export type FontSource = 'default' | 'local' | 'cloud'
@@ -26,7 +27,7 @@ export interface FontPreference {
 interface FontCtx {
   font: FontPreference
   status: FontStatus
-  accountSync: 'idle' | 'loading' | 'synced' | 'error'
+  accountSync: 'idle' | 'loading' | 'synced' | 'queued' | 'error'
   /** 设置完整的字体优先级列表 */
   setFonts: (families: string[]) => Promise<FontPreference>
   /** 添加一个字体到优先级列表末尾（若已存在则移至指定位置） */
@@ -380,6 +381,15 @@ export function FontProvider({ children }: { children: ReactNode }) {
           await setFonts(cached.families, cached.sizePercent)
         }
 
+        // 有尚未更新到仓库的偏好更改时，不用旧的远程版本覆盖本地/队列中的新设置。
+        const hasPending = getUpdateQueue().some(
+          (item) => item.kind === 'settings-sync' && item.target === fontSettingsPath(login),
+        )
+        if (hasPending) {
+          if (active) setAccountSync('queued')
+          return
+        }
+
         const remote = await fetchGithubFontPreference(login)
         if (!active) return
         if (remote) {
@@ -404,13 +414,15 @@ export function FontProvider({ children }: { children: ReactNode }) {
 
   const saveForGithub = useCallback(async () => {
     if (!canPublish || !ghUser) throw new Error('请先登录并连接具备 Contents 写入权限的 GitHub 账号')
-    await saveGithubFontPreference(ghUser.login, {
+    // 更新仓库的操作先加入待更新队列，由内容管理统一更新。
+    const file = buildFontPreferenceFile(ghUser.login, {
       family: font.families.join(', '),
       sizePercent: font.sizePercent,
       updatedAt: font.updatedAt || Date.now(),
     })
+    enqueueSettingsSync(file.path, `同步 @${ghUser.login} 的字体与字号偏好`, file.text)
     writeAccountCache(ghUser.login, font)
-    setAccountSync('synced')
+    setAccountSync('queued')
   }, [canPublish, ghUser, font])
 
   const value = useMemo(

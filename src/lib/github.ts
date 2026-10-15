@@ -283,12 +283,14 @@ interface ContentItem {
   sha: string
   type: 'file' | 'dir'
   content?: string
+  size?: number
+  download_url?: string | null
 }
 
 export async function listRemotePosts(target = getRepoTarget()): Promise<ContentItem[]> {
   try {
     const items = await gh<ContentItem[]>(
-      `/repos/${target.owner}/${target.repo}/contents/${target.postsDir}?ref=${target.branch}`,
+      `/repos/${target.owner}/${target.repo}/contents/${target.postsDir}?ref=${encodeURIComponent(target.branch)}`,
     )
     return items.filter((i) => i.type === 'file' && i.name.endsWith('.md'))
   } catch (err) {
@@ -297,21 +299,32 @@ export async function listRemotePosts(target = getRepoTarget()): Promise<Content
   }
 }
 
+/** 把仓库路径按 / 分段编码，避免空格、#、? 等字符破坏 URL。 */
+function encodeRepoPath(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/')
+}
+
 export async function fetchRemoteFile(
   path: string,
   target = getRepoTarget(),
   ref = target.branch,
 ) {
   const item = await gh<ContentItem>(
-    `/repos/${target.owner}/${target.repo}/contents/${path}?ref=${encodeURIComponent(ref)}`,
+    `/repos/${target.owner}/${target.repo}/contents/${encodeRepoPath(path)}?ref=${encodeURIComponent(ref)}`,
   )
+  // 超过 1MB 的文件 contents API 不再内联返回 content，改走 download_url。
+  if (!item.content && item.size && item.download_url) {
+    const res = await fetch(item.download_url)
+    if (!res.ok) throw new Error(`无法下载文件内容（${res.status} ${res.statusText}）`)
+    return { sha: item.sha, text: await res.text() }
+  }
   return { sha: item.sha, text: item.content ? decodeBase64(item.content) : '' }
 }
 
 async function getSha(path: string, target: RepoTarget, ref = target.branch): Promise<string | undefined> {
   try {
     const item = await gh<ContentItem>(
-      `/repos/${target.owner}/${target.repo}/contents/${path}?ref=${ref}`,
+      `/repos/${target.owner}/${target.repo}/contents/${encodeRepoPath(path)}?ref=${encodeURIComponent(ref)}`,
     )
     return item.sha
   } catch {
@@ -324,6 +337,73 @@ export interface CommitResult {
   commitUrl: string
 }
 
+export interface FileChange {
+  /** 仓库根目录相对路径（不能以 / 开头） */
+  path: string
+  /** 文本内容 */
+  text?: string
+  /** 二进制内容（base64），与 text 二选一 */
+  base64?: string
+  /** 删除该文件 */
+  delete?: boolean
+}
+
+/**
+ * 把多个文件更改合并为一次 Git 提交（Git Data API：blob → tree → commit → ref），
+ * 用于「待更新队列」的批量更新：N 项更改一次提交、一次部署。
+ */
+export async function commitFileChanges(
+  changes: FileChange[],
+  message: string,
+  target = getRepoTarget(),
+): Promise<CommitResult> {
+  if (changes.length === 0) throw new Error('没有需要提交的更改')
+  const { owner, repo, branch } = target
+
+  const refData = await gh<{ object: { sha: string } }>(
+    `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`,
+  )
+  const baseSha = refData.object.sha
+  const baseCommit = await gh<{ tree: { sha: string } }>(
+    `/repos/${owner}/${repo}/git/commits/${baseSha}`,
+  )
+
+  const tree: { path: string; mode: '100644'; type: 'blob'; sha: string | null }[] = []
+  for (const change of changes) {
+    const path = change.path.replace(/^\/+/, '')
+    if (change.delete) {
+      tree.push({ path, mode: '100644', type: 'blob', sha: null })
+      continue
+    }
+    const blob = await gh<{ sha: string }>(`/repos/${owner}/${repo}/git/blobs`, {
+      method: 'POST',
+      body: JSON.stringify(
+        change.base64 !== undefined
+          ? { content: change.base64, encoding: 'base64' }
+          : { content: change.text ?? '', encoding: 'utf-8' },
+      ),
+    })
+    tree.push({ path, mode: '100644', type: 'blob', sha: blob.sha })
+  }
+
+  const newTree = await gh<{ sha: string }>(`/repos/${owner}/${repo}/git/trees`, {
+    method: 'POST',
+    body: JSON.stringify({ base_tree: baseCommit.tree.sha, tree }),
+  })
+  const commit = await gh<{ sha: string; html_url: string }>(
+    `/repos/${owner}/${repo}/git/commits`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ message, tree: newTree.sha, parents: [baseSha] }),
+    },
+  )
+  await gh(`/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ sha: commit.sha, force: false }),
+  })
+  return { path: changes.map((c) => c.path).join(', '), commitUrl: commit.html_url }
+}
+
 /** 新建或更新一个 Markdown 文件 */
 export async function commitPost(
   slug: string,
@@ -334,7 +414,7 @@ export async function commitPost(
   const path = `${target.postsDir}/${slug}.md`
   const sha = await getSha(path, target)
   const res = await gh<{ commit: { html_url: string } }>(
-    `/repos/${target.owner}/${target.repo}/contents/${encodeURI(path)}`,
+    `/repos/${target.owner}/${target.repo}/contents/${encodeRepoPath(path)}`,
     {
       method: 'PUT',
       body: JSON.stringify({
@@ -352,7 +432,7 @@ export async function deleteRemotePost(slug: string, target = getRepoTarget()): 
   const path = `${target.postsDir}/${slug}.md`
   const sha = await getSha(path, target)
   if (!sha) throw new Error('远程仓库中不存在这篇文章')
-  await gh(`/repos/${target.owner}/${target.repo}/contents/${encodeURI(path)}`, {
+  await gh(`/repos/${target.owner}/${target.repo}/contents/${encodeRepoPath(path)}`, {
     method: 'DELETE',
     body: JSON.stringify({ message: `chore(blog): 删除文章 ${slug}`, sha, branch: target.branch }),
   })
@@ -417,7 +497,7 @@ export async function uploadImage(file: File, target = getRepoTarget()): Promise
   buf.forEach((b) => (binary += String.fromCharCode(b)))
   const safeName = file.name.replace(/[^\w.-]+/g, '-')
   const path = `public/uploads/${Date.now()}-${safeName}`
-  await gh(`/repos/${target.owner}/${target.repo}/contents/${encodeURI(path)}`, {
+  await gh(`/repos/${target.owner}/${target.repo}/contents/${encodeRepoPath(path)}`, {
     method: 'PUT',
     body: JSON.stringify({
       message: `chore(blog): 上传图片 ${safeName}`,
@@ -517,7 +597,7 @@ export async function submitPublicationPR(
   })
 
   // 在新分支上提交文章
-  await gh(`/repos/${repoOwnerForBranch}/${target.repo}/contents/${encodeURI(filePath)}`, {
+  await gh(`/repos/${repoOwnerForBranch}/${target.repo}/contents/${encodeRepoPath(filePath)}`, {
     method: 'PUT',
     body: JSON.stringify({
       message: `post(blog): 申请发表《${title}》`,
@@ -927,7 +1007,7 @@ export interface GithubFontPreference {
 
 const FONT_SETTINGS_DIR = '.starlog/settings/font-preferences'
 
-function fontSettingsPath(login: string): string {
+export function fontSettingsPath(login: string): string {
   const safeLogin = login.trim().replace(/[^a-zA-Z0-9-]/g, '')
   if (!safeLogin) throw new Error('GitHub 用户名无效')
   return `${FONT_SETTINGS_DIR}/${safeLogin}.json`
@@ -952,29 +1032,46 @@ export async function fetchGithubFontPreference(
   }
 }
 
+export interface SettingsFileUpdate {
+  path: string
+  text: string
+  message: string
+}
+
+/** 构造字体偏好设置文件内容（供立即提交或「待更新队列」暂存使用）。 */
+export function buildFontPreferenceFile(
+  login: string,
+  preference: GithubFontPreference,
+): SettingsFileUpdate {
+  return {
+    path: fontSettingsPath(login),
+    message: `chore(settings): 保存 @${login} 的字体与字号偏好`,
+    text:
+      JSON.stringify(
+        {
+          version: 2,
+          family: preference.family,
+          sizePercent: preference.sizePercent,
+          updatedAt: preference.updatedAt || Date.now(),
+        },
+        null,
+        2,
+      ) + '\n',
+  }
+}
+
 export async function saveGithubFontPreference(
   login: string,
   preference: GithubFontPreference,
   target = getRepoTarget(),
 ): Promise<void> {
-  const path = fontSettingsPath(login)
-  const sha = await getSha(path, target)
-  await gh(`/repos/${target.owner}/${target.repo}/contents/${encodeURI(path)}`, {
+  const file = buildFontPreferenceFile(login, preference)
+  const sha = await getSha(file.path, target)
+  await gh(`/repos/${target.owner}/${target.repo}/contents/${encodeRepoPath(file.path)}`, {
     method: 'PUT',
     body: JSON.stringify({
-      message: `chore(settings): 保存 @${login} 的字体与字号偏好`,
-      content: encodeBase64(
-        JSON.stringify(
-          {
-            version: 2,
-            family: preference.family,
-            sizePercent: preference.sizePercent,
-            updatedAt: preference.updatedAt || Date.now(),
-          },
-          null,
-          2,
-        ) + '\n',
-      ),
+      message: file.message,
+      content: encodeBase64(file.text),
       branch: target.branch,
       ...(sha ? { sha } : {}),
     }),
@@ -989,7 +1086,7 @@ export interface GithubBackgroundPreference {
 
 const BACKGROUND_SETTINGS_DIR = '.starlog/settings/background-preferences'
 
-function backgroundSettingsPath(login: string): string {
+export function backgroundSettingsPath(login: string): string {
   const safeLogin = login.trim().replace(/[^a-zA-Z0-9-]/g, '')
   if (!safeLogin) throw new Error('GitHub 用户名无效')
   return `${BACKGROUND_SETTINGS_DIR}/${safeLogin}.json`
@@ -1014,29 +1111,40 @@ export async function fetchGithubBackgroundPreference(
   }
 }
 
+/** 构造背景偏好设置文件内容（供立即提交或「待更新队列」暂存使用）。 */
+export function buildBackgroundPreferenceFile(
+  login: string,
+  preference: GithubBackgroundPreference,
+): SettingsFileUpdate {
+  return {
+    path: backgroundSettingsPath(login),
+    message: `chore(settings): 保存 @${login} 的背景颜色偏好`,
+    text:
+      JSON.stringify(
+        {
+          version: 2,
+          color: preference.color,
+          intensity: preference.intensity,
+          updatedAt: preference.updatedAt || Date.now(),
+        },
+        null,
+        2,
+      ) + '\n',
+  }
+}
+
 export async function saveGithubBackgroundPreference(
   login: string,
   preference: GithubBackgroundPreference,
   target = getRepoTarget(),
 ): Promise<void> {
-  const path = backgroundSettingsPath(login)
-  const sha = await getSha(path, target)
-  await gh(`/repos/${target.owner}/${target.repo}/contents/${encodeURI(path)}`, {
+  const file = buildBackgroundPreferenceFile(login, preference)
+  const sha = await getSha(file.path, target)
+  await gh(`/repos/${target.owner}/${target.repo}/contents/${encodeRepoPath(file.path)}`, {
     method: 'PUT',
     body: JSON.stringify({
-      message: `chore(settings): 保存 @${login} 的背景颜色偏好`,
-      content: encodeBase64(
-        JSON.stringify(
-          {
-            version: 2,
-            color: preference.color,
-            intensity: preference.intensity,
-            updatedAt: preference.updatedAt || Date.now(),
-          },
-          null,
-          2,
-        ) + '\n',
-      ),
+      message: file.message,
+      content: encodeBase64(file.text),
       branch: target.branch,
       ...(sha ? { sha } : {}),
     }),

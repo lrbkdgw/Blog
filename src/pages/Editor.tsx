@@ -37,13 +37,12 @@ import { PasswordPrompt } from '../components/PasswordPrompt'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../lib/auth'
 import { decryptPost, encryptPostMarkdown, restorePostUnlock } from '../lib/crypto'
+import { checkUserRepoPermissions } from '../lib/github'
 import {
-  checkUserRepoPermissions,
-  commitPost,
-  getRepoTarget,
-  submitPublicationPR,
-  uploadImage,
-} from '../lib/github'
+  enqueueImageUpload,
+  enqueuePostPr,
+  enqueuePostPublish,
+} from '../lib/updateQueue'
 import {
   countWords,
   deleteLocalPost,
@@ -51,7 +50,6 @@ import {
   getEncryptedRepoPost,
   getPostBySlug,
   readingTime,
-  recordPublishTime,
   saveLocalPost,
   serializePost,
   slugify,
@@ -61,6 +59,7 @@ import { siteConfig } from '../lib/config'
 import { handleEditorKey, insertBlock, toggleLinePrefix, toggleWrap } from '../lib/editor'
 import type { EditAction } from '../lib/editor'
 import { useEditorScrollSync } from '../lib/editorSettings'
+import { useRepoTarget } from '../lib/useRepoTarget'
 import type { Post } from '../lib/types'
 
 type ViewMode = 'split' | 'edit' | 'preview'
@@ -172,7 +171,7 @@ export default function Editor() {
   const [encryptionPassword, setEncryptionPassword] = useState('')
   const [encryptionConfirm, setEncryptionConfirm] = useState('')
 
-  const target = getRepoTarget()
+  const target = useRepoTarget()
 
   useEffect(() => {
     if (!ghUser) {
@@ -494,22 +493,26 @@ export default function Editor() {
   /* ------------------------------- 图片上传 ------------------------------- */
   const onPickImage = async (file: File) => {
     if (!canPublish) {
-      toast('未登录 GitHub 无法直接将图片上传至远程仓库，可直接使用 Markdown 插入外链图片或登录后上传', 'info')
+      toast('未登录 GitHub 无法更新远程仓库图片，可直接使用 Markdown 插入外链图片或登录后上传', 'info')
       return
     }
     setUploading(true)
     try {
-      const url = await uploadImage(file)
+      // 图片先暂存到本地待更新队列，统一更新时再上传到仓库；链接先按最终地址写入正文。
+      const url = await enqueueImageUpload(file)
       withSelection((v, s, e) => insertBlock(v, s, e, `![${file.name}](${url})\n`))
-      toast('图片已上传到仓库', 'success')
+      toast('图片已加入待更新队列，统一更新到仓库前站内预览使用本地暂存数据', 'success', {
+        label: '查看队列',
+        href: '/admin?tab=queue',
+      })
     } catch (err) {
-      toast(err instanceof Error ? err.message : '上传失败', 'error')
+      toast(err instanceof Error ? err.message : '暂存图片失败', 'error')
     } finally {
       setUploading(false)
     }
   }
 
-  /* ------------------------------ 发布或提交 PR ---------------------------- */
+  /* ---------------------------- 发布或提交 PR ---------------------------- */
   const publishOrSubmitPR = async () => {
     // 全屏时看不到文章信息面板，先退出全屏再提示补充信息。
     const revealMeta = () => {
@@ -523,7 +526,7 @@ export default function Editor() {
     }
     const post = save(true)
     if (!canPublish) {
-      toast('未登录状态仅支持保存到本地草稿。登录 GitHub 账号后可直接发布或提交发表申请。', 'info', {
+      toast('未登录状态仅支持保存到本地草稿。登录 GitHub 账号后可将更改加入待更新队列并统一更新。', 'info', {
         label: '前往登录',
         href: '/login',
       })
@@ -549,14 +552,14 @@ export default function Editor() {
 
     setPublishing(true)
     try {
+      // 加密在加入队列前完成：密码只用于生成密文，不会保存在队列里。
       const markdown = encryptOnPublish
         ? await encryptPostMarkdown(post, encryptionPassword)
         : serializePost(post)
 
       if (canDirectPush) {
-        // 管理员/直接拥有 push 权限：直推 main 分支
-        const res = await commitPost(post.slug, markdown, `post(blog): ${post.title}`)
-        recordPublishTime(post.slug, Date.now())
+        // 管理员/直接拥有 push 权限：待更新队列里保存为直推 main 的更新
+        enqueuePostPublish(post, markdown)
         // A plaintext local autosave must not shadow the encrypted repository
         // article on the public route after the next reload.
         if (encryptOnPublish) {
@@ -565,19 +568,19 @@ export default function Editor() {
           setEncryptionConfirm('')
         }
         toast(
-          `已提交到 ${target.owner}/${target.repo} 的 ${res.path}\nGitHub Actions 正在部署中，约 1-2 分钟生效。`,
+          encryptOnPublish
+            ? '加密文章已加入待更新队列，统一更新后发布到 GitHub'
+            : '已加入待更新队列，统一更新后才会提交到 GitHub',
           'success',
-          { label: '查看提交', href: res.commitUrl },
+          { label: '查看队列', href: '/admin?tab=queue' },
         )
       } else {
-        // 普通已登录用户：提交 PR
-        const pr = await submitPublicationPR(post.slug, markdown, post.title, target)
-        toast(
-          `已成功提交发表申请 PR #${pr.number}！等待仓库管理员审核。`,
-          'success',
-          { label: '查看 PR', href: pr.html_url },
-        )
-        navigate('/admin')
+        // 普通已登录用户：待更新队列里保存为发表申请 PR，统一更新时创建
+        enqueuePostPr(post, markdown)
+        toast('发表申请已加入待更新队列，统一更新时创建审核 PR', 'success', {
+          label: '查看队列',
+          href: '/admin?tab=queue',
+        })
       }
     } catch (err) {
       toast(err instanceof Error ? err.message : '操作失败', 'error')
@@ -855,13 +858,17 @@ export default function Editor() {
               <span className="hidden sm:inline">保存草稿</span>
             </button>
 
-            {/* 发布/提交 PR 按钮 */}
+            {/* 发布/提交 PR 按钮：更改先加入待更新队列，由内容管理统一更新 */}
             {canPublish ? (
               <button
                 onClick={publishOrSubmitPR}
                 disabled={publishing}
                 className="btn-primary h-9"
-                title={canDirectPush ? '直接提交到 main 分支' : '提交文章发表申请 (PR)'}
+                title={
+                  canDirectPush
+                    ? '加入待更新队列，统一更新时提交到 main 分支'
+                    : '加入待更新队列，统一更新时创建发表申请 (PR)'
+                }
               >
                 {publishing ? (
                   <Loader2 size={15} className="animate-spin" />
@@ -874,8 +881,8 @@ export default function Editor() {
                   {publishing
                     ? '处理中…'
                     : canDirectPush
-                      ? '发布到 GitHub'
-                      : '申请发表 (PR)'}
+                      ? '加入更新队列'
+                      : '加入更新队列 (PR)'}
                 </span>
               </button>
             ) : (
@@ -1102,7 +1109,7 @@ export default function Editor() {
             <span className="mx-1 h-4 w-px bg-ink-200 dark:bg-white/10" />
             <button
               onClick={() => fileRef.current?.click()}
-              title="上传图片到仓库"
+              title="上传图片（加入待更新队列）"
               type="button"
               className="rounded-md p-1.5 text-ink-500 transition hover:bg-ink-100 hover:text-brand-600 dark:text-ink-400 dark:hover:bg-white/10 dark:hover:text-brand-300"
             >
@@ -1199,8 +1206,11 @@ export default function Editor() {
         <div className="mb-16 mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-400">
           <span className="flex items-center gap-1.5">
             <AlertCircle size={13} />
-            草稿实时保存在本浏览器；
-            {canDirectPush ? '点击「发布到 GitHub」直接推送至仓库' : '点击「申请发表」将创建审核 PR'}。
+            草稿实时保存在本浏览器；发布与图片上传等仓库操作会先加入
+            <Link to="/admin?tab=queue" className="text-brand-600 hover:underline dark:text-brand-300">
+              待更新队列
+            </Link>
+            ，统一更新后才会提交到 GitHub。
           </span>
           {canPublish ? (
             <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
