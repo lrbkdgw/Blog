@@ -10,6 +10,7 @@ import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeSlug from 'rehype-slug'
 import { ShowBox } from './ShowBox'
+import { resolvePendingImageSrc } from '../lib/updateQueue'
 import {
   AlertCircle,
   AlertTriangle,
@@ -432,7 +433,7 @@ function CalloutSummary({
   sourceLine?: number
 }) {
   const calloutType = props['data-callout'] || 'info'
-  const rawTitle = props['data-title'] ? decodeURIComponent(props['data-title']) : extractText(children)
+  const rawTitle = props['data-title'] ? decodeShowAttribute(props['data-title']) : extractText(children)
 
   const defaultTitles: Record<string, string> = {
     info: '信息提示',
@@ -655,7 +656,12 @@ function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTr
       )
     },
     img: ({ src, alt }: { src?: string; alt?: string }) => (
-      <img src={typeof src === 'string' ? src : ''} alt={alt ?? ''} loading="lazy" decoding="async" />
+      <img
+        src={resolvePendingImageSrc(typeof src === 'string' ? src : '')}
+        alt={alt ?? ''}
+        loading="lazy"
+        decoding="async"
+      />
     ),
     table: ({
       node,

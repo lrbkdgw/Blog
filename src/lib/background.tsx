@@ -2,7 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 import { STORAGE_KEYS } from './config'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
-import { fetchGithubBackgroundPreference, saveGithubBackgroundPreference } from './github'
+import { fetchGithubBackgroundPreference, buildBackgroundPreferenceFile, backgroundSettingsPath } from './github'
+import { enqueueSettingsSync, getUpdateQueue } from './updateQueue'
 import { useAuth } from './auth'
 
 export interface BackgroundPreference {
@@ -12,7 +13,7 @@ export interface BackgroundPreference {
   updatedAt: number
 }
 
-type AccountSync = 'idle' | 'loading' | 'synced' | 'error'
+type AccountSync = 'idle' | 'loading' | 'synced' | 'queued' | 'error'
 
 interface BackgroundCtx {
   background: BackgroundPreference
@@ -227,6 +228,15 @@ export function BackgroundProvider({ children }: { children: ReactNode }) {
           setBackground(cached.color, typeof cached.intensity === 'number' ? cached.intensity : DEFAULT_INTENSITY)
         }
 
+        // 有尚未更新到仓库的偏好更改时，不用旧的远程版本覆盖本地/队列中的新设置。
+        const hasPending = getUpdateQueue().some(
+          (item) => item.kind === 'settings-sync' && item.target === backgroundSettingsPath(login),
+        )
+        if (hasPending) {
+          if (active) setAccountSync('queued')
+          return
+        }
+
         const remote = await fetchGithubBackgroundPreference(login)
         if (!active) return
         if (remote) {
@@ -248,9 +258,11 @@ export function BackgroundProvider({ children }: { children: ReactNode }) {
 
   const saveForGithub = useCallback(async () => {
     if (!canPublish || !ghUser) throw new Error('请先登录并连接具备 Contents 写入权限的 GitHub 账号')
-    await saveGithubBackgroundPreference(ghUser.login, background)
+    // 更新仓库的操作先加入待更新队列，由内容管理统一更新。
+    const file = buildBackgroundPreferenceFile(ghUser.login, background)
+    enqueueSettingsSync(file.path, `同步 @${ghUser.login} 的背景颜色偏好`, file.text)
     writeAccountCache(ghUser.login, background)
-    setAccountSync('synced')
+    setAccountSync('queued')
   }, [background, canPublish, ghUser])
 
   const value = useMemo(

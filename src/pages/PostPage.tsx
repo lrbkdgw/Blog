@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
   ArrowUp,
+  Check,
   ChevronDown,
   Clock,
   Code2,
@@ -15,6 +16,7 @@ import {
   History,
   Link2,
   Loader2,
+  Pencil,
   PenLine,
   User,
   X,
@@ -24,6 +26,8 @@ import { PasswordPrompt } from '../components/PasswordPrompt'
 import { Toc } from '../components/Toc'
 import { Comments } from '../components/Comments'
 import { VersionCompare } from '../components/VersionCompare'
+import { resolvePendingImageSrc } from '../lib/updateQueue'
+import { getVersionName, setVersionName, VERSION_NAMES_CHANGED_EVENT } from '../lib/versionNames'
 import {
   buildPost,
   extractToc,
@@ -107,6 +111,35 @@ function HistoryDialog({
   onCompare: () => void
   selecting: string | null
 }) {
+  const toast = useToast()
+  const [editingSha, setEditingSha] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState('')
+  // 版本名称变化后刷新显示
+  const [namesVersion, setNamesVersion] = useState(0)
+  useEffect(() => {
+    const handler = () => setNamesVersion((value) => value + 1)
+    window.addEventListener(VERSION_NAMES_CHANGED_EVENT, handler)
+    return () => window.removeEventListener(VERSION_NAMES_CHANGED_EVENT, handler)
+  }, [])
+
+  const startRename = (version: PostHistoryVersion) => {
+    setEditingSha(version.sha)
+    setEditingName(getVersionName(version.sha) ?? '')
+  }
+
+  const saveRename = (version: PostHistoryVersion) => {
+    try {
+      const trimmed = editingName.trim()
+      setVersionName(version.sha, trimmed || null)
+      setEditingSha(null)
+      toast(trimmed ? `版本名称已改为「${trimmed}」` : '已恢复默认版本名称', 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '保存版本名称失败', 'error')
+    }
+  }
+
+  void namesVersion
+
   return (
     <div className="no-print fixed inset-0 z-[90] flex items-center justify-center bg-ink-950/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="文章历史版本">
       <div className="card flex max-h-[min(40rem,calc(100vh-2rem))] w-full max-w-2xl flex-col overflow-hidden">
@@ -116,7 +149,9 @@ function HistoryDialog({
               <History size={18} className="text-brand-500" />
               文章历史版本
             </h2>
-            <p className="mt-1 text-xs text-ink-400">每次发布都会保留为一个 Git 提交，可在此查看任一版本。</p>
+            <p className="mt-1 text-xs text-ink-400">
+              每次发布都会保留为一个 Git 提交，可在此查看任一版本；点击铅笔可修改版本名称（仅保存在本浏览器）。
+            </p>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <button
@@ -124,7 +159,7 @@ function HistoryDialog({
               onClick={onCompare}
               disabled={loading || versions.length < 2}
               className="btn-ghost h-8 text-xs disabled:cursor-not-allowed disabled:opacity-40"
-              title={versions.length < 2 ? '至少需要两个历史版本才能对比' : '对比任意两个版本'}
+              title={versions.length < 2 ? '至少需要两个历史版本才能对比' : '对比任意两个版本的源码与渲染效果'}
             >
               <GitCompareArrows size={14} />版本对比
             </button>
@@ -143,27 +178,85 @@ function HistoryDialog({
           ) : versions.length === 0 ? (
             <p className="p-8 text-center text-sm text-ink-500">尚未找到可查看的历史版本。</p>
           ) : (
-            versions.map((version, index) => (
-              <button
-                type="button"
-                key={version.sha}
-                onClick={() => onSelect(version)}
-                disabled={Boolean(selecting)}
-                className="flex w-full items-center gap-3 px-5 py-3.5 text-left transition hover:bg-ink-50 disabled:cursor-wait dark:hover:bg-white/[0.04]"
-              >
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-500/10 font-mono text-[11px] font-bold text-brand-600 dark:text-brand-300">
-                  {selecting === version.sha ? <Loader2 size={14} className="animate-spin" /> : index + 1}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-ink-800 dark:text-ink-100">{version.message}</span>
-                  <span className="mt-1 block font-mono text-[11px] text-ink-400">
-                    {version.sha.slice(0, 8)} · {version.author.name}
-                    {version.committedAt ? ` · ${new Date(version.committedAt).toLocaleString('zh-CN')}` : ''}
-                  </span>
-                </span>
-                <span className="shrink-0 text-xs text-brand-600 dark:text-brand-300">查看</span>
-              </button>
-            ))
+            versions.map((version, index) => {
+              const customName = getVersionName(version.sha)
+              if (editingSha === version.sha) {
+                return (
+                  <div key={version.sha} className="flex items-center gap-2 px-5 py-3.5">
+                    <input
+                      value={editingName}
+                      onChange={(event) => setEditingName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') saveRename(version)
+                        if (event.key === 'Escape') setEditingSha(null)
+                      }}
+                      placeholder={version.message}
+                      maxLength={80}
+                      autoFocus
+                      className="input min-w-0 flex-1 !py-1.5 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => saveRename(version)}
+                      className="btn-ghost h-8 w-8 !px-0 text-emerald-600 dark:text-emerald-400"
+                      title="保存名称"
+                    >
+                      <Check size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingSha(null)}
+                      className="btn-ghost h-8 w-8 !px-0"
+                      title="取消"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                )
+              }
+              return (
+                <div
+                  key={version.sha}
+                  className="flex items-center gap-2 px-5 py-3.5 transition hover:bg-ink-50 dark:hover:bg-white/[0.04]"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onSelect(version)}
+                    disabled={Boolean(selecting)}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-wait"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-500/10 font-mono text-[11px] font-bold text-brand-600 dark:text-brand-300">
+                      {selecting === version.sha ? <Loader2 size={14} className="animate-spin" /> : index + 1}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-ink-800 dark:text-ink-100">
+                        {customName || version.message}
+                        {customName && (
+                          <span className="ml-2 rounded-full bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-600 dark:text-brand-300">
+                            自定义名称
+                          </span>
+                        )}
+                      </span>
+                      <span className="mt-1 block truncate font-mono text-[11px] text-ink-400">
+                        {version.sha.slice(0, 8)} · {version.author.name}
+                        {version.committedAt ? ` · ${new Date(version.committedAt).toLocaleString('zh-CN')}` : ''}
+                        {customName ? ` · ${version.message}` : ''}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs text-brand-600 dark:text-brand-300">查看</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => startRename(version)}
+                    disabled={Boolean(selecting)}
+                    className="btn-ghost h-8 w-8 !px-0"
+                    title={customName ? '修改版本名称' : '为这个版本命名'}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                </div>
+              )
+            })
           )}
         </div>
       </div>
@@ -261,7 +354,12 @@ export default function PostPage() {
 
   useEffect(() => {
     if (!visiblePost || isEncryptedPost(visiblePost) || !window.location.hash) return
-    const id = decodeURIComponent(window.location.hash.slice(1))
+    let id = window.location.hash.slice(1)
+    try {
+      id = decodeURIComponent(id)
+    } catch {
+      // 畸形的百分号编码直接按原文查找锚点
+    }
     const timer = window.setTimeout(() => {
       const element = document.getElementById(id)
       if (element) window.scrollTo({ top: element.offsetTop - 90, behavior: 'smooth' })
@@ -472,7 +570,7 @@ export default function PostPage() {
               </div>
             </div>
           </header>
-          {article.cover && <img src={article.cover} alt="" className="mt-8 w-full rounded-2xl object-cover shadow-xl" />}
+          {article.cover && <img src={resolvePendingImageSrc(article.cover)} alt="" className="mt-8 w-full rounded-2xl object-cover shadow-xl" />}
           <div className="mt-8"><Markdown content={article.content} /></div>
           <div className="no-print mt-16 border-t border-ink-200/60 pt-8 dark:border-white/[0.08]">
             <div className="grid gap-3 sm:grid-cols-2">
