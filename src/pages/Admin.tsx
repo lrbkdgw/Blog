@@ -616,7 +616,7 @@ export default function Admin() {
 
                   <div className="flex shrink-0 items-center gap-1">
                     <Link
-                      to={`/posts/${post.slug}`}
+                      to={`/posts/${post.slug}${post.source === 'local' ? '?source=local' : ''}`}
                       className="btn-ghost h-8 w-8 !px-0"
                       title="在站内查看"
                     >

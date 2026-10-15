@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
   ArrowUp,
@@ -34,6 +34,8 @@ import {
   formatDate,
   getAllAdminPosts,
   getPostBySlug,
+  getPublishedPosts,
+  getReadablePost,
   postFingerprint,
 } from '../lib/posts'
 import { decryptPost, isEncryptedPost, restorePostUnlock } from '../lib/crypto'
@@ -264,8 +266,15 @@ function HistoryDialog({
   )
 }
 
+// 路由参数改变时重新挂载，避免上一篇文章的历史版本或解锁内容短暂显示在新文章中。
 export default function PostPage() {
   const { slug = '' } = useParams()
+  const [searchParams] = useSearchParams()
+  return <PostContent key={`${slug}:${searchParams.get('source') ?? ''}`} slug={slug} />
+}
+
+function PostContent({ slug }: { slug: string }) {
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const [posts] = usePosts(true)
   const { isAuthed } = useAuth()
@@ -283,12 +292,17 @@ export default function PostPage() {
   const [copyOpen, setCopyOpen] = useState(false)
   const copyMenuRef = useRef<HTMLDivElement>(null)
 
-  const post = useMemo(() => posts.find((item) => item.slug === slug), [posts, slug])
   const repoPost = useMemo(() => getPostBySlug(slug, 'repo'), [slug])
+  // 草稿只能通过后台的显式预览链接打开；普通文章链接始终读取仓库版本。
+  const previewLocal = searchParams.get('source') === 'local'
+  const post = useMemo(
+    () => getReadablePost(slug, previewLocal, isAuthed),
+    [posts, slug, previewLocal, isAuthed],
+  )
   const historyBase = repoPost || post
   const snapshot = historicalPost || post
   const visiblePost = unlockedPost || snapshot
-  const published = useMemo(() => posts.filter((item) => !item.draft), [posts])
+  const published = useMemo(() => getPublishedPosts(), [posts])
   const index = published.findIndex((item) => item.slug === slug)
   const previous = index > 0 ? published[index - 1] : undefined
   const next = index >= 0 && index < published.length - 1 ? published[index + 1] : undefined
@@ -372,7 +386,7 @@ export default function PostPage() {
       <div className="container-page flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
         <p className="font-mono text-6xl font-bold text-ink-200 dark:text-ink-800">404</p>
         <h1 className="font-serif text-xl font-semibold text-ink-800 dark:text-ink-100">这篇文章不存在</h1>
-        <p className="max-w-sm text-sm text-ink-500">它可能已被删除，或者只存在于另一台设备的本地草稿里。</p>
+        <p className="max-w-sm text-sm text-ink-500">它可能已被删除、尚未发布，或仅保存在本地草稿里。</p>
         <Link to="/" className="btn-primary mt-2"><ArrowLeft size={15} />回到首页</Link>
       </div>
     )
@@ -520,6 +534,7 @@ export default function PostPage() {
               </div>
             )}
             <div className="mb-4 flex flex-wrap items-center gap-2">
+              {article.source === 'local' && <span className="chip">本地预览 · 尚未发布</span>}
               {article.draft && <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400"><FileEdit size={11} />草稿（仅你可见）</span>}
               {article.tags.map((tag) => <Link key={tag} to={`/tags/${encodeURIComponent(tag)}`} className="chip"><Hash size={11} />{tag}</Link>)}
             </div>

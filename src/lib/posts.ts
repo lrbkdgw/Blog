@@ -1,3 +1,4 @@
+import GithubSlugger from 'github-slugger'
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter'
 import { STORAGE_KEYS } from './config'
 import type { Post, PostMeta } from './types'
@@ -261,9 +262,9 @@ function sortPosts(posts: Post[]): Post[] {
   })
 }
 
-/** 公开聚合：本地草稿与仓库文章同名时，以本地版本为准。
- * 例外：仓库中的加密文章不能被同名的明文本地草稿顶替，
- * 否则公开页面会绕过密码直接显示明文内容。 */
+/** 编辑器等内部使用的聚合列表：本地草稿与仓库文章同名时，以本地版本为准。
+ * 公开列表与普通文章页必须分别使用 getPublishedPosts / getReadablePost，
+ * 不可直接展示这里的本地草稿。加密文章仍禁止被明文本地草稿顶替。 */
 export function getAllPosts(): Post[] {
   const map = new Map<string, Post>()
   for (const p of getRepoPosts()) map.set(p.slug, p)
@@ -282,7 +283,9 @@ export function getAllAdminPosts(): Post[] {
 }
 
 export function getPublishedPosts(): Post[] {
-  return getAllPosts().filter((p) => !p.draft)
+  // 本地草稿尚未提交到仓库，不能顶替已发布文章或出现在公开列表中。
+  // 即使草稿的 draft 字段为 false，它也仍是仅保存在当前浏览器的草稿。
+  return sortPosts(getRepoPosts().filter((p) => !p.draft))
 }
 
 export function getPostBySlug(slug: string, source?: Post['source']): Post | undefined {
@@ -293,6 +296,12 @@ export function getPostBySlug(slug: string, source?: Post['source']): Post | und
     return getRepoPosts().find((p) => p.slug === slug)
   }
   return getAllPosts().find((p) => p.slug === slug)
+}
+
+/** 普通文章链接只读取仓库版本；本地草稿必须在登录后显式预览。 */
+export function getReadablePost(slug: string, previewLocal: boolean, isAuthed: boolean): Post | undefined {
+  if (previewLocal && isAuthed) return getPostBySlug(slug, 'local')
+  return getPostBySlug(slug, 'repo')
 }
 
 export function getAllTags(posts: Post[]): { name: string; count: number }[] {
@@ -342,46 +351,30 @@ interface MarkdownFence {
 }
 
 function parseFence(line: string): MarkdownFence | null {
-  const match = line.match(/^\s*([`~]{3,})/)
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})/)
   if (!match) return null
   return { marker: match[1][0] as '`' | '~', length: match[1].length }
-}
-
-function slugHeading(text: string, used: Map<string, number>): string {
-  // 与 rehype-slug（github-slugger）保持一致的 id 生成规则
-  let id = text
-    .toLowerCase()
-    .replace(/[\s]+/g, '-')
-    .replace(/[^\p{L}\p{N}\-_]+/gu, '')
-  const seen = used.get(id)
-  if (seen !== undefined) {
-    used.set(id, seen + 1)
-    id = `${id}-${seen + 1}`
-  } else {
-    used.set(id, 0)
-  }
-  return id
 }
 
 export function extractToc(md: string): TocItem[] {
   const lines = md.split('\n')
   const items: TocItem[] = []
-  const used = new Map<string, number>()
+  const slugger = new GithubSlugger()
   const callouts: number[] = []
   let fence: MarkdownFence | null = null
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
     const parsedFence = parseFence(line)
-    if (parsedFence) {
-      if (!fence) {
-        fence = parsedFence
-      } else if (parsedFence.marker === fence.marker && parsedFence.length >= fence.length) {
-        fence = null
-      }
+    if (fence) {
+      if (parsedFence && parsedFence.marker === fence.marker && parsedFence.length >= fence.length &&
+          /^ {0,3}(?:`{3,}|~{3,})[ \t]*$/.test(line)) fence = null
       continue
     }
-    if (fence) continue
+    if (parsedFence) {
+      fence = parsedFence
+      continue
+    }
 
     // 展示框内容由独立 Markdown 实例渲染，不参与正文标题锚点计数，也不进入目录。
     const showStart = line.match(/^\s*::show_begin\{([^}]*)\}\{([\s\S]*)\}\s*$/i)
@@ -417,7 +410,7 @@ export function extractToc(md: string): TocItem[] {
 
     const text = stripMarkdown(heading[2])
     const level = heading[1].length
-    const id = slugHeading(text, used)
+    const id = slugger.slug(text)
     // 折叠框内的标题不显示在目录中；仍参与 slug 计数，以匹配正文渲染后的锚点后缀。
     if (callouts.length === 0 && level >= 2 && level <= 4) {
       items.push({ id, text, level })

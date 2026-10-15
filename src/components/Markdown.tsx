@@ -244,7 +244,7 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
   const result: string[] = []
   const lineMap: number[] = []
   const stack: { colonsCount: number; type: string }[] = []
-  let inCodeFence = false
+  let fence: { marker: string; length: number } | null = null
 
   const push = (line: string, sourceLine: number) => {
     result.push(line)
@@ -255,12 +255,17 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
     const line = lines[i]
 
     // 扩展指令不应解析代码示例；否则文档中的语法会被执行而无法展示源码。
-    if (/^\s*(`{3,}|~{3,})/.test(line)) {
-      inCodeFence = !inCodeFence
+    const openingFence = line.match(/^ {0,3}(`{3,}|~{3,})/)
+    if (fence) {
+      const closingFence = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/)
+      if (closingFence && closingFence[1][0] === fence.marker && closingFence[1].length >= fence.length) {
+        fence = null
+      }
       push(line, i)
       continue
     }
-    if (inCodeFence) {
+    if (openingFence) {
+      fence = { marker: openingFence[1][0], length: openingFence[1].length }
       push(line, i)
       continue
     }
@@ -347,7 +352,7 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
         i,
       )
       push(
-        `<summary class="callout-summary" data-callout="${type}" data-title="${encodedTitle}">${rawTitle}</summary>`,
+        `<summary class="callout-summary" data-callout="${type}" data-title="${encodedTitle}"></summary>`,
         i,
       )
       push('<div class="callout-content">', i)

@@ -41,6 +41,7 @@ npm run dev        # http://localhost:5173
 ```bash
 npm run build      # 类型检查 + 生产构建到 dist/
 npm run preview    # 本地预览构建产物
+npm test           # 回归检查：文章读取、Markdown 渲染、目录锚点
 ```
 
 ### 2. 部署
@@ -183,7 +184,7 @@ pinned: false    # true 则置顶到首页
 正文从这里开始，支持 **Markdown**、KaTeX 公式 $e^{i\pi}+1=0$ 和代码高亮。
 ```
 
-文件名即默认的 URL 别名：`content/posts/hello.md` → `/posts/hello`。
+文件名即默认的 URL 别名：`content/posts/hello.md` → `/posts/hello`。公开首页、归档、标签及搜索只读取已部署到仓库的非草稿文章；在浏览器中保存或加入待更新队列不会立即改变已发布版本。同名本地草稿也不会覆盖公开文章。登录后可在「内容管理」点击本地草稿的查看按钮，以 `?source=local` 预览；普通文章链接始终显示仓库版本（仓库中 `draft: true` 的文章不进入公开列表）。
 
 ---
 
