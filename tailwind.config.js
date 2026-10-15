@@ -13,19 +13,11 @@ export default {
         mono: ['var(--font-mono)'],
       },
       colors: {
-        brand: {
-          50: '#eef4ff',
-          100: '#d9e5ff',
-          200: '#bcd1ff',
-          300: '#8eb3ff',
-          400: '#5a8bff',
-          500: '#3563f6',
-          600: '#2044eb',
-          700: '#1a34d8',
-          800: '#1c2eae',
-          900: '#1d2d89',
-          950: '#151d53',
-        },
+        brand: Object.fromEntries(
+          [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950].map((shade) => [
+            shade, `rgb(var(--brand-${shade}) / <alpha-value>)`,
+          ]),
+        ),
         ink: {
           50: '#f6f7f9',
           100: '#eceef2',
@@ -67,17 +59,18 @@ export default {
       typography: (theme) => ({
         DEFAULT: {
           css: {
-            '--tw-prose-body': theme('colors.ink.700'),
-            '--tw-prose-headings': theme('colors.ink.900'),
-            '--tw-prose-links': theme('colors.brand.600'),
-            '--tw-prose-quotes': theme('colors.ink.600'),
+            '--tw-prose-body': 'var(--text-secondary)',
+            '--tw-prose-headings': 'var(--text-primary)',
+            '--tw-prose-links': 'rgb(var(--brand-600))',
+            '--tw-prose-quotes': 'var(--text-secondary)',
+            '--tw-prose-bold': 'var(--text-primary)',
             maxWidth: 'none',
             a: {
               textDecoration: 'none',
-              borderBottom: `1px solid ${theme('colors.brand.300')}`,
+              borderBottom: '1px solid rgb(var(--brand-300))',
               fontWeight: '500',
               transition: 'all .15s ease',
-              '&:hover': { borderBottomColor: theme('colors.brand.500'), color: theme('colors.brand.700') },
+              '&:hover': { borderBottomColor: 'rgb(var(--brand-500))', color: 'var(--prose-link-hover)' },
             },
             code: {
               fontWeight: '500',
@@ -93,9 +86,9 @@ export default {
         },
         invert: {
           css: {
-            '--tw-prose-body': theme('colors.ink.300'),
-            '--tw-prose-headings': theme('colors.ink.50'),
-            '--tw-prose-links': theme('colors.brand.300'),
+            '--tw-prose-body': 'var(--text-secondary)',
+            '--tw-prose-headings': 'var(--text-primary)',
+            '--tw-prose-links': 'rgb(var(--brand-300))',
             code: { background: 'rgba(255,255,255,.08)' },
           },
         },

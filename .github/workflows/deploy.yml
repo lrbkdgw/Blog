@@ -33,6 +33,9 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
+      - name: 外观回归测试
+        run: npm test
+
       - name: 构建
         # 项目主页需要把 base 设为 /<仓库名>/；
         # 如果仓库名是 <用户名>.github.io，则自动使用 /

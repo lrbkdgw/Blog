@@ -1,3 +1,4 @@
+import { useTheme } from '../lib/theme'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
@@ -266,6 +267,7 @@ function HistoryDialog({
 
 export default function PostPage() {
   const { slug = '' } = useParams()
+  const { effects } = useTheme()
   const navigate = useNavigate()
   const [posts] = usePosts(true)
   const { isAuthed } = useAuth()
@@ -362,7 +364,7 @@ export default function PostPage() {
     }
     const timer = window.setTimeout(() => {
       const element = document.getElementById(id)
-      if (element) window.scrollTo({ top: element.offsetTop - 90, behavior: 'smooth' })
+      if (element) window.scrollTo({ top: element.getBoundingClientRect().top + window.scrollY - 90, behavior: document.documentElement.dataset.effects === 'off' ? 'instant' : 'smooth' })
     }, 120)
     return () => window.clearTimeout(timer)
   }, [visiblePost])
@@ -404,7 +406,7 @@ export default function PostPage() {
       setHistoricalPost(buildPost(raw, { slug: historyBase.slug, path: historyBase.path, source: 'repo' }))
       setUnlockedPost(null)
       setHistoryOpen(false)
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      window.scrollTo({ top: 0, behavior: effects === 'off' ? 'instant' : 'smooth' })
     } catch (error) {
       setHistoryError(error instanceof Error ? error.message : '无法读取这个历史版本')
     } finally {
@@ -508,7 +510,7 @@ export default function PostPage() {
     <>
       <ReadingProgress />
       <div className="container-page grid grid-cols-1 gap-10 pt-10 xl:grid-cols-[minmax(0,1fr)_14rem]">
-        <article className="min-w-0 animate-fade-up">
+        <article className="reading-surface min-w-0 animate-fade-up">
           <Link to="/" className="no-print group mb-8 inline-flex items-center gap-1.5 text-sm text-ink-400 transition hover:text-brand-600 dark:hover:text-brand-300">
             <ArrowLeft size={14} className="transition-transform group-hover:-translate-x-0.5" /> 返回文章列表
           </Link>
@@ -584,7 +586,7 @@ export default function PostPage() {
       </div>
       {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} onCompare={() => setCompareOpen(true)} selecting={selectingVersion} />}
       {compareOpen && <VersionCompare versions={history} slug={historyBase.slug} path={historyBase.path} onClose={() => setCompareOpen(false)} />}
-      {showTop && <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="no-print card fixed bottom-6 left-6 z-40 flex h-10 w-10 animate-scale-in items-center justify-center !rounded-full text-ink-500 transition hover:text-brand-600 dark:hover:text-brand-300" aria-label="回到顶部"><ArrowUp size={17} /></button>}
+      {showTop && <button onClick={() => window.scrollTo({ top: 0, behavior: effects === 'off' ? 'instant' : 'smooth' })} className="no-print card fixed bottom-6 left-6 z-40 flex h-10 w-10 animate-scale-in items-center justify-center !rounded-full text-ink-500 transition hover:text-brand-600 dark:hover:text-brand-300" aria-label="回到顶部"><ArrowUp size={17} /></button>}
     </>
   )
 }

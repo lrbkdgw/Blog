@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Github,
@@ -18,10 +18,11 @@ import {
 import { siteConfig } from '../lib/config'
 import { useTheme } from '../lib/theme'
 import { useAuth } from '../lib/auth'
-import { AnimatedBackdrop } from './AnimatedBackdrop'
 import { useAnimatedBackground, getSceneValues } from '../lib/animatedBackground'
 import { SearchDialog } from './SearchDialog'
 import logoVenti from '../assets/logo-venti.jpg'
+
+const AnimatedBackdrop = lazy(() => import('./AnimatedBackdrop').then((module) => ({ default: module.AnimatedBackdrop })))
 
 const NAV = [
   { to: '/', label: '首页', end: true },
@@ -58,7 +59,7 @@ function ThemeToggle() {
 
 function Logo() {
   return (
-    <Link to="/" className="group flex shrink-0 items-center" aria-label="回到首页">
+    <Link to="/" className="group flex shrink-0 items-center gap-2.5" aria-label="回到首页">
       <img
         src={logoVenti}
         alt="温迪"
@@ -67,6 +68,7 @@ function Logo() {
         fetchPriority="high"
         className="h-10 w-10 rounded-xl object-cover shadow-md shadow-brand-600/20 ring-1 ring-black/5 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105 dark:ring-white/10"
       />
+      <span className="logo-wordmark"><strong>{siteConfig.title}</strong><small>{siteConfig.titleEn || 'NOTES & THOUGHTS'}</small></span>
     </Link>
   )
 }
@@ -164,17 +166,11 @@ function Header({ onSearch }: { onSearch: () => void }) {
   useEffect(() => setMobileOpen(false), [location.pathname])
 
   return (
-    <header
-      className={`no-print sticky top-0 z-50 transition-all duration-300 ${
-        scrolled
-          ? 'border-b border-ink-200/60 bg-white/75 backdrop-blur-xl dark:border-white/[0.08] dark:bg-ink-950/75'
-          : 'border-b border-transparent'
-      }`}
-    >
+    <header className="site-header no-print sticky top-0 z-50" data-scrolled={scrolled}>
       <div className="container-page flex h-16 items-center gap-3">
         <Logo />
 
-        <nav className="ml-3 hidden items-center gap-1 md:flex">
+        <nav className="ml-4 hidden items-center gap-1 lg:flex">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
@@ -192,7 +188,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
                 <>
                   {item.label}
                   {isActive && (
-                    <span className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-brand-400 to-indigo-500" />
+                    <span className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-brand-400 to-brand-600" />
                   )}
                 </>
               )}
@@ -222,7 +218,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
 
           <ThemeToggle />
 
-          <Link to="/admin/new" className="btn-primary hidden h-9 sm:inline-flex">
+          <Link to="/admin/new" className="btn-primary hidden h-9 md:inline-flex">
             <PenLine size={15} />
             写文章
           </Link>
@@ -231,8 +227,10 @@ function Header({ onSearch }: { onSearch: () => void }) {
 
           <button
             onClick={() => setMobileOpen((v) => !v)}
-            className="btn-ghost h-9 w-9 !px-0 md:hidden"
+            className="btn-ghost h-9 w-9 !px-0 lg:hidden"
             aria-label="菜单"
+            aria-expanded={mobileOpen}
+            aria-controls="mobile-navigation"
           >
             {mobileOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
@@ -240,7 +238,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
       </div>
 
       {mobileOpen && (
-        <div className="animate-fade-in border-t border-ink-200/60 bg-white/95 backdrop-blur-xl md:hidden dark:border-white/10 dark:bg-ink-950/95">
+        <div id="mobile-navigation" className="mobile-navigation animate-fade-in lg:hidden">
           <nav className="container-page flex flex-col py-3">
             {NAV.map((item) => (
               <NavLink
@@ -301,7 +299,7 @@ function Footer() {
   ].filter(Boolean) as { href: string; icon: typeof Github; label: string }[]
 
   return (
-    <footer className="no-print mt-24 border-t border-ink-200/60 py-10 dark:border-white/[0.08]">
+    <footer className="site-footer no-print mt-16 border-t py-9">
       <div className="container-page flex flex-col items-center justify-between gap-5 sm:flex-row">
         <div className="text-center sm:text-left">
           <p className="text-xs text-ink-400">
@@ -331,16 +329,23 @@ function Footer() {
 function AnimatedBackdropLayer() {
   const pref = useAnimatedBackground()
   if (pref.scene === 'none') return null
-  return <AnimatedBackdrop scene={pref.scene} values={getSceneValues(pref, pref.scene)} />
+  return <Suspense fallback={null}><AnimatedBackdrop scene={pref.scene} values={getSceneValues(pref, pref.scene)} /></Suspense>
 }
 
 export function Layout() {
   const [searchOpen, setSearchOpen] = useState(false)
-  const { pathname } = useLocation()
+  const { pathname, hash } = useLocation()
 
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
-  }, [pathname])
+    if (!hash) {
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
+      return
+    }
+    let id = hash.slice(1)
+    try { id = decodeURIComponent(id) } catch { /* Keep malformed anchors harmless. */ }
+    const frame = requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: 'start' }))
+    return () => cancelAnimationFrame(frame)
+  }, [pathname, hash])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -358,21 +363,22 @@ export function Layout() {
   }, [])
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="site-shell relative isolate flex min-h-screen flex-col">
+      <a href="#main-content" className="skip-link">跳转到内容</a>
       {/* 背景装饰 */}
-      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+      <div aria-hidden="true" className="site-backdrop no-print pointer-events-none fixed inset-0 -z-10 overflow-hidden">
         <div className="site-background-glow-primary absolute -left-40 -top-40 h-[32rem] w-[32rem] animate-float rounded-full blur-[110px]" />
         <div
           className="site-background-glow-secondary absolute -right-32 top-40 h-[26rem] w-[26rem] animate-float rounded-full blur-[110px]"
           style={{ animationDelay: '-4s' }}
         />
         <div className="site-background-hairline absolute inset-x-0 top-0 h-px" />
-        {/* 动态背景（雨夜 / 阳光 / 星空）：放在最后，覆盖上面的光斑与渐变 */}
+        {/* 透明氛围层：保留主题与自定义渐变，不拦截任何点击 */}
         <AnimatedBackdropLayer />
       </div>
 
       <Header onSearch={() => setSearchOpen(true)} />
-      <main className="flex-1">
+      <main id="main-content" tabIndex={-1} className="min-w-0 flex-1">
         <Outlet />
       </main>
       <Footer />

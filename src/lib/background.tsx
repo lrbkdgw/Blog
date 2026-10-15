@@ -81,6 +81,7 @@ function applyToDocument(color: string, intensity: number) {
     root.style.removeProperty('--site-background-gradient-stop-1')
     root.style.removeProperty('--site-background-gradient-stop-2')
     root.removeAttribute('data-background-color')
+    root.removeAttribute('data-background-intensity')
     return
   }
 

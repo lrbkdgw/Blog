@@ -8,15 +8,34 @@
     <link rel="icon" type="image/png" href="%BASE_URL%favicon-venti.png" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfbfd" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d1017" />
+    <!-- Apply local appearance before CSS/React. Kept in sync with appearance.ts by tests. -->
+    <script id="appearance-init">
+      ;(function () {
+        var root = document.documentElement
+        var appearance = {}
+        var legacy = null
+        try {
+          legacy = localStorage.getItem('starlog:theme')
+          var settings = JSON.parse(localStorage.getItem('starlog:personal-settings') || 'null')
+          if (settings && settings.appearance && typeof settings.appearance === 'object' && !Array.isArray(settings.appearance)) appearance = settings.appearance
+        } catch (e) {}
+        var palettes = ['classic', 'aurora', 'sakura', 'forest', 'ocean', 'sunset', 'neon', 'paper']
+        var palette = palettes.indexOf(appearance.palette) >= 0 ? appearance.palette : 'classic'
+        var mode = ['light', 'dark', 'system'].indexOf(appearance.mode) >= 0 ? appearance.mode
+          : legacy === 'light' || legacy === 'dark' ? legacy : 'system'
+        var effects = ['off', 'subtle', 'full'].indexOf(appearance.effects) >= 0 ? appearance.effects : 'subtle'
+        var dark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        root.classList.toggle('dark', dark)
+        root.style.colorScheme = dark ? 'dark' : 'light'
+        root.dataset.palette = palette
+        root.dataset.effects = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'off' : effects
+      })()
+    </script>
     <!-- 默认使用系统字体；管理员选择的本机字体会在 React 启动前先恢复。 -->
     <script>
       // 防止主题与字体在首屏闪烁。
       ;(function () {
         try {
-          var stored = localStorage.getItem('starlog:theme')
-          var dark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
-          if (dark) document.documentElement.classList.add('dark')
-
           var personalSettings = JSON.parse(localStorage.getItem('starlog:personal-settings') || 'null')
           var savedFont = (personalSettings && personalSettings.font) || JSON.parse(localStorage.getItem('starlog:font') || 'null')
           var savedFontSize = savedFont && typeof savedFont.sizePercent === 'number'
@@ -65,19 +84,25 @@
             var blue = parseInt(hex.slice(4, 6), 16)
             var alpha = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1
             var storedIntensity = savedBackground && Number(savedBackground.intensity)
-            var intensity = isFinite(storedIntensity) ? Math.max(0, Math.min(100, storedIntensity)) / 100 : 0.5
-            var secondaryRed = Math.round(red * 0.7 + 129 * 0.3)
-            var secondaryGreen = Math.round(green * 0.7 + 140 * 0.3)
-            var secondaryBlue = Math.round(blue * 0.7 + 248 * 0.3)
-
-            document.documentElement.style.setProperty(
-              '--site-background-tint-primary',
-              'rgba(' + red + ', ' + green + ', ' + blue + ', ' + (alpha * 0.42 * intensity).toFixed(3) + ')',
-            )
-            document.documentElement.style.setProperty(
-              '--site-background-tint-secondary',
-              'rgba(' + secondaryRed + ', ' + secondaryGreen + ', ' + secondaryBlue + ', ' + (alpha * 0.3 * intensity).toFixed(3) + ')',
-            )
+            var intensity = isFinite(storedIntensity) ? Math.round(Math.max(0, Math.min(100, storedIntensity))) / 100 : 0.5
+            var secondaryRed = Math.round(red * 0.65 + 129 * 0.35)
+            var secondaryGreen = Math.round(green * 0.65 + 140 * 0.35)
+            var secondaryBlue = Math.round(blue * 0.65 + 248 * 0.35)
+            var primaryAlpha = alpha * Math.min(1, 0.15 + 0.85 * Math.pow(intensity, 1.1))
+            var secondaryAlpha = alpha * Math.min(1, 0.12 + 0.88 * Math.pow(intensity, 1.1))
+            var root = document.documentElement
+            root.style.setProperty('--site-background-tint-primary', 'rgba(' + red + ', ' + green + ', ' + blue + ', ' + primaryAlpha.toFixed(3) + ')')
+            root.style.setProperty('--site-background-tint-secondary', 'rgba(' + secondaryRed + ', ' + secondaryGreen + ', ' + secondaryBlue + ', ' + secondaryAlpha.toFixed(3) + ')')
+            root.style.setProperty('--site-background-gradient-size-1', Math.round(62 + intensity * 120) + 'rem ' + Math.round(44 + intensity * 100) + 'rem')
+            root.style.setProperty('--site-background-gradient-size-2', Math.round(54 + intensity * 120) + 'rem ' + Math.round(42 + intensity * 100) + 'rem')
+            root.style.setProperty('--site-background-gradient-stop-1', Math.round(68 + intensity * 32) + '%')
+            root.style.setProperty('--site-background-gradient-stop-2', Math.round(70 + intensity * 30) + '%')
+            if (intensity >= 0.95) {
+              root.style.setProperty('--site-background', 'rgba(' + Math.round(red * intensity + 251 * (1 - intensity)) + ', ' + Math.round(green * intensity + 251 * (1 - intensity)) + ', ' + Math.round(blue * intensity + 253 * (1 - intensity)) + ', 1.000)')
+              root.style.setProperty('--site-background-dark', 'rgba(' + Math.round(red * intensity + 13 * (1 - intensity)) + ', ' + Math.round(green * intensity + 16 * (1 - intensity)) + ', ' + Math.round(blue * intensity + 23 * (1 - intensity)) + ', 1.000)')
+            }
+            root.dataset.backgroundColor = '#' + hex.toUpperCase()
+            root.dataset.backgroundIntensity = String(Math.round(intensity * 100))
           }
         } catch (e) {}
       })()

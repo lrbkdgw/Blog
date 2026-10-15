@@ -1,8 +1,10 @@
+import { useTheme } from '../lib/theme'
 import { useEffect, useState } from 'react'
 import { List } from 'lucide-react'
 import type { TocItem } from '../lib/posts'
 
 export function Toc({ items }: { items: TocItem[] }) {
+  const { effects } = useTheme()
   const [activeId, setActiveId] = useState<string>('')
 
   useEffect(() => {
@@ -48,7 +50,7 @@ export function Toc({ items }: { items: TocItem[] }) {
                   e.preventDefault()
                   const el = document.getElementById(item.id)
                   if (el) {
-                    window.scrollTo({ top: el.offsetTop - 90, behavior: 'smooth' })
+                    window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 90, behavior: effects === 'off' ? 'instant' : 'smooth' })
                     history.replaceState(null, '', `#${item.id}`)
                   }
                 }}

@@ -1,67 +1,139 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { flushSync } from 'react-dom'
 import { STORAGE_KEYS } from './config'
-import { sceneToneOf, useAnimatedBackground } from './animatedBackground'
-
-type Theme = 'light' | 'dark'
+import { readPersonalSetting, writePersonalSetting } from './settingsStore'
+import {
+  DEFAULT_APPEARANCE, PALETTES, normalizeAppearance, resolveColorMode,
+  type AppearancePreference, type ColorMode, type EffectsLevel, type PaletteId, type PaletteSpec, type Theme,
+} from './appearance'
 
 interface ThemeCtx {
-  /** 实际生效的明暗：动态背景有自己的配色基调时以它为准，否则为用户的设置。 */
   theme: Theme
-  /** 用户保存的明暗偏好（不受动态背景影响）。 */
-  preferredTheme: Theme
+  palette: PaletteSpec
+  appearance: AppearancePreference
+  /** Effective motion level, also respecting the operating system's reduced-motion setting. */
+  effects: EffectsLevel
+  reducedMotion: boolean
+  storageError: boolean
   toggle: () => void
-  setTheme: (t: Theme) => void
+  setMode: (mode: ColorMode) => void
+  setPalette: (palette: PaletteId) => void
+  setEffects: (effects: EffectsLevel) => void
+  resetAppearance: () => void
 }
 
-const Ctx = createContext<ThemeCtx>({ theme: 'light', preferredTheme: 'light', toggle: () => {}, setTheme: () => {} })
+const Ctx = createContext<ThemeCtx>({
+  theme: 'light', palette: PALETTES[0], appearance: DEFAULT_APPEARANCE,
+  effects: 'subtle', reducedMotion: false, storageError: false,
+  toggle: () => {}, setMode: () => {}, setPalette: () => {}, setEffects: () => {}, resetAppearance: () => {},
+})
 
-function initialTheme(): Theme {
-  if (typeof window === 'undefined') return 'light'
-  const stored = localStorage.getItem(STORAGE_KEYS.theme)
-  if (stored === 'dark' || stored === 'light') return stored
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+function readAppearance(): AppearancePreference {
+  let legacy: string | null = null
+  try { legacy = localStorage.getItem(STORAGE_KEYS.theme) } catch { /* Private browsing / blocked storage. */ }
+  return normalizeAppearance(readPersonalSetting('appearance'), legacy)
+}
+
+function useMedia(query: string) {
+  const [matches, setMatches] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches)
+  useEffect(() => {
+    const media = window.matchMedia(query)
+    const sync = () => setMatches(media.matches)
+    sync()
+    media.addEventListener('change', sync)
+    return () => media.removeEventListener('change', sync)
+  }, [query])
+  return matches
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [preferredTheme, setThemeState] = useState<Theme>(initialTheme)
-  const animated = useAnimatedBackground()
-  // 深色/浅色基调的动态场景（如雨夜、星空）临时覆盖明暗配色，保证文字可读；
-  // 用户保存的偏好不变，关闭动态背景后自动恢复。
-  const theme: Theme = sceneToneOf(animated.scene) ?? preferredTheme
+  const [appearance, setAppearance] = useState(readAppearance)
+  const [storageError, setStorageError] = useState(false)
+  const current = useRef(appearance)
+  const revision = useRef(0)
+  const systemDark = useMedia('(prefers-color-scheme: dark)')
+  const reducedMotion = useMedia('(prefers-reduced-motion: reduce)')
+  // Scenes adapt to the chosen mode, rather than silently overriding the user's choice.
+  const theme = resolveColorMode(appearance.mode, systemDark)
+  const effects = reducedMotion ? 'off' : appearance.effects
+  const palette = PALETTES.find((item) => item.id === appearance.palette) || PALETTES[0]
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = document.documentElement
     root.classList.toggle('dark', theme === 'dark')
     root.style.colorScheme = theme
-  }, [theme])
+    root.dataset.palette = appearance.palette
+    root.dataset.effects = effects
+  }, [theme, appearance.palette, effects])
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.theme, preferredTheme)
-  }, [preferredTheme])
-
-  const setTheme = useCallback((t: Theme) => {
-    // 使用 View Transition 让明暗切换更顺滑（不支持的浏览器直接切换）
-    const doc = document as Document & { startViewTransition?: (cb: () => void) => void }
-    if (doc.startViewTransition && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      doc.startViewTransition(() => setThemeState(t))
-    } else {
-      setThemeState(t)
+    const sync = (event: Event) => {
+      const name = (event as CustomEvent<{ name?: string }>).detail?.name
+      if (name && name !== 'appearance') return
+      if (event instanceof StorageEvent && event.key && event.key !== STORAGE_KEYS.personalSettings && event.key !== STORAGE_KEYS.theme) return
+      const next = readAppearance()
+      if (next.palette === current.current.palette && next.mode === current.current.mode && next.effects === current.current.effects) return
+      revision.current += 1
+      current.current = next
+      setAppearance(next)
+    }
+    const onStorageError = () => setStorageError(true)
+    const onVisibility = () => { document.documentElement.dataset.pageHidden = String(document.hidden) }
+    onVisibility()
+    window.addEventListener('starlog:storage-unavailable', onStorageError)
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('starlog:settings-changed', sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener('starlog:storage-unavailable', onStorageError)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('starlog:settings-changed', sync)
+      window.removeEventListener('storage', sync)
     }
   }, [])
 
-  const value = useMemo(
-    () => ({
-      theme,
-      preferredTheme,
-      setTheme,
-      toggle: () => setTheme(preferredTheme === 'dark' ? 'light' : 'dark'),
-    }),
-    [theme, preferredTheme, setTheme],
-  )
+  const commit = useCallback((patch: Partial<AppearancePreference>, animate = true) => {
+    // Merge against the latest intent, not a render captured before a transition.
+    const next = normalizeAppearance({ ...current.current, ...patch })
+    current.current = next
+    const change = ++revision.current
+    const apply = () => {
+      if (change !== revision.current) return
+      setAppearance(next)
+      try {
+        writePersonalSetting('appearance', next)
+        setStorageError(false)
+      } catch {
+        // Keep the current session usable even when localStorage is disabled or full.
+        setStorageError(true)
+      }
+    }
+    const doc = document as Document & {
+      startViewTransition?: (cb: () => void) => { finished: Promise<void>; ready: Promise<void>; updateCallbackDone: Promise<void> }
+    }
+    if (animate && effects !== 'off' && !document.hidden && doc.startViewTransition) {
+      try {
+        const transition = doc.startViewTransition(() => flushSync(apply))
+        // `ready` rejects separately when a rapid selection supersedes a snapshot.
+        void transition.ready.catch(() => {})
+        void transition.updateCallbackDone.catch(() => {})
+        void transition.finished.catch(() => {})
+      } catch { apply() }
+    } else apply()
+  }, [effects])
+
+  const setMode = useCallback((mode: ColorMode) => commit({ mode }), [commit])
+  const setPalette = useCallback((id: PaletteId) => commit({ palette: id }), [commit])
+  const setEffects = useCallback((level: EffectsLevel) => commit({ effects: level }, false), [commit])
+  const resetAppearance = useCallback(() => commit({ ...DEFAULT_APPEARANCE }), [commit])
+  const toggle = useCallback(() => setMode(resolveColorMode(current.current.mode, systemDark) === 'dark' ? 'light' : 'dark'), [setMode, systemDark])
+  const value = useMemo(() => ({
+    theme, palette, appearance, effects, reducedMotion, storageError,
+    toggle, setMode, setPalette, setEffects, resetAppearance,
+  }), [theme, palette, appearance, effects, reducedMotion, storageError, toggle, setMode, setPalette, setEffects, resetAppearance])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export const useTheme = () => useContext(Ctx)

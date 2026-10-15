@@ -1,0 +1,197 @@
+/* Semantic palettes. RGB channels keep Tailwind opacity modifiers working. */
+:root, :root[data-palette="classic"] {
+  --brand-50: 238 244 255;
+  --brand-100: 217 229 255;
+  --brand-200: 188 209 255;
+  --brand-300: 142 179 255;
+  --brand-400: 90 139 255;
+  --brand-500: 53 99 246;
+  --brand-600: 32 68 235;
+  --brand-700: 26 52 216;
+  --brand-800: 28 46 174;
+  --brand-900: 29 45 137;
+  --brand-950: 21 29 83;
+  --theme-bg-light: 245 247 252;
+  --theme-bg-dark: 12 16 27;
+  --theme-surface-light: 255 255 255;
+  --theme-surface-dark: 21 28 43;
+  --theme-secondary: 165 163 239;
+  --card-radius: 22px;
+}
+
+:root[data-palette="aurora"] {
+  --brand-50: 239 252 246;
+  --brand-100: 216 245 233;
+  --brand-200: 177 234 214;
+  --brand-300: 121 214 187;
+  --brand-400: 67 184 156;
+  --brand-500: 22 139 123;
+  --brand-600: 8 121 108;
+  --brand-700: 8 99 85;
+  --brand-800: 11 78 70;
+  --brand-900: 16 63 57;
+  --brand-950: 7 41 36;
+  --theme-bg-light: 239 248 245;
+  --theme-bg-dark: 8 28 29;
+  --theme-surface-light: 252 255 253;
+  --theme-surface-dark: 17 41 42;
+  --theme-secondary: 167 139 250;
+  --card-radius: 24px;
+}
+
+:root[data-palette="sakura"] {
+  --brand-50: 255 241 245;
+  --brand-100: 255 225 236;
+  --brand-200: 250 193 215;
+  --brand-300: 242 152 185;
+  --brand-400: 233 114 158;
+  --brand-500: 213 75 125;
+  --brand-600: 182 46 97;
+  --brand-700: 152 33 78;
+  --brand-800: 128 30 69;
+  --brand-900: 107 29 61;
+  --brand-950: 65 12 34;
+  --theme-bg-light: 255 246 248;
+  --theme-bg-dark: 33 19 29;
+  --theme-surface-light: 255 253 253;
+  --theme-surface-dark: 48 32 43;
+  --theme-secondary: 235 175 185;
+  --card-radius: 24px;
+}
+
+:root[data-palette="forest"] {
+  --brand-50: 244 248 237;
+  --brand-100: 229 238 213;
+  --brand-200: 205 221 175;
+  --brand-300: 171 196 134;
+  --brand-400: 139 171 99;
+  --brand-500: 94 132 70;
+  --brand-600: 70 109 50;
+  --brand-700: 54 85 40;
+  --brand-800: 44 69 35;
+  --brand-900: 37 57 31;
+  --brand-950: 18 31 16;
+  --theme-bg-light: 245 247 239;
+  --theme-bg-dark: 17 27 22;
+  --theme-surface-light: 253 255 249;
+  --theme-surface-dark: 28 42 33;
+  --theme-secondary: 179 189 114;
+  --card-radius: 20px;
+}
+
+:root[data-palette="ocean"] {
+  --brand-50: 239 250 255;
+  --brand-100: 217 241 252;
+  --brand-200: 180 228 248;
+  --brand-300: 128 206 233;
+  --brand-400: 70 175 210;
+  --brand-500: 22 131 175;
+  --brand-600: 9 110 152;
+  --brand-700: 8 90 126;
+  --brand-800: 16 75 103;
+  --brand-900: 18 62 85;
+  --brand-950: 8 39 56;
+  --theme-bg-light: 238 248 252;
+  --theme-bg-dark: 8 25 34;
+  --theme-surface-light: 251 254 255;
+  --theme-surface-dark: 16 41 51;
+  --theme-secondary: 103 191 200;
+  --card-radius: 22px;
+}
+
+:root[data-palette="sunset"] {
+  --brand-50: 255 245 235;
+  --brand-100: 255 232 210;
+  --brand-200: 251 208 166;
+  --brand-300: 245 179 123;
+  --brand-400: 238 153 85;
+  --brand-500: 223 124 54;
+  --brand-600: 173 78 29;
+  --brand-700: 151 66 27;
+  --brand-800: 124 55 28;
+  --brand-900: 100 47 27;
+  --brand-950: 56 22 9;
+  --theme-bg-light: 255 247 237;
+  --theme-bg-dark: 38 23 16;
+  --theme-surface-light: 255 253 248;
+  --theme-surface-dark: 53 35 27;
+  --theme-secondary: 217 140 157;
+  --card-radius: 24px;
+}
+
+:root[data-palette="neon"] {
+  --brand-50: 245 243 255;
+  --brand-100: 237 233 254;
+  --brand-200: 221 214 254;
+  --brand-300: 196 181 253;
+  --brand-400: 167 139 250;
+  --brand-500: 139 92 246;
+  --brand-600: 124 58 237;
+  --brand-700: 109 40 217;
+  --brand-800: 91 33 182;
+  --brand-900: 76 29 149;
+  --brand-950: 46 16 101;
+  --theme-bg-light: 247 244 255;
+  --theme-bg-dark: 16 13 34;
+  --theme-surface-light: 254 252 255;
+  --theme-surface-dark: 29 23 52;
+  --theme-secondary: 232 121 200;
+  --card-radius: 16px;
+}
+
+:root[data-palette="paper"] {
+  --brand-50: 248 246 242;
+  --brand-100: 236 231 223;
+  --brand-200: 219 211 198;
+  --brand-300: 196 184 167;
+  --brand-400: 166 150 128;
+  --brand-500: 129 117 99;
+  --brand-600: 101 90 74;
+  --brand-700: 81 72 61;
+  --brand-800: 69 62 53;
+  --brand-900: 60 54 47;
+  --brand-950: 35 31 26;
+  --theme-bg-light: 247 245 239;
+  --theme-bg-dark: 25 25 23;
+  --theme-surface-light: 254 252 248;
+  --theme-surface-dark: 38 38 34;
+  --theme-secondary: 181 164 137;
+  --card-radius: 12px;
+}
+
+
+:root {
+  --surface: var(--theme-surface-light);
+  --page-color: var(--theme-bg-light);
+  --text-primary: #202735;
+  --text-secondary: #566176;
+  --text-muted: #647086;
+  --line-color: rgb(var(--brand-900) / .13);
+  --hero-glow: .16;
+  --scene-opacity: .72;
+  --prose-link-hover: rgb(var(--brand-700));
+  --hl-bg: rgb(var(--brand-50));
+  --hl-func: rgb(var(--brand-600));
+}
+.dark {
+  --surface: var(--theme-surface-dark);
+  --page-color: var(--theme-bg-dark);
+  --text-primary: #edf0f7;
+  --text-secondary: #b3bdcf;
+  --text-muted: #99a6be;
+  --line-color: rgb(var(--brand-200) / .16);
+  --hero-glow: .18;
+  --scene-opacity: .85;
+  --prose-link-hover: rgb(var(--brand-200));
+}
+:root[data-palette="paper"] {
+  --text-primary: #302d28;
+  --text-secondary: #645d53;
+  --text-muted: #71685c;
+  --hero-glow: .08;
+}
+:root[data-palette="paper"].dark {
+  --text-primary: #ede9df;
+  --text-secondary: #beb8ad;
+  --text-muted: #aaa395;
+}

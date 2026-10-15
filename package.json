@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "extension:build": "npm --prefix vscode_extensions/v1 run build",
     "extension:test": "npm --prefix vscode_extensions/v1 test",
-    "extension:package": "npm --prefix vscode_extensions/v1 run package"
+    "extension:package": "npm --prefix vscode_extensions/v1 run package",
+    "test": "node --test test/*.test.mjs",
+    "test:browser": "node --test test/browser/*.test.mjs"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",

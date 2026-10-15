@@ -1,167 +1,57 @@
 import { useEffect, useState } from 'react'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
-
-/**
- * 动态背景（雨夜 / 阳光 / 星空）的数据层：场景定义、参数范围、校验与本地保存。
- * 渲染在 components/AnimatedBackdrop.tsx，界面在设置页。
- *
- * 动态背景只保存在浏览器本地（不同步到 GitHub），因为它是纯视觉偏好，
- * 且相比颜色渐变更依赖设备性能。
- */
-
-export type SceneId = 'none' | 'rain' | 'sunshine' | 'stars'
-export type ActiveSceneId = Exclude<SceneId, 'none'>
-/** 场景的配色基调：深色场景会让站点临时使用深色配色，保证文字可读。 */
-export type SceneTone = 'light' | 'dark'
-
-export interface SceneParam {
-  key: string
-  label: string
-  hint: string
-  min: number
-  max: number
-  step: number
-  default: number
-}
-
-export interface SceneSpec {
-  id: ActiveSceneId
-  name: string
-  desc: string
-  tone: SceneTone
-  params: SceneParam[]
-}
-
-export const SCENES: SceneSpec[] = [
-  {
-    id: 'rain',
-    name: '雨夜',
-    desc: '深夜的细雨，偶尔伴有远处的闪电。',
-    tone: 'dark',
-    params: [
-      { key: 'density', label: '雨量', hint: '雨滴数量，越大越密', min: 0, max: 100, step: 1, default: 55 },
-      { key: 'speed', label: '下落速度', hint: '雨滴下落的快慢', min: 0, max: 100, step: 1, default: 55 },
-      { key: 'wind', label: '风向倾斜', hint: '负数向左吹，正数向右吹，0 为垂直下落', min: -100, max: 100, step: 1, default: 12 },
-      { key: 'lightning', label: '雷电', hint: '闪电出现的频率，0 为关闭', min: 0, max: 100, step: 1, default: 20 },
-    ],
-  },
-  {
-    id: 'sunshine',
-    name: '阳光',
-    desc: '午后的暖光，光束缓缓转动，尘埃在光中漂浮。',
-    tone: 'light',
-    params: [
-      { key: 'brightness', label: '光照强度', hint: '光晕与光束的明亮程度', min: 0, max: 100, step: 1, default: 60 },
-      { key: 'rays', label: '光束数量', hint: '从太阳射出的光束多少，0 为无光束', min: 0, max: 100, step: 1, default: 50 },
-      { key: 'motes', label: '光尘', hint: '漂浮在光中的尘埃数量', min: 0, max: 100, step: 1, default: 40 },
-      { key: 'drift', label: '漂移速度', hint: '光束转动与尘埃飘动的速度', min: 0, max: 100, step: 1, default: 35 },
-    ],
-  },
-  {
-    id: 'stars',
-    name: '星空',
-    desc: '安静的夜空，星星闪烁，偶尔划过流星。',
-    tone: 'dark',
-    params: [
-      { key: 'density', label: '星星数量', hint: '星星的多少', min: 0, max: 100, step: 1, default: 50 },
-      { key: 'twinkle', label: '闪烁程度', hint: '星星明暗变化的幅度', min: 0, max: 100, step: 1, default: 50 },
-      { key: 'meteor', label: '流星频率', hint: '流星出现的频率，0 为没有流星', min: 0, max: 100, step: 1, default: 30 },
-      { key: 'brightness', label: '亮度', hint: '整体亮度', min: 0, max: 100, step: 1, default: 60 },
-    ],
-  },
-]
-
-export type SceneValues = Record<string, number>
-
-export interface AnimatedBackgroundPreference {
-  scene: SceneId
-  /** 每个场景各自记住自己的参数，切换场景不会丢失已调好的数值。 */
-  values: Partial<Record<ActiveSceneId, SceneValues>>
-}
+import {
+  findScene, getSceneValues, defaultSceneValues, normalizeSceneValues, normalizeAnimatedBackground,
+  type AnimatedBackgroundPreference, type SceneId, type ActiveSceneId,
+} from './scenes'
+export * from './scenes'
 
 const STORAGE_NAME = 'animatedBackground'
-const DEFAULT_PREFERENCE: AnimatedBackgroundPreference = { scene: 'none', values: {} }
-
-export function findScene(id: SceneId): SceneSpec | undefined {
-  return SCENES.find((scene) => scene.id === id)
-}
-
-export function defaultSceneValues(spec: SceneSpec): SceneValues {
-  return Object.fromEntries(spec.params.map((param) => [param.key, param.default]))
-}
-
-/** 将任意输入限制在参数范围内（非数字回退为默认值） */
-export function normalizeSceneValues(spec: SceneSpec, raw: unknown): SceneValues {
-  const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
-  const result: SceneValues = {}
-  for (const param of spec.params) {
-    const value = Number(source[param.key])
-    const clamped = Number.isFinite(value) ? Math.min(param.max, Math.max(param.min, value)) : param.default
-    result[param.key] = Math.round(clamped / param.step) * param.step
-  }
-  return result
-}
-
-/** 当前场景的完整参数（缺失的项使用默认值） */
-export function getSceneValues(pref: AnimatedBackgroundPreference, scene: ActiveSceneId): SceneValues {
-  const spec = findScene(scene)
-  if (!spec) return {}
-  return normalizeSceneValues(spec, pref.values[scene])
-}
-
-function normalizePreference(raw: unknown): AnimatedBackgroundPreference {
-  if (!raw || typeof raw !== 'object') return DEFAULT_PREFERENCE
-  const data = raw as { scene?: unknown; values?: unknown }
-  const scene = SCENES.some((item) => item.id === data.scene) || data.scene === 'none'
-    ? (data.scene as SceneId)
-    : 'none'
-  const values: AnimatedBackgroundPreference['values'] = {}
-  const source = data.values && typeof data.values === 'object' ? (data.values as Record<string, unknown>) : {}
-  for (const spec of SCENES) {
-    values[spec.id] = normalizeSceneValues(spec, source[spec.id])
-  }
-  return { scene, values }
-}
 
 export function readAnimatedBackground(): AnimatedBackgroundPreference {
-  try {
-    return normalizePreference(readPersonalSetting<unknown>(STORAGE_NAME))
-  } catch {
-    return DEFAULT_PREFERENCE
-  }
+  return normalizeAnimatedBackground(readPersonalSetting(STORAGE_NAME))
 }
 
+// An in-memory fallback keeps controls usable when storage is unavailable. This
+// preference is deliberately never enqueued for GitHub account synchronization.
+let volatilePreference: AnimatedBackgroundPreference | null = null
+function current() { return volatilePreference ?? readAnimatedBackground() }
 function write(next: AnimatedBackgroundPreference) {
-  writePersonalSetting(STORAGE_NAME, next)
+  try {
+    volatilePreference = null
+    writePersonalSetting(STORAGE_NAME, next)
+  } catch {
+    volatilePreference = next
+    window.dispatchEvent(new Event('starlog:storage-unavailable'))
+    window.dispatchEvent(new CustomEvent('starlog:settings-changed', { detail: { name: STORAGE_NAME } }))
+  }
 }
 
 export function setAnimatedScene(scene: SceneId) {
-  const current = readAnimatedBackground()
-  write({ ...current, scene })
+  write(normalizeAnimatedBackground({ ...current(), scene }))
 }
-
 export function setSceneValue(scene: ActiveSceneId, key: string, value: number) {
   const spec = findScene(scene)
   if (!spec) return
-  const current = readAnimatedBackground()
-  const values = { ...getSceneValues(current, scene), [key]: value }
-  write({ ...current, values: { ...current.values, [scene]: normalizeSceneValues(spec, values) } })
+  const pref = current()
+  write({ ...pref, values: { ...pref.values, [scene]: normalizeSceneValues(spec, { ...getSceneValues(pref, scene), [key]: value }) } })
 }
-
 export function resetSceneValues(scene: ActiveSceneId) {
   const spec = findScene(scene)
   if (!spec) return
-  const current = readAnimatedBackground()
-  write({ ...current, values: { ...current.values, [scene]: defaultSceneValues(spec) } })
+  const pref = current()
+  write({ ...pref, values: { ...pref.values, [scene]: defaultSceneValues(spec) } })
 }
+export function resetAnimatedBackground() { write(normalizeAnimatedBackground(null)) }
 
-/** 订阅动态背景设置（同一页面、其他标签页的修改都会立即生效）。 */
 export function useAnimatedBackground(): AnimatedBackgroundPreference {
-  const [pref, setPref] = useState(readAnimatedBackground)
+  const [pref, setPref] = useState(current)
   useEffect(() => {
-    const sync = (event?: Event) => {
-      const name = (event as CustomEvent<{ name?: string }> | undefined)?.detail?.name
-      if (!name || name === STORAGE_NAME) setPref(readAnimatedBackground())
+    const sync = (event: Event) => {
+      const name = (event as CustomEvent<{ name?: string }>).detail?.name
+      if (name && name !== STORAGE_NAME) return
+      if (event instanceof StorageEvent) volatilePreference = null
+      setPref(current())
     }
     window.addEventListener('starlog:settings-changed', sync)
     window.addEventListener('storage', sync)
@@ -171,9 +61,4 @@ export function useAnimatedBackground(): AnimatedBackgroundPreference {
     }
   }, [])
   return pref
-}
-
-/** 当前动态场景的配色基调；没有动态场景时返回 null（沿用用户的主题设置）。 */
-export function sceneToneOf(scene: SceneId): SceneTone | null {
-  return findScene(scene)?.tone ?? null
 }

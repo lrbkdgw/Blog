@@ -1,5 +1,7 @@
 /* 固定公式样式与正文样式的加载顺序，博客和 VS Code 使用同一入口。 */
 @import "katex/dist/katex.min.css";
+@import "./themes.css";
+@import "./appearance.css";
 
 @tailwind base;
 @tailwind components;
@@ -12,11 +14,11 @@
     --font-serif: Georgia, "Songti SC", STSong, SimSun, "Noto Serif SC", serif;
     --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     --site-font-size: 100%;
-    --site-background: #fbfbfd;
-    --site-background-dark: #0d1017;
+    --site-background: rgb(var(--theme-bg-light));
+    --site-background-dark: rgb(var(--theme-bg-dark));
     /* 基础双渐变始终保留；设置页只在其上叠加选中的颜色。 */
-    --site-background-glow-primary: rgba(90, 139, 255, 0.2);
-    --site-background-glow-secondary: rgba(129, 140, 248, 0.15);
+    --site-background-glow-primary: rgb(var(--brand-400) / .12);
+    --site-background-glow-secondary: rgb(var(--theme-secondary) / .10);
     --site-background-tint-primary: rgba(0, 0, 0, 0);
     --site-background-tint-secondary: rgba(0, 0, 0, 0);
     --site-background-gradient-size-1: 62rem 44rem;
@@ -26,8 +28,8 @@
   }
   .dark {
     color-scheme: dark;
-    --site-background-glow-primary: rgba(53, 99, 246, 0.15);
-    --site-background-glow-secondary: rgba(99, 102, 241, 0.15);
+    --site-background-glow-primary: rgb(var(--brand-500) / .10);
+    --site-background-glow-secondary: rgb(var(--theme-secondary) / .09);
   }
 
   html {
@@ -83,8 +85,10 @@
   }
 
   .card {
-    @apply rounded-2xl border border-ink-200/70 bg-white/80 shadow-[0_1px_2px_rgba(16,24,40,.04),0_12px_32px_-12px_rgba(16,24,40,.12)] backdrop-blur
-           dark:border-white/10 dark:bg-white/[0.035] dark:shadow-[0_1px_2px_rgba(0,0,0,.4),0_18px_40px_-18px_rgba(0,0,0,.7)];
+    border: 1px solid var(--line-color);
+    border-radius: var(--card-radius);
+    background: rgb(var(--surface) / .94);
+    box-shadow: 0 3px 6px -4px rgb(var(--brand-950) / .06), 0 18px 40px -28px rgb(var(--brand-900) / .16);
   }
 
   .btn {
@@ -92,8 +96,8 @@
            transition-all duration-150 active:scale-[.97] disabled:pointer-events-none disabled:opacity-50;
   }
   .btn-primary {
-    @apply btn bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-lg shadow-brand-600/25
-           hover:from-brand-400 hover:to-brand-600 hover:shadow-brand-600/35;
+    @apply btn bg-gradient-to-br from-brand-600 to-brand-800 text-white shadow-lg shadow-brand-600/25
+           hover:from-brand-700 hover:to-brand-900 hover:shadow-brand-600/35;
   }
   .btn-ghost {
     @apply btn text-ink-600 hover:bg-ink-900/[.05] hover:text-ink-900 dark:text-ink-300 dark:hover:bg-white/10 dark:hover:text-white;
@@ -137,24 +141,24 @@
 
 /* ---------- 代码高亮 ---------- */
 :root {
-  --hl-bg: #f7f8fa;
+  --hl-bg: rgb(var(--brand-50));
   --hl-text: #383a42;
-  --hl-comment: #9aa1ad;
+  --hl-comment: #62708a;
   --hl-keyword: #a626a4;
   --hl-string: #35814a;
-  --hl-number: #b76b01;
-  --hl-func: #3563f6;
-  --hl-type: #c18401;
-  --hl-attr: #e45649;
+  --hl-number: #92560c;
+  --hl-func: rgb(var(--brand-600));
+  --hl-type: #8a6209;
+  --hl-attr: #b13f39;
 }
 .dark {
-  --hl-bg: #0f131c;
+  --hl-bg: rgb(var(--theme-bg-dark));
   --hl-text: #c9d1d9;
-  --hl-comment: #6b7280;
+  --hl-comment: #8f9bb1;
   --hl-keyword: #c792ea;
   --hl-string: #7ee787;
   --hl-number: #ffab70;
-  --hl-func: #79b8ff;
+  --hl-func: rgb(var(--brand-300));
   --hl-type: #ffd580;
   --hl-attr: #ff7b72;
 }
