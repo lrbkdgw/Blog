@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowDown,
+  Ban,
   ArrowUp,
   CheckCircle2,
   Cloud,
+  CloudRain,
   Columns2,
   Download,
   ExternalLink,
@@ -17,11 +19,23 @@ import {
   RotateCcw,
   Save,
   ShieldAlert,
+  Star,
+  Sun,
   Trash2,
   Type,
   X,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
+import {
+  findScene,
+  getSceneValues,
+  resetSceneValues,
+  setAnimatedScene,
+  setSceneValue,
+  useAnimatedBackground,
+  type AnimatedBackgroundPreference,
+  type SceneId,
+} from '../lib/animatedBackground'
 import {
   DEFAULT_FONT_SIZE,
   FONT_SIZE_MAX,
@@ -72,6 +86,87 @@ function Section({
   )
 }
 
+const SCENE_OPTIONS: { id: SceneId; label: string; icon: typeof Github }[] = [
+  { id: 'none', label: '无', icon: Ban },
+  { id: 'rain', label: '雨夜', icon: CloudRain },
+  { id: 'sunshine', label: '阳光', icon: Sun },
+  { id: 'stars', label: '星空', icon: Star },
+]
+
+function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreference }) {
+  const active = pref.scene === 'none' ? undefined : findScene(pref.scene)
+  const values = active ? getSceneValues(pref, active.id) : {}
+  return (
+    <>
+      <div role="radiogroup" aria-label="动态背景场景" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {SCENE_OPTIONS.map((option) => {
+          const selected = pref.scene === option.id
+          const Icon = option.icon
+          return (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => setAnimatedScene(option.id)}
+              className={`flex h-11 items-center justify-center gap-2 rounded-xl border text-sm font-medium transition ${
+                selected
+                  ? 'border-brand-500/60 bg-brand-500/10 text-brand-700 dark:text-brand-200'
+                  : 'border-ink-200 bg-white/60 text-ink-600 hover:border-brand-300 dark:border-white/12 dark:bg-white/[0.03] dark:text-ink-300'
+              }`}
+            >
+              <Icon size={15} />
+              {option.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {active && (
+        <div className="mt-5 space-y-5">
+          <p className="text-xs leading-relaxed text-ink-500 dark:text-ink-400">{active.desc}</p>
+          {active.params.map((param) => {
+            const value = values[param.key] ?? param.default
+            const id = `scene-${active.id}-${param.key}`
+            return (
+              <div key={param.key}>
+                <div className="mb-1.5 flex items-center justify-between gap-4">
+                  <label htmlFor={id} className="text-xs font-medium text-ink-500">
+                    {param.label}
+                  </label>
+                  <span className="font-mono text-xs font-bold text-brand-600 dark:text-brand-300">
+                    {param.min < 0 && value > 0 ? '+' : ''}
+                    {value}
+                  </span>
+                </div>
+                <input
+                  id={id}
+                  type="range"
+                  min={param.min}
+                  max={param.max}
+                  step={param.step}
+                  value={value}
+                  onChange={(e) => setSceneValue(active.id, param.key, Number(e.target.value))}
+                  className="h-2 w-full cursor-pointer accent-brand-500"
+                />
+                <p className="mt-1 text-xs leading-relaxed text-ink-400">{param.hint}</p>
+              </div>
+            )
+          })}
+          <button type="button" onClick={() => resetSceneValues(active.id)} className="btn-ghost h-9">
+            <RotateCcw size={14} />
+            恢复本场景默认参数
+          </button>
+        </div>
+      )}
+
+      <p className="mt-5 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
+        动态背景仅保存在本设备，不会同步到 GitHub。雨夜、星空等深色场景会让站点临时使用深色配色，关闭背景后恢复你的明暗设置。系统开启“减少动态效果”时，背景只显示静态画面。
+      </p>
+    </>
+  )
+}
+
 const PRESET_FONTS = [
   'LXGW WenKai',
   '霞鹜文楷',
@@ -105,6 +200,7 @@ export default function SettingsPage() {
     resetBackground,
     saveForGithub: saveBackgroundForGithub,
   } = useBackground()
+  const animatedBackground = useAnimatedBackground()
   const toast = useToast()
   const [editorScrollSync, setEditorScrollSync] = useEditorScrollSync()
 
@@ -596,6 +692,15 @@ export default function SettingsPage() {
               访客设置已直接保存在本地。
             </p>
           )}
+        </Section>
+
+        {/* ------------------------------ 动态背景 ------------------------------ */}
+        <Section
+          title="动态背景"
+          desc="选择雨夜、阳光或星空等动态场景，并调整其参数。动态背景显示在站点内容之下，不影响阅读。"
+          icon={CloudRain}
+        >
+          <AnimatedBackgroundControls pref={animatedBackground} />
         </Section>
 
         {/* ------------------------------ 编辑器行为 ----------------------------- */}

@@ -18,6 +18,8 @@ import {
 import { siteConfig } from '../lib/config'
 import { useTheme } from '../lib/theme'
 import { useAuth } from '../lib/auth'
+import { AnimatedBackdrop } from './AnimatedBackdrop'
+import { useAnimatedBackground, getSceneValues } from '../lib/animatedBackground'
 import { SearchDialog } from './SearchDialog'
 import logoVenti from '../assets/logo-venti.jpg'
 
@@ -326,6 +328,12 @@ function Footer() {
   )
 }
 
+function AnimatedBackdropLayer() {
+  const pref = useAnimatedBackground()
+  if (pref.scene === 'none') return null
+  return <AnimatedBackdrop scene={pref.scene} values={getSceneValues(pref, pref.scene)} />
+}
+
 export function Layout() {
   const [searchOpen, setSearchOpen] = useState(false)
   const { pathname } = useLocation()
@@ -359,6 +367,8 @@ export function Layout() {
           style={{ animationDelay: '-4s' }}
         />
         <div className="site-background-hairline absolute inset-x-0 top-0 h-px" />
+        {/* 动态背景（雨夜 / 阳光 / 星空）：放在最后，覆盖上面的光斑与渐变 */}
+        <AnimatedBackdropLayer />
       </div>
 
       <Header onSearch={() => setSearchOpen(true)} />
