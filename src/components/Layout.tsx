@@ -17,10 +17,12 @@ import {
 } from 'lucide-react'
 import { siteConfig } from '../lib/config'
 import { useTheme } from '../lib/theme'
+import { DEFAULT_COLOR_THEME } from '../lib/themes'
 import { useAuth } from '../lib/auth'
 import { AnimatedBackdrop } from './AnimatedBackdrop'
 import { useAnimatedBackground, getSceneValues } from '../lib/animatedBackground'
 import { SearchDialog } from './SearchDialog'
+import { ThemePicker } from './ThemePicker'
 import logoVenti from '../assets/logo-venti.jpg'
 
 const NAV = [
@@ -31,7 +33,10 @@ const NAV = [
 ]
 
 function ThemeToggle() {
-  const { theme, toggle } = useTheme()
+  const { theme, toggle, colorTheme } = useTheme()
+  // 开启配色主题后，明暗切换收进「配色主题」面板（面板里仍有浅色/深色/跟随系统），
+  // 页头不再重复占位。
+  if (colorTheme !== DEFAULT_COLOR_THEME) return null
   return (
     <button
       onClick={toggle}
@@ -220,6 +225,8 @@ function Header({ onSearch }: { onSearch: () => void }) {
             <Settings size={18} />
           </Link>
 
+          <ThemePicker />
+
           <ThemeToggle />
 
           <Link to="/admin/new" className="btn-primary hidden h-9 sm:inline-flex">
@@ -367,7 +374,7 @@ export function Layout() {
           style={{ animationDelay: '-4s' }}
         />
         <div className="site-background-hairline absolute inset-x-0 top-0 h-px" />
-        {/* 动态背景（雨夜 / 阳光 / 星空）：放在最后，覆盖上面的光斑与渐变 */}
+        {/* 动态背景（樱花 / 粒子星链）：放在最后，覆盖上面的光斑与渐变 */}
         <AnimatedBackdropLayer />
       </div>
 

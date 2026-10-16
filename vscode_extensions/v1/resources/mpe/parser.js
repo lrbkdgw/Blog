@@ -1,4 +1,4 @@
-/* starlog-markdown:parser v2.0.1 — Markdown 语法拓展，MPE 静态兼容模式。 */
+/* starlog-markdown:parser v2.0.2 — Markdown 语法拓展，MPE 静态兼容模式。 */
 (function () {
 var module = { exports: {} };
 var exports = module.exports;

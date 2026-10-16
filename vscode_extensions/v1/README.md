@@ -2,14 +2,14 @@
 
 安装后，在 **VS Code 内置 Markdown 预览**中使用与本仓库博客相同的正文渲染：同一份 React 组件、Markdown 插件链、KaTeX、代码高亮、交互展示框和 Tailwind 样式，而不是另写一套近似实现。
 
-当前版本：**2.0.1**。目录 `v1/` 与扩展 ID `lrbkdgw.starlog-markdown` 保留以兼容旧版；插件展示名称、设置标题、命令分类均为 **Markdown 语法拓展**。
+当前版本：**2.0.2**。目录 `v1/` 与扩展 ID `lrbkdgw.starlog-markdown` 保留以兼容旧版；插件展示名称、设置标题、命令分类均为 **Markdown 语法拓展**。
 
 ## 安装与使用
 
 在仓库根目录执行：
 
 ```bash
-code --install-extension vscode_extensions/v1/starlog-markdown-2.0.1.vsix --force
+code --install-extension vscode_extensions/v1/starlog-markdown-2.0.2.vsix --force
 ```
 
 也可以在扩展侧边栏的 `…` 菜单选择 **从 VSIX 安装…**，安装上面的文件。升级后按 VS Code 的提示重新加载窗口，并重新打开预览。
@@ -122,7 +122,7 @@ npm ci --prefix vscode_extensions/v1
 npm run build                              # 博客类型检查与生产构建
 npm --prefix vscode_extensions/v1 run typecheck
 npm run extension:test                     # 构建 + DOM / CSS / jsdom / 主进程 / MPE 回归
-npm run extension:package                  # 构建并生成 starlog-markdown-2.0.1.vsix
+npm run extension:package                  # 构建并生成 starlog-markdown-2.0.2.vsix
 npm --prefix vscode_extensions/v1 run watch # 监听共享源码、样式、Tailwind 配置与 MPE 源码
 ```
 

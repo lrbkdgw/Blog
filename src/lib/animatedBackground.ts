@@ -2,17 +2,16 @@ import { useEffect, useState } from 'react'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 
 /**
- * 动态背景（雨夜 / 阳光 / 星空）的数据层：场景定义、参数范围、校验与本地保存。
+ * 动态背景（樱花 / 粒子星链）的数据层：
+ * 场景定义、参数范围、校验与本地保存。
  * 渲染在 components/AnimatedBackdrop.tsx，界面在设置页。
  *
  * 动态背景只保存在浏览器本地（不同步到 GitHub），因为它是纯视觉偏好，
  * 且相比颜色渐变更依赖设备性能。
  */
 
-export type SceneId = 'none' | 'rain' | 'sunshine' | 'stars'
+export type SceneId = 'none' | 'sakura' | 'network'
 export type ActiveSceneId = Exclude<SceneId, 'none'>
-/** 场景的配色基调：深色场景会让站点临时使用深色配色，保证文字可读。 */
-export type SceneTone = 'light' | 'dark'
 
 export interface SceneParam {
   key: string
@@ -28,45 +27,32 @@ export interface SceneSpec {
   id: ActiveSceneId
   name: string
   desc: string
-  tone: SceneTone
   params: SceneParam[]
 }
 
 export const SCENES: SceneSpec[] = [
-  {
-    id: 'rain',
-    name: '雨夜',
-    desc: '深夜的细雨，偶尔伴有远处的闪电。',
-    tone: 'dark',
+{
+    id: 'sakura',
+    name: '樱花',
+    desc: '花瓣旋转着飘落，近处的花瓣更清晰、远处更虚，背景飘着逆光散景；画面会跟随明暗模式换成白昼或夜樱两套配色。',
     params: [
-      { key: 'density', label: '雨量', hint: '雨滴数量，越大越密', min: 0, max: 100, step: 1, default: 55 },
-      { key: 'speed', label: '下落速度', hint: '雨滴下落的快慢', min: 0, max: 100, step: 1, default: 55 },
-      { key: 'wind', label: '风向倾斜', hint: '负数向左吹，正数向右吹，0 为垂直下落', min: -100, max: 100, step: 1, default: 12 },
-      { key: 'lightning', label: '雷电', hint: '闪电出现的频率，0 为关闭', min: 0, max: 100, step: 1, default: 20 },
+      { key: 'count', label: '花瓣数量', hint: '屏幕上同时存在的花瓣数', min: 0, max: 100, step: 1, default: 40 },
+      { key: 'speed', label: '飘落速度', hint: '花瓣下落与旋转的快慢', min: 0, max: 100, step: 1, default: 50 },
+      { key: 'wind', label: '风向风力', hint: '负数向左吹，正数向右吹', min: -100, max: 100, step: 1, default: 15 },
+      { key: 'size', label: '花瓣大小', hint: '整体缩放比例', min: 0, max: 100, step: 1, default: 50 },
+      { key: 'bokeh', label: '背景散景', hint: '远处粉色光斑的明显程度', min: 0, max: 100, step: 1, default: 45 },
     ],
   },
-  {
-    id: 'sunshine',
-    name: '阳光',
-    desc: '午后的暖光，光束缓缓转动，尘埃在光中漂浮。',
-    tone: 'light',
+{
+    id: 'network',
+    name: '粒子星链',
+    desc: '光点漂移并彼此连线，数据脉冲沿线滑动，鼠标附近会聚拢；画面会跟随明暗模式在暗夜与浅色星图之间切换。',
     params: [
-      { key: 'brightness', label: '光照强度', hint: '光晕与光束的明亮程度', min: 0, max: 100, step: 1, default: 60 },
-      { key: 'rays', label: '光束数量', hint: '从太阳射出的光束多少，0 为无光束', min: 0, max: 100, step: 1, default: 50 },
-      { key: 'motes', label: '光尘', hint: '漂浮在光中的尘埃数量', min: 0, max: 100, step: 1, default: 40 },
-      { key: 'drift', label: '漂移速度', hint: '光束转动与尘埃飘动的速度', min: 0, max: 100, step: 1, default: 35 },
-    ],
-  },
-  {
-    id: 'stars',
-    name: '星空',
-    desc: '安静的夜空，星星闪烁，偶尔划过流星。',
-    tone: 'dark',
-    params: [
-      { key: 'density', label: '星星数量', hint: '星星的多少', min: 0, max: 100, step: 1, default: 50 },
-      { key: 'twinkle', label: '闪烁程度', hint: '星星明暗变化的幅度', min: 0, max: 100, step: 1, default: 50 },
-      { key: 'meteor', label: '流星频率', hint: '流星出现的频率，0 为没有流星', min: 0, max: 100, step: 1, default: 30 },
-      { key: 'brightness', label: '亮度', hint: '整体亮度', min: 0, max: 100, step: 1, default: 60 },
+      { key: 'density', label: '光点数量', hint: '粒子的多少', min: 0, max: 100, step: 1, default: 45 },
+      { key: 'link', label: '连线距离', hint: '多远的粒子之间会出现连线', min: 0, max: 100, step: 1, default: 50 },
+      { key: 'speed', label: '漂移速度', hint: '粒子移动的快慢', min: 0, max: 100, step: 1, default: 35 },
+      { key: 'glow', label: '辉光强度', hint: '粒子周围光晕与星芒的明显程度', min: 0, max: 100, step: 1, default: 55 },
+      { key: 'pulse', label: '数据脉冲', hint: '沿连线滑动的亮点的多少', min: 0, max: 100, step: 1, default: 50 },
     ],
   },
 ]
@@ -173,7 +159,3 @@ export function useAnimatedBackground(): AnimatedBackgroundPreference {
   return pref
 }
 
-/** 当前动态场景的配色基调；没有动态场景时返回 null（沿用用户的主题设置）。 */
-export function sceneToneOf(scene: SceneId): SceneTone | null {
-  return findScene(scene)?.tone ?? null
-}

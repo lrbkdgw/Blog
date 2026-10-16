@@ -2,7 +2,7 @@
   "name": "starlog-markdown",
   "displayName": "Markdown 语法拓展",
   "description": "直接复用博客的 Markdown 渲染组件与样式：交互展示框、折叠框、合并表格、KaTeX 公式与代码高亮，在 VS Code 内置预览中获得同款效果。",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "publisher": "lrbkdgw",
   "license": "MIT",
   "engines": {
