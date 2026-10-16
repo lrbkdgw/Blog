@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "extension:build": "npm --prefix vscode_extensions/v1 run build",
     "extension:test": "npm --prefix vscode_extensions/v1 test",
-    "extension:package": "npm --prefix vscode_extensions/v1 run package"
+    "extension:package": "npm --prefix vscode_extensions/v1 run package",
+    "test:appearance": "node --test scripts/appearance.test.mjs"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",
@@ -35,6 +36,7 @@
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.21",
+    "playwright-core": "^1.64.1",
     "postcss": "^8.5.6",
     "react-dom": "^19.3.0",
     "tailwindcss": "^3.4.18",

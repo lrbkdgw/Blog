@@ -1,3 +1,4 @@
+import { MagicCard } from './magicui/magic-card'
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, Clock, FileEdit, LockKeyhole, Pin } from 'lucide-react'
 import type { Post } from '../lib/types'
@@ -6,8 +7,8 @@ import { resolvePendingImageSrc } from '../lib/updateQueue'
 
 export function PostCard({ post, index = 0 }: { post: Post; index?: number }) {
   return (
-    <article
-      className="card group relative flex animate-fade-up flex-col overflow-hidden p-6 transition-all duration-300 hover:-translate-y-1 hover:border-brand-300/80 hover:shadow-[0_2px_4px_rgba(16,24,40,.04),0_24px_48px_-20px_rgba(53,99,246,.35)] dark:hover:border-brand-400/30"
+    <MagicCard
+      className="card group relative flex animate-fade-up flex-col overflow-hidden p-6 transition-all duration-300 hover:-translate-y-1 hover:border-brand-300/80 dark:hover:border-brand-400/30"
       style={{ animationDelay: `${Math.min(index, 8) * 55}ms` }}
     >
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-400/60 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
@@ -76,11 +77,11 @@ export function PostCard({ post, index = 0 }: { post: Post; index?: number }) {
             </span>
           ))}
         </div>
-        <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-brand-600 opacity-0 transition-all duration-300 group-hover:translate-x-0 group-hover:opacity-100 dark:text-brand-300 sm:-translate-x-1">
+        <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-brand-600 opacity-100 transition-all duration-300 group-hover:translate-x-0 dark:text-brand-300 sm:-translate-x-1">
           阅读
           <ArrowUpRight size={14} />
         </span>
       </div>
-    </article>
+    </MagicCard>
   )
 }

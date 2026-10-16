@@ -1,6 +1,14 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import type { ReactNode } from 'react'
 import { STORAGE_KEYS } from './config'
+import { useAppearance } from './appearance'
 import { sceneToneOf, useAnimatedBackground } from './animatedBackground'
 
 type Theme = 'light' | 'dark'
@@ -14,18 +22,30 @@ interface ThemeCtx {
   setTheme: (t: Theme) => void
 }
 
-const Ctx = createContext<ThemeCtx>({ theme: 'light', preferredTheme: 'light', toggle: () => {}, setTheme: () => {} })
+const Ctx = createContext<ThemeCtx>({
+  theme: 'light',
+  preferredTheme: 'light',
+  toggle: () => {},
+  setTheme: () => {},
+})
 
 function initialTheme(): Theme {
   if (typeof window === 'undefined') return 'light'
   const stored = localStorage.getItem(STORAGE_KEYS.theme)
   if (stored === 'dark' || stored === 'light') return stored
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'dark'
+    : 'light'
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preferredTheme, setThemeState] = useState<Theme>(initialTheme)
   const animated = useAnimatedBackground()
+  const { appearance } = useAppearance()
+  useEffect(() => {
+    document.documentElement.dataset.design = appearance.design
+    document.documentElement.dataset.effects = appearance.effects
+  }, [appearance])
   // 深色/浅色基调的动态场景（如雨夜、星空）临时覆盖明暗配色，保证文字可读；
   // 用户保存的偏好不变，关闭动态背景后自动恢复。
   const theme: Theme = sceneToneOf(animated.scene) ?? preferredTheme
@@ -40,15 +60,33 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEYS.theme, preferredTheme)
   }, [preferredTheme])
 
-  const setTheme = useCallback((t: Theme) => {
-    // 使用 View Transition 让明暗切换更顺滑（不支持的浏览器直接切换）
-    const doc = document as Document & { startViewTransition?: (cb: () => void) => void }
-    if (doc.startViewTransition && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      doc.startViewTransition(() => setThemeState(t))
-    } else {
-      setThemeState(t)
+  useEffect(() => {
+    const sync = () => {
+      document.documentElement.dataset.pageHidden = String(document.hidden)
     }
+    sync()
+    document.addEventListener('visibilitychange', sync)
+    return () => document.removeEventListener('visibilitychange', sync)
   }, [])
+
+  const setTheme = useCallback(
+    (t: Theme) => {
+      // 使用 View Transition 让明暗切换更顺滑（不支持的浏览器直接切换）
+      const doc = document as Document & {
+        startViewTransition?: (cb: () => void) => void
+      }
+      if (
+        appearance.effects !== 'off' &&
+        doc.startViewTransition &&
+        !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      ) {
+        doc.startViewTransition(() => setThemeState(t))
+      } else {
+        setThemeState(t)
+      }
+    },
+    [appearance.effects],
+  )
 
   const value = useMemo(
     () => ({

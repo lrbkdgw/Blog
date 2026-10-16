@@ -8,6 +8,7 @@ import { BackgroundProvider } from './lib/background'
 import { AuthProvider } from './lib/auth'
 import { ToastProvider } from './components/Toast'
 import './styles/index.css'
+import './styles/appearance.css'
 
 const basename = import.meta.env.BASE_URL.replace(/\/$/, '')
 

@@ -18,6 +18,12 @@
           if (dark) document.documentElement.classList.add('dark')
 
           var personalSettings = JSON.parse(localStorage.getItem('starlog:personal-settings') || 'null')
+          document.documentElement.dataset.design = 'blue'
+          var appearance = personalSettings && personalSettings.appearance
+          if (appearance && ['blue', 'aurora', 'forest', 'amber', 'rose', 'graphite'].indexOf(appearance.design) !== -1) {
+            document.documentElement.dataset.design = appearance.design
+          }
+          document.documentElement.dataset.effects = appearance && ['full', 'subtle', 'off'].indexOf(appearance.effects) !== -1 ? appearance.effects : 'full'
           var savedFont = (personalSettings && personalSettings.font) || JSON.parse(localStorage.getItem('starlog:font') || 'null')
           var savedFontSize = savedFont && typeof savedFont.sizePercent === 'number'
             ? savedFont.sizePercent

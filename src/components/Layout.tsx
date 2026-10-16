@@ -58,7 +58,7 @@ function ThemeToggle() {
 
 function Logo() {
   return (
-    <Link to="/" className="group flex shrink-0 items-center" aria-label="回到首页">
+    <Link to="/" className="group flex shrink-0 items-center gap-2.5" aria-label="回到首页">
       <img
         src={logoVenti}
         alt="温迪"
@@ -67,6 +67,7 @@ function Logo() {
         fetchPriority="high"
         className="h-10 w-10 rounded-xl object-cover shadow-md shadow-brand-600/20 ring-1 ring-black/5 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105 dark:ring-white/10"
       />
+      <span className="hidden text-sm font-semibold tracking-tight text-ink-900 lg:block dark:text-white">{siteConfig.title}</span>
     </Link>
   )
 }
@@ -97,7 +98,7 @@ function UserMenu() {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-ink-200 bg-gradient-to-br from-brand-400 to-indigo-600 text-xs font-bold text-white transition hover:ring-4 hover:ring-brand-500/15 dark:border-white/15"
+        className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-ink-200 bg-gradient-to-br from-brand-400 to-brand-700 text-xs font-bold text-white transition hover:ring-4 hover:ring-brand-500/15 dark:border-white/15"
         aria-label="账户菜单"
       >
         {ghUser?.avatar_url ? (
@@ -192,7 +193,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
                 <>
                   {item.label}
                   {isActive && (
-                    <span className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-brand-400 to-indigo-500" />
+                    <span className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-brand-400 to-brand-600" />
                   )}
                 </>
               )}
@@ -358,7 +359,7 @@ export function Layout() {
   }, [])
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="site-shell relative isolate flex min-h-screen flex-col">
       {/* 背景装饰 */}
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
         <div className="site-background-glow-primary absolute -left-40 -top-40 h-[32rem] w-[32rem] animate-float rounded-full blur-[110px]" />

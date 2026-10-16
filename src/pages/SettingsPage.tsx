@@ -44,6 +44,7 @@ import {
 } from '../lib/font'
 import { useBackground } from '../lib/background'
 import { useToast } from '../components/Toast'
+import { AppearancePicker } from '../components/AppearancePicker'
 import GithubConnect from '../components/GithubConnect'
 import { getRepoTarget, setRepoTarget } from '../lib/github'
 import { getLocalPosts, serializePost } from '../lib/posts'
@@ -363,6 +364,9 @@ export default function SettingsPage() {
       </header>
 
       <div className="space-y-5">
+        <Section title="主题与动效" desc="六种配色，两种明暗，一点属于你的氛围。" icon={Paintbrush}>
+          <AppearancePicker />
+        </Section>
         {/* ------------------------------ 多字体设置（优先级回退） ----------------------------- */}
         <Section
           title="字体与字号设置"

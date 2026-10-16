@@ -10,9 +10,9 @@ import path from 'node:path'
  * - Cloudflare Pages（https://<project>.pages.dev/）：构建环境自带 CF_PAGES，自动使用 "/"
  * 以上均可用环境变量 VITE_BASE_PATH 覆盖（GitHub Actions 中已自动注入仓库名）。
  */
-export default defineConfig(({ mode, command }) => {
+export default defineConfig(({ mode, command, isPreview }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const base = command === 'serve' ? '/' : env.VITE_BASE_PATH || (process.env.CF_PAGES ? '/' : '/Blog/')
+  const base = command === 'serve' && !isPreview ? '/' : env.VITE_BASE_PATH || (process.env.CF_PAGES ? '/' : '/Blog/')
 
   return {
     base,
