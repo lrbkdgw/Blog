@@ -1,6 +1,46 @@
 # 更新日志 · ChangeLog
 
-## 2026-10-16 · 五个背景场景按真实照片再做一轮（本次）
+## 2026-10-16 · 动态背景收敛为「樱花 / 粒子星链」两种场景（本次）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+动态背景此前有 8 种场景，按需求收敛为 2 种：**只保留「樱花」与「粒子星链」**，
+「雨夜 / 阳光 / 星空 / 极光 / 飘雪 / 海浪」六个场景连同上一轮为它们做的重做一起移除。
+10 套配色主题全部保留，只重新指派了「建议搭配场景」。
+
+### 移除
+- `src/components/AnimatedBackdrop.tsx`：删除 `createRain` / `createSunshine` / `createStars` /
+  `createAurora` / `createSnow` / `createWaves` 六个渲染器及其专用工具（`NEON`、`smearSprites` /
+  `smearFor` / `buildSmearSprites`、`project3` / `focal`、`buildCity(w, h)`、`paintWalls`、
+  `reflectionLayer`、`buildSea` / `dash` / `trough` / `warmSeaLayer` 等），以及只被它们使用的共享工具
+  （`createDeferred`、`makeNoise2D`、`mixHue`、`makeSoftDot`、`soften`、`makeSoftColumn`、`makeSoftStreak`）。
+  `createRenderer()` 只在 `sakura` / `network` 之间分发；文件从约 3600 行降到 807 行，注释与分节标题一并清理。
+- `src/lib/animatedBackground.ts`：`SceneId` 收敛为 `'none' | 'sakura' | 'network'`，
+  `SCENES` 只保留两条（樱花、粒子星链，各 5 项参数）。旧的本地偏好若存的是已移除场景，
+  `normalizePreference` 会把它回退为「无」，不会报错；参数滑块、延迟重建等公共逻辑保持不变。
+- `src/pages/SettingsPage.tsx`：场景选择只剩「无 / 樱花 / 粒子星链」三格（等宽排布），
+  清掉不再使用的图标导入，底部说明改写为「深色场景（粒子星链）…浅色场景（樱花）…」，
+  卡片描述从「八种动态场景…」改为「两种动态场景（樱花、粒子星链）」。
+- `src/lib/themes.ts`：10 套主题全部保留。「建议搭配场景」重新指派——深海青 / 极光紫 / 绯红 /
+  赛博霓虹 → 粒子星链，樱花粉 → 樱花，落日橙 / 森野绿 / 鎏金 → 无（原建议的雨夜 / 阳光 / 海浪 / 星空已不存在），
+  「深海青」的描述同步改写。
+- `src/components/Layout.tsx`、`src/lib/theme.tsx`：把注释里列举的旧场景名（雨夜 / 星空等）改成现存的例子。
+- `README.md`：功能表、主题建议表、动态背景场景表、目录树注释同步为两种场景；
+  删除上一轮针对已移除场景的「重做手段 / 性能对比」两大段，改为一小段说明（旧偏好会回退为「无」）。
+
+### 验证
+- `npm run build`（`tsc --noEmit && vite build`）通过（6.8s）。
+- 预览钻机里把两种场景各渲染成 IMG（1280×720、真实 2D 上下文 / Skia）：樱花、粒子星链均正常出图，
+  `errors 0`；首帧（含贴图烘焙）60ms / 99ms。
+- `tsc` 的 `noUnusedLocals` 同时充当死代码检查：只被删场景使用的工具都被逐一标出并清掉；
+  全仓库 grep 已无六种场景的残留引用。
+
+## 2026-10-16 · 五个背景场景按真实照片再做一轮（上一轮，本轮已移除）
 
 | 模型信息 | |
 | --- | --- |
@@ -49,7 +89,7 @@
 - `npm run extension:test`：57 通过 / 0 失败 / 4 跳过。
 - 参照物为公开的真实照片（雨夜街拍、湖上极光、银河、落日海浪），不包含任何第三方素材或新增依赖。
 
-## 2026-10-16 · 雨夜 / 阳光 / 星空 / 极光 / 海浪 五个场景重做（上一轮）
+## 2026-10-16 · 雨夜 / 阳光 / 星空 / 极光 / 海浪 五个场景重做（更早一轮，本轮已移除）
 
 | 模型信息 | |
 | --- | --- |

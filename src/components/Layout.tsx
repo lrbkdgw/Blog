@@ -374,7 +374,7 @@ export function Layout() {
           style={{ animationDelay: '-4s' }}
         />
         <div className="site-background-hairline absolute inset-x-0 top-0 h-px" />
-        {/* 动态背景（雨夜 / 阳光 / 星空）：放在最后，覆盖上面的光斑与渐变 */}
+        {/* 动态背景（樱花 / 粒子星链）：放在最后，覆盖上面的光斑与渐变 */}
         <AnimatedBackdropLayer />
       </div>
 

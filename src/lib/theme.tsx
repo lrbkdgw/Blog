@@ -31,7 +31,7 @@ interface ThemeCtx {
   /** 当前配色主题的元数据 */
   colorThemeMeta: ColorTheme
   setColorTheme: (id: string) => void
-  /** 明暗是否被动态场景临时覆盖（雨夜、星空等深色场景） */
+  /** 明暗是否被动态场景临时覆盖（粒子星链是深色场景，樱花是浅色场景） */
   toneOverridden: boolean
 }
 
@@ -89,7 +89,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const animated = useAnimatedBackground()
 
   const preferredTheme: Theme = mode === 'system' ? (systemDark ? 'dark' : 'light') : mode
-  // 深色/浅色基调的动态场景（如雨夜、星空）临时覆盖明暗配色，保证文字可读；
+  // 深色/浅色基调的动态场景（如粒子星链、樱花）临时覆盖明暗配色，保证文字可读；
   // 用户保存的偏好不变，关闭动态背景后自动恢复。
   const overridden = sceneToneOf(animated.scene)
   const theme: Theme = overridden ?? preferredTheme

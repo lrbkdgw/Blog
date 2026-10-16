@@ -24,13 +24,10 @@ import {
   RotateCcw,
   Save,
   ShieldAlert,
-  Snowflake,
   Sparkles,
-  Star,
   Sun,
   Trash2,
   Type,
-  Waves,
   X,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
@@ -98,14 +95,8 @@ function Section({
 
 const SCENE_OPTIONS: { id: SceneId; label: string; icon: typeof Github }[] = [
   { id: 'none', label: '无', icon: Ban },
-  { id: 'rain', label: '雨夜', icon: CloudRain },
-  { id: 'sunshine', label: '阳光', icon: Sun },
-  { id: 'stars', label: '星空', icon: Star },
-  { id: 'aurora', label: '极光', icon: Sparkles },
   { id: 'sakura', label: '樱花', icon: Flower2 },
-  { id: 'snow', label: '飘雪', icon: Snowflake },
   { id: 'network', label: '粒子星链', icon: Network },
-  { id: 'waves', label: '海浪', icon: Waves },
 ]
 
 /** 明暗模式选项（新增「跟随系统」） */
@@ -238,7 +229,7 @@ function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreferen
   const values = active ? getSceneValues(pref, active.id) : {}
   return (
     <>
-      <div role="radiogroup" aria-label="动态背景场景" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div role="radiogroup" aria-label="动态背景场景" className="grid grid-cols-3 gap-2">
         {SCENE_OPTIONS.map((option) => {
           const selected = pref.scene === option.id
           const Icon = option.icon
@@ -301,7 +292,7 @@ function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreferen
       )}
 
       <p className="mt-5 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
-        动态背景仅保存在本设备，不会同步到 GitHub。深色场景（雨夜、星空、极光、粒子星链）会让站点临时使用深色配色，浅色场景（阳光、樱花、飘雪、海浪）则临时使用浅色配色；关闭背景后恢复你的明暗设置。极光、海浪与粒子星链的颜色会跟随上面的配色主题。系统开启“减少动态效果”时，背景只显示静态画面。
+        动态背景仅保存在本设备，不会同步到 GitHub。深色场景（粒子星链）会让站点临时使用深色配色，浅色场景（樱花）则临时使用浅色配色；关闭背景后恢复你的明暗设置。粒子星链的颜色会跟随上面的配色主题。系统开启“减少动态效果”时，背景只显示静态画面。
       </p>
     </>
   )
@@ -846,7 +837,7 @@ export default function SettingsPage() {
         {/* ------------------------------ 动态背景 ------------------------------ */}
         <Section
           title="动态背景"
-          desc="八种动态场景（雨夜、阳光、星空、极光、樱花、飘雪、粒子星链、海浪），每种 5 项参数可调。背景显示在站点内容之下，不影响阅读。"
+          desc="两种动态场景（樱花、粒子星链），每种 5 项参数可调。背景显示在站点内容之下，不影响阅读。"
           icon={CloudRain}
         >
           <AnimatedBackgroundControls pref={animatedBackground} />
