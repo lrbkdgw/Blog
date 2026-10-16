@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { siteConfig } from '../lib/config'
 import { useTheme } from '../lib/theme'
+import { DEFAULT_COLOR_THEME } from '../lib/themes'
 import { useAuth } from '../lib/auth'
 import { AnimatedBackdrop } from './AnimatedBackdrop'
 import { useAnimatedBackground, getSceneValues } from '../lib/animatedBackground'
@@ -32,7 +33,10 @@ const NAV = [
 ]
 
 function ThemeToggle() {
-  const { theme, toggle } = useTheme()
+  const { theme, toggle, colorTheme } = useTheme()
+  // 开启配色主题后，明暗切换收进「配色主题」面板（面板里仍有浅色/深色/跟随系统），
+  // 页头不再重复占位。
+  if (colorTheme !== DEFAULT_COLOR_THEME) return null
   return (
     <button
       onClick={toggle}

@@ -225,6 +225,9 @@ function ColorThemeControls() {
       <p className="mt-4 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
         主题色阶通过 CSS 变量注入（<span className="font-mono">--brand-50…950</span>），因此按钮、链接、标签、光晕、
         代码高亮外框与动态背景会一起换色。配色主题与明暗模式只保存在本设备，不会写入仓库。
+        <br />
+        开启配色主题（不是默认的「星野蓝」）后，页头那个单独的明暗切换按钮会自动收起——明暗模式在上面这一行切换，
+        切回「星野蓝」按钮即恢复。
       </p>
     </>
   )
