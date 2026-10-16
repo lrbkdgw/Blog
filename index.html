@@ -6,49 +6,112 @@
     <title>个人博客</title>
     <meta name="description" content="一个支持 Markdown 与 KaTeX 的在线写作博客。" />
     <link rel="icon" type="image/png" href="%BASE_URL%favicon-venti.png" />
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfbfd" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d1017" />
-    <!-- 默认使用系统字体；管理员选择的本机字体会在 React 启动前先恢复。 -->
+    <!--
+      浏览器外壳（手机地址栏 / 状态栏）颜色。
+      这里只放一个不带 media 的标签，内容由下面的首屏脚本按「实际生效的明暗」写入，
+      ThemeProvider 挂载后会再按当前配色主题的页面底色精确改写一次。
+      旧写法是两个写死的 media 版（浅色 #fbfbfd / 深色 #0d1017），只跟随系统的
+      prefers-color-scheme：站内选了浅色而系统是深色时，顶栏就是一条黑带。
+    -->
+    <meta name="theme-color" content="#fbfbfd" />
+    <!--
+      默认字体栈（Google Sans → Noto Sans CJK SC；代码 Cascadia Code）写在
+      src/styles/index.css 的 :root 里；管理员选择的字体在 React 启动前先恢复，避免首屏闪字体。
+    -->
     <script>
-      // 防止主题与字体在首屏闪烁。
+      // 防止主题、字体与背景在首屏闪烁。
       ;(function () {
+        var root = document.documentElement
+        var systemDark = false
         try {
+          systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+        } catch (e) {}
+
+        // 明暗与浏览器顶栏颜色：单独一个 try，localStorage 不可用（无痕模式等）时
+        // 也要跟随系统，且不会被后面的字体 / 背景解析错误带偏。
+        try {
+          // 'system'（以及任何非法值）都要跟随系统；旧写法把 'system' 当成浅色，
+          // 系统深色的用户首屏会闪一下白底，浏览器顶栏也跟着闪白。
           var stored = localStorage.getItem('starlog:theme')
-          var dark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
-          if (dark) document.documentElement.classList.add('dark')
+          var dark = stored === 'dark' || (stored !== 'light' && systemDark)
+          if (dark) root.classList.add('dark')
+          var themeColor = document.querySelector('meta[name="theme-color"]')
+          if (themeColor) themeColor.setAttribute('content', dark ? '#0d1017' : '#fbfbfd')
+        } catch (e) {
+          if (systemDark) root.classList.add('dark')
+          var themeColorFallback = document.querySelector('meta[name="theme-color"]')
+          if (themeColorFallback) themeColorFallback.setAttribute('content', systemDark ? '#0d1017' : '#fbfbfd')
+        }
+
+        try {
+          // 三条回退栈必须与 src/styles/index.css、src/lib/font.tsx 保持一致。
+          var SANS_FALLBACK =
+            '"Google Sans", "Noto Sans CJK SC", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'
+          var SERIF_FALLBACK = '"Noto Serif SC", "Songti SC", STSong, SimSun, serif'
+          var MONO_FALLBACK =
+            '"Cascadia Code", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace'
+
+          /** 兼容三种历史写法：families 数组 / 单个 family 字符串 / 空 */
+          function cleanFamilies(list, single) {
+            var raw = Array.isArray(list)
+              ? list
+              : typeof single === 'string' && single.trim()
+                ? [single]
+                : []
+            return raw
+              .map(function (item) {
+                return typeof item === 'string' ? item.trim() : ''
+              })
+              .filter(function (item) {
+                return item && item.length <= 120 && !/[{};<>\n\r]/.test(item)
+              })
+          }
+          function quoteFamilies(list) {
+            return list
+              .map(function (family) {
+                return '"' + family.replace(/["\\]/g, '\\$&') + '"'
+              })
+              .join(', ')
+          }
 
           var personalSettings = JSON.parse(localStorage.getItem('starlog:personal-settings') || 'null')
-          var savedFont = (personalSettings && personalSettings.font) || JSON.parse(localStorage.getItem('starlog:font') || 'null')
-          var savedFontSize = savedFont && typeof savedFont.sizePercent === 'number'
-            ? savedFont.sizePercent
-            : NaN
+
+          // 配色主题也在首屏写入，避免先闪一下默认「星野蓝」再换肤。
+          // 新增主题时，除了 src/lib/themes.ts 与 src/styles/index.css 的色卡，还要在这里补 id。
+          var THEME_IDS = ['ocean', 'aurora', 'sakura', 'sunset', 'emerald', 'crimson', 'gold', 'cyber', 'mono']
+          var savedColorTheme =
+            personalSettings && typeof personalSettings.colorTheme === 'string' ? personalSettings.colorTheme : ''
+          if (THEME_IDS.indexOf(savedColorTheme) !== -1) {
+            root.setAttribute('data-starlog-theme', savedColorTheme)
+          }
+
+          var savedFont =
+            (personalSettings && personalSettings.font) || JSON.parse(localStorage.getItem('starlog:font') || 'null')
+
+          var savedFontSize = savedFont && typeof savedFont.sizePercent === 'number' ? savedFont.sizePercent : NaN
           if (isFinite(savedFontSize)) {
             savedFontSize = Math.round(Math.max(80, Math.min(130, savedFontSize)))
             if (savedFontSize !== 100) {
-              document.documentElement.style.setProperty('--site-font-size', savedFontSize + '%')
+              root.style.setProperty('--site-font-size', savedFontSize + '%')
             }
           }
-          var families = savedFont && Array.isArray(savedFont.families)
-            ? savedFont.families
-            : savedFont && typeof savedFont.family === 'string'
-              ? [savedFont.family]
-              : []
-          var validFamilies = families
-            .map(function (item) { return typeof item === 'string' ? item.trim() : '' })
-            .filter(function (item) { return item && item.length <= 120 && !/[{};<>\n\r]/.test(item) })
-          if (validFamilies.length) {
-            var quoted = validFamilies.map(function (family) { return '"' + family.replace(/["\\]/g, '\\$&') + '"' }).join(', ')
-            document.documentElement.style.setProperty(
-              '--font-sans',
-              quoted + ', system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif',
-            )
-            document.documentElement.style.setProperty(
-              '--font-serif',
-              quoted + ', "Noto Serif SC", "Songti SC", STSong, SimSun, serif',
-            )
+
+          var families = cleanFamilies(savedFont && savedFont.families, savedFont && savedFont.family)
+          if (families.length) {
+            var quoted = quoteFamilies(families)
+            root.style.setProperty('--font-sans', quoted + ', ' + SANS_FALLBACK)
+            root.style.setProperty('--font-serif', quoted + ', ' + SERIF_FALLBACK)
           }
 
-          var savedBackground = (personalSettings && personalSettings.background) || JSON.parse(localStorage.getItem('starlog:background') || 'null')
+          // 代码字体是独立的一组优先级；留空时用 CSS 里的默认等宽字体栈。
+          var monoFamilies = cleanFamilies(savedFont && savedFont.monoFamilies, savedFont && savedFont.monoFamily)
+          if (monoFamilies.length) {
+            root.style.setProperty('--font-mono', quoteFamilies(monoFamilies) + ', ' + MONO_FALLBACK)
+          }
+
+          var savedBackground =
+            (personalSettings && personalSettings.background) ||
+            JSON.parse(localStorage.getItem('starlog:background') || 'null')
           var color = savedBackground && typeof savedBackground.color === 'string' ? savedBackground.color.trim() : ''
           if (/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color)) {
             var hex = color.slice(1)
@@ -70,16 +133,19 @@
             var secondaryGreen = Math.round(green * 0.7 + 140 * 0.3)
             var secondaryBlue = Math.round(blue * 0.7 + 248 * 0.3)
 
-            document.documentElement.style.setProperty(
+            root.style.setProperty(
               '--site-background-tint-primary',
               'rgba(' + red + ', ' + green + ', ' + blue + ', ' + (alpha * 0.42 * intensity).toFixed(3) + ')',
             )
-            document.documentElement.style.setProperty(
+            root.style.setProperty(
               '--site-background-tint-secondary',
-              'rgba(' + secondaryRed + ', ' + secondaryGreen + ', ' + secondaryBlue + ', ' + (alpha * 0.3 * intensity).toFixed(3) + ')',
+              'rgba(' + secondaryRed + ', ' + secondaryGreen + ', ' + secondaryBlue + ', ' +
+                (alpha * 0.3 * intensity).toFixed(3) + ')',
             )
           }
-        } catch (e) {}
+        } catch (e) {
+          // 字体 / 背景偏好读取失败时，直接用 CSS 里的默认字体栈与默认背景。
+        }
       })()
     </script>
   </head>

@@ -24,7 +24,6 @@ import {
   RotateCcw,
   Save,
   ShieldAlert,
-  Sparkles,
   Sun,
   Trash2,
   Type,
@@ -46,6 +45,7 @@ import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
   useFont,
+  type FontTarget,
 } from '../lib/font'
 import { useBackground } from '../lib/background'
 import { useTheme } from '../lib/theme'
@@ -112,10 +112,6 @@ const MODE_OPTIONS = [
  */
 function ColorThemeControls() {
   const { colorTheme, setColorTheme, mode, setMode } = useTheme()
-  const animated = useAnimatedBackground()
-  const toast = useToast()
-  const selected = COLOR_THEMES.find((item) => item.id === colorTheme)
-  const suggestion = selected?.scene && selected.scene !== animated.scene ? selected : undefined
 
   return (
     <>
@@ -158,24 +154,12 @@ function ColorThemeControls() {
         })}
       </div>
 
-      {suggestion && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-brand-300/70 bg-brand-500/[0.05] px-3 py-2.5 dark:border-brand-400/30">
-          <Sparkles size={14} className="text-brand-500 dark:text-brand-300" />
-          <p className="text-xs text-ink-600 dark:text-ink-300">
-            「{suggestion.name}」适合搭配动态背景「{suggestion.sceneName}」
-          </p>
-          <button
-            type="button"
-            className="btn-outline ml-auto h-8 !px-3 text-xs"
-            onClick={() => {
-              setAnimatedScene(suggestion.scene as SceneId)
-              toast(`已切换到动态背景「${suggestion.sceneName}」`, 'success')
-            }}
-          >
-            一键套用
-          </button>
-        </div>
-      )}
+      {/*
+        这里原先有一条「某主题适合搭配动态背景某场景」的提示条，但主题的 `scene`
+        允许是 'none'（字符串 truthy），于是星野蓝 / 落日橙 / 森野绿 / 鎏金 / 墨白
+        都会弹出「适合搭配动态背景『无』」这种空提示（见 issue #55）。
+        搭配建议本来就已经写在每张色卡的描述文字里，因此整条提示移除。
+      */}
 
       <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-ink-200/70 pt-4 dark:border-white/10">
         <span className="text-xs font-medium text-ink-500">明暗模式</span>
@@ -293,7 +277,10 @@ function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreferen
   )
 }
 
-const PRESET_FONTS = [
+/** 正文字体的推荐预设（默认栈已经是 Google Sans → Noto Sans CJK SC）。 */
+const PRESET_SANS_FONTS = [
+  'Google Sans',
+  'Noto Sans CJK SC',
   'LXGW WenKai',
   '霞鹜文楷',
   'PingFang SC',
@@ -301,24 +288,211 @@ const PRESET_FONTS = [
   'Microsoft YaHei',
   'Noto Serif SC',
   'Source Han Serif SC',
-  'Fira Code',
-  'JetBrains Mono',
   'Inter',
   'Roboto',
 ]
 
+/** 代码字体的推荐预设（默认栈已经是 Cascadia Code）。 */
+const PRESET_MONO_FONTS = [
+  'Cascadia Code',
+  'JetBrains Mono',
+  'Fira Code',
+  'Maple Mono',
+  'Sarasa Mono SC',
+  'LXGW WenKai Mono',
+  'Source Code Pro',
+  'Roboto Mono',
+  'SF Mono',
+  'Consolas',
+]
+
+/**
+ * 一组字体的优先级编辑器：正文与代码各渲染一份（issue #54）。
+ * 排在前面的优先使用，缺字形时依次往后回退，最后落到站点默认字体栈。
+ */
+function FontPriorityEditor({
+  target,
+  title,
+  desc,
+  placeholder,
+  presets,
+  localFonts,
+  loadingFonts,
+  onReadLocalFonts,
+}: {
+  target: FontTarget
+  title: string
+  desc: string
+  placeholder: string
+  presets: string[]
+  localFonts: string[]
+  loadingFonts: boolean
+  onReadLocalFonts: () => void
+}) {
+  const { font, addFont, removeFont, moveFont } = useFont()
+  const toast = useToast()
+  const [input, setInput] = useState('')
+  const mono = target === 'mono'
+  const list = mono ? font.monoFamilies : font.families
+  const inputId = `font-${target}-input`
+  const suggestionsId = `font-${target}-suggestions`
+
+  const handleAdd = async (nameToAdd?: string) => {
+    const value = (nameToAdd || input).trim()
+    if (!value) return
+    try {
+      await addFont(value, target)
+      setInput('')
+      toast(`已将「${value}」加入${title}列表`, 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '字体名称格式错误', 'error')
+    }
+  }
+
+  return (
+    <div className="mt-5 border-t border-ink-200/70 pt-5 dark:border-white/10">
+      <div className="mb-1 flex flex-wrap items-baseline gap-x-2">
+        <p className="text-xs font-medium text-ink-500">{title}优先级</p>
+        <span className="font-mono text-[10px] text-ink-400">{mono ? '--font-mono' : '--font-sans'}</span>
+      </div>
+      <p className="mb-2.5 text-xs leading-relaxed text-ink-400">{desc}</p>
+
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input
+          id={inputId}
+          list={suggestionsId}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              void handleAdd()
+            }
+          }}
+          placeholder={placeholder}
+          className={`input flex-1 ${mono ? 'font-mono' : ''}`}
+          autoComplete="off"
+        />
+        <datalist id={suggestionsId}>
+          {[...new Set([...presets, ...localFonts])].map((fam) => (
+            <option key={fam} value={fam} />
+          ))}
+        </datalist>
+
+        <button
+          type="button"
+          onClick={() => void handleAdd()}
+          disabled={!input.trim()}
+          className="btn-primary h-10 shrink-0"
+        >
+          <Plus size={15} />
+          添加字体
+        </button>
+        <button
+          type="button"
+          onClick={onReadLocalFonts}
+          disabled={loadingFonts}
+          className="btn-outline h-10 shrink-0"
+        >
+          {loadingFonts ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+          {localFonts.length > 0 ? `本机 (${localFonts.length})` : '读取本机字体'}
+        </button>
+      </div>
+
+      {/* 推荐预设字体快捷点击 */}
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-ink-500">
+        <span>推荐常用：</span>
+        {presets.slice(0, 6).map((fam) => (
+          <button
+            key={fam}
+            type="button"
+            onClick={() => void handleAdd(fam)}
+            className="chip hover:bg-brand-50 hover:text-brand-600 dark:hover:bg-white/10"
+          >
+            + {fam}
+          </button>
+        ))}
+      </div>
+
+      {/* 已配置的字体列表（优先级排序） */}
+      <div className="mt-4 space-y-2">
+        <p className="text-xs font-medium text-ink-500">当前{title}优先级列表（排在前面的优先使用）：</p>
+        {list.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-ink-200 p-4 text-center text-xs text-ink-400 dark:border-white/10">
+            当前使用站点默认{title}栈。可在上方输入字体名称并点击“添加字体”。
+          </div>
+        ) : (
+          <div className="divide-y divide-ink-200/60 rounded-xl border border-ink-200/80 bg-ink-50/50 dark:divide-white/10 dark:border-white/10 dark:bg-white/[0.02]">
+            {list.map((fam, idx) => (
+              <div key={fam} className="flex items-center justify-between gap-3 px-3.5 py-2.5">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-500/10 font-mono text-[11px] font-bold text-brand-600 dark:text-brand-300">
+                    {idx + 1}
+                  </span>
+                  <span
+                    className={`truncate font-medium text-ink-800 dark:text-ink-100 ${mono ? 'font-mono' : ''}`}
+                    style={{ fontFamily: `"${fam}", ${mono ? 'monospace' : 'sans-serif'}` }}
+                  >
+                    {fam}
+                  </span>
+                  {idx === 0 && (
+                    <span className="shrink-0 rounded bg-brand-500/10 px-1.5 py-0.5 text-[10px] text-brand-600 dark:text-brand-300">
+                      最高优先级
+                    </span>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => void moveFont(idx, 'up', target)}
+                    disabled={idx === 0}
+                    title="提升优先级"
+                    className="btn-ghost h-7 w-7 !px-0 disabled:opacity-30"
+                  >
+                    <ArrowUp size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void moveFont(idx, 'down', target)}
+                    disabled={idx === list.length - 1}
+                    title="降低优先级"
+                    className="btn-ghost h-7 w-7 !px-0 disabled:opacity-30"
+                  >
+                    <ArrowDown size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await removeFont(fam, target)
+                      toast(`已从${title}列表移除「${fam}」`, 'info')
+                    }}
+                    title="移除字体"
+                    className="btn-ghost h-7 w-7 !px-0 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 实时样例：所见即所得，正文字体也用它检查中西文混排 */}
+      <p
+        className={`mt-3 rounded-xl border border-ink-200/70 bg-white/60 px-3 py-2 text-xs leading-relaxed text-ink-600 dark:border-white/10 dark:bg-white/[0.03] dark:text-ink-300 ${
+          mono ? 'font-mono' : ''
+        }`}
+      >
+        {mono ? 'const 星野 = 0x2A; // AaBbCc 0123 ->=> !==' : '星野笔记 Starlog · AaBbCc 0123'}
+      </p>
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const { isAuthed, ghUser, canPublish, connectGithub, disconnectGithub, logout } = useAuth()
-  const {
-    font,
-    accountSync,
-    addFont,
-    removeFont,
-    moveFont,
-    setFontSize,
-    resetFont,
-    saveForGithub,
-  } = useFont()
+  const { font, accountSync, setFontSize, resetFont, saveForGithub } = useFont()
   const {
     background,
     accountSync: backgroundAccountSync,
@@ -331,7 +505,6 @@ export default function SettingsPage() {
   const [editorScrollSync, setEditorScrollSync] = useEditorScrollSync()
 
   const [repo, setRepo] = useState(getRepoTarget())
-  const [newFontInput, setNewFontInput] = useState('')
   const [localFonts, setLocalFonts] = useState<string[]>([])
   const [loadingFonts, setLoadingFonts] = useState(false)
   const [savingFont, setSavingFont] = useState(false)
@@ -372,27 +545,6 @@ export default function SettingsPage() {
     } finally {
       setLoadingFonts(false)
     }
-  }
-
-  const handleAddFont = async (nameToAdd?: string) => {
-    const target = (nameToAdd || newFontInput).trim()
-    if (!target) return
-    try {
-      await addFont(target)
-      setNewFontInput('')
-      toast(`已将「${target}」加入字体列表`, 'success')
-    } catch (err) {
-      toast(err instanceof Error ? err.message : '字体名称格式错误', 'error')
-    }
-  }
-
-  const handleRemoveFont = async (target: string) => {
-    await removeFont(target)
-    toast(`已移除「${target}」`, 'info')
-  }
-
-  const handleMoveFont = async (index: number, direction: 'up' | 'down') => {
-    await moveFont(index, direction)
   }
 
   const saveFontToGithub = async () => {
@@ -471,7 +623,6 @@ export default function SettingsPage() {
     }
   }
 
-  const fontList = font.families || []
 
   return (
     <div className="container-page max-w-3xl pt-12">
@@ -498,10 +649,10 @@ export default function SettingsPage() {
           <ColorThemeControls />
         </Section>
 
-        {/* ------------------------------ 多字体设置（优先级回退） ----------------------------- */}
+        {/* --------------------- 字号 + 正文字体 / 代码字体两组优先级（issue #54） --------------------- */}
         <Section
           title="字体与字号设置"
-          desc="字号会按比例调整全站正文、标题、公式和界面文字；多个字体则按从上到下的优先级依次尝试渲染。"
+          desc="字号会按比例调整全站正文、标题、公式和界面文字；正文字体与代码字体是两组独立的优先级，各自按从上到下依次尝试渲染，留空则用站点默认字体栈。"
           icon={Type}
         >
           <div className="rounded-xl border border-ink-200/80 bg-ink-50/60 p-4 dark:border-white/10 dark:bg-white/[0.025]">
@@ -545,131 +696,31 @@ export default function SettingsPage() {
             </p>
           </div>
 
-          {/* 添加新字体 */}
-          <div className="mt-5 border-t border-ink-200/70 pt-5 dark:border-white/10">
-            <p className="mb-2 text-xs font-medium text-ink-500">字体优先级</p>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <input
-                id="font-family-input"
-                list="font-family-suggestions"
-                value={newFontInput}
-                onChange={(e) => setNewFontInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    handleAddFont()
-                  }
-                }}
-                placeholder="输入字体名称，例如：霞鹜文楷、PingFang SC、Fira Code"
-                className="input flex-1"
-                autoComplete="off"
-              />
-              <datalist id="font-family-suggestions">
-                {localFonts.map((fam) => (
-                  <option key={fam} value={fam} />
-                ))}
-                {PRESET_FONTS.map((fam) => (
-                  <option key={fam} value={fam} />
-                ))}
-              </datalist>
+          {/* 正文字体：一组优先级列表 */}
+          <FontPriorityEditor
+            target="sans"
+            title="正文字体"
+            desc="作用于文章正文、标题与界面文字。留空则使用站点默认栈：Google Sans → Noto Sans CJK SC → 系统字体。"
+            placeholder="输入字体名称，例如：Google Sans、霞鹜文楷、PingFang SC"
+            presets={PRESET_SANS_FONTS}
+            localFonts={localFonts}
+            loadingFonts={loadingFonts}
+            onReadLocalFonts={loadLocalFonts}
+          />
 
-              <button
-                type="button"
-                onClick={() => handleAddFont()}
-                disabled={!newFontInput.trim()}
-                className="btn-primary h-10 shrink-0"
-              >
-                <Plus size={15} />
-                添加字体
-              </button>
-              <button
-                type="button"
-                onClick={loadLocalFonts}
-                disabled={loadingFonts}
-                className="btn-outline h-10 shrink-0"
-              >
-                {loadingFonts ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
-                {localFonts.length > 0 ? `本机 (${localFonts.length})` : '读取本机字体'}
-              </button>
-            </div>
+          {/* 代码字体：单独一组优先级列表（issue #54） */}
+          <FontPriorityEditor
+            target="mono"
+            title="代码字体"
+            desc="作用于代码块、行内代码、快捷键与表格里的等宽文字。留空则使用站点默认栈：Cascadia Code → 系统等宽字体。"
+            placeholder="输入字体名称，例如：Cascadia Code、JetBrains Mono、Fira Code"
+            presets={PRESET_MONO_FONTS}
+            localFonts={localFonts}
+            loadingFonts={loadingFonts}
+            onReadLocalFonts={loadLocalFonts}
+          />
 
-          {/* 推荐预设字体快捷点击 */}
-          <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-ink-500">
-            <span>推荐常用：</span>
-            {PRESET_FONTS.slice(0, 6).map((fam) => (
-              <button
-                key={fam}
-                type="button"
-                onClick={() => handleAddFont(fam)}
-                className="chip hover:bg-brand-50 hover:text-brand-600 dark:hover:bg-white/10"
-              >
-                + {fam}
-              </button>
-            ))}
-          </div>
-
-          {/* 已配置的字体列表（优先级排序） */}
-          <div className="mt-4 space-y-2">
-            <p className="text-xs font-medium text-ink-500">当前字体优先级列表（排在前面的优先使用）：</p>
-            {fontList.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-ink-200 p-4 text-center text-xs text-ink-400 dark:border-white/10">
-                当前使用系统默认字体栈。可在上方输入字体名称并点击“添加字体”。
-              </div>
-            ) : (
-              <div className="divide-y divide-ink-200/60 rounded-xl border border-ink-200/80 bg-ink-50/50 dark:divide-white/10 dark:border-white/10 dark:bg-white/[0.02]">
-                {fontList.map((fam, idx) => (
-                  <div key={fam} className="flex items-center justify-between gap-3 px-3.5 py-2.5">
-                    <div className="flex items-center gap-2.5">
-                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-500/10 font-mono text-[11px] font-bold text-brand-600 dark:text-brand-300">
-                        {idx + 1}
-                      </span>
-                      <span
-                        className="font-medium text-ink-800 dark:text-ink-100"
-                        style={{ fontFamily: `"${fam}", sans-serif` }}
-                      >
-                        {fam}
-                      </span>
-                      {idx === 0 && (
-                        <span className="rounded bg-brand-500/10 px-1.5 py-0.5 text-[10px] text-brand-600 dark:text-brand-300">
-                          最高优先级
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => handleMoveFont(idx, 'up')}
-                        disabled={idx === 0}
-                        title="提升优先级"
-                        className="btn-ghost h-7 w-7 !px-0 disabled:opacity-30"
-                      >
-                        <ArrowUp size={13} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleMoveFont(idx, 'down')}
-                        disabled={idx === fontList.length - 1}
-                        title="降低优先级"
-                        className="btn-ghost h-7 w-7 !px-0 disabled:opacity-30"
-                      >
-                        <ArrowDown size={13} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveFont(fam)}
-                        title="移除字体"
-                        className="btn-ghost h-7 w-7 !px-0 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-ink-200/70 pt-5 dark:border-white/10">
             <button
               type="button"
               onClick={() => {
@@ -681,8 +732,9 @@ export default function SettingsPage() {
               <RotateCcw size={14} />
               恢复默认字体与字号
             </button>
-            <span className="text-xs text-ink-400">设置自动保存至当前浏览器</span>
-          </div>
+            <span className="text-xs text-ink-400">
+              会同时清空正文与代码字体，回到站点默认字体栈；设置自动保存至当前浏览器
+            </span>
           </div>
 
           {canPublish && ghUser ? (

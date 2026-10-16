@@ -8,9 +8,16 @@
 @layer base {
   :root {
     color-scheme: light;
-    --font-sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    /* ------------------------------------------------------------------ */
+    /*  默认字体栈（issue #54）                                             */
+    /*  正文按优先级：Google Sans → Noto Sans CJK SC → 系统字体；            */
+    /*  代码按优先级：Cascadia Code → 系统等宽字体。                          */
+    /*  这三条回退栈同时出现在 src/lib/font.tsx（用户自定义字体时接在后面）    */
+    /*  与 index.html 的首屏内联脚本里，改动时三处要一起改。                  */
+    /* ------------------------------------------------------------------ */
+    --font-sans: "Google Sans", "Noto Sans CJK SC", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     --font-serif: Georgia, "Songti SC", STSong, SimSun, "Noto Serif SC", serif;
-    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --font-mono: "Cascadia Code", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
     --site-font-size: 100%;
 
     /* ------------------------------------------------------------------ */
@@ -45,6 +52,12 @@
 
     --site-background: var(--theme-surface-light);
     --site-background-dark: var(--theme-surface-dark);
+    /*
+      吸顶页头 / 移动端折叠菜单的毛玻璃底色：直接取「当前配色主题的页面底色」。
+      以前这里写死 white 与 ink-950，页面底色却跟着配色主题、渐变背景色与动态背景变，
+      于是下滑后页头变成一条与页面脱节的白带（深色模式下是黑带）—— issue #53。
+    */
+    --site-header-surface: var(--theme-surface-light);
     /* 基础双渐变始终保留；设置页只在其上叠加选中的颜色。 */
     --site-background-glow-primary: var(--theme-glow-primary-light);
     --site-background-glow-secondary: var(--theme-glow-secondary-light);
@@ -262,6 +275,7 @@
     color-scheme: dark;
     --site-background-glow-primary: var(--theme-glow-primary-dark);
     --site-background-glow-secondary: var(--theme-glow-secondary-dark);
+    --site-header-surface: var(--theme-surface-dark);
   }
 
   html {
@@ -314,6 +328,61 @@
 @layer components {
   .container-page {
     @apply mx-auto w-full max-w-6xl px-5 sm:px-8;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  吸顶页头（issue #53：下滑后顶部变成一条与页面脱节的白 / 黑带）        */
+  /*  ① 底色取「当前配色主题的页面底色」--site-header-surface，不再写死     */
+  /*     white / ink-950，因此 10 套配色、自定义渐变背景与动态背景下页头都   */
+  /*     和页面同源，毛玻璃透出来的也是页面本身的颜色；                     */
+  /*  ② 未滚动时用「同一个颜色、alpha = 0」作为起点：background-color 的     */
+  /*     过渡始终在同一色系里插值。从 transparent（= rgba(0,0,0,0)）过渡到   */
+  /*     半透明白，非预乘插值的浏览器会先经过一层灰黑；                     */
+  /*  ③ 只过渡 background-color / border-color / box-shadow，不用           */
+  /*     transition-all（避免把 backdrop-filter 等属性也拖进过渡）；        */
+  /*  ④ 不支持 color-mix 的浏览器退回中性白 / 深色；不支持 backdrop-filter  */
+  /*     的浏览器改用接近不透明的底色，保证页头文字始终可读。                */
+  /* ------------------------------------------------------------------ */
+  .site-header {
+    border-bottom: 1px solid transparent;
+    background-color: rgba(255, 255, 255, 0);
+    background-color: color-mix(in srgb, var(--site-header-surface) 0%, transparent);
+    transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  }
+  .site-header[data-scrolled='true'] {
+    @apply border-ink-200/60 dark:border-white/[0.08];
+    background-color: rgba(255, 255, 255, 0.78);
+    background-color: color-mix(in srgb, var(--site-header-surface) 78%, transparent);
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 16px 34px -28px rgba(16, 24, 40, 0.45);
+    -webkit-backdrop-filter: blur(18px) saturate(1.5);
+    backdrop-filter: blur(18px) saturate(1.5);
+  }
+  .dark .site-header[data-scrolled='true'] {
+    background-color: rgba(13, 16, 23, 0.78);
+    background-color: color-mix(in srgb, var(--site-header-surface) 78%, transparent);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 18px 38px -28px rgba(0, 0, 0, 0.85);
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .site-header[data-scrolled='true'] {
+      background-color: var(--site-header-surface);
+    }
+  }
+  /* 移动端展开的导航面板：与页头同一套底色，只是更不透明一些 */
+  .site-header-panel {
+    @apply border-t border-ink-200/60 dark:border-white/10;
+    background-color: rgba(255, 255, 255, 0.95);
+    background-color: color-mix(in srgb, var(--site-header-surface) 95%, transparent);
+    -webkit-backdrop-filter: blur(18px) saturate(1.5);
+    backdrop-filter: blur(18px) saturate(1.5);
+  }
+  .dark .site-header-panel {
+    background-color: rgba(13, 16, 23, 0.95);
+    background-color: color-mix(in srgb, var(--site-header-surface) 95%, transparent);
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .site-header-panel {
+      background-color: var(--site-header-surface);
+    }
   }
 
   .card {
