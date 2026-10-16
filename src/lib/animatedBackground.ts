@@ -12,8 +12,6 @@ import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 
 export type SceneId = 'none' | 'sakura' | 'network'
 export type ActiveSceneId = Exclude<SceneId, 'none'>
-/** 场景的配色基调：深色场景会让站点临时使用深色配色，保证文字可读。 */
-export type SceneTone = 'light' | 'dark'
 
 export interface SceneParam {
   key: string
@@ -29,7 +27,6 @@ export interface SceneSpec {
   id: ActiveSceneId
   name: string
   desc: string
-  tone: SceneTone
   params: SceneParam[]
 }
 
@@ -37,8 +34,7 @@ export const SCENES: SceneSpec[] = [
 {
     id: 'sakura',
     name: '樱花',
-    desc: '浅色场景：花瓣旋转着飘落，近处的花瓣更清晰、远处更虚，背景飘着逆光散景。',
-    tone: 'light',
+    desc: '花瓣旋转着飘落，近处的花瓣更清晰、远处更虚，背景飘着逆光散景；画面会跟随明暗模式换成白昼或夜樱两套配色。',
     params: [
       { key: 'count', label: '花瓣数量', hint: '屏幕上同时存在的花瓣数', min: 0, max: 100, step: 1, default: 40 },
       { key: 'speed', label: '飘落速度', hint: '花瓣下落与旋转的快慢', min: 0, max: 100, step: 1, default: 50 },
@@ -50,8 +46,7 @@ export const SCENES: SceneSpec[] = [
 {
     id: 'network',
     name: '粒子星链',
-    desc: '深色场景：光点漂移并彼此连线，数据脉冲沿线滑动，鼠标附近会聚拢。',
-    tone: 'dark',
+    desc: '光点漂移并彼此连线，数据脉冲沿线滑动，鼠标附近会聚拢；画面会跟随明暗模式在暗夜与浅色星图之间切换。',
     params: [
       { key: 'density', label: '光点数量', hint: '粒子的多少', min: 0, max: 100, step: 1, default: 45 },
       { key: 'link', label: '连线距离', hint: '多远的粒子之间会出现连线', min: 0, max: 100, step: 1, default: 50 },
@@ -164,7 +159,3 @@ export function useAnimatedBackground(): AnimatedBackgroundPreference {
   return pref
 }
 
-/** 当前动态场景的配色基调；没有动态场景时返回 null（沿用用户的主题设置）。 */
-export function sceneToneOf(scene: SceneId): SceneTone | null {
-  return findScene(scene)?.tone ?? null
-}

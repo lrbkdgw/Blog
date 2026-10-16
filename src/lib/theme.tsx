@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { STORAGE_KEYS } from './config'
-import { sceneToneOf, useAnimatedBackground } from './animatedBackground'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 import {
   applyColorTheme,
@@ -17,7 +16,7 @@ type Theme = 'light' | 'dark'
 const COLOR_THEME_SETTING = 'colorTheme'
 
 interface ThemeCtx {
-  /** 实际生效的明暗：动态背景有自己的配色基调时以它为准，否则为用户的设置。 */
+  /** 实际生效的明暗（用户的设置 / 跟随系统）；动态背景会读取它来切换自己的配色。 */
   theme: Theme
   /** 用户保存的明暗偏好（不受动态背景影响）。 */
   preferredTheme: Theme
@@ -31,8 +30,6 @@ interface ThemeCtx {
   /** 当前配色主题的元数据 */
   colorThemeMeta: ColorTheme
   setColorTheme: (id: string) => void
-  /** 明暗是否被动态场景临时覆盖（粒子星链是深色场景，樱花是浅色场景） */
-  toneOverridden: boolean
 }
 
 const Ctx = createContext<ThemeCtx>({
@@ -45,7 +42,6 @@ const Ctx = createContext<ThemeCtx>({
   colorTheme: DEFAULT_COLOR_THEME,
   colorThemeMeta: findColorTheme(DEFAULT_COLOR_THEME)!,
   setColorTheme: () => {},
-  toneOverridden: false,
 })
 
 function readMode(): ThemeMode {
@@ -86,13 +82,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>(readMode)
   const [colorTheme, setColorThemeState] = useState<string>(readColorTheme)
   const systemDark = useSystemDark()
-  const animated = useAnimatedBackground()
 
   const preferredTheme: Theme = mode === 'system' ? (systemDark ? 'dark' : 'light') : mode
-  // 深色/浅色基调的动态场景（如粒子星链、樱花）临时覆盖明暗配色，保证文字可读；
-  // 用户保存的偏好不变，关闭动态背景后自动恢复。
-  const overridden = sceneToneOf(animated.scene)
-  const theme: Theme = overridden ?? preferredTheme
+  // 明暗完全由用户（或系统）决定；动态背景不再抢占明暗，而是自己按 theme 换一套配色
+  // （樱花有白昼 / 夜樱两版，粒子星链有暗夜 / 浅色星图两版）。
+  const theme: Theme = preferredTheme
 
   useEffect(() => {
     const root = document.documentElement
@@ -157,9 +151,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       colorTheme,
       colorThemeMeta: findColorTheme(colorTheme) ?? findColorTheme(DEFAULT_COLOR_THEME)!,
       setColorTheme,
-      toneOverridden: overridden !== null,
     }),
-    [theme, preferredTheme, mode, setMode, setTheme, colorTheme, setColorTheme, overridden],
+    [theme, preferredTheme, mode, setMode, setTheme, colorTheme, setColorTheme],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

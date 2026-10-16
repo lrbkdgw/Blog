@@ -111,7 +111,7 @@ const MODE_OPTIONS = [
  * 选中后全站的品牌色、光晕与底色一起切换，无需刷新。
  */
 function ColorThemeControls() {
-  const { colorTheme, setColorTheme, mode, setMode, toneOverridden } = useTheme()
+  const { colorTheme, setColorTheme, mode, setMode } = useTheme()
   const animated = useAnimatedBackground()
   const toast = useToast()
   const selected = COLOR_THEMES.find((item) => item.id === colorTheme)
@@ -206,11 +206,6 @@ function ColorThemeControls() {
             )
           })}
         </div>
-        {toneOverridden && (
-          <span className="text-xs leading-relaxed text-ink-400">
-            当前深色由动态场景的基调临时覆盖，关闭动态背景后会恢复你的明暗设置。
-          </span>
-        )}
       </div>
 
       <p className="mt-4 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
@@ -292,7 +287,7 @@ function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreferen
       )}
 
       <p className="mt-5 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
-        动态背景仅保存在本设备，不会同步到 GitHub。深色场景（粒子星链）会让站点临时使用深色配色，浅色场景（樱花）则临时使用浅色配色；关闭背景后恢复你的明暗设置。粒子星链的颜色会跟随上面的配色主题。系统开启“减少动态效果”时，背景只显示静态画面。
+        动态背景仅保存在本设备，不会同步到 GitHub。两种场景都会跟随上面的明暗模式：樱花有白昼（浅色）与夜樱（深色）两版配色，粒子星链有暗夜与浅色星图两版；粒子星链的颜色还会跟随配色主题。切换明暗时画面会立即重建，不需要关掉背景。系统开启“减少动态效果”时，背景只显示静态画面。
       </p>
     </>
   )
@@ -837,7 +832,7 @@ export default function SettingsPage() {
         {/* ------------------------------ 动态背景 ------------------------------ */}
         <Section
           title="动态背景"
-          desc="两种动态场景（樱花、粒子星链），每种 5 项参数可调。背景显示在站点内容之下，不影响阅读。"
+          desc="两种动态场景（樱花、粒子星链），每种 5 项参数可调，深浅色模式各有一套配色。背景显示在站点内容之下，不影响阅读。"
           icon={CloudRain}
         >
           <AnimatedBackgroundControls pref={animatedBackground} />

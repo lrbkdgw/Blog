@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
 import type { ActiveSceneId, SceneValues } from '../lib/animatedBackground'
+import { useTheme } from '../lib/theme'
 
 /**
- * 全屏动态背景（樱花 / 粒子星链）。
+ * 全屏动态背景（樱花 / 粒子星链），两种场景都跟随站点的明暗模式换一套配色。
  *
  * 画面构成分为三层，逐层叠加：
  *   ① 远景：一次性画进离屏 canvas 贴图（天空渐变、逆光光斑、暗角…），
@@ -28,6 +29,8 @@ interface Renderer {
   draw(ctx: CanvasRenderingContext2D): void
   /** 需要鼠标交互的场景（如粒子星链）可选实现 */
   pointer?(x: number, y: number): void
+  /** 明暗模式变化：重建与配色相关的贴图（粒子本身保留） */
+  setTone?(dark: boolean): void
 }
 
 /* ------------------------------ 通用工具 ------------------------------ */
@@ -245,7 +248,14 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
 
 /* -------------------------------- 樱花 -------------------------------- */
 
-function createSakura(): Renderer {
+/**
+ * 樱花：白昼 / 夜樱两套配色，跟随站点的明暗模式。
+ *
+ * 浅色 = 白昼：近白的粉调天空、左上角的逆光暖斑、粉色花簇与散景；
+ * 深色 = 夜樱：深紫夜色、淡粉月光下的花簇，浅粉花瓣在暗底上自己亮起来。
+ * 花瓣与小花瓣贴图不分明暗（浅粉在两种底色上都好看），只有烘焙的远景与散景重建。
+ */
+function createSakura(initialDark: boolean): Renderer {
   interface Petal {
     x: number
     y: number
@@ -261,6 +271,7 @@ function createSakura(): Renderer {
   }
   let width = 0
   let height = 0
+  let dark = initialDark
   let background: HTMLCanvasElement | null = null
   let sprites: HTMLCanvasElement[] = []
   let petals: Petal[] = []
@@ -290,86 +301,121 @@ function createSakura(): Renderer {
     }
   }
 
+  const buildSprites = () => {
+    const base = paint(64, 64, (ctx) => {
+      const gradient = ctx.createLinearGradient(12, 6, 52, 58)
+      gradient.addColorStop(0, 'rgba(255, 226, 238, 0.99)')
+      gradient.addColorStop(0.45, 'rgba(250, 176, 205, 0.97)')
+      gradient.addColorStop(1, 'rgba(226, 118, 165, 0.94)')
+      ctx.fillStyle = gradient
+      ctx.beginPath()
+      ctx.moveTo(32, 5)
+      ctx.bezierCurveTo(54, 13, 58, 40, 32, 59)
+      ctx.bezierCurveTo(6, 40, 10, 13, 32, 5)
+      ctx.closePath()
+      ctx.fill()
+      // 花瓣的浅色纹路与小缺口
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'
+      ctx.lineWidth = 1.4
+      ctx.beginPath()
+      ctx.moveTo(32, 10)
+      ctx.lineTo(30, 52)
+      ctx.stroke()
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'
+      ctx.beginPath()
+      ctx.moveTo(32, 16)
+      ctx.quadraticCurveTo(22, 26, 20, 36)
+      ctx.moveTo(32, 16)
+      ctx.quadraticCurveTo(42, 26, 44, 36)
+      ctx.stroke()
+    })
+    sprites = [base, blurCanvas(base, 2), blurCanvas(base, 4)]
+    // 散景：白昼是暖粉与奶白，夜里换成更饱和的洋红与淡紫，暗底上才吃得住
+    bokehSprites = dark
+      ? [
+          makeBokehSprite(255, 178, 214, 128, 0.42),
+          makeBokehSprite(238, 146, 200, 128, 0.36),
+          makeBokehSprite(198, 160, 255, 128, 0.3),
+        ]
+      : [
+          makeBokehSprite(255, 236, 244, 128, 0.4),
+          makeBokehSprite(255, 214, 232, 128, 0.35),
+          makeBokehSprite(255, 246, 236, 128, 0.3),
+        ]
+  }
+
+  const buildBackground = () => {
+    const w = width
+    const h = height
+    const clusters: [number, number, number][] = [
+      [w * 0.06, h * 0.1, Math.min(w, h) * 0.26],
+      [w * 0.94, h * 0.06, Math.min(w, h) * 0.22],
+      [w * 0.28, h * 0.02, Math.min(w, h) * 0.16],
+      [w * 0.72, h * 0.16, Math.min(w, h) * 0.12],
+    ]
+    background = paintBackground(w, h, (ctx) => {
+      const sky = ctx.createLinearGradient(0, 0, w * 0.6, h)
+      sky.addColorStop(0, dark ? '#150f20' : '#fffafc')
+      sky.addColorStop(0.5, dark ? '#1d1429' : '#fdf0f5')
+      sky.addColorStop(1, dark ? '#251832' : '#f8e6ef')
+      ctx.fillStyle = sky
+      ctx.fillRect(0, 0, w, h)
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      const warm = ctx.createRadialGradient(w * 0.2, h * 0.12, 0, w * 0.2, h * 0.12, Math.max(w, h) * 0.8)
+      if (dark) {
+        // 夜樱：月光般的淡粉 + 一点紫，代替白昼的逆光暖斑
+        warm.addColorStop(0, 'rgba(255, 190, 226, 0.4)')
+        warm.addColorStop(0.5, 'rgba(176, 150, 255, 0.14)')
+        warm.addColorStop(1, 'rgba(150, 130, 255, 0)')
+      } else {
+        warm.addColorStop(0, 'rgba(255, 232, 210, 0.9)')
+        warm.addColorStop(0.5, 'rgba(255, 226, 236, 0.35)')
+        warm.addColorStop(1, 'rgba(255, 226, 236, 0)')
+      }
+      ctx.fillStyle = warm
+      ctx.fillRect(0, 0, w, h)
+      // 远处的花枝与花簇：柔和的粉色团块，给画面加一层「景深」
+      const clusterRgb = dark ? '255, 168, 212' : '255, 216, 232'
+      const clusterLow = dark ? 0.1 : 0.14
+      const clusterHigh = dark ? 0.26 : 0.34
+      for (const [cx, cy, radius] of clusters) {
+        for (let i = 0; i < 26; i += 1) {
+          const a = rand(0, TAU)
+          const d = Math.sqrt(Math.random()) * radius
+          const px = cx + Math.cos(a) * d
+          const py = cy + Math.sin(a) * d * 0.6
+          const pr = rand(6, 20) * (1 - d / radius / 2)
+          const blob = ctx.createRadialGradient(px, py, 0, px, py, pr)
+          blob.addColorStop(0, `rgba(${clusterRgb}, ${rand(clusterLow, clusterHigh).toFixed(3)})`)
+          blob.addColorStop(1, `rgba(${clusterRgb}, 0)`)
+          ctx.fillStyle = blob
+          ctx.fillRect(px - pr, py - pr, pr * 2, pr * 2)
+        }
+      }
+      ctx.restore()
+      paintVignette(ctx, w, h, dark ? 0.34 : 0.16)
+      // 细噪点只留在浅色底上（大片浅色容易「糊」）；深色底上颗粒会被看成脏点
+      if (!dark) paintGrain(ctx, w, h, 0.04, true)
+    })
+  }
+
   return {
     fps: 30,
     setup(w, h) {
       width = w
       height = h
-      const base = paint(64, 64, (ctx) => {
-        const gradient = ctx.createLinearGradient(12, 6, 52, 58)
-        gradient.addColorStop(0, 'rgba(255, 226, 238, 0.99)')
-        gradient.addColorStop(0.45, 'rgba(250, 176, 205, 0.97)')
-        gradient.addColorStop(1, 'rgba(226, 118, 165, 0.94)')
-        ctx.fillStyle = gradient
-        ctx.beginPath()
-        ctx.moveTo(32, 5)
-        ctx.bezierCurveTo(54, 13, 58, 40, 32, 59)
-        ctx.bezierCurveTo(6, 40, 10, 13, 32, 5)
-        ctx.closePath()
-        ctx.fill()
-        // 花瓣的浅色纹路与小缺口
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'
-        ctx.lineWidth = 1.4
-        ctx.beginPath()
-        ctx.moveTo(32, 10)
-        ctx.lineTo(30, 52)
-        ctx.stroke()
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'
-        ctx.beginPath()
-        ctx.moveTo(32, 16)
-        ctx.quadraticCurveTo(22, 26, 20, 36)
-        ctx.moveTo(32, 16)
-        ctx.quadraticCurveTo(42, 26, 44, 36)
-        ctx.stroke()
-      })
-      sprites = [base, blurCanvas(base, 2), blurCanvas(base, 4)]
-      bokehSprites = [
-        makeBokehSprite(255, 236, 244, 128, 0.4),
-        makeBokehSprite(255, 214, 232, 128, 0.35),
-        makeBokehSprite(255, 246, 236, 128, 0.3),
-      ]
-      background = paintBackground(w, h, (ctx) => {
-        const sky = ctx.createLinearGradient(0, 0, w * 0.6, h)
-        sky.addColorStop(0, '#fffafc')
-        sky.addColorStop(0.5, '#fdf0f5')
-        sky.addColorStop(1, '#f8e6ef')
-        ctx.fillStyle = sky
-        ctx.fillRect(0, 0, w, h)
-        ctx.save()
-        ctx.globalCompositeOperation = 'lighter'
-        const warm = ctx.createRadialGradient(w * 0.2, h * 0.12, 0, w * 0.2, h * 0.12, Math.max(w, h) * 0.8)
-        warm.addColorStop(0, 'rgba(255, 232, 210, 0.9)')
-        warm.addColorStop(0.5, 'rgba(255, 226, 236, 0.35)')
-        warm.addColorStop(1, 'rgba(255, 226, 236, 0)')
-        ctx.fillStyle = warm
-        ctx.fillRect(0, 0, w, h)
-        // 远处的花枝与花簇：柔和的粉色团块，给画面加一层「景深」
-        const clusters: [number, number, number][] = [
-          [w * 0.06, h * 0.1, Math.min(w, h) * 0.26],
-          [w * 0.94, h * 0.06, Math.min(w, h) * 0.22],
-          [w * 0.28, h * 0.02, Math.min(w, h) * 0.16],
-          [w * 0.72, h * 0.16, Math.min(w, h) * 0.12],
-        ]
-        for (const [cx, cy, radius] of clusters) {
-          for (let i = 0; i < 26; i += 1) {
-            const a = rand(0, TAU)
-            const d = Math.sqrt(Math.random()) * radius
-            const px = cx + Math.cos(a) * d
-            const py = cy + Math.sin(a) * d * 0.6
-            const pr = rand(6, 20) * (1 - d / radius / 2)
-            const blob = ctx.createRadialGradient(px, py, 0, px, py, pr)
-            blob.addColorStop(0, `rgba(255, 216, 232, ${rand(0.14, 0.34).toFixed(3)})`)
-            blob.addColorStop(1, 'rgba(255, 216, 232, 0)')
-            ctx.fillStyle = blob
-            ctx.fillRect(px - pr, py - pr, pr * 2, pr * 2)
-          }
-        }
-        ctx.restore()
-        paintVignette(ctx, w, h, 0.16)
-        paintGrain(ctx, w, h, 0.04, true)
-      })
+      buildSprites()
+      buildBackground()
       petals = []
       resizeList(petals, target, () => spawn())
+    },
+    /** 明暗模式切换：只重建与配色相关的贴图，花瓣的位置与运动不打断 */
+    setTone(next) {
+      if (next === dark) return
+      dark = next
+      buildSprites()
+      buildBackground()
     },
     configure(values) {
       speed = values.speed ?? 50
@@ -396,17 +442,18 @@ function createSakura(): Renderer {
     draw(ctx) {
       if (background) ctx.drawImage(background, 0, 0, width, height)
 
-      // 背景散景：像逆光下的光斑，随花瓣一起慢慢飘
+      // 背景散景：像逆光下的光斑，随花瓣一起慢慢飘。
+      // 浅色底上用正常合成——加色会把大片浅色直接推成白团；夜间才用加色发光。
       if (bokehAmount > 0.03) {
         ctx.save()
-        ctx.globalCompositeOperation = 'lighter'
+        ctx.globalCompositeOperation = dark ? 'lighter' : 'source-over'
         for (let i = 0; i < bokehSprites.length; i += 1) {
           const sprite = bokehSprites[i]
           const phase = gust * (0.2 + i * 0.05)
           const bx = ((Math.sin(phase) * 0.5 + 0.5) * 1.2 - 0.1) * width
           const by = height * (0.2 + i * 0.26) + Math.sin(phase * 1.7) * 24
-          const size = Math.min(width, height) * (0.5 + i * 0.16)
-          ctx.globalAlpha = clamp(bokehAmount * (0.34 - i * 0.08), 0, 1)
+          const size = Math.min(width, height) * (0.4 + i * 0.13)
+          ctx.globalAlpha = clamp(bokehAmount * (dark ? 0.3 - i * 0.07 : 0.5 - i * 0.12), 0, 1)
           ctx.drawImage(sprite, bx - size / 2, by - size / 2, size, size)
         }
         ctx.restore()
@@ -434,7 +481,14 @@ function createSakura(): Renderer {
 
 /* ------------------------------ 粒子星链 ------------------------------ */
 
-function createNetwork(): Renderer {
+/**
+ * 粒子星链：暗夜 / 浅色星图两套画法，跟随站点的明暗模式。
+ *
+ * 深色底上用加色混合（lighter）画发光的点与线；浅色底上加色等于看不见，
+ * 于是浅色模式改用正常合成，并把主题色压深成「墨色」来画线，观感接近印在纸上的星图。
+ * 背景只留下大尺度的星云、网格与暗角——随机微粒与颗粒噪点已按要求去掉。
+ */
+function createNetwork(initialDark: boolean): Renderer {
   interface Node {
     x: number
     y: number
@@ -453,6 +507,7 @@ function createNetwork(): Renderer {
   }
   let width = 0
   let height = 0
+  let dark = initialDark
   let background: HTMLCanvasElement | null = null
   let glow: HTMLCanvasElement | null = null
   let sparkle: HTMLCanvasElement | null = null
@@ -465,6 +520,11 @@ function createNetwork(): Renderer {
   let glowStrength = 0.55
   let accent: [number, number, number] = [90, 139, 255]
   let accent2: [number, number, number] = [160, 120, 255]
+  let nodeRgb: [number, number, number] = [255, 255, 255]
+  let blend: 'lighter' | 'source-over' = 'lighter'
+  let linkAlpha = 0.42
+  let nodeAlpha = 0.95
+  let glowScale = 1
   const pointer = { x: -9999, y: -9999 }
 
   const spawn = (): Node => ({
@@ -485,69 +545,98 @@ function createNetwork(): Renderer {
     color: Math.random() < 0.5 ? 0 : 1,
   })
 
+  const buildAssets = () => {
+    const colors = themeColors()
+    accent = colors.rgb
+    const hue = toHsl(accent)
+    if (dark) {
+      blend = 'lighter'
+      accent2 = hslToRgb(hue.h + 40, 0.8, 0.62)
+      nodeRgb = [255, 255, 255]
+      linkAlpha = 0.42
+      nodeAlpha = 0.95
+      glowScale = 1
+    } else {
+      blend = 'source-over'
+      accent2 = hslToRgb(hue.h + 40, 0.72, 0.46)
+      nodeRgb = hslToRgb(hue.h, clamp(hue.s * 0.95, 0.35, 1), 0.38)
+      linkAlpha = 0.38
+      nodeAlpha = 0.88
+      glowScale = 0.45
+    }
+    // 64 像素的光晕贴图放大到几十像素时非常柔和，一张就够；不再另建大尺寸贴图
+    glow = makeGlowSprite(colors.rgb[0], colors.rgb[1], colors.rgb[2], 64)
+    // 星芒：深色底上是白光，浅色底上改成墨色
+    sparkle = dark ? makeSparkleSprite(255, 255, 255, 64) : makeSparkleSprite(nodeRgb[0], nodeRgb[1], nodeRgb[2], 64)
+
+    const accentCss = `${colors.rgb[0]},${colors.rgb[1]},${colors.rgb[2]}`
+    background = paintBackground(width, height, (ctx) => {
+      const w = width
+      const h = height
+      const sky = ctx.createLinearGradient(0, 0, 0, h)
+      if (dark) {
+        sky.addColorStop(0, '#03060f')
+        sky.addColorStop(0.6, '#070d1f')
+        sky.addColorStop(1, '#0a1229')
+      } else {
+        sky.addColorStop(0, '#fbfcff')
+        sky.addColorStop(0.6, '#f1f5fd')
+        sky.addColorStop(1, '#e7eefa')
+      }
+      ctx.fillStyle = sky
+      ctx.fillRect(0, 0, w, h)
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      // 主题色星云
+      const nebula = ctx.createRadialGradient(w * 0.3, h * 0.35, 0, w * 0.3, h * 0.35, Math.max(w, h) * 0.7)
+      nebula.addColorStop(0, `rgba(${accentCss},${dark ? 0.2 : 0.1})`)
+      nebula.addColorStop(0.6, `rgba(${accentCss},${dark ? 0.07 : 0.04})`)
+      nebula.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = nebula
+      ctx.fillRect(0, 0, w, h)
+      // 远处的地平线辉光
+      const horizon = ctx.createLinearGradient(0, h * 0.72, 0, h)
+      horizon.addColorStop(0, 'rgba(0,0,0,0)')
+      horizon.addColorStop(0.6, `rgba(${accentCss},${dark ? 0.1 : 0.05})`)
+      horizon.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = horizon
+      ctx.fillRect(0, h * 0.72, w, h * 0.28)
+      ctx.restore()
+      // 淡淡的技术网格
+      ctx.strokeStyle = dark ? `rgba(${accentCss},0.05)` : `rgba(${accentCss},0.09)`
+      ctx.lineWidth = 1
+      for (let x = 0; x <= w; x += 64) {
+        ctx.beginPath()
+        ctx.moveTo(x, 0)
+        ctx.lineTo(x, h)
+        ctx.stroke()
+      }
+      for (let y = 0; y <= h; y += 64) {
+        ctx.beginPath()
+        ctx.moveTo(0, y)
+        ctx.lineTo(w, y)
+        ctx.stroke()
+      }
+      paintVignette(ctx, w, h, dark ? 0.58 : 0.1)
+      // 颗粒噪点与随机微粒已移除：深色底上会被读成噪点，浅色底上也只会显脏
+    })
+  }
+
   return {
     fps: 30,
     setup(w, h) {
       width = w
       height = h
-      const colors = themeColors()
-      accent = colors.rgb
-      accent2 = hslToRgb(toHsl(colors.rgb).h + 40, 0.8, 0.62)
-      // 64 像素的光晕贴图放大到几十像素时非常柔和，一张就够；不再另建大尺寸贴图
-      glow = makeGlowSprite(colors.rgb[0], colors.rgb[1], colors.rgb[2], 64)
-      sparkle = makeSparkleSprite(255, 255, 255, 64)
-      background = paintBackground(w, h, (ctx) => {
-        const sky = ctx.createLinearGradient(0, 0, 0, h)
-        sky.addColorStop(0, '#03060f')
-        sky.addColorStop(0.6, '#070d1f')
-        sky.addColorStop(1, '#0a1229')
-        ctx.fillStyle = sky
-        ctx.fillRect(0, 0, w, h)
-        ctx.save()
-        ctx.globalCompositeOperation = 'lighter'
-        // 主题色星云 + 弥散的暗星
-        const nebula = ctx.createRadialGradient(w * 0.3, h * 0.35, 0, w * 0.3, h * 0.35, Math.max(w, h) * 0.7)
-        nebula.addColorStop(0, `rgba(${colors.rgb[0]},${colors.rgb[1]},${colors.rgb[2]},0.2)`)
-        nebula.addColorStop(0.6, `rgba(${colors.rgb[0]},${colors.rgb[1]},${colors.rgb[2]},0.07)`)
-        nebula.addColorStop(1, 'rgba(0,0,0,0)')
-        ctx.fillStyle = nebula
-        ctx.fillRect(0, 0, w, h)
-        for (let i = 0; i < 500 * areaFactor(w, h); i += 1) {
-          const sx = rand(0, w)
-          const sy = rand(0, h)
-          ctx.fillStyle = `rgba(220, 235, 255, ${rand(0.05, 0.4).toFixed(3)})`
-          const size = Math.random() < 0.05 ? 1.4 : 0.8
-          ctx.fillRect(sx, sy, size, size)
-        }
-        // 远处的地平线辉光
-        const horizon = ctx.createLinearGradient(0, h * 0.72, 0, h)
-        horizon.addColorStop(0, 'rgba(0,0,0,0)')
-        horizon.addColorStop(0.6, `rgba(${colors.rgb[0]},${colors.rgb[1]},${colors.rgb[2]},0.1)`)
-        horizon.addColorStop(1, 'rgba(0,0,0,0)')
-        ctx.fillStyle = horizon
-        ctx.fillRect(0, h * 0.72, w, h * 0.28)
-        ctx.restore()
-        // 淡淡的技术网格
-        ctx.strokeStyle = `rgba(${colors.rgb[0]},${colors.rgb[1]},${colors.rgb[2]},0.05)`
-        ctx.lineWidth = 1
-        for (let x = 0; x <= w; x += 64) {
-          ctx.beginPath()
-          ctx.moveTo(x, 0)
-          ctx.lineTo(x, h)
-          ctx.stroke()
-        }
-        for (let y = 0; y <= h; y += 64) {
-          ctx.beginPath()
-          ctx.moveTo(0, y)
-          ctx.lineTo(w, y)
-          ctx.stroke()
-        }
-        paintVignette(ctx, w, h, 0.58)
-        paintGrain(ctx, w, h, 0.05, true)
-      })
+      buildAssets()
       nodes = []
       packets = []
       resizeList(nodes, target, spawn)
+    },
+    /** 明暗模式切换：只重建贴图（点与连线的位置保留） */
+    setTone(next) {
+      if (next === dark) return
+      dark = next
+      buildAssets()
     },
     configure(values) {
       linkDistance = 90 + ((values.link ?? 50) / 100) * 180
@@ -599,9 +688,10 @@ function createNetwork(): Renderer {
       if (background) ctx.drawImage(background, 0, 0, width, height)
       const [r, g, b] = accent
       const [r2, g2, b2] = accent2
+      const [nr, ng, nb] = nodeRgb
 
       ctx.save()
-      ctx.globalCompositeOperation = 'lighter'
+      ctx.globalCompositeOperation = blend
       // 连线：越近越亮，并带一点主题色的偏移
       ctx.lineWidth = 1
       for (let i = 0; i < nodes.length; i += 1) {
@@ -614,7 +704,7 @@ function createNetwork(): Renderer {
           if (distanceSq > linkDistance * linkDistance) continue
           const distance = Math.sqrt(distanceSq)
           const fade = 1 - distance / linkDistance
-          ctx.strokeStyle = `rgba(${r},${g},${b},${(fade * 0.42).toFixed(3)})`
+          ctx.strokeStyle = `rgba(${r},${g},${b},${(fade * linkAlpha).toFixed(3)})`
           ctx.beginPath()
           ctx.moveTo(node.x, node.y)
           ctx.lineTo(other.x, other.y)
@@ -634,7 +724,9 @@ function createNetwork(): Renderer {
         const trail = 0.14
         const tx = from.x + (to.x - from.x) * Math.max(0, packet.t - trail)
         const ty = from.y + (to.y - from.y) * Math.max(0, packet.t - trail)
-        ctx.strokeStyle = packet.color ? `rgba(${r2},${g2},${b2},0.6)` : `rgba(${r},${g},${b},0.6)`
+        ctx.strokeStyle = packet.color
+          ? `rgba(${r2},${g2},${b2},${(linkAlpha * 1.4).toFixed(3)})`
+          : `rgba(${r},${g},${b},${(linkAlpha * 1.4).toFixed(3)})`
         ctx.lineWidth = 1.4
         ctx.beginPath()
         ctx.moveTo(tx, ty)
@@ -642,7 +734,7 @@ function createNetwork(): Renderer {
         ctx.stroke()
         if (glow && glowStrength > 0.04) {
           const size = 22
-          ctx.globalAlpha = 0.6 + 0.4 * glowStrength
+          ctx.globalAlpha = (0.6 + 0.4 * glowStrength) * glowScale
           ctx.drawImage(glow, px - size / 2, py - size / 2, size, size)
           ctx.globalAlpha = 1
         }
@@ -653,18 +745,18 @@ function createNetwork(): Renderer {
         const pulse = 0.7 + 0.3 * Math.sin(node.phase)
         const size = node.size * (5 + pulse * 4)
         if (glow && glowStrength > 0.04) {
-          ctx.globalAlpha = 0.5 * glowStrength * pulse
+          ctx.globalAlpha = 0.5 * glowStrength * pulse * glowScale
           ctx.drawImage(glow, node.x - size / 2, node.y - size / 2, size, size)
         }
         if (sparkle && glowStrength > 0.04 && node.size > 1.6) {
           const flare = node.size * 14 * pulse
-          ctx.globalAlpha = 0.5 * glowStrength * pulse
+          ctx.globalAlpha = 0.5 * glowStrength * pulse * glowScale
           ctx.drawImage(sparkle, node.x - flare / 2, node.y - flare / 2, flare, flare)
         }
-        ctx.globalAlpha = 0.95
-        ctx.fillStyle = 'rgba(255,255,255,0.95)'
+        ctx.globalAlpha = nodeAlpha
+        ctx.fillStyle = `rgba(${nr},${ng},${nb},1)`
         ctx.beginPath()
-        ctx.arc(node.x, node.y, node.size * 0.55, 0, TAU)
+        ctx.arc(node.x, node.y, node.size * (dark ? 0.55 : 0.72), 0, TAU)
         ctx.fill()
       }
       ctx.restore()
@@ -672,12 +764,12 @@ function createNetwork(): Renderer {
   }
 }
 
-function createRenderer(scene: ActiveSceneId): Renderer {
+function createRenderer(scene: ActiveSceneId, dark: boolean): Renderer {
   switch (scene) {
     case 'sakura':
-      return createSakura()
+      return createSakura(dark)
     case 'network':
-      return createNetwork()
+      return createNetwork(dark)
   }
 }
 
@@ -691,6 +783,11 @@ export function AnimatedBackdrop({ scene, values }: { scene: ActiveSceneId; valu
   // 始终保存最新参数，供窗口尺寸变化时的重建使用（避免回退到旧值）
   const valuesRef = useRef<SceneValues>(values)
   valuesRef.current = values
+  // 画面按站点的明暗模式换配色（樱花：白昼 / 夜樱；粒子星链：暗夜 / 浅色星图）
+  const { theme } = useTheme()
+  const dark = theme === 'dark'
+  const darkRef = useRef(dark)
+  darkRef.current = dark
 
   // 场景切换：重新创建渲染器与动画循环
   useEffect(() => {
@@ -699,7 +796,7 @@ export function AnimatedBackdrop({ scene, values }: { scene: ActiveSceneId; valu
     const ctx = canvas.getContext('2d', { alpha: false })
     if (!ctx) return
 
-    const renderer = createRenderer(scene)
+    const renderer = createRenderer(scene, darkRef.current)
     rendererRef.current = renderer
 
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -796,6 +893,14 @@ export function AnimatedBackdrop({ scene, values }: { scene: ActiveSceneId; valu
     rendererRef.current?.configure(valuesRef.current)
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) redrawRef.current?.()
   }, [valuesKey])
+
+  // 明暗切换：不打断动画循环，只让渲染器重建与配色相关的贴图
+  useEffect(() => {
+    rendererRef.current?.setTone?.(dark)
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) redrawRef.current?.()
+    // 场景切换的 effect 已用最新的 darkRef.current 建好渲染器，这里只处理「只换明暗」的情况
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dark])
 
   return (
     <canvas
