@@ -181,6 +181,40 @@ const PRESET_FONTS = [
   'Roboto',
 ]
 
+const PALETTES = [
+  { id: 'aurora', name: '极光幻境', colors: ['#7C5CFC', '#22D3EE', '#E879F9'] },
+  { id: 'sakura', name: '樱霞梦境', colors: ['#F472B6', '#C084FC', '#FDBA74'] },
+  { id: 'nebula', name: '深空星云', colors: ['#6366F1', '#38BDF8', '#A78BFA'] },
+  { id: 'ember', name: '琥珀流光', colors: ['#F59E0B', '#FB7185', '#FBBF24'] },
+  { id: 'mint', name: '薄荷秘境', colors: ['#10B981', '#2DD4BF', '#60A5FA'] },
+]
+
+function PalettePicker() {
+  const [selected, setSelected] = useState(() => {
+    if (typeof window === 'undefined') return 'aurora'
+    return localStorage.getItem('starlog:palette') || 'aurora'
+  })
+  useEffect(() => {
+    document.documentElement.dataset.palette = selected
+    localStorage.setItem('starlog:palette', selected)
+  }, [selected])
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      {PALETTES.map((palette) => (
+        <button key={palette.id} type="button" aria-pressed={selected === palette.id}
+          onClick={() => setSelected(palette.id)}
+          className={`palette-option ${selected === palette.id ? 'is-selected' : ''}`}>
+          <span className="flex gap-1.5">
+            {palette.colors.map((color) => <i key={color} style={{ background: color }} />)}
+          </span>
+          <span>{palette.name}</span>
+          {selected === palette.id && <Star size={14} className="ml-auto text-brand-500" />}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const { isAuthed, ghUser, canPublish, connectGithub, disconnectGithub, logout } = useAuth()
   const {
@@ -692,6 +726,12 @@ export default function SettingsPage() {
               访客设置已直接保存在本地。
             </p>
           )}
+        </Section>
+
+        {/* ------------------------------ 魔法色彩主题 ------------------------------ */}
+        <Section title="幻彩主题" desc="选择星云灵感配色，光效、边框与强调色将即时联动；偏好保存在本设备。" icon={Star}>
+          <PalettePicker />
+          <p className="mt-4 text-xs leading-relaxed text-ink-400">主题仅改变视觉配色，不影响文章内容；配合雨夜、阳光或星空动态背景，可获得更完整的氛围效果。</p>
         </Section>
 
         {/* ------------------------------ 动态背景 ------------------------------ */}

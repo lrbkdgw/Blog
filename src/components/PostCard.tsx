@@ -10,6 +10,7 @@ export function PostCard({ post, index = 0 }: { post: Post; index?: number }) {
       className="card group relative flex animate-fade-up flex-col overflow-hidden p-6 transition-all duration-300 hover:-translate-y-1 hover:border-brand-300/80 hover:shadow-[0_2px_4px_rgba(16,24,40,.04),0_24px_48px_-20px_rgba(53,99,246,.35)] dark:hover:border-brand-400/30"
       style={{ animationDelay: `${Math.min(index, 8) * 55}ms` }}
     >
+      <div className="card-prism" aria-hidden="true" />
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-400/60 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
       {post.cover && (
