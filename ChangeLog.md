@@ -43,6 +43,13 @@
   系统深色的用户会先闪一下白底，现在 `system` 与任何非法值都跟随系统；
   ② README 一直声称「首屏脚本会在 React 启动前写入 `<html data-starlog-theme>`」，但代码里并没有这一步，
   换肤用户首屏会闪一下默认「星野蓝」——补上 `THEME_IDS` 白名单与写入逻辑，文档与实现现在一致。
+- **CI 的 `verify` 作业从 PR #45 起一直是红的**（与本次三个 issue 无关，但它挡住了本次改动的验证）：
+  步骤「博客构建与扩展类型检查」里的 `npm --prefix vscode_extensions/v1 run typecheck` 会顺着 import
+  拉进博客的 `src/lib/posts.ts` 与 `src/lib/versionNames.ts`，这两个文件用了 Vite 专属的
+  `import.meta.glob`，而插件 tsconfig 的 `types` 只有 `node` / `vscode`，于是报
+  `TS2339: Property 'glob' does not exist on type 'ImportMeta'`。给插件 tsconfig 补上 `vite/client`
+  即可（vite 装在仓库根目录，插件的 `build.mjs` 本来就依赖根目录的 postcss / tailwindcss，
+  向上解析是既有约定而非新增耦合）。这两个文件运行时早有 try/catch 兜底，本次只补类型声明。
 - **改字体时假死**。`setFonts()` 会为本机没有的字体逐个 `await requestCloudFont()`，每个最多等 5 秒，
   而 `fonts.googleapis.com` 在部分网络下根本连不通，失败后又只是静默忽略——表现就是「点了没反应」。
   改为并行发起、不阻塞提交，字体到位后浏览器自己重排。
@@ -77,6 +84,7 @@
   移除推荐提示后没有留下未使用的导入（`Sparkles` 已删）。
 - 检查构建产物 CSS：`.site-header[data-scrolled=true]` 同时含中性回退值与 `color-mix(...)`，
   `@supports not (backdrop-filter…)` 分支与 `.dark` 分支都按预期生成。
+- `npm --prefix vscode_extensions/v1 run typecheck` 由**失败转为通过**（修 CI 前它在 HEAD 上就已经报错）。
 - `npm run extension:test`：61 项 —— 57 通过、4 跳过（需要 `BROWSER_EXECUTABLE_PATH`，本地无 Chromium）、0 失败。
   插件复用同一份 `src/styles/index.css`，新增的 `.site-header*` 规则会被作用域化到
   `.markdown-extension-preview` 下（预览里没有页头，属于无害的死规则），`body` / `:root` / `.dark`

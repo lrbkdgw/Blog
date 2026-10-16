@@ -13,9 +13,16 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
+    // vite/client：插件会顺着 import 复用博客的组件与 lib，其中 src/lib/posts.ts 与
+    // src/lib/versionNames.ts 用了 Vite 专属的 import.meta.glob（运行时已用 try/catch 兜底，
+    // 类型上也必须有声明）。少了这一项，`npm run typecheck` 会在这两个文件上报
+    // TS2339: Property 'glob' does not exist on type 'ImportMeta'，CI 的 verify 直接失败。
+    // vite 本身装在仓库根目录的 node_modules，而插件的 build.mjs 也依赖根目录的
+    // postcss / tailwindcss，因此这里向上解析到根目录是既有约定，不是新增耦合。
     "types": [
       "node",
-      "vscode"
+      "vscode",
+      "vite/client"
     ],
     "jsx": "react-jsx"
   },
