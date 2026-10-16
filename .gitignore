@@ -9,3 +9,7 @@ dist-ssg
 npm-debug.log*
 yarn-error.log*
 .vite
+
+# 本次开发的本地临时件（预览钻机 / 参考图），不入库
+.harness/
+image-search/
