@@ -26,8 +26,8 @@ import { PasswordPrompt } from '../components/PasswordPrompt'
 import { Toc } from '../components/Toc'
 import { Comments } from '../components/Comments'
 import { VersionCompare } from '../components/VersionCompare'
-import { resolvePendingImageSrc } from '../lib/updateQueue'
-import { getVersionName, setVersionName, VERSION_NAMES_CHANGED_EVENT } from '../lib/versionNames'
+import { enqueueVersionRename, resolvePendingImageSrc } from '../lib/updateQueue'
+import { resolveVersionName, setVersionName, VERSION_NAMES_CHANGED_EVENT } from '../lib/versionNames'
 import {
   buildPost,
   extractToc,
@@ -98,6 +98,8 @@ function HistoryDialog({
   versions,
   loading,
   error,
+  slug,
+  postTitle,
   onClose,
   onSelect,
   onCompare,
@@ -106,6 +108,8 @@ function HistoryDialog({
   versions: PostHistoryVersion[]
   loading: boolean
   error: string
+  slug: string
+  postTitle: string
   onClose: () => void
   onSelect: (version: PostHistoryVersion) => void
   onCompare: () => void
@@ -124,15 +128,28 @@ function HistoryDialog({
 
   const startRename = (version: PostHistoryVersion) => {
     setEditingSha(version.sha)
-    setEditingName(getVersionName(version.sha) ?? '')
+    setEditingName(resolveVersionName(version.sha, slug) ?? '')
   }
 
   const saveRename = (version: PostHistoryVersion) => {
     try {
       const trimmed = editingName.trim()
+      const current = resolveVersionName(version.sha, slug) ?? ''
+      if (trimmed === current) {
+        setEditingSha(null)
+        return
+      }
+      // 先记录到本地立即生效，同时加入待更新队列，统一更新后保存到 GitHub 对应文章下
       setVersionName(version.sha, trimmed || null)
+      enqueueVersionRename({ slug, title: postTitle }, version.sha, trimmed || null)
       setEditingSha(null)
-      toast(trimmed ? `版本名称已改为「${trimmed}」` : '已恢复默认版本名称', 'success')
+      toast(
+        trimmed
+          ? `版本名称已改为「${trimmed}」，已加入待更新队列`
+          : '已恢复默认版本名称，更改已加入待更新队列',
+        'success',
+        { label: '查看队列', href: '/admin?tab=queue' },
+      )
     } catch (err) {
       toast(err instanceof Error ? err.message : '保存版本名称失败', 'error')
     }
@@ -150,7 +167,7 @@ function HistoryDialog({
               文章历史版本
             </h2>
             <p className="mt-1 text-xs text-ink-400">
-              每次发布都会保留为一个 Git 提交，可在此查看任一版本；点击铅笔可修改版本名称（仅保存在本浏览器）。
+              每次发布都会保留为一个 Git 提交，可在此查看任一版本；点击铅笔可修改版本名称，更改会加入待更新队列，统一更新后保存到 GitHub 对应文章下。
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -179,7 +196,7 @@ function HistoryDialog({
             <p className="p-8 text-center text-sm text-ink-500">尚未找到可查看的历史版本。</p>
           ) : (
             versions.map((version, index) => {
-              const customName = getVersionName(version.sha)
+              const customName = resolveVersionName(version.sha, slug)
               if (editingSha === version.sha) {
                 return (
                   <div key={version.sha} className="flex items-center gap-2 px-5 py-3.5">
@@ -497,7 +514,7 @@ export default function PostPage() {
             <button type="button" onClick={openHistory} className="btn-ghost h-8 text-xs"><History size={13} />历史版本</button>
           </div>
         </div>
-        {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} onCompare={() => setCompareOpen(true)} selecting={selectingVersion} />}
+        {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} slug={historyBase.slug} postTitle={historyBase.title} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} onCompare={() => setCompareOpen(true)} selecting={selectingVersion} />}
         {compareOpen && <VersionCompare versions={history} slug={historyBase.slug} path={historyBase.path} onClose={() => setCompareOpen(false)} />}
       </>
     )
@@ -582,7 +599,7 @@ export default function PostPage() {
         </article>
         <Toc items={toc} />
       </div>
-      {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} onCompare={() => setCompareOpen(true)} selecting={selectingVersion} />}
+      {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} slug={historyBase.slug} postTitle={historyBase.title} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} onCompare={() => setCompareOpen(true)} selecting={selectingVersion} />}
       {compareOpen && <VersionCompare versions={history} slug={historyBase.slug} path={historyBase.path} onClose={() => setCompareOpen(false)} />}
       {showTop && <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="no-print card fixed bottom-6 left-6 z-40 flex h-10 w-10 animate-scale-in items-center justify-center !rounded-full text-ink-500 transition hover:text-brand-600 dark:hover:text-brand-300" aria-label="回到顶部"><ArrowUp size={17} /></button>}
     </>

@@ -85,6 +85,11 @@ const QUEUE_KIND_META: Record<
     icon: Settings,
     tone: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
   },
+  'version-name': {
+    label: '版本名称',
+    icon: PenLine,
+    tone: 'bg-sky-500/10 text-sky-600 dark:text-sky-300',
+  },
 }
 
 export default function Admin() {
@@ -207,7 +212,13 @@ export default function Admin() {
     () =>
       new Set(
         queue
-          .filter((item) => item.kind === 'post-publish' || item.kind === 'post-pr' || item.kind === 'post-delete')
+          .filter(
+            (item) =>
+              item.kind === 'post-publish' ||
+              item.kind === 'post-pr' ||
+              item.kind === 'post-delete' ||
+              item.kind === 'version-name',
+          )
           .map((item) => item.target),
       ),
     [queue],
@@ -893,7 +904,7 @@ export default function Admin() {
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-ink-400">
                         <span className="truncate">
-                          {item.kind === 'post-publish' || item.kind === 'post-delete' || item.kind === 'post-pr'
+                          {item.kind === 'post-publish' || item.kind === 'post-delete' || item.kind === 'post-pr' || item.kind === 'version-name'
                             ? `/${item.target}`
                             : item.target}
                         </span>
@@ -943,7 +954,7 @@ export default function Admin() {
           </div>
 
           <p className="mb-16 text-xs leading-relaxed text-ink-400">
-            更新时文件类更改（文章、图片、账号偏好）会合并为一次 Git 提交并触发一次部署；发表申请会逐个创建 PR。失败的条目会保留在队列中，可稍后重试。
+            更新时文件类更改（文章、图片、账号偏好、版本名称）会合并为一次 Git 提交并触发一次部署；发表申请会逐个创建 PR。失败的条目会保留在队列中，可稍后重试。
           </p>
         </div>
       )}
