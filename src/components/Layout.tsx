@@ -169,13 +169,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
   useEffect(() => setMobileOpen(false), [location.pathname])
 
   return (
-    <header
-      className={`no-print sticky top-0 z-50 transition-all duration-300 ${
-        scrolled
-          ? 'border-b border-ink-200/60 bg-white/75 backdrop-blur-xl dark:border-white/[0.08] dark:bg-ink-950/75'
-          : 'border-b border-transparent'
-      }`}
-    >
+    <header data-scrolled={scrolled ? 'true' : 'false'} className="site-header no-print sticky top-0 z-50">
       <div className="container-page flex h-16 items-center gap-3">
         <Logo />
 
@@ -247,7 +241,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
       </div>
 
       {mobileOpen && (
-        <div className="animate-fade-in border-t border-ink-200/60 bg-white/95 backdrop-blur-xl md:hidden dark:border-white/10 dark:bg-ink-950/95">
+        <div className="site-header-panel animate-fade-in md:hidden">
           <nav className="container-page flex flex-col py-3">
             {NAV.map((item) => (
               <NavLink
