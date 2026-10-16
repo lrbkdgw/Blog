@@ -5,7 +5,7 @@ import type { PostHistoryVersion } from '../lib/github'
 import { collapseContext, diffLines, diffStats } from '../lib/diff'
 import type { DiffLine } from '../lib/diff'
 import { Markdown } from './Markdown'
-import { getVersionName, VERSION_NAMES_CHANGED_EVENT } from '../lib/versionNames'
+import { resolveVersionName, VERSION_NAMES_CHANGED_EVENT } from '../lib/versionNames'
 
 type CompareMode = 'source' | 'render'
 
@@ -93,7 +93,7 @@ export function VersionCompare({
 
   const nameOf = (sha: string) => {
     void namesVersion
-    return getVersionName(sha)
+    return resolveVersionName(sha, slug)
   }
   const baseIndex = versions.findIndex((v) => v.sha === baseSha)
   const targetIndex = versions.findIndex((v) => v.sha === targetSha)
