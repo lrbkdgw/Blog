@@ -10,19 +10,27 @@ import {
   Columns2,
   Download,
   ExternalLink,
+  Flower2,
   Github,
+  Laptop,
   Loader2,
   LockKeyhole,
   LogOut,
+  Moon,
+  Network,
   Paintbrush,
+  Palette,
   Plus,
   RotateCcw,
   Save,
   ShieldAlert,
+  Snowflake,
+  Sparkles,
   Star,
   Sun,
   Trash2,
   Type,
+  Waves,
   X,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
@@ -43,6 +51,8 @@ import {
   useFont,
 } from '../lib/font'
 import { useBackground } from '../lib/background'
+import { useTheme } from '../lib/theme'
+import { COLOR_THEMES } from '../lib/themes'
 import { useToast } from '../components/Toast'
 import GithubConnect from '../components/GithubConnect'
 import { getRepoTarget, setRepoTarget } from '../lib/github'
@@ -91,14 +101,141 @@ const SCENE_OPTIONS: { id: SceneId; label: string; icon: typeof Github }[] = [
   { id: 'rain', label: '雨夜', icon: CloudRain },
   { id: 'sunshine', label: '阳光', icon: Sun },
   { id: 'stars', label: '星空', icon: Star },
+  { id: 'aurora', label: '极光', icon: Sparkles },
+  { id: 'sakura', label: '樱花', icon: Flower2 },
+  { id: 'snow', label: '飘雪', icon: Snowflake },
+  { id: 'network', label: '粒子星链', icon: Network },
+  { id: 'waves', label: '海浪', icon: Waves },
 ]
+
+/** 明暗模式选项（新增「跟随系统」） */
+const MODE_OPTIONS = [
+  { id: 'light', label: '浅色', icon: Sun },
+  { id: 'dark', label: '深色', icon: Moon },
+  { id: 'system', label: '跟随系统', icon: Laptop },
+] as const
+
+/**
+ * 配色主题：色卡即真实主题色（见 src/lib/themes.ts 与 styles/index.css）。
+ * 选中后全站的品牌色、光晕与底色一起切换，无需刷新。
+ */
+function ColorThemeControls() {
+  const { colorTheme, setColorTheme, mode, setMode, toneOverridden } = useTheme()
+  const animated = useAnimatedBackground()
+  const toast = useToast()
+  const selected = COLOR_THEMES.find((item) => item.id === colorTheme)
+  const suggestion = selected?.scene && selected.scene !== animated.scene ? selected : undefined
+
+  return (
+    <>
+      <div role="radiogroup" aria-label="配色主题" className="grid gap-2.5 sm:grid-cols-2">
+        {COLOR_THEMES.map((item) => {
+          const active = item.id === colorTheme
+          return (
+            <button
+              key={item.id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => setColorTheme(item.id)}
+              className={`group relative flex items-center gap-2.5 overflow-hidden rounded-xl border p-3 text-left transition ${
+                active
+                  ? 'border-brand-500/70 bg-brand-500/[0.08] shadow-[0_12px_30px_-20px_rgb(var(--brand-600)/0.9)]'
+                  : 'border-ink-200 bg-white/60 hover:-translate-y-0.5 hover:border-brand-300 dark:border-white/12 dark:bg-white/[0.03] dark:hover:border-brand-400/40'
+              }`}
+            >
+              <span className="flex h-9 w-14 shrink-0 overflow-hidden rounded-lg ring-1 ring-black/5 dark:ring-white/10">
+                {item.swatch.map((color) => (
+                  <span key={color} className="h-full flex-1" style={{ backgroundColor: color }} />
+                ))}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5">
+                  <span className="text-sm font-medium text-ink-900 dark:text-white">{item.name}</span>
+                  <span className="font-mono text-[10px] uppercase tracking-wide text-ink-400">{item.en}</span>
+                  {item.darkPreferred && (
+                    <span className="rounded-full bg-ink-900/[.06] px-1.5 py-0.5 text-[10px] text-ink-500 dark:bg-white/10 dark:text-ink-300">
+                      深色更佳
+                    </span>
+                  )}
+                </span>
+                <span className="mt-0.5 line-clamp-2 block text-xs leading-relaxed text-ink-400">{item.desc}</span>
+              </span>
+              {active && <CheckCircle2 size={16} className="shrink-0 text-brand-600 dark:text-brand-300" />}
+            </button>
+          )
+        })}
+      </div>
+
+      {suggestion && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-brand-300/70 bg-brand-500/[0.05] px-3 py-2.5 dark:border-brand-400/30">
+          <Sparkles size={14} className="text-brand-500 dark:text-brand-300" />
+          <p className="text-xs text-ink-600 dark:text-ink-300">
+            「{suggestion.name}」适合搭配动态背景「{suggestion.sceneName}」
+          </p>
+          <button
+            type="button"
+            className="btn-outline ml-auto h-8 !px-3 text-xs"
+            onClick={() => {
+              setAnimatedScene(suggestion.scene as SceneId)
+              toast(`已切换到动态背景「${suggestion.sceneName}」`, 'success')
+            }}
+          >
+            一键套用
+          </button>
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-ink-200/70 pt-4 dark:border-white/10">
+        <span className="text-xs font-medium text-ink-500">明暗模式</span>
+        <div
+          role="radiogroup"
+          aria-label="明暗模式"
+          className="flex gap-1 rounded-xl border border-ink-200/80 bg-ink-50/60 p-1 dark:border-white/10 dark:bg-white/[0.03]"
+        >
+          {MODE_OPTIONS.map((option) => {
+            const Icon = option.icon
+            const active = mode === option.id
+            return (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => setMode(option.id)}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+                  active
+                    ? 'bg-brand-500/12 text-brand-700 dark:text-brand-200'
+                    : 'text-ink-500 hover:text-ink-900 dark:text-ink-400 dark:hover:text-white'
+                }`}
+              >
+                <Icon size={13} />
+                {option.label}
+              </button>
+            )
+          })}
+        </div>
+        {toneOverridden && (
+          <span className="text-xs leading-relaxed text-ink-400">
+            当前深色由动态场景的基调临时覆盖，关闭动态背景后会恢复你的明暗设置。
+          </span>
+        )}
+      </div>
+
+      <p className="mt-4 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
+        主题色阶通过 CSS 变量注入（<span className="font-mono">--brand-50…950</span>），因此按钮、链接、标签、光晕、
+        代码高亮外框与动态背景会一起换色。配色主题与明暗模式只保存在本设备，不会写入仓库。
+      </p>
+    </>
+  )
+}
 
 function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreference }) {
   const active = pref.scene === 'none' ? undefined : findScene(pref.scene)
   const values = active ? getSceneValues(pref, active.id) : {}
   return (
     <>
-      <div role="radiogroup" aria-label="动态背景场景" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div role="radiogroup" aria-label="动态背景场景" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {SCENE_OPTIONS.map((option) => {
           const selected = pref.scene === option.id
           const Icon = option.icon
@@ -161,7 +298,7 @@ function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreferen
       )}
 
       <p className="mt-5 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
-        动态背景仅保存在本设备，不会同步到 GitHub。雨夜、星空等深色场景会让站点临时使用深色配色，关闭背景后恢复你的明暗设置。系统开启“减少动态效果”时，背景只显示静态画面。
+        动态背景仅保存在本设备，不会同步到 GitHub。深色场景（雨夜、星空、极光、粒子星链）会让站点临时使用深色配色，浅色场景（阳光、樱花、飘雪、海浪）则临时使用浅色配色；关闭背景后恢复你的明暗设置。极光、海浪与粒子星链的颜色会跟随上面的配色主题。系统开启“减少动态效果”时，背景只显示静态画面。
       </p>
     </>
   )
@@ -363,6 +500,15 @@ export default function SettingsPage() {
       </header>
 
       <div className="space-y-5">
+        {/* ------------------------------ 配色主题 ----------------------------- */}
+        <Section
+          title="配色主题"
+          desc="十套配色任选：品牌色、氛围光、页面底色与动态背景会一起换色，切换即时生效，不会丢失文章或草稿。"
+          icon={Palette}
+        >
+          <ColorThemeControls />
+        </Section>
+
         {/* ------------------------------ 多字体设置（优先级回退） ----------------------------- */}
         <Section
           title="字体与字号设置"
@@ -697,7 +843,7 @@ export default function SettingsPage() {
         {/* ------------------------------ 动态背景 ------------------------------ */}
         <Section
           title="动态背景"
-          desc="选择雨夜、阳光或星空等动态场景，并调整其参数。动态背景显示在站点内容之下，不影响阅读。"
+          desc="八种动态场景（雨夜、阳光、星空、极光、樱花、飘雪、粒子星链、海浪），每种 5 项参数可调。背景显示在站点内容之下，不影响阅读。"
           icon={CloudRain}
         >
           <AnimatedBackgroundControls pref={animatedBackground} />

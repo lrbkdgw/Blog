@@ -13,18 +13,23 @@ export default {
         mono: ['var(--font-mono)'],
       },
       colors: {
+        /**
+         * 品牌色阶改为引用 CSS 变量（`R G B` 三元组），
+         * 这样切换配色主题时全站所有 `bg-brand-500` 之类的类名自动跟随，
+         * 无需在每个组件里写主题分支。变量定义见 src/styles/index.css。
+         */
         brand: {
-          50: '#eef4ff',
-          100: '#d9e5ff',
-          200: '#bcd1ff',
-          300: '#8eb3ff',
-          400: '#5a8bff',
-          500: '#3563f6',
-          600: '#2044eb',
-          700: '#1a34d8',
-          800: '#1c2eae',
-          900: '#1d2d89',
-          950: '#151d53',
+          50: 'rgb(var(--brand-50) / <alpha-value>)',
+          100: 'rgb(var(--brand-100) / <alpha-value>)',
+          200: 'rgb(var(--brand-200) / <alpha-value>)',
+          300: 'rgb(var(--brand-300) / <alpha-value>)',
+          400: 'rgb(var(--brand-400) / <alpha-value>)',
+          500: 'rgb(var(--brand-500) / <alpha-value>)',
+          600: 'rgb(var(--brand-600) / <alpha-value>)',
+          700: 'rgb(var(--brand-700) / <alpha-value>)',
+          800: 'rgb(var(--brand-800) / <alpha-value>)',
+          900: 'rgb(var(--brand-900) / <alpha-value>)',
+          950: 'rgb(var(--brand-950) / <alpha-value>)',
         },
         ink: {
           50: '#f6f7f9',
@@ -64,24 +69,24 @@ export default {
         'scale-in': 'scale-in .25s cubic-bezier(.22,1,.36,1) both',
         float: 'float 9s ease-in-out infinite',
       },
-      typography: (theme) => ({
+      typography: () => ({
         DEFAULT: {
           css: {
-            '--tw-prose-body': theme('colors.ink.700'),
-            '--tw-prose-headings': theme('colors.ink.900'),
-            '--tw-prose-links': theme('colors.brand.600'),
-            '--tw-prose-quotes': theme('colors.ink.600'),
+            '--tw-prose-body': '#434b62',
+            '--tw-prose-headings': '#191d2b',
+            '--tw-prose-links': 'rgb(var(--brand-600))',
+            '--tw-prose-quotes': '#525c78',
             maxWidth: 'none',
             a: {
               textDecoration: 'none',
-              borderBottom: `1px solid ${theme('colors.brand.300')}`,
+              borderBottom: '1px solid rgb(var(--brand-300))',
               fontWeight: '500',
               transition: 'all .15s ease',
-              '&:hover': { borderBottomColor: theme('colors.brand.500'), color: theme('colors.brand.700') },
+              '&:hover': { borderBottomColor: 'rgb(var(--brand-500))', color: 'rgb(var(--brand-700))' },
             },
             code: {
               fontWeight: '500',
-              background: theme('colors.ink.100'),
+              background: '#eceef2',
               padding: '.15em .4em',
               borderRadius: '.35rem',
               fontSize: '.875em',
@@ -93,9 +98,9 @@ export default {
         },
         invert: {
           css: {
-            '--tw-prose-body': theme('colors.ink.300'),
-            '--tw-prose-headings': theme('colors.ink.50'),
-            '--tw-prose-links': theme('colors.brand.300'),
+            '--tw-prose-body': '#b0b8c9',
+            '--tw-prose-headings': '#f6f7f9',
+            '--tw-prose-links': 'rgb(var(--brand-300))',
             code: { background: 'rgba(255,255,255,.08)' },
           },
         },

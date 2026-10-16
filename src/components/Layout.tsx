@@ -21,6 +21,7 @@ import { useAuth } from '../lib/auth'
 import { AnimatedBackdrop } from './AnimatedBackdrop'
 import { useAnimatedBackground, getSceneValues } from '../lib/animatedBackground'
 import { SearchDialog } from './SearchDialog'
+import { ThemePicker } from './ThemePicker'
 import logoVenti from '../assets/logo-venti.jpg'
 
 const NAV = [
@@ -219,6 +220,8 @@ function Header({ onSearch }: { onSearch: () => void }) {
           <Link to="/settings" className="btn-ghost h-9 w-9 !px-0 text-ink-500 hover:text-brand-600 dark:text-ink-400 dark:hover:text-brand-300" title="设置" aria-label="设置">
             <Settings size={18} />
           </Link>
+
+          <ThemePicker />
 
           <ThemeToggle />
 

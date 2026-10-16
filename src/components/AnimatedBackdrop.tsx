@@ -2,18 +2,20 @@ import { useEffect, useRef } from 'react'
 import type { ActiveSceneId, SceneValues } from '../lib/animatedBackground'
 
 /**
- * 全屏动态背景（雨夜 / 阳光 / 星空）。
+ * 全屏动态背景（雨夜 / 阳光 / 星空 / 极光 / 樱花 / 飘雪 / 粒子星链 / 海浪）。
+ *
+ * 画面构成分为三层，逐层叠加：
+ *   ① 远景：一次性画进离屏 canvas 贴图（天空渐变、城市灯火、银河、光斑、暗角…），
+ *      每帧只做一次 drawImage，因此再华丽也不增加逐帧开销；
+ *   ② 中景：流动的粒子与光效（雨丝、花瓣、极光帘幕、波浪…）；
+ *   ③ 光效：光晕、辉光、闪光、镜头光斑等，统一用 screen / lighter 叠加，
+ *      得到类似「泛光」的观感。
  *
  * 性能策略：
- *   - 单个 canvas，像素比上限 1.5，避免高分屏上的过度绘制；
- *   - 背景渐变预先绘制到离屏 canvas，每帧只做一次图像拷贝；
- *   - 粒子数量按屏幕面积缩放，并设定上限；
- *   - 星星与尘埃使用预渲染的光晕贴图（drawImage），避免每帧创建渐变；
- *   - 帧率按场景限制（雨 60fps，阳光/星空 30fps）；
- *   - 标签页隐藏时暂停动画；
- *   - 系统开启“减少动态效果”时只绘制一帧静态画面。
- *
- * 画面：canvas 固定铺满视口，位于内容下方（由 Layout 放在 -z-10 的装饰层中）。
+ *   - 单个 canvas，像素比上限 1.5；
+ *   - 所有光点、花瓣、星芒、光斑都用预渲染贴图 + drawImage，绝不在逐帧循环里创建渐变；
+ *   - 粒子数量按屏幕面积缩放并设上限，各场景有各自的帧率上限；
+ *   - 标签页隐藏时暂停动画，系统开启「减少动态效果」时只绘制一帧静态画面。
  */
 
 interface Renderer {
@@ -24,12 +26,15 @@ interface Renderer {
   configure(values: SceneValues): void
   step(dt: number): void
   draw(ctx: CanvasRenderingContext2D): void
+  /** 需要鼠标交互的场景（如粒子星链）可选实现 */
+  pointer?(x: number, y: number): void
 }
 
 /* ------------------------------ 通用工具 ------------------------------ */
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 const rand = (min: number, max: number) => min + Math.random() * (max - min)
+const TAU = Math.PI * 2
 
 /** 粒子数量随屏幕面积缩放（相对 1440×900），限制在 0.5–2.2 倍之间 */
 function areaFactor(width: number, height: number) {
@@ -42,25 +47,8 @@ function resizeList<T>(list: T[], target: number, make: () => T) {
   while (list.length < target) list.push(make())
 }
 
-/** 预渲染的径向光晕贴图（一次性创建，之后用 drawImage 复用） */
-function makeGlowSprite(r: number, g: number, b: number): HTMLCanvasElement {
-  const canvas = document.createElement('canvas')
-  canvas.width = 64
-  canvas.height = 64
-  const ctx = canvas.getContext('2d')
-  if (ctx) {
-    const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32)
-    gradient.addColorStop(0, `rgba(${r},${g},${b},1)`)
-    gradient.addColorStop(0.3, `rgba(${r},${g},${b},0.4)`)
-    gradient.addColorStop(1, `rgba(${r},${g},${b},0)`)
-    ctx.fillStyle = gradient
-    ctx.fillRect(0, 0, 64, 64)
-  }
-  return canvas
-}
-
-/** 把背景绘制到离屏 canvas，之后每帧直接贴图 */
-function paintBackground(width: number, height: number, painter: (ctx: CanvasRenderingContext2D) => void) {
+/** 新建离屏 canvas 并交给 painter 绘制（用于预渲染贴图） */
+function paint(width: number, height: number, painter: (ctx: CanvasRenderingContext2D) => void) {
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round(width))
   canvas.height = Math.max(1, Math.round(height))
@@ -68,6 +56,168 @@ function paintBackground(width: number, height: number, painter: (ctx: CanvasRen
   if (ctx) painter(ctx)
   return canvas
 }
+
+/** 背景贴图：视口尺寸，一次画好之后每帧只贴图 */
+function paintBackground(width: number, height: number, painter: (ctx: CanvasRenderingContext2D) => void) {
+  return paint(width, height, painter)
+}
+
+/** 柔和的圆形光晕（颜色 + 半径），用于光点、星芒、浮尘 */
+function makeGlowSprite(r: number, g: number, b: number, size = 64): HTMLCanvasElement {
+  return paint(size, size, (ctx) => {
+    const half = size / 2
+    const gradient = ctx.createRadialGradient(half, half, 0, half, half, half)
+    gradient.addColorStop(0, `rgba(${r},${g},${b},1)`)
+    gradient.addColorStop(0.22, `rgba(${r},${g},${b},0.55)`)
+    gradient.addColorStop(0.55, `rgba(${r},${g},${b},0.14)`)
+    gradient.addColorStop(1, `rgba(${r},${g},${b},0)`)
+    ctx.fillStyle = gradient
+    ctx.fillRect(0, 0, size, size)
+  })
+}
+
+/** 散景光斑：内部柔和、边缘略亮的一圈，比纯光晕更像镜头虚化 */
+function makeBokehSprite(r: number, g: number, b: number, size = 128, rim = 0.55): HTMLCanvasElement {
+  return paint(size, size, (ctx) => {
+    const half = size / 2
+    const gradient = ctx.createRadialGradient(half, half, 0, half, half, half)
+    gradient.addColorStop(0, `rgba(${r},${g},${b},0.42)`)
+    gradient.addColorStop(0.62, `rgba(${r},${g},${b},0.30)`)
+    gradient.addColorStop(0.86, `rgba(${r},${g},${b},${rim.toFixed(3)})`)
+    gradient.addColorStop(0.97, `rgba(${r},${g},${b},${(rim * 0.35).toFixed(3)})`)
+    gradient.addColorStop(1, `rgba(${r},${g},${b},0)`)
+    ctx.fillStyle = gradient
+    ctx.fillRect(0, 0, size, size)
+  })
+}
+
+/** 四芒星闪光：两条交叉的细渐变 + 中心光点，用于星芒、雪光、浪花泡沫 */
+function makeSparkleSprite(r: number, g: number, b: number, size = 64): HTMLCanvasElement {
+  return paint(size, size, (ctx) => {
+    const half = size / 2
+    const beam = (horizontal: boolean) => {
+      const gradient = horizontal
+        ? ctx.createLinearGradient(0, half, size, half)
+        : ctx.createLinearGradient(half, 0, half, size)
+      gradient.addColorStop(0, `rgba(${r},${g},${b},0)`)
+      gradient.addColorStop(0.5, `rgba(${r},${g},${b},0.95)`)
+      gradient.addColorStop(1, `rgba(${r},${g},${b},0)`)
+      ctx.fillStyle = gradient
+      if (horizontal) ctx.fillRect(0, half - size * 0.028, size, size * 0.056)
+      else ctx.fillRect(half - size * 0.028, 0, size * 0.056, size)
+    }
+    beam(true)
+    beam(false)
+    const core = ctx.createRadialGradient(half, half, 0, half, half, half * 0.34)
+    core.addColorStop(0, `rgba(255,255,255,0.95)`)
+    core.addColorStop(0.45, `rgba(${r},${g},${b},0.6)`)
+    core.addColorStop(1, `rgba(${r},${g},${b},0)`)
+    ctx.fillStyle = core
+    ctx.fillRect(0, 0, size, size)
+  })
+}
+
+/** 模糊：先缩小再放大（兼容性好，不需要 ctx.filter） */
+function blurCanvas(source: HTMLCanvasElement, factor = 3): HTMLCanvasElement {
+  const small = paint(source.width / factor, source.height / factor, (ctx) => {
+    ctx.drawImage(source, 0, 0, source.width / factor, source.height / factor)
+  })
+  return paint(source.width, source.height, (ctx) => {
+    const previous = ctx.imageSmoothingQuality
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(small, 0, 0, source.width, source.height)
+    ctx.imageSmoothingQuality = previous
+  })
+}
+
+/** 暗角：烘焙进背景贴图（免费），让画面中心更聚焦 */
+function paintVignette(ctx: CanvasRenderingContext2D, w: number, h: number, strength: number) {
+  const gradient = ctx.createRadialGradient(w * 0.5, h * 0.45, Math.min(w, h) * 0.2, w * 0.5, h * 0.5, Math.hypot(w, h) * 0.62)
+  gradient.addColorStop(0, 'rgba(0,0,0,0)')
+  gradient.addColorStop(1, `rgba(0,0,0,${strength.toFixed(3)})`)
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, w, h)
+}
+
+/** 细腻噪点：让大面积渐变不出现色带（只在建立背景时画一次） */
+function paintGrain(ctx: CanvasRenderingContext2D, w: number, h: number, alpha: number, light = true) {
+  const step = 2
+  const tone = light ? '255,255,255' : '0,0,0'
+  for (let y = 0; y < h; y += step) {
+    for (let x = 0; x < w; x += step) {
+      if (Math.random() > 0.86) {
+        ctx.fillStyle = `rgba(${tone},${(Math.random() * alpha).toFixed(3)})`
+        ctx.fillRect(x, y, step, step)
+      }
+    }
+  }
+}
+
+/** 读取当前配色主题的主色，让动态背景也能跟着主题换色 */
+function themeColors(): { accent: string; soft: string; rgb: [number, number, number] } {
+  const fallback: [number, number, number] = [53, 99, 246]
+  if (typeof window === 'undefined') return { accent: '#3563f6', soft: '#5a8bff', rgb: fallback }
+  const styles = getComputedStyle(document.documentElement)
+  const accent = styles.getPropertyValue('--theme-accent').trim() || '#3563f6'
+  const soft = styles.getPropertyValue('--theme-accent-soft').trim() || '#5a8bff'
+  return { accent, soft, rgb: hexToRgb(accent) ?? fallback }
+}
+
+function hexToRgb(hex: string): [number, number, number] | null {
+  const value = hex.replace('#', '').trim()
+  const expanded = value.length === 3 ? value.split('').map((part) => part + part).join('') : value
+  if (!/^[0-9a-f]{6}$/i.test(expanded)) return null
+  return [
+    Number.parseInt(expanded.slice(0, 2), 16),
+    Number.parseInt(expanded.slice(2, 4), 16),
+    Number.parseInt(expanded.slice(4, 6), 16),
+  ]
+}
+
+function toHsl([r, g, b]: [number, number, number]) {
+  const red = r / 255
+  const green = g / 255
+  const blue = b / 255
+  const max = Math.max(red, green, blue)
+  const min = Math.min(red, green, blue)
+  const lightness = (max + min) / 2
+  if (max === min) return { h: 0, s: 0, l: lightness }
+  const delta = max - min
+  const saturation = lightness > 0.5 ? delta / (2 - max - min) : delta / (max + min)
+  let hue = 0
+  if (max === red) hue = ((green - blue) / delta + (green < blue ? 6 : 0)) / 6
+  else if (max === green) hue = ((blue - red) / delta + 2) / 6
+  else hue = ((red - green) / delta + 4) / 6
+  return { h: hue * 360, s: saturation, l: lightness }
+}
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  const hue = (((h % 360) + 360) % 360) / 360
+  if (s === 0) {
+    const value = Math.round(l * 255)
+    return [value, value, value]
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+  const p = 2 * l - q
+  const channel = (t: number) => {
+    let value = t
+    if (value < 0) value += 1
+    if (value > 1) value -= 1
+    if (value < 1 / 6) return p + (q - p) * 6 * value
+    if (value < 1 / 2) return q
+    if (value < 2 / 3) return p + (q - p) * (2 / 3 - value) * 6
+    return p
+  }
+  return [
+    Math.round(channel(hue + 1 / 3) * 255),
+    Math.round(channel(hue) * 255),
+    Math.round(channel(hue - 1 / 3) * 255),
+  ]
+}
+
+const rgbString = (rgb: [number, number, number], alpha: number) =>
+  `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha.toFixed(3)})`
 
 /* -------------------------------- 雨夜 -------------------------------- */
 
@@ -77,28 +227,57 @@ function createRain(): Renderer {
     y: number
     len: number
     speed: number
-    near: boolean
+    depth: number
+    alpha: number
+  }
+  interface Ripple {
+    x: number
+    y: number
+    r: number
+    life: number
+    maxLife: number
+  }
+  interface Fog {
+    x: number
+    y: number
+    w: number
+    h: number
+    vx: number
+    alpha: number
+  }
+  interface Bolt {
+    points: { x: number; y: number }[]
+    branches: { x: number; y: number }[][]
+    life: number
   }
   let width = 0
   let height = 0
   let background: HTMLCanvasElement | null = null
+  let backdrop: HTMLCanvasElement | null = null
+  let haze: HTMLCanvasElement | null = null
+  let dropGlow: HTMLCanvasElement | null = null
+  let ground = 0.86
   let drops: Drop[] = []
+  let ripples: Ripple[] = []
+  let fogs: Fog[] = []
+  let bolt: Bolt | null = null
   let target = 0
   let speed = 55
   let wind = 12
-  // 注意：speed/wind/density 等参数由 configure 设置，见下方
   let lightning = 20
+  let glow = 55
   let flash = 0
   let nextFlash = Infinity
 
-  const spawn = (): Drop => {
-    const near = Math.random() < 0.35
+  const spawnDrop = (): Drop => {
+    const depth = Math.random()
     return {
-      x: rand(-60, width + 60),
-      y: rand(-height, height),
-      len: near ? rand(16, 30) : rand(8, 16),
-      speed: near ? rand(0.9, 1.1) : rand(0.55, 0.7),
-      near,
+      x: rand(-80, width + 80),
+      y: rand(-height, height * ground),
+      len: 8 + depth * 26,
+      speed: 0.5 + depth * 0.75,
+      depth,
+      alpha: 0.14 + depth * 0.5,
     }
   }
 
@@ -107,9 +286,45 @@ function createRain(): Renderer {
       nextFlash = Infinity
       return
     }
-    // 平均间隔约 4–30 秒，雷电越强越频繁
-    const base = 4 + (1 - lightning / 100) * 26
-    nextFlash = base * rand(0.5, 1.5)
+    // 雷电越强越频繁：平均间隔约 26 秒 → 3 秒
+    const base = 26 - (lightning / 100) * 23
+    nextFlash = base * rand(0.4, 1.6)
+  }
+
+  /** 折线闪电：中点位移 + 分叉，看起来更像真实的落地雷 */
+  const strike = () => {
+    const segments = 16
+    const startX = rand(width * 0.1, width * 0.9)
+    const endX = clamp(startX + rand(-width * 0.22, width * 0.22), 0, width)
+    const endY = height * rand(0.5, 0.72)
+    const points: { x: number; y: number }[] = []
+    for (let i = 0; i <= segments; i += 1) {
+      const t = i / segments
+      const jitter = i === 0 || i === segments ? 0 : rand(-1, 1) * (1 - Math.abs(t - 0.5)) * width * 0.06
+      points.push({ x: startX + (endX - startX) * t + jitter, y: height * -0.05 + endY * t })
+    }
+    const branches: { x: number; y: number }[][] = []
+    for (let b = 0; b < 3; b += 1) {
+      const from = Math.round(rand(4, segments - 3))
+      const origin = points[from]
+      const dir = points[from + 1]
+      const angle = Math.atan2(dir.y - origin.y, dir.x - origin.x) + rand(-0.7, 0.7)
+      const length = rand(0.08, 0.2) * height
+      const branch: { x: number; y: number }[] = [origin]
+      let x = origin.x
+      let y = origin.y
+      let a = angle
+      const steps = 5
+      for (let s = 0; s < steps; s += 1) {
+        a += rand(-0.35, 0.35)
+        x += Math.cos(a) * (length / steps)
+        y += Math.sin(a) * (length / steps)
+        branch.push({ x, y })
+      }
+      branches.push(branch)
+    }
+    bolt = { points, branches, life: 1 }
+    flash = 1
   }
 
   return {
@@ -117,81 +332,235 @@ function createRain(): Renderer {
     setup(w, h) {
       width = w
       height = h
+      const horizon = height * 0.74
+      haze = makeGlowSprite(150, 180, 230, 256)
+      backdrop = makeBokehSprite(190, 215, 255, 256, 0.32)
+      dropGlow = makeGlowSprite(200, 224, 255, 48)
       background = paintBackground(w, h, (ctx) => {
+        // 夜空
         const sky = ctx.createLinearGradient(0, 0, 0, h)
-        sky.addColorStop(0, '#060a16')
-        sky.addColorStop(0.6, '#0c1426')
-        sky.addColorStop(1, '#131d33')
+        sky.addColorStop(0, '#03060f')
+        sky.addColorStop(0.45, '#060c1d')
+        sky.addColorStop(0.75, '#0a1430')
+        sky.addColorStop(1, '#04070f')
         ctx.fillStyle = sky
         ctx.fillRect(0, 0, w, h)
-        // 远处城市的雾光：底部一圈淡蓝色
-        const mist = ctx.createRadialGradient(w * 0.5, h * 1.05, 0, w * 0.5, h * 1.05, Math.max(w, h) * 0.7)
-        mist.addColorStop(0, 'rgba(70,95,150,0.35)')
-        mist.addColorStop(1, 'rgba(70,95,150,0)')
-        ctx.fillStyle = mist
-        ctx.fillRect(0, 0, w, h)
+
+        // 远处城市的暖色灯火（三层，越远越淡）
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        for (let i = 0; i < 22; i += 1) {
+          const cx = (i / 21) * w + rand(-40, 40)
+          const cy = horizon + rand(-12, 14)
+          const radius = rand(60, 190)
+          const warm = Math.random() < 0.7 ? [255, 196, 128] : [150, 190, 255]
+          const glowGradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius)
+          glowGradient.addColorStop(0, `rgba(${warm[0]},${warm[1]},${warm[2]},${rand(0.06, 0.2).toFixed(3)})`)
+          glowGradient.addColorStop(1, `rgba(${warm[0]},${warm[1]},${warm[2]},0)`)
+          ctx.fillStyle = glowGradient
+          ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2)
+        }
+        // 高楼剪影
+        ctx.fillStyle = 'rgba(4, 8, 18, 0.85)'
+        let x = -20
+        while (x < w + 20) {
+          const bw = rand(40, 130)
+          const bh = rand(30, 120)
+          ctx.fillRect(x, horizon - bh, bw, bh + 6)
+          x += bw + rand(8, 40)
+        }
+        ctx.restore()
+
+        // 湿漉漉的地面：横向反光带 + 拖长的倒影
+        const wet = ctx.createLinearGradient(0, horizon, 0, h)
+        wet.addColorStop(0, 'rgba(30, 60, 120, 0.30)')
+        wet.addColorStop(0.35, 'rgba(14, 30, 66, 0.55)')
+        wet.addColorStop(1, 'rgba(6, 12, 28, 0.85)')
+        ctx.fillStyle = wet
+        ctx.fillRect(0, horizon, w, h - horizon)
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        for (let i = 0; i < 26; i += 1) {
+          const rx = rand(0, w)
+          const strength = rand(0.05, 0.22)
+          const band = ctx.createLinearGradient(rx, horizon, rx, h)
+          band.addColorStop(0, `rgba(220, 235, 255, ${strength.toFixed(3)})`)
+          band.addColorStop(1, 'rgba(220, 235, 255, 0)')
+          ctx.fillStyle = band
+          ctx.fillRect(rx, horizon, rand(1, 3), h - horizon)
+        }
+        // 积水里的光斑
+        for (let i = 0; i < 16; i += 1) {
+          const px = rand(0, w)
+          const py = rand(horizon + 20, h)
+          const pr = rand(18, 70)
+          const pool = ctx.createRadialGradient(px, py, 0, px, py, pr)
+          pool.addColorStop(0, `rgba(255, 200, 140, ${rand(0.04, 0.14).toFixed(3)})`)
+          pool.addColorStop(1, 'rgba(255, 200, 140, 0)')
+          ctx.fillStyle = pool
+          ctx.fillRect(px - pr, py - pr, pr * 2, pr * 2)
+        }
+        ctx.restore()
+
+        paintVignette(ctx, w, h, 0.55)
+        paintGrain(ctx, w, h, 0.05, false)
       })
+      drops = []
+      ripples = []
+      fogs = []
+      resizeList(drops, target, spawnDrop)
+      fogs = Array.from({ length: 3 }, () => ({
+        x: rand(-0.2 * w, w * 1.1),
+        y: rand(h * 0.45, h * 0.85),
+        w: rand(w * 0.35, w * 0.75),
+        h: rand(h * 0.12, h * 0.3),
+        vx: rand(4, 14) * (Math.random() < 0.5 ? -1 : 1),
+        alpha: rand(0.05, 0.11),
+      }))
+      scheduleFlash()
     },
     configure(values) {
-      speed = values.speed ?? speed
-      wind = values.wind ?? wind
-      const density = values.density ?? 55
-      target = Math.round((density / 100) * 900 * areaFactor(width, height))
-      const nextLightning = values.lightning ?? lightning
-      // 雷电参数变化，或尚未安排过闪电时，重新安排下一次闪电
-      if (nextLightning !== lightning || nextFlash === Infinity) {
-        lightning = nextLightning
-        scheduleFlash()
-      }
-      resizeList(drops, target, spawn)
+      speed = values.speed ?? 55
+      wind = values.wind ?? 12
+      const wasOff = !Number.isFinite(nextFlash)
+      lightning = values.lightning ?? 20
+      glow = (values.glow ?? 55) / 100
+      target = Math.round(((values.density ?? 55) / 100) * 320 * areaFactor(width, height))
+      resizeList(drops, target, spawnDrop)
+      if (lightning <= 0) nextFlash = Infinity
+      else if (wasOff) scheduleFlash()
     },
     step(dt) {
-      const fall = (260 + speed * 5.6) * dt
-      const drift = (wind / 100) * 220 * dt
+      const fall = 320 + (speed / 100) * 900
+      const drift = (wind / 100) * 220
       for (const drop of drops) {
-        drop.y += fall * drop.speed
-        drop.x += drift * drop.speed
-        if (drop.y - drop.len > height) {
-          drop.y = -drop.len - rand(0, 40)
-          drop.x = rand(-60, width + 60)
+        drop.y += fall * drop.speed * dt
+        drop.x += drift * drop.speed * dt
+        if (drop.y > height * ground) {
+          // 落地：在近处溅起一圈涟漪
+          if (drop.depth > 0.55 && ripples.length < 90) {
+            const maxLife = rand(0.45, 0.95)
+            ripples.push({ x: drop.x, y: height * ground + rand(0, height * (1 - ground)), r: 1, life: maxLife, maxLife })
+          }
+          const fresh = spawnDrop()
+          fresh.y = rand(-height * 0.25, -10)
+          Object.assign(drop, fresh)
         }
-        if (drop.x > width + 80) drop.x -= width + 140
-        if (drop.x < -80) drop.x += width + 140
+        if (drop.x > width + 100) drop.x -= width + 200
+        if (drop.x < -100) drop.x += width + 200
+      }
+      for (const ripple of ripples) {
+        ripple.life -= dt
+        ripple.r += dt * 46
+      }
+      ripples = ripples.filter((ripple) => ripple.life > 0)
+      for (const fog of fogs) {
+        fog.x += fog.vx * dt
+        if (fog.x < -fog.w) fog.x = width + fog.w * 0.3
+        if (fog.x > width + fog.w) fog.x = -fog.w * 0.3
       }
       if (flash > 0) flash = Math.max(0, flash - dt * 2.4)
-      if (nextFlash !== Infinity) {
+      if (bolt) {
+        bolt.life -= dt * 3.6
+        if (bolt.life <= 0) bolt = null
+      }
+      if (Number.isFinite(nextFlash)) {
         nextFlash -= dt
-        if (nextFlash <= 0) {
-          flash = 1
-          scheduleFlash()
-        }
+        if (nextFlash <= 0) strike()
+        if (nextFlash <= 0) scheduleFlash()
       }
     },
     draw(ctx) {
       if (background) ctx.drawImage(background, 0, 0, width, height)
-      const tilt = (wind / 100) * 0.35
-      // 两层雨滴各用一次 path + stroke，减少绘制调用
-      ctx.beginPath()
-      for (const drop of drops) {
-        if (drop.near) continue
-        ctx.moveTo(drop.x, drop.y)
-        ctx.lineTo(drop.x + tilt * drop.len, drop.y + drop.len)
+
+      // 雾团：让雨幕有纵深
+      if (haze) {
+        ctx.save()
+        ctx.globalCompositeOperation = 'screen'
+        for (const fog of fogs) {
+          ctx.globalAlpha = fog.alpha * (0.6 + glow * 0.6)
+          ctx.drawImage(haze, fog.x, fog.y, fog.w, fog.h)
+        }
+        ctx.restore()
       }
+
+      // 雨丝：近处更亮更粗，远处几乎透明
+      ctx.save()
+      ctx.lineCap = 'round'
+      for (const drop of drops) {
+        const slant = (wind / 100) * 0.55
+        const x2 = drop.x + drop.len * slant
+        const y2 = drop.y + drop.len * Math.max(0.55, 1 - Math.abs(slant) * 0.5)
+        ctx.strokeStyle = `rgba(198, 222, 255, ${drop.alpha.toFixed(3)})`
+        ctx.lineWidth = drop.depth > 0.8 ? 1.5 : drop.depth > 0.45 ? 1 : 0.7
+        ctx.beginPath()
+        ctx.moveTo(drop.x, drop.y)
+        ctx.lineTo(x2, y2)
+        ctx.stroke()
+        // 近处的雨滴带一点光晕，雨夜才有「发亮的雨」的感觉
+        if (dropGlow && drop.depth > 0.82 && glow > 0.05) {
+          ctx.globalAlpha = 0.18 + 0.3 * glow
+          const size = 10 + drop.depth * 12
+          ctx.drawImage(dropGlow, drop.x - size / 2, drop.y - size / 2, size, size)
+          ctx.globalAlpha = 1
+        }
+      }
+      ctx.restore()
+
+      // 地面涟漪
+      ctx.save()
       ctx.lineWidth = 1
-      ctx.strokeStyle = 'rgba(150,175,230,0.28)'
-      ctx.stroke()
-      ctx.beginPath()
-      for (const drop of drops) {
-        if (!drop.near) continue
-        ctx.moveTo(drop.x, drop.y)
-        ctx.lineTo(drop.x + tilt * drop.len, drop.y + drop.len)
+      for (const ripple of ripples) {
+        const alpha = clamp(ripple.life / ripple.maxLife, 0, 1) * 0.4
+        ctx.strokeStyle = `rgba(200, 225, 255, ${alpha.toFixed(3)})`
+        ctx.beginPath()
+        ctx.ellipse(ripple.x, ripple.y, ripple.r, ripple.r * 0.32, 0, 0, TAU)
+        ctx.stroke()
       }
-      ctx.lineWidth = 1.6
-      ctx.strokeStyle = 'rgba(200,220,255,0.5)'
-      ctx.stroke()
-      if (flash > 0) {
-        ctx.fillStyle = `rgba(210,222,255,${(flash * 0.32).toFixed(3)})`
+      ctx.restore()
+
+      // 闪电与整屏闪光
+      if (bolt) {
+        ctx.save()
+        ctx.globalCompositeOperation = 'screen'
+        ctx.lineJoin = 'round'
+        const jitter = bolt.life * 8
+        const drawPath = (points: { x: number; y: number }[]) => {
+          ctx.beginPath()
+          points.forEach((point, index) => {
+            const x = point.x + rand(-jitter, jitter)
+            const y = point.y + rand(-jitter, jitter)
+            if (index === 0) ctx.moveTo(x, y)
+            else ctx.lineTo(x, y)
+          })
+          ctx.stroke()
+        }
+        // 先粗后细：外层当作光晕，内层是电流本体
+        ctx.strokeStyle = `rgba(150, 190, 255, ${(0.16 * bolt.life).toFixed(3)})`
+        ctx.lineWidth = 12
+        drawPath(bolt.points)
+        ctx.strokeStyle = `rgba(225, 240, 255, ${(0.5 * bolt.life).toFixed(3)})`
+        ctx.lineWidth = 3.2
+        drawPath(bolt.points)
+        ctx.strokeStyle = `rgba(255, 255, 255, ${(0.85 * bolt.life).toFixed(3)})`
+        ctx.lineWidth = 1.2
+        drawPath(bolt.points)
+        ctx.strokeStyle = `rgba(200, 225, 255, ${(0.45 * bolt.life).toFixed(3)})`
+        ctx.lineWidth = 1.4
+        for (const branch of bolt.branches) drawPath(branch)
+        if (backdrop) {
+          const head = bolt.points[bolt.points.length - 1]
+          const size = 420 * bolt.life + 160
+          ctx.globalAlpha = 0.35 * bolt.life
+          ctx.drawImage(backdrop, head.x - size / 2, head.y - size / 2, size, size)
+        }
+        ctx.restore()
+      }
+      if (flash > 0.01) {
+        ctx.save()
+        ctx.fillStyle = `rgba(178, 205, 255, ${(flash * flash * 0.16).toFixed(3)})`
         ctx.fillRect(0, 0, width, height)
+        ctx.restore()
       }
     },
   }
@@ -206,24 +575,44 @@ function createSunshine(): Renderer {
     size: number
     rise: number
     phase: number
+    alpha: number
+    twinkle: boolean
+  }
+  interface Flare {
+    t: number
+    size: number
+    color: [number, number, number]
+    alpha: number
+    ring: boolean
   }
   let width = 0
   let height = 0
   let background: HTMLCanvasElement | null = null
-  let glow: HTMLCanvasElement | null = null
+  let glowSprite: HTMLCanvasElement | null = null
+  let bokehSprite: HTMLCanvasElement | null = null
+  let sparkle: HTMLCanvasElement | null = null
+  let flareSprite: HTMLCanvasElement | null = null
+  let flareRing: HTMLCanvasElement | null = null
+  let streaks: HTMLCanvasElement | null = null
+  let sun = { x: 0, y: 0 }
   let motes: Mote[] = []
-  let rayCount = 6
+  let flares: Flare[] = []
+  let target = 0
   let brightness = 0.6
-  let drift = 35
+  let rayCount = 12
+  let drift = 0.35
+  let flareAmount = 0.45
   let rayAngle = 0
-  const sun = { x: 0, y: 0 }
+  let step = 0
 
-  const spawn = (): Mote => ({
+  const spawnMote = (): Mote => ({
     x: rand(0, width),
     y: rand(0, height),
-    size: rand(1.2, 3.2),
-    rise: rand(0.7, 1.3),
-    phase: rand(0, Math.PI * 2),
+    size: rand(1, 3.6),
+    rise: rand(0.25, 1),
+    phase: rand(0, TAU),
+    alpha: rand(0.18, 0.6),
+    twinkle: Math.random() < 0.16,
   })
 
   return {
@@ -231,83 +620,182 @@ function createSunshine(): Renderer {
     setup(w, h) {
       width = w
       height = h
-      sun.x = w * 0.82
-      sun.y = h * 0.12
-      glow = makeGlowSprite(255, 226, 150)
+      sun = { x: w * 0.78, y: h * 0.16 }
+      glowSprite = makeGlowSprite(255, 240, 205, 512)
+      bokehSprite = makeBokehSprite(255, 232, 190, 128, 0.5)
+      sparkle = makeSparkleSprite(255, 250, 230, 64)
+      flareSprite = makeBokehSprite(255, 214, 170, 96, 0.35)
+      flareRing = paint(96, 96, (ctx) => {
+        const gradient = ctx.createRadialGradient(48, 48, 24, 48, 48, 46)
+        gradient.addColorStop(0, 'rgba(255,220,180,0)')
+        gradient.addColorStop(0.72, 'rgba(255,220,180,0.34)')
+        gradient.addColorStop(0.86, 'rgba(255,245,225,0.16)')
+        gradient.addColorStop(1, 'rgba(255,220,180,0)')
+        ctx.fillStyle = gradient
+        ctx.fillRect(0, 0, 96, 96)
+      })
+      streaks = paint(512, 512, (ctx) => {
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        for (let i = 0; i < 9; i += 1) {
+          const y = rand(0, 512)
+          const gradient = ctx.createLinearGradient(0, y, 512, y + rand(-40, 40))
+          gradient.addColorStop(0, 'rgba(255,236,200,0)')
+          gradient.addColorStop(0.5, `rgba(255,240,210,${rand(0.1, 0.3).toFixed(3)})`)
+          gradient.addColorStop(1, 'rgba(255,236,200,0)')
+          ctx.strokeStyle = gradient
+          ctx.lineWidth = rand(2, 9)
+          ctx.beginPath()
+          ctx.moveTo(0, y)
+          ctx.lineTo(512, y + rand(-40, 40))
+          ctx.stroke()
+        }
+        ctx.restore()
+      })
+      flares = [
+        { t: 0.28, size: 130, color: [255, 205, 150], alpha: 0.3, ring: false },
+        { t: 0.52, size: 62, color: [180, 230, 255], alpha: 0.24, ring: false },
+        { t: 0.76, size: 96, color: [255, 226, 170], alpha: 0.2, ring: true },
+        { t: 1.08, size: 44, color: [200, 255, 220], alpha: 0.18, ring: false },
+        { t: 1.34, size: 150, color: [255, 190, 210], alpha: 0.14, ring: true },
+      ]
       background = paintBackground(w, h, (ctx) => {
-        const sky = ctx.createLinearGradient(0, 0, 0, h)
-        sky.addColorStop(0, '#fffaf0')
-        sky.addColorStop(1, '#ffe9c2')
+        const sky = ctx.createLinearGradient(0, 0, w * 0.4, h)
+        sky.addColorStop(0, '#fff7e8')
+        sky.addColorStop(0.42, '#fdf1e0')
+        sky.addColorStop(1, '#f6ead9')
         ctx.fillStyle = sky
         ctx.fillRect(0, 0, w, h)
-        const sunGlow = ctx.createRadialGradient(sun.x, sun.y, 0, sun.x, sun.y, Math.max(w, h) * 0.55)
-        sunGlow.addColorStop(0, 'rgba(255,244,205,0.95)')
-        sunGlow.addColorStop(0.35, 'rgba(255,226,160,0.35)')
-        sunGlow.addColorStop(1, 'rgba(255,220,150,0)')
-        ctx.fillStyle = sunGlow
+
+        // 太阳本体与暖色光晕
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        const halo = ctx.createRadialGradient(sun.x, sun.y, 0, sun.x, sun.y, Math.max(w, h) * 0.95)
+        halo.addColorStop(0, 'rgba(255, 252, 235, 0.95)')
+        halo.addColorStop(0.12, 'rgba(255, 236, 190, 0.72)')
+        halo.addColorStop(0.32, 'rgba(255, 216, 160, 0.34)')
+        halo.addColorStop(0.62, 'rgba(255, 200, 150, 0.13)')
+        halo.addColorStop(1, 'rgba(255, 200, 150, 0)')
+        ctx.fillStyle = halo
         ctx.fillRect(0, 0, w, h)
-        // 右下角的暖色暗角，让画面有层次
-        const vignette = ctx.createRadialGradient(w, h, 0, w, h, Math.max(w, h) * 0.7)
-        vignette.addColorStop(0, 'rgba(255,190,110,0.22)')
-        vignette.addColorStop(1, 'rgba(255,190,110,0)')
-        ctx.fillStyle = vignette
-        ctx.fillRect(0, 0, w, h)
+        const disc = ctx.createRadialGradient(sun.x, sun.y, 0, sun.x, sun.y, Math.min(w, h) * 0.09)
+        disc.addColorStop(0, 'rgba(255, 255, 250, 1)')
+        disc.addColorStop(0.7, 'rgba(255, 246, 214, 0.85)')
+        disc.addColorStop(1, 'rgba(255, 236, 190, 0)')
+        ctx.fillStyle = disc
+        ctx.fillRect(sun.x - w, sun.y - w, w * 2, w * 2)
+        ctx.restore()
+
+        paintVignette(ctx, w, h, 0.22)
+        paintGrain(ctx, w, h, 0.04, true)
       })
-      resizeList(motes, motes.length, spawn)
+      motes = []
+      resizeList(motes, target, spawnMote)
     },
     configure(values) {
-      brightness = clamp((values.brightness ?? 60) / 100, 0, 1)
-      rayCount = Math.round(((values.rays ?? 50) / 100) * 12)
-      drift = values.drift ?? drift
-      const target = Math.round(((values.motes ?? 40) / 100) * 120 * areaFactor(width, height))
-      resizeList(motes, target, spawn)
+      brightness = (values.brightness ?? 60) / 100
+      rayCount = Math.round((values.rays ?? 50) / 100 * 26)
+      drift = (values.drift ?? 35) / 100
+      flareAmount = (values.flare ?? 45) / 100
+      const density = (values.motes ?? 40) / 100
+      target = Math.round(density * 240 * areaFactor(width, height))
+      resizeList(motes, target, spawnMote)
     },
     step(dt) {
-      rayAngle += dt * (0.02 + (drift / 100) * 0.05)
-      const rise = (6 + drift * 0.35) * dt
+      step += dt
+      rayAngle += dt * (0.015 + drift * 0.055)
+      const rise = (4 + drift * 26) * dt
       for (const mote of motes) {
-        mote.phase += dt * 0.9
+        mote.phase += dt * (0.6 + drift * 1.4)
         mote.y -= rise * mote.rise
-        mote.x += Math.sin(mote.phase) * 6 * dt
-        if (mote.y < -10) {
-          mote.y = height + 10
+        mote.x += Math.sin(mote.phase) * 9 * dt
+        if (mote.y < -20) {
+          mote.y = height + 20
           mote.x = rand(0, width)
         }
       }
     },
     draw(ctx) {
       if (background) ctx.drawImage(background, 0, 0, width, height)
-      const reach = Math.hypot(width, height) * 1.1
+      const reach = Math.hypot(width, height) * 1.25
+
+      // 光束：两遍（宽的柔光 + 窄的亮芯），转动时有体积光的层次
       ctx.save()
       ctx.globalCompositeOperation = 'screen'
-      // 光束：从太阳发出的细长三角形，每根带线性渐变
       for (let i = 0; i < rayCount; i += 1) {
-        const angle = rayAngle + (i / Math.max(1, rayCount)) * Math.PI * 2 + Math.sin(i * 1.7) * 0.08
-        const spread = 0.05 + (i % 3) * 0.02
-        const x1 = sun.x + Math.cos(angle - spread) * reach
-        const y1 = sun.y + Math.sin(angle - spread) * reach
-        const x2 = sun.x + Math.cos(angle + spread) * reach
-        const y2 = sun.y + Math.sin(angle + spread) * reach
+        const base = rayAngle + (i / Math.max(1, rayCount)) * TAU
+        const wobble = Math.sin(step * 0.4 + i * 1.7) * 0.035
+        const angle = base + wobble
+        const wide = 0.05 + (i % 4) * 0.016
         const tx = sun.x + Math.cos(angle) * reach
         const ty = sun.y + Math.sin(angle) * reach
-        const gradient = ctx.createLinearGradient(sun.x, sun.y, tx, ty)
-        gradient.addColorStop(0, `rgba(255,240,190,${(0.34 * brightness).toFixed(3)})`)
-        gradient.addColorStop(1, 'rgba(255,240,190,0)')
-        ctx.fillStyle = gradient
-        ctx.beginPath()
-        ctx.moveTo(sun.x, sun.y)
-        ctx.lineTo(x1, y1)
-        ctx.lineTo(x2, y2)
-        ctx.closePath()
-        ctx.fill()
+        const paintRay = (spread: number, alpha: number) => {
+          const gradient = ctx.createLinearGradient(sun.x, sun.y, tx, ty)
+          gradient.addColorStop(0, `rgba(255, 244, 214, ${(alpha * brightness).toFixed(3)})`)
+          gradient.addColorStop(0.35, `rgba(255, 240, 205, ${(alpha * brightness * 0.55).toFixed(3)})`)
+          gradient.addColorStop(1, 'rgba(255, 236, 200, 0)')
+          ctx.fillStyle = gradient
+          ctx.beginPath()
+          ctx.moveTo(sun.x, sun.y)
+          ctx.lineTo(sun.x + Math.cos(angle - spread) * reach, sun.y + Math.sin(angle - spread) * reach)
+          ctx.lineTo(sun.x + Math.cos(angle + spread) * reach, sun.y + Math.sin(angle + spread) * reach)
+          ctx.closePath()
+          ctx.fill()
+        }
+        paintRay(wide, 0.16)
+        paintRay(wide * 0.34, 0.26)
       }
-      // 光尘：金色光晕，轻微闪烁
-      if (glow) {
-        for (const mote of motes) {
-          const alpha = (0.4 + 0.4 * Math.sin(mote.phase)) * brightness
-          ctx.globalAlpha = clamp(alpha, 0, 1)
+      if (streaks) {
+        ctx.globalAlpha = 0.25 * brightness
+        ctx.save()
+        ctx.translate(sun.x, sun.y)
+        ctx.rotate(rayAngle * 0.4)
+        ctx.drawImage(streaks, -width, -height, width * 2, height * 2)
+        ctx.restore()
+        ctx.globalAlpha = 1
+      }
+      ctx.restore()
+
+      // 镜头光斑：沿「太阳 → 屏幕中心」的轴线分布，含色散与光圈环
+      if (flareAmount > 0.03) {
+        const cx = width / 2
+        const cy = height / 2
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        for (const flare of flares) {
+          const fx = sun.x + (cx - sun.x) * flare.t
+          const fy = sun.y + (cy - sun.y) * flare.t
+          const sprite = flare.ring ? flareRing : flareSprite
+          if (!sprite) continue
+          const pulse = 0.85 + 0.15 * Math.sin(step * 1.2 + flare.t * 6)
+          ctx.globalAlpha = clamp(flare.alpha * flareAmount * 2.4 * pulse * (0.4 + brightness), 0, 1)
+          const size = flare.size * (0.9 + brightness * 0.6)
+          ctx.drawImage(sprite, fx - size / 2, fy - size / 2, size, size)
+          if (!flare.ring) {
+            ctx.globalAlpha *= 0.5
+            ctx.drawImage(sprite, fx - size * 0.62, fy - size * 0.62, size * 1.24, size * 1.24)
+          }
+        }
+        ctx.restore()
+      }
+
+      // 光尘：柔和散景 + 少数带星芒的亮点
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      for (const mote of motes) {
+        const pulse = 0.65 + 0.35 * Math.sin(mote.phase)
+        const alpha = clamp(mote.alpha * brightness * pulse, 0, 1)
+        if (!alpha) continue
+        ctx.globalAlpha = alpha
+        if (mote.twinkle && sparkle) {
+          const size = mote.size * 3.4
+          ctx.drawImage(sparkle, mote.x - size / 2, mote.y - size / 2, size, size)
+        } else if (bokehSprite) {
+          const size = mote.size * 4.6
+          ctx.drawImage(bokehSprite, mote.x - size / 2, mote.y - size / 2, size, size)
+        } else if (glowSprite) {
           const size = mote.size * 4
-          ctx.drawImage(glow, mote.x - size / 2, mote.y - size / 2, size, size)
+          ctx.drawImage(glowSprite, mote.x - size / 2, mote.y - size / 2, size, size)
         }
       }
       ctx.restore()
@@ -325,6 +813,8 @@ function createStars(): Renderer {
     phase: number
     speed: number
     base: number
+    tint: number
+    layer: number
   }
   interface Meteor {
     x: number
@@ -333,74 +823,142 @@ function createStars(): Renderer {
     vy: number
     life: number
     maxLife: number
+    size: number
   }
+  const TINTS: [number, number, number][] = [
+    [230, 238, 255],
+    [255, 255, 255],
+    [198, 216, 255],
+    [255, 236, 205],
+    [255, 205, 190],
+  ]
   let width = 0
   let height = 0
   let background: HTMLCanvasElement | null = null
-  let glow: HTMLCanvasElement | null = null
+  let starSprites: HTMLCanvasElement[] = []
+  let spikes: HTMLCanvasElement | null = null
+  let meteorGlow: HTMLCanvasElement | null = null
   let stars: Star[] = []
   let meteors: Meteor[] = []
   let twinkle = 0.5
   let meteorRate = 0.3
   let brightness = 0.6
+  let nebula = 0.45
   let target = 0
+  let driftTime = 0
 
-  const spawnStar = (): Star => ({
-    x: rand(0, width),
-    y: rand(0, height),
-    size: Math.random() < 0.12 ? rand(1.1, 1.8) : rand(0.4, 1.0),
-    phase: rand(0, Math.PI * 2),
-    speed: rand(0.6, 1.8),
-    base: rand(0.45, 1),
-  })
+  /** 夜空贴图：渐变 + 银河 + 星云 + 噪点，只在尺寸或「星云浓度」变化时重建 */
+  const buildSky = (ctx: CanvasRenderingContext2D) => {
+    const w = width
+    const h = height
+    const sky = ctx.createLinearGradient(0, 0, 0, h)
+    sky.addColorStop(0, '#02040d')
+    sky.addColorStop(0.55, '#060c22')
+    sky.addColorStop(1, '#0b1338')
+    ctx.fillStyle = sky
+    ctx.fillRect(0, 0, w, h)
+
+    ctx.save()
+    ctx.globalCompositeOperation = 'lighter'
+    // 银河：一条斜向的光带，里面撒满暗弱的小星
+    ctx.save()
+    ctx.translate(w * 0.5, h * 0.55)
+    ctx.rotate(-0.5)
+    const band = ctx.createLinearGradient(0, -h * 0.3, 0, h * 0.3)
+    band.addColorStop(0, 'rgba(90, 120, 220, 0)')
+    band.addColorStop(0.42, `rgba(150, 170, 255, ${(0.1 * nebula).toFixed(3)})`)
+    band.addColorStop(0.5, `rgba(232, 224, 255, ${(0.17 * nebula).toFixed(3)})`)
+    band.addColorStop(0.6, `rgba(170, 150, 255, ${(0.1 * nebula).toFixed(3)})`)
+    band.addColorStop(1, 'rgba(90, 120, 220, 0)')
+    ctx.fillStyle = band
+    ctx.fillRect(-w, -h * 0.3, w * 2, h * 0.6)
+    for (let i = 0; i < 900; i += 1) {
+      const px = rand(-w, w)
+      const py = rand(-h * 0.3, h * 0.3)
+      const fade = 1 - Math.abs(py) / (h * 0.3)
+      ctx.fillStyle = `rgba(255,255,255,${(Math.random() * 0.32 * fade * nebula).toFixed(3)})`
+      ctx.fillRect(px, py, 0.9, 0.9)
+    }
+    ctx.restore()
+
+    // 两团彩色星云
+    const nebulae: { x: number; y: number; radius: number; color: [number, number, number] }[] = [
+      { x: w * 0.22, y: h * 0.28, radius: Math.max(w, h) * 0.42, color: [150, 100, 255] },
+      { x: w * 0.82, y: h * 0.68, radius: Math.max(w, h) * 0.4, color: [60, 140, 220] },
+      { x: w * 0.6, y: h * 0.16, radius: Math.max(w, h) * 0.3, color: [220, 120, 180] },
+    ]
+    for (const item of nebulae) {
+      const gradient = ctx.createRadialGradient(item.x, item.y, 0, item.x, item.y, item.radius)
+      const [r, g, b] = item.color
+      gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${(0.17 * nebula).toFixed(3)})`)
+      gradient.addColorStop(0.55, `rgba(${r}, ${g}, ${b}, ${(0.07 * nebula).toFixed(3)})`)
+      gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`)
+      ctx.fillStyle = gradient
+      ctx.fillRect(item.x - item.radius, item.y - item.radius, item.radius * 2, item.radius * 2)
+    }
+    ctx.restore()
+
+    paintVignette(ctx, w, h, 0.5)
+    paintGrain(ctx, w, h, 0.05, true)
+  }
+
+  const spawnStar = (): Star => {
+    const layer = Math.random()
+    return {
+      x: rand(0, width),
+      y: rand(0, height),
+      size: layer > 0.92 ? rand(1.5, 2.4) : layer > 0.65 ? rand(0.9, 1.5) : rand(0.35, 0.95),
+      phase: rand(0, TAU),
+      speed: rand(0.5, 2),
+      base: rand(0.45, 1),
+      tint: Math.floor(rand(0, TINTS.length)),
+      layer,
+    }
+  }
 
   return {
     fps: 30,
     setup(w, h) {
       width = w
       height = h
-      glow = makeGlowSprite(200, 220, 255)
-      background = paintBackground(w, h, (ctx) => {
-        const sky = ctx.createLinearGradient(0, 0, 0, h)
-        sky.addColorStop(0, '#03050f')
-        sky.addColorStop(0.7, '#080d26')
-        sky.addColorStop(1, '#0d1538')
-        ctx.fillStyle = sky
-        ctx.fillRect(0, 0, w, h)
-        // 淡淡的星云
-        const nebulaA = ctx.createRadialGradient(w * 0.25, h * 0.3, 0, w * 0.25, h * 0.3, Math.max(w, h) * 0.45)
-        nebulaA.addColorStop(0, 'rgba(120,80,200,0.12)')
-        nebulaA.addColorStop(1, 'rgba(120,80,200,0)')
-        ctx.fillStyle = nebulaA
-        ctx.fillRect(0, 0, w, h)
-        const nebulaB = ctx.createRadialGradient(w * 0.8, h * 0.7, 0, w * 0.8, h * 0.7, Math.max(w, h) * 0.4)
-        nebulaB.addColorStop(0, 'rgba(40,140,200,0.1)')
-        nebulaB.addColorStop(1, 'rgba(40,140,200,0)')
-        ctx.fillStyle = nebulaB
-        ctx.fillRect(0, 0, w, h)
-      })
+      starSprites = TINTS.map(([r, g, b]) => makeGlowSprite(r, g, b, 64))
+      spikes = makeSparkleSprite(255, 250, 240, 96)
+      meteorGlow = makeGlowSprite(214, 232, 255, 128)
+      background = paintBackground(w, h, buildSky)
+      stars = []
       resizeList(stars, target, spawnStar)
     },
     configure(values) {
-      twinkle = clamp((values.twinkle ?? 50) / 100, 0, 1)
-      meteorRate = clamp((values.meteor ?? 30) / 100, 0, 1) * 0.2
-      brightness = clamp((values.brightness ?? 60) / 100, 0, 1)
-      target = Math.round(((values.density ?? 50) / 100) * 520 * areaFactor(width, height))
+      twinkle = (values.twinkle ?? 50) / 100
+      meteorRate = ((values.meteor ?? 30) / 100) * 0.22
+      brightness = (values.brightness ?? 60) / 100
+      target = Math.round(((values.density ?? 50) / 100) * 620 * areaFactor(width, height))
       resizeList(stars, target, spawnStar)
+      // 星云浓度变化时重画夜空贴图（每帧仍然只贴一次图）
+      const nextNebula = clamp((values.nebula ?? 45) / 100, 0, 1)
+      if (Math.abs(nextNebula - nebula) > 0.02) {
+        nebula = nextNebula
+        background = paintBackground(width, height, buildSky)
+      }
     },
     step(dt) {
+      driftTime += dt
       for (const star of stars) {
         star.phase += dt * star.speed * (0.5 + twinkle)
+        // 极缓慢的视差漂移，让星空「活」起来
+        star.x -= dt * star.layer * 1.6
+        if (star.x < -4) star.x = width + 4
       }
       if (meteorRate > 0 && Math.random() < meteorRate * dt) {
-        const maxLife = rand(0.9, 1.4)
+        const maxLife = rand(0.9, 1.5)
         meteors.push({
-          x: rand(width * 0.35, width + 80),
-          y: rand(-40, height * 0.4),
-          vx: -rand(520, 820),
-          vy: rand(260, 420),
+          x: rand(width * 0.3, width + 80),
+          y: rand(-40, height * 0.45),
+          vx: -rand(520, 900),
+          vy: rand(240, 420),
           life: maxLife,
           maxLife,
+          size: rand(0.8, 1.5),
         })
       }
       for (const meteor of meteors) {
@@ -408,40 +966,1049 @@ function createStars(): Renderer {
         meteor.y += meteor.vy * dt
         meteor.life -= dt
       }
-      meteors = meteors.filter((meteor) => meteor.life > 0 && meteor.y < height + 60)
+      meteors = meteors.filter((meteor) => meteor.life > 0 && meteor.y < height + 80)
     },
     draw(ctx) {
       if (background) ctx.drawImage(background, 0, 0, width, height)
+
       ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
       for (const star of stars) {
-        const alpha = clamp(star.base * brightness * (0.6 + 0.4 * Math.sin(star.phase)) * (0.7 + twinkle * 0.3), 0, 1)
-        if (star.size > 1.1 && glow) {
-          // 较亮的星星带光晕
-          ctx.globalAlpha = alpha
-          const size = star.size * 7
-          ctx.drawImage(glow, star.x - size / 2, star.y - size / 2, size, size)
+        const alpha = clamp(
+          star.base * brightness * (0.6 + 0.4 * Math.sin(star.phase)) * (0.7 + twinkle * 0.3),
+          0,
+          1,
+        )
+        if (!alpha) continue
+        ctx.globalAlpha = alpha
+        const sprite = starSprites[star.tint]
+        if (star.size > 1.4 && spikes) {
+          // 最亮的星带四芒星芒
+          const size = star.size * 16
+          ctx.drawImage(spikes, star.x - size / 2, star.y - size / 2, size, size)
+        } else if (star.size > 0.85 && sprite) {
+          const size = star.size * 9
+          ctx.drawImage(sprite, star.x - size / 2, star.y - size / 2, size, size)
         } else {
-          ctx.globalAlpha = alpha
-          ctx.fillStyle = '#e6eeff'
+          ctx.fillStyle = `rgba(230, 240, 255, 0.9)`
           ctx.fillRect(star.x, star.y, star.size, star.size)
         }
       }
-      // 流星：头部亮、尾部渐隐
+
+      // 流星：头部光斑 + 渐隐彗尾 + 电离尾迹
       for (const meteor of meteors) {
         const fade = clamp(meteor.life / meteor.maxLife, 0, 1)
-        const tailX = meteor.x - meteor.vx * 0.12
-        const tailY = meteor.y - meteor.vy * 0.12
+        const tail = 0.16
+        const tailX = meteor.x - meteor.vx * tail
+        const tailY = meteor.y - meteor.vy * tail
         const gradient = ctx.createLinearGradient(meteor.x, meteor.y, tailX, tailY)
         gradient.addColorStop(0, 'rgba(255,255,255,1)')
-        gradient.addColorStop(1, 'rgba(255,255,255,0)')
+        gradient.addColorStop(0.35, 'rgba(200, 225, 255, 0.5)')
+        gradient.addColorStop(1, 'rgba(200, 225, 255, 0)')
         ctx.globalAlpha = fade * brightness
         ctx.strokeStyle = gradient
-        ctx.lineWidth = 1.6
+        ctx.lineWidth = 1.6 * meteor.size
         ctx.beginPath()
         ctx.moveTo(meteor.x, meteor.y)
         ctx.lineTo(tailX, tailY)
         ctx.stroke()
+        if (meteorGlow) {
+          const size = 26 * meteor.size
+          ctx.globalAlpha = fade * brightness * 0.8
+          ctx.drawImage(meteorGlow, meteor.x - size / 2, meteor.y - size / 2, size, size)
+        }
       }
+      ctx.restore()
+    },
+  }
+}
+
+/* -------------------------------- 极光 -------------------------------- */
+
+/** 预渲染一条「带竖纹的极光帘幕」：竖直渐隐、左右柔化、内部还有细密的射线 */
+function makeCurtainSprite(rgb: [number, number, number]): HTMLCanvasElement {
+  const w = 160
+  const h = 320
+  return paint(w, h, (ctx) => {
+    const [r, g, b] = rgb
+    const vertical = ctx.createLinearGradient(0, 0, 0, h)
+    vertical.addColorStop(0, `rgba(${r},${g},${b},0.95)`)
+    vertical.addColorStop(0.18, `rgba(${r},${g},${b},0.55)`)
+    vertical.addColorStop(0.55, `rgba(${r},${g},${b},0.26)`)
+    vertical.addColorStop(1, `rgba(${r},${g},${b},0)`)
+    ctx.fillStyle = vertical
+    ctx.fillRect(0, 0, w, h)
+    // 竖纹：极光特有的射线结构
+    ctx.globalCompositeOperation = 'destination-out'
+    for (let x = 0; x < w; x += 4) {
+      const strength = Math.random() < 0.42 ? rand(0.12, 0.5) : 0
+      if (!strength) continue
+      const strip = ctx.createLinearGradient(x, 0, x + 4, 0)
+      strip.addColorStop(0, `rgba(0,0,0,0)`)
+      strip.addColorStop(0.5, `rgba(0,0,0,${strength.toFixed(3)})`)
+      strip.addColorStop(1, `rgba(0,0,0,0)`)
+      ctx.fillStyle = strip
+      ctx.fillRect(x, 0, 4, h)
+    }
+    ctx.globalCompositeOperation = 'destination-in'
+    const horizontal = ctx.createLinearGradient(0, 0, w, 0)
+    horizontal.addColorStop(0, 'rgba(0,0,0,0)')
+    horizontal.addColorStop(0.5, 'rgba(0,0,0,1)')
+    horizontal.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.fillStyle = horizontal
+    ctx.fillRect(0, 0, w, h)
+  })
+}
+
+function createAurora(): Renderer {
+  interface Band {
+    y: number
+    amp: number
+    height: number
+    phase: number
+    speed: number
+    waves: number
+    alpha: number
+    sprite: HTMLCanvasElement
+  }
+  let width = 0
+  let height = 0
+  let background: HTMLCanvasElement | null = null
+  let bands: Band[] = []
+  let intensity = 0.7
+  let flow = 0.5
+  let hueShift = 0
+  let rayAmount = 0.55
+  let count = 4
+  let spriteKey = ''
+
+  const buildBands = () => {
+    const { rgb } = themeColors()
+    const { h, s } = toHsl(rgb)
+    const previous = bands
+    bands = Array.from({ length: count }, (_, index) => {
+      const spread = index - (count - 1) / 2
+      const hue = h + hueShift + spread * 24
+      const color = hslToRgb(hue, clamp(s * 0.85 + 0.25, 0.35, 0.95), 0.6)
+      return previous[index]
+        ? { ...previous[index], sprite: makeCurtainSprite(color) }
+        : {
+            y: height * rand(0.01, 0.24),
+            amp: height * rand(0.04, 0.13),
+            height: height * rand(0.34, 0.76),
+            phase: rand(0, TAU),
+            speed: rand(0.12, 0.3),
+            waves: rand(0.7, 1.6),
+            alpha: rand(0.3, 0.62),
+            sprite: makeCurtainSprite(color),
+          }
+    })
+  }
+
+  return {
+    fps: 30,
+    setup(w, h) {
+      width = w
+      height = h
+      spriteKey = ''
+      const horizon = h * 0.82
+      background = paintBackground(w, h, (ctx) => {
+        const sky = ctx.createLinearGradient(0, 0, 0, h)
+        sky.addColorStop(0, '#01030a')
+        sky.addColorStop(0.5, '#040a1c')
+        sky.addColorStop(1, '#071129')
+        ctx.fillStyle = sky
+        ctx.fillRect(0, 0, w, h)
+        // 背景星空
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        for (let i = 0; i < 700 * areaFactor(w, h); i += 1) {
+          const sx = rand(0, w)
+          const sy = rand(0, h * 0.85)
+          const alpha = rand(0.1, 0.7)
+          const size = Math.random() < 0.06 ? rand(1.1, 1.8) : rand(0.5, 1.1)
+          ctx.fillStyle = `rgba(226, 236, 255, ${alpha.toFixed(3)})`
+          ctx.fillRect(sx, sy, size, size)
+        }
+        ctx.restore()
+        // 地平线附近的冷光与地面剪影（极光落在地平线上）
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        const horizonGlow = ctx.createLinearGradient(0, horizon - h * 0.12, 0, horizon + h * 0.05)
+        horizonGlow.addColorStop(0, 'rgba(60, 120, 170, 0)')
+        horizonGlow.addColorStop(0.6, 'rgba(70, 140, 190, 0.16)')
+        horizonGlow.addColorStop(1, 'rgba(70, 140, 190, 0)')
+        ctx.fillStyle = horizonGlow
+        ctx.fillRect(0, horizon - h * 0.12, w, h * 0.17)
+        ctx.restore()
+        const groundFill = ctx.createLinearGradient(0, horizon, 0, h)
+        groundFill.addColorStop(0, 'rgba(3, 6, 15, 0.92)')
+        groundFill.addColorStop(1, 'rgba(1, 3, 9, 1)')
+        ctx.fillStyle = groundFill
+        ctx.beginPath()
+        ctx.moveTo(0, horizon)
+        for (let x = 0; x <= w; x += 24) {
+          ctx.lineTo(x, horizon + Math.sin(x * 0.0055) * 12 + Math.sin(x * 0.017) * 5)
+        }
+        ctx.lineTo(w, h)
+        ctx.lineTo(0, h)
+        ctx.closePath()
+        ctx.fill()
+        paintVignette(ctx, w, h, 0.58)
+        paintGrain(ctx, w, h, 0.05, true)
+      })
+      buildBands()
+    },
+    configure(values) {
+      intensity = (values.intensity ?? 70) / 100
+      flow = (values.flow ?? 50) / 100
+      hueShift = (values.hue ?? 0) * 1.4
+      rayAmount = (values.rays ?? 55) / 100
+      const next = clamp(Math.round(((values.layers ?? 50) / 100) * 4) + 2, 2, 6)
+      const key = `${next}|${Math.round(hueShift)}|${themeColors().accent}`
+      if (key !== spriteKey || bands.length !== next) {
+        spriteKey = key
+        count = next
+        buildBands()
+      }
+    },
+    step(dt) {
+      for (const band of bands) band.phase += dt * band.speed * (0.5 + flow * 1.8)
+    },
+    draw(ctx) {
+      if (background) ctx.drawImage(background, 0, 0, width, height)
+      const horizon = height * 0.82
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      // 帘幕按「切片」绘制：每片稍稍错开高度就能得到飘动的形状。
+      // 切片越宽越省，48 与 1.7 倍的贴图宽度搭配已经看不出接缝。
+      const stepSize = 48
+      for (const band of bands) {
+        const spriteWidth = stepSize * 1.7
+        ctx.globalAlpha = clamp(band.alpha * intensity * (0.7 + rayAmount * 0.9) * 1.15, 0, 1)
+        for (let x = -stepSize; x < width + stepSize; x += stepSize) {
+          const t = x / Math.max(1, width)
+          const wave =
+            Math.sin(t * TAU * band.waves + band.phase) * 0.55 +
+            Math.sin(t * Math.PI * 5.4 + band.phase * 1.9) * 0.22
+          const top = band.y + wave * band.amp
+          const curtain = band.height * (0.8 + 0.38 * wave)
+          if (curtain <= 0) continue
+          ctx.drawImage(band.sprite, x - spriteWidth / 2, top, spriteWidth, curtain)
+        }
+        // 地上的倒影：把帘幕翻过来淡淡地铺在地平线以下（切片更粗以省开销）
+        ctx.globalAlpha = clamp(band.alpha * intensity * 0.22, 0, 1)
+        ctx.save()
+        ctx.translate(0, horizon * 2 + band.height * 0.2)
+        ctx.scale(1, -0.28)
+        const reflectStep = stepSize * 2.5
+        for (let x = -reflectStep; x < width + reflectStep; x += reflectStep) {
+          const t = x / Math.max(1, width)
+          const wave = Math.sin(t * TAU * band.waves + band.phase) * 0.55
+          const top = band.y + wave * band.amp
+          ctx.drawImage(band.sprite, x - spriteWidth / 2, top, spriteWidth, band.height * 0.72)
+        }
+        ctx.restore()
+      }
+      ctx.restore()
+    },
+  }
+}
+
+/* -------------------------------- 樱花 -------------------------------- */
+
+function createSakura(): Renderer {
+  interface Petal {
+    x: number
+    y: number
+    size: number
+    depth: number
+    angle: number
+    spin: number
+    fall: number
+    sway: number
+    phase: number
+    alpha: number
+    sprite: number
+  }
+  let width = 0
+  let height = 0
+  let background: HTMLCanvasElement | null = null
+  let sprites: HTMLCanvasElement[] = []
+  let petals: Petal[] = []
+  let target = 40
+  let speed = 50
+  let wind = 15
+  let sizeScale = 50
+  let bokehAmount = 0.45
+  let bokehSprites: HTMLCanvasElement[] = []
+  let gust = 0
+
+  const spawn = (fromTop = false): Petal => {
+    const depth = Math.random()
+    return {
+      x: rand(-60, width + 60),
+      y: fromTop ? rand(-height * 0.4, -20) : rand(-height * 0.2, height),
+      size: (0.28 + depth * 0.8) * (0.55 + sizeScale / 100),
+      depth,
+      angle: rand(0, TAU),
+      spin: rand(-1.6, 1.6) * (0.6 + depth * 0.8),
+      fall: 0.35 + depth * 0.95,
+      sway: rand(12, 42),
+      phase: rand(0, TAU),
+      alpha: clamp(0.3 + depth * 0.6, 0.22, 0.96),
+      // 越近的花瓣越清晰，越远越模糊（三档预渲染贴图）
+      sprite: depth > 0.72 ? 0 : depth > 0.38 ? 1 : 2,
+    }
+  }
+
+  return {
+    fps: 30,
+    setup(w, h) {
+      width = w
+      height = h
+      const base = paint(64, 64, (ctx) => {
+        const gradient = ctx.createLinearGradient(12, 6, 52, 58)
+        gradient.addColorStop(0, 'rgba(255, 226, 238, 0.99)')
+        gradient.addColorStop(0.45, 'rgba(250, 176, 205, 0.97)')
+        gradient.addColorStop(1, 'rgba(226, 118, 165, 0.94)')
+        ctx.fillStyle = gradient
+        ctx.beginPath()
+        ctx.moveTo(32, 5)
+        ctx.bezierCurveTo(54, 13, 58, 40, 32, 59)
+        ctx.bezierCurveTo(6, 40, 10, 13, 32, 5)
+        ctx.closePath()
+        ctx.fill()
+        // 花瓣的浅色纹路与小缺口
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'
+        ctx.lineWidth = 1.4
+        ctx.beginPath()
+        ctx.moveTo(32, 10)
+        ctx.lineTo(30, 52)
+        ctx.stroke()
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'
+        ctx.beginPath()
+        ctx.moveTo(32, 16)
+        ctx.quadraticCurveTo(22, 26, 20, 36)
+        ctx.moveTo(32, 16)
+        ctx.quadraticCurveTo(42, 26, 44, 36)
+        ctx.stroke()
+      })
+      sprites = [base, blurCanvas(base, 2), blurCanvas(base, 4)]
+      bokehSprites = [
+        makeBokehSprite(255, 236, 244, 128, 0.4),
+        makeBokehSprite(255, 214, 232, 128, 0.35),
+        makeBokehSprite(255, 246, 236, 128, 0.3),
+      ]
+      background = paintBackground(w, h, (ctx) => {
+        const sky = ctx.createLinearGradient(0, 0, w * 0.6, h)
+        sky.addColorStop(0, '#fffafc')
+        sky.addColorStop(0.5, '#fdf0f5')
+        sky.addColorStop(1, '#f8e6ef')
+        ctx.fillStyle = sky
+        ctx.fillRect(0, 0, w, h)
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        const warm = ctx.createRadialGradient(w * 0.2, h * 0.12, 0, w * 0.2, h * 0.12, Math.max(w, h) * 0.8)
+        warm.addColorStop(0, 'rgba(255, 232, 210, 0.9)')
+        warm.addColorStop(0.5, 'rgba(255, 226, 236, 0.35)')
+        warm.addColorStop(1, 'rgba(255, 226, 236, 0)')
+        ctx.fillStyle = warm
+        ctx.fillRect(0, 0, w, h)
+        // 远处的花枝与花簇：柔和的粉色团块，给画面加一层「景深」
+        const clusters: [number, number, number][] = [
+          [w * 0.06, h * 0.1, Math.min(w, h) * 0.26],
+          [w * 0.94, h * 0.06, Math.min(w, h) * 0.22],
+          [w * 0.28, h * 0.02, Math.min(w, h) * 0.16],
+          [w * 0.72, h * 0.16, Math.min(w, h) * 0.12],
+        ]
+        for (const [cx, cy, radius] of clusters) {
+          for (let i = 0; i < 26; i += 1) {
+            const a = rand(0, TAU)
+            const d = Math.sqrt(Math.random()) * radius
+            const px = cx + Math.cos(a) * d
+            const py = cy + Math.sin(a) * d * 0.6
+            const pr = rand(6, 20) * (1 - d / radius / 2)
+            const blob = ctx.createRadialGradient(px, py, 0, px, py, pr)
+            blob.addColorStop(0, `rgba(255, 216, 232, ${rand(0.14, 0.34).toFixed(3)})`)
+            blob.addColorStop(1, 'rgba(255, 216, 232, 0)')
+            ctx.fillStyle = blob
+            ctx.fillRect(px - pr, py - pr, pr * 2, pr * 2)
+          }
+        }
+        ctx.restore()
+        paintVignette(ctx, w, h, 0.16)
+        paintGrain(ctx, w, h, 0.04, true)
+      })
+      petals = []
+      resizeList(petals, target, () => spawn())
+    },
+    configure(values) {
+      speed = values.speed ?? 50
+      wind = values.wind ?? 15
+      sizeScale = values.size ?? 50
+      bokehAmount = (values.bokeh ?? 45) / 100
+      target = Math.round(((values.count ?? 40) / 100) * 130 * areaFactor(width, height))
+      resizeList(petals, target, () => spawn())
+    },
+    step(dt) {
+      gust += dt * 0.35
+      const gustFactor = 0.75 + 0.45 * Math.sin(gust) * Math.sin(gust * 0.37)
+      const drift = (wind / 100) * 90 * gustFactor
+      for (const petal of petals) {
+        petal.phase += dt * (0.8 + petal.depth)
+        petal.angle += petal.spin * dt * 0.8
+        petal.y += petal.fall * (14 + (speed / 100) * 60) * dt
+        petal.x += (drift + Math.sin(petal.phase) * petal.sway) * dt
+        if (petal.y > height + 70 || petal.x > width + 90 || petal.x < -90) {
+          Object.assign(petal, spawn(true))
+        }
+      }
+    },
+    draw(ctx) {
+      if (background) ctx.drawImage(background, 0, 0, width, height)
+
+      // 背景散景：像逆光下的光斑，随花瓣一起慢慢飘
+      if (bokehAmount > 0.03) {
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        for (let i = 0; i < bokehSprites.length; i += 1) {
+          const sprite = bokehSprites[i]
+          const phase = gust * (0.2 + i * 0.05)
+          const bx = ((Math.sin(phase) * 0.5 + 0.5) * 1.2 - 0.1) * width
+          const by = height * (0.2 + i * 0.26) + Math.sin(phase * 1.7) * 24
+          const size = Math.min(width, height) * (0.5 + i * 0.16)
+          ctx.globalAlpha = clamp(bokehAmount * (0.34 - i * 0.08), 0, 1)
+          ctx.drawImage(sprite, bx - size / 2, by - size / 2, size, size)
+        }
+        ctx.restore()
+      }
+
+      ctx.save()
+      for (const petal of petals) {
+        const sprite = sprites[petal.sprite]
+        if (!sprite) continue
+        const size = sprite.width * petal.size * 0.55
+        // 翻转带来的明暗变化，让旋转更有立体感
+        const flip = Math.cos(petal.angle)
+        ctx.save()
+        ctx.translate(petal.x, petal.y)
+        ctx.rotate(petal.angle * 0.6)
+        ctx.globalAlpha = clamp(petal.alpha * (0.72 + Math.abs(flip) * 0.28), 0, 1)
+        const squeeze = 0.55 + Math.abs(flip) * 0.45
+        ctx.drawImage(sprite, (-size * squeeze) / 2, -size / 2, size * squeeze, size)
+        ctx.restore()
+      }
+      ctx.restore()
+    },
+  }
+}
+
+/* -------------------------------- 飘雪 -------------------------------- */
+
+function createSnow(): Renderer {
+  interface Flake {
+    x: number
+    y: number
+    size: number
+    depth: number
+    phase: number
+    sway: number
+    fall: number
+    alpha: number
+    glint: boolean
+  }
+  let width = 0
+  let height = 0
+  let background: HTMLCanvasElement | null = null
+  let bokeh: HTMLCanvasElement | null = null
+  let soft: HTMLCanvasElement | null = null
+  let sparkle: HTMLCanvasElement | null = null
+  let flakes: Flake[] = []
+  let target = 60
+  let speed = 45
+  let wind = 10
+  let sizeScale = 50
+  let glintAmount = 0.45
+  let gust = 0
+
+  const spawn = (fromTop = false): Flake => {
+    const depth = Math.random()
+    return {
+      x: rand(-40, width + 40),
+      y: fromTop ? rand(-height * 0.3, -14) : rand(-height * 0.15, height),
+      size: (1.1 + depth * 3.6) * (0.5 + sizeScale / 100),
+      depth,
+      phase: rand(0, TAU),
+      sway: rand(8, 38),
+      fall: 0.4 + depth * 0.95,
+      alpha: clamp(0.32 + depth * 0.55, 0.24, 0.95),
+      glint: depth > 0.7 && Math.random() < 0.28,
+    }
+  }
+
+  return {
+    fps: 30,
+    setup(w, h) {
+      width = w
+      height = h
+      bokeh = makeBokehSprite(240, 248, 255, 128, 0.45)
+      soft = makeGlowSprite(232, 242, 255, 96)
+      sparkle = makeSparkleSprite(255, 255, 255, 64)
+      background = paintBackground(w, h, (ctx) => {
+        const sky = ctx.createLinearGradient(0, 0, w * 0.5, h)
+        sky.addColorStop(0, '#eef5fd')
+        sky.addColorStop(0.45, '#f6fafe')
+        sky.addColorStop(1, '#e7f0fa')
+        ctx.fillStyle = sky
+        ctx.fillRect(0, 0, w, h)
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        const halo = ctx.createRadialGradient(w * 0.68, h * 0.16, 0, w * 0.68, h * 0.16, Math.max(w, h) * 0.72)
+        halo.addColorStop(0, 'rgba(255, 255, 255, 0.96)')
+        halo.addColorStop(0.35, 'rgba(255, 252, 240, 0.4)')
+        halo.addColorStop(1, 'rgba(255, 252, 240, 0)')
+        ctx.fillStyle = halo
+        ctx.fillRect(0, 0, w, h)
+        // 远处模糊的雪片：让画面有「下雪天」的空气感
+        for (let i = 0; i < 120; i += 1) {
+          const px = rand(0, w)
+          const py = rand(0, h)
+          const pr = rand(6, 26)
+          const blob = ctx.createRadialGradient(px, py, 0, px, py, pr)
+          blob.addColorStop(0, `rgba(255,255,255,${rand(0.08, 0.3).toFixed(3)})`)
+          blob.addColorStop(1, 'rgba(255,255,255,0)')
+          ctx.fillStyle = blob
+          ctx.fillRect(px - pr, py - pr, pr * 2, pr * 2)
+        }
+        ctx.restore()
+        // 底部积雪的柔和反光
+        const ground = ctx.createLinearGradient(0, h * 0.82, 0, h)
+        ground.addColorStop(0, 'rgba(255, 255, 255, 0)')
+        ground.addColorStop(1, 'rgba(255, 255, 255, 0.75)')
+        ctx.fillStyle = ground
+        ctx.fillRect(0, h * 0.82, w, h * 0.18)
+        paintVignette(ctx, w, h, 0.18)
+        paintGrain(ctx, w, h, 0.04, true)
+      })
+      flakes = []
+      resizeList(flakes, target, () => spawn())
+    },
+    configure(values) {
+      speed = values.speed ?? 45
+      wind = values.wind ?? 10
+      sizeScale = values.size ?? 50
+      glintAmount = (values.glint ?? 45) / 100
+      target = Math.round(((values.density ?? 45) / 100) * 230 * areaFactor(width, height))
+      resizeList(flakes, target, () => spawn())
+    },
+    step(dt) {
+      gust += dt * 0.3
+      const gustFactor = 0.7 + 0.5 * Math.sin(gust) * Math.sin(gust * 0.43)
+      const drift = (wind / 100) * 70 * gustFactor
+      for (const flake of flakes) {
+        flake.phase += dt * (0.6 + flake.depth)
+        flake.y += (10 + flake.fall * (speed / 100) * 62) * dt
+        flake.x += (drift + Math.sin(flake.phase * 1.3) * flake.sway) * dt
+        if (flake.y > height + 26 || flake.x > width + 70 || flake.x < -70) {
+          Object.assign(flake, spawn(true))
+        }
+      }
+    },
+    draw(ctx) {
+      if (background) ctx.drawImage(background, 0, 0, width, height)
+      ctx.save()
+      for (const flake of flakes) {
+        const twinkle = 0.7 + 0.3 * Math.sin(flake.phase * 1.6)
+        ctx.globalAlpha = clamp(flake.alpha * twinkle, 0, 1)
+        if (flake.depth > 0.78 && bokeh) {
+          // 近处的雪花是虚化的大光斑
+          const size = flake.size * 6.2
+          ctx.drawImage(bokeh, flake.x - size / 2, flake.y - size / 2, size, size)
+          if (flake.glint && sparkle && glintAmount > 0.05) {
+            const glint = flake.size * 9
+            ctx.globalAlpha = clamp(ctx.globalAlpha * glintAmount * 1.4, 0, 1)
+            ctx.drawImage(sparkle, flake.x - glint / 2, flake.y - glint / 2, glint, glint)
+          }
+        } else if (flake.depth > 0.45 && soft) {
+          const size = flake.size * 4.2
+          ctx.drawImage(soft, flake.x - size / 2, flake.y - size / 2, size, size)
+          ctx.fillStyle = 'rgba(255,255,255,0.95)'
+          ctx.beginPath()
+          ctx.arc(flake.x, flake.y, flake.size * 0.62, 0, TAU)
+          ctx.fill()
+        } else {
+          ctx.fillStyle = 'rgba(255,255,255,0.92)'
+          ctx.beginPath()
+          ctx.arc(flake.x, flake.y, flake.size * 0.6, 0, TAU)
+          ctx.fill()
+        }
+      }
+      ctx.restore()
+    },
+  }
+}
+
+/* ------------------------------ 粒子星链 ------------------------------ */
+
+function createNetwork(): Renderer {
+  interface Node {
+    x: number
+    y: number
+    vx: number
+    vy: number
+    size: number
+    phase: number
+    pulse: number
+  }
+  interface Packet {
+    from: number
+    to: number
+    t: number
+    speed: number
+    color: number
+  }
+  let width = 0
+  let height = 0
+  let background: HTMLCanvasElement | null = null
+  let glow: HTMLCanvasElement | null = null
+  let glowSoft: HTMLCanvasElement | null = null
+  let sparkle: HTMLCanvasElement | null = null
+  let nodes: Node[] = []
+  let packets: Packet[] = []
+  let target = 60
+  let linkDistance = 140
+  let speed = 40
+  let pulseAmount = 0.5
+  let glowStrength = 0.55
+  let accent: [number, number, number] = [90, 139, 255]
+  let accent2: [number, number, number] = [160, 120, 255]
+  const pointer = { x: -9999, y: -9999 }
+
+  const spawn = (): Node => ({
+    x: rand(0, width),
+    y: rand(0, height),
+    vx: rand(-1, 1),
+    vy: rand(-1, 1),
+    size: rand(0.8, 2.1),
+    phase: rand(0, TAU),
+    pulse: rand(0.6, 1.8),
+  })
+
+  const spawnPacket = (): Packet => ({
+    from: Math.floor(Math.random() * Math.max(1, nodes.length)),
+    to: Math.floor(Math.random() * Math.max(1, nodes.length)),
+    t: 0,
+    speed: rand(0.35, 1.1),
+    color: Math.random() < 0.5 ? 0 : 1,
+  })
+
+  return {
+    fps: 30,
+    setup(w, h) {
+      width = w
+      height = h
+      const colors = themeColors()
+      accent = colors.rgb
+      accent2 = hslToRgb(toHsl(colors.rgb).h + 40, 0.8, 0.62)
+      glow = makeGlowSprite(colors.rgb[0], colors.rgb[1], colors.rgb[2], 64)
+      glowSoft = makeBokehSprite(colors.rgb[0], colors.rgb[1], colors.rgb[2], 128, 0.3)
+      sparkle = makeSparkleSprite(255, 255, 255, 64)
+      background = paintBackground(w, h, (ctx) => {
+        const sky = ctx.createLinearGradient(0, 0, 0, h)
+        sky.addColorStop(0, '#03060f')
+        sky.addColorStop(0.6, '#070d1f')
+        sky.addColorStop(1, '#0a1229')
+        ctx.fillStyle = sky
+        ctx.fillRect(0, 0, w, h)
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        // 主题色星云 + 弥散的暗星
+        const nebula = ctx.createRadialGradient(w * 0.3, h * 0.35, 0, w * 0.3, h * 0.35, Math.max(w, h) * 0.7)
+        nebula.addColorStop(0, `rgba(${colors.rgb[0]},${colors.rgb[1]},${colors.rgb[2]},0.2)`)
+        nebula.addColorStop(0.6, `rgba(${colors.rgb[0]},${colors.rgb[1]},${colors.rgb[2]},0.07)`)
+        nebula.addColorStop(1, 'rgba(0,0,0,0)')
+        ctx.fillStyle = nebula
+        ctx.fillRect(0, 0, w, h)
+        for (let i = 0; i < 500 * areaFactor(w, h); i += 1) {
+          const sx = rand(0, w)
+          const sy = rand(0, h)
+          ctx.fillStyle = `rgba(220, 235, 255, ${rand(0.05, 0.4).toFixed(3)})`
+          const size = Math.random() < 0.05 ? 1.4 : 0.8
+          ctx.fillRect(sx, sy, size, size)
+        }
+        // 远处的地平线辉光
+        const horizon = ctx.createLinearGradient(0, h * 0.72, 0, h)
+        horizon.addColorStop(0, 'rgba(0,0,0,0)')
+        horizon.addColorStop(0.6, `rgba(${colors.rgb[0]},${colors.rgb[1]},${colors.rgb[2]},0.1)`)
+        horizon.addColorStop(1, 'rgba(0,0,0,0)')
+        ctx.fillStyle = horizon
+        ctx.fillRect(0, h * 0.72, w, h * 0.28)
+        ctx.restore()
+        // 淡淡的技术网格
+        ctx.strokeStyle = `rgba(${colors.rgb[0]},${colors.rgb[1]},${colors.rgb[2]},0.05)`
+        ctx.lineWidth = 1
+        for (let x = 0; x <= w; x += 64) {
+          ctx.beginPath()
+          ctx.moveTo(x, 0)
+          ctx.lineTo(x, h)
+          ctx.stroke()
+        }
+        for (let y = 0; y <= h; y += 64) {
+          ctx.beginPath()
+          ctx.moveTo(0, y)
+          ctx.lineTo(w, y)
+          ctx.stroke()
+        }
+        paintVignette(ctx, w, h, 0.58)
+        paintGrain(ctx, w, h, 0.05, true)
+      })
+      nodes = []
+      packets = []
+      resizeList(nodes, target, spawn)
+    },
+    configure(values) {
+      linkDistance = 90 + ((values.link ?? 50) / 100) * 180
+      speed = values.speed ?? 40
+      pulseAmount = (values.pulse ?? 50) / 100
+      glowStrength = (values.glow ?? 55) / 100
+      target = Math.round(((values.density ?? 45) / 100) * 150 * areaFactor(width, height))
+      resizeList(nodes, target, spawn)
+      const wanted = Math.round(pulseAmount * 26 * areaFactor(width, height))
+      while (packets.length < wanted) packets.push(spawnPacket())
+      packets.length = Math.min(packets.length, wanted)
+    },
+    pointer(x, y) {
+      pointer.x = x
+      pointer.y = y
+    },
+    step(dt) {
+      const velocity = 6 + (speed / 100) * 36
+      for (const node of nodes) {
+        // 轻微聚拢到鼠标附近，鼠标离开后自然散开
+        const dx = pointer.x - node.x
+        const dy = pointer.y - node.y
+        const distance = Math.hypot(dx, dy)
+        if (distance < 240 && distance > 1) {
+          node.vx += (dx / distance) * 3.4 * dt
+          node.vy += (dy / distance) * 3.4 * dt
+        }
+        node.vx = clamp(node.vx, -2.2, 2.2)
+        node.vy = clamp(node.vy, -2.2, 2.2)
+        node.x += node.vx * velocity * dt
+        node.y += node.vy * velocity * dt
+        node.phase += dt * node.pulse
+        if (node.x < -20) node.x = width + 20
+        if (node.x > width + 20) node.x = -20
+        if (node.y < -20) node.y = height + 20
+        if (node.y > height + 20) node.y = -20
+      }
+      for (const packet of packets) {
+        packet.t += dt * packet.speed
+        if (packet.t >= 1) {
+          packet.t = 0
+          packet.from = Math.floor(Math.random() * Math.max(1, nodes.length))
+          packet.to = Math.floor(Math.random() * Math.max(1, nodes.length))
+          packet.speed = rand(0.35, 1.1)
+        }
+      }
+    },
+    draw(ctx) {
+      if (background) ctx.drawImage(background, 0, 0, width, height)
+      const [r, g, b] = accent
+      const [r2, g2, b2] = accent2
+
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      // 连线：越近越亮，并带一点主题色的偏移
+      ctx.lineWidth = 1
+      for (let i = 0; i < nodes.length; i += 1) {
+        const node = nodes[i]
+        for (let j = i + 1; j < nodes.length; j += 1) {
+          const other = nodes[j]
+          const dx = other.x - node.x
+          const dy = other.y - node.y
+          const distanceSq = dx * dx + dy * dy
+          if (distanceSq > linkDistance * linkDistance) continue
+          const distance = Math.sqrt(distanceSq)
+          const fade = 1 - distance / linkDistance
+          ctx.strokeStyle = `rgba(${r},${g},${b},${(fade * 0.42).toFixed(3)})`
+          ctx.beginPath()
+          ctx.moveTo(node.x, node.y)
+          ctx.lineTo(other.x, other.y)
+          ctx.stroke()
+        }
+      }
+
+      // 数据脉冲：沿线滑动的亮点
+      for (const packet of packets) {
+        const from = nodes[packet.from]
+        const to = nodes[packet.to]
+        if (!from || !to) continue
+        const px = from.x + (to.x - from.x) * packet.t
+        const py = from.y + (to.y - from.y) * packet.t
+        const distance = Math.hypot(to.x - from.x, to.y - from.y)
+        if (distance > linkDistance * 1.5) continue
+        const trail = 0.14
+        const tx = from.x + (to.x - from.x) * Math.max(0, packet.t - trail)
+        const ty = from.y + (to.y - from.y) * Math.max(0, packet.t - trail)
+        ctx.strokeStyle = packet.color ? `rgba(${r2},${g2},${b2},0.6)` : `rgba(${r},${g},${b},0.6)`
+        ctx.lineWidth = 1.4
+        ctx.beginPath()
+        ctx.moveTo(tx, ty)
+        ctx.lineTo(px, py)
+        ctx.stroke()
+        if (glow && glowStrength > 0.04) {
+          const size = 22
+          ctx.globalAlpha = 0.6 + 0.4 * glowStrength
+          ctx.drawImage(glow, px - size / 2, py - size / 2, size, size)
+          ctx.globalAlpha = 1
+        }
+      }
+
+      // 节点：呼吸的光点，少数带星芒
+      for (const node of nodes) {
+        const pulse = 0.7 + 0.3 * Math.sin(node.phase)
+        const size = node.size * (5 + pulse * 4)
+        if (glow && glowStrength > 0.04) {
+          ctx.globalAlpha = 0.5 * glowStrength * pulse
+          ctx.drawImage(glow, node.x - size / 2, node.y - size / 2, size, size)
+        }
+        if (sparkle && glowStrength > 0.04 && node.size > 1.6) {
+          const flare = node.size * 14 * pulse
+          ctx.globalAlpha = 0.5 * glowStrength * pulse
+          ctx.drawImage(sparkle, node.x - flare / 2, node.y - flare / 2, flare, flare)
+        }
+        ctx.globalAlpha = 0.95
+        ctx.fillStyle = 'rgba(255,255,255,0.95)'
+        ctx.beginPath()
+        ctx.arc(node.x, node.y, node.size * 0.55, 0, TAU)
+        ctx.fill()
+      }
+      if (glowSoft && glowStrength > 0.04 && pointer.x > -1000) {
+        const size = 220
+        ctx.globalAlpha = 0.45 * glowStrength
+        ctx.drawImage(glowSoft, pointer.x - size / 2, pointer.y - size / 2, size, size)
+      }
+      ctx.restore()
+    },
+  }
+}
+
+/* -------------------------------- 海浪 -------------------------------- */
+
+function createWaves(): Renderer {
+  interface Layer {
+    amplitude: number
+    length: number
+    speed: number
+    phase: number
+    base: number
+    alpha: number
+    sheen: number
+  }
+  interface Foam {
+    x: number
+    y: number
+    life: number
+    maxLife: number
+    size: number
+  }
+  let width = 0
+  let height = 0
+  let background: HTMLCanvasElement | null = null
+  let sparkle: HTMLCanvasElement | null = null
+  let bokeh: HTMLCanvasElement | null = null
+  let layers: Layer[] = []
+  let foams: Foam[] = []
+  let amplitudeScale = 0.6
+  let speedScale = 0.5
+  let depthScale = 0.55
+  let foamAmount = 0.5
+  let count = 4
+  let accent: [number, number, number] = [53, 99, 246]
+  let time = 0
+
+  const build = () => {
+    layers = Array.from({ length: count }, (_, index) => {
+      const t = index / Math.max(1, count)
+      return {
+        amplitude: height * (0.012 + t * 0.055),
+        length: rand(0.6, 1.5) + index * 0.22,
+        speed: rand(0.16, 0.5),
+        phase: rand(0, TAU),
+        base: height * (0.42 + t * 0.52),
+        alpha: 0.1 + t * 0.18,
+        sheen: 0.2 + t * 0.6,
+      }
+    })
+  }
+
+  return {
+    fps: 30,
+    setup(w, h) {
+      width = w
+      height = h
+      const colors = themeColors()
+      accent = colors.rgb
+      sparkle = makeSparkleSprite(255, 255, 255, 64)
+      bokeh = makeBokehSprite(255, 255, 255, 128, 0.4)
+      background = paintBackground(w, h, (ctx) => {
+        const sky = ctx.createLinearGradient(0, 0, 0, h)
+        sky.addColorStop(0, '#f8fcff')
+        sky.addColorStop(0.45, '#eef7fd')
+        sky.addColorStop(1, '#dcebf7')
+        ctx.fillStyle = sky
+        ctx.fillRect(0, 0, w, h)
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        // 天空里的太阳与云隙光
+        const sunX = w * 0.72
+        const sunY = h * 0.18
+        const sunGrad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, Math.max(w, h) * 0.7)
+        sunGrad.addColorStop(0, 'rgba(255, 252, 235, 0.9)')
+        sunGrad.addColorStop(0.2, 'rgba(255, 240, 200, 0.4)')
+        sunGrad.addColorStop(1, 'rgba(255, 240, 200, 0)')
+        ctx.fillStyle = sunGrad
+        ctx.fillRect(0, 0, w, h)
+        for (let i = 0; i < 8; i += 1) {
+          const angle = -0.5 + i * 0.16
+          const length = Math.max(w, h) * 1.2
+          const gradient = ctx.createLinearGradient(sunX, sunY, sunX + Math.cos(angle) * length, sunY + Math.sin(angle) * length)
+          gradient.addColorStop(0, `rgba(255, 246, 220, ${rand(0.12, 0.24).toFixed(3)})`)
+          gradient.addColorStop(1, 'rgba(255, 246, 220, 0)')
+          ctx.fillStyle = gradient
+          ctx.beginPath()
+          ctx.moveTo(sunX, sunY)
+          ctx.lineTo(sunX + Math.cos(angle - 0.03) * length, sunY + Math.sin(angle - 0.03) * length)
+          ctx.lineTo(sunX + Math.cos(angle + 0.03) * length, sunY + Math.sin(angle + 0.03) * length)
+          ctx.closePath()
+          ctx.fill()
+        }
+        // 海面上的阳光反射带：竖着的碎光
+        const glintTop = h * 0.42
+        for (let i = 0; i < 260; i += 1) {
+          const t = Math.random()
+          const gx = sunX + rand(-1, 1) * (30 + t * w * 0.34)
+          const gy = glintTop + t * (h - glintTop)
+          const gw = rand(2, 26) * (0.4 + t)
+          const gh = rand(1, 3)
+          ctx.fillStyle = `rgba(255, 250, 225, ${rand(0.1, 0.5).toFixed(3)})`
+          ctx.fillRect(gx - gw / 2, gy, gw, gh)
+        }
+        // 云
+        for (let i = 0; i < 16; i += 1) {
+          const cx = rand(0, w)
+          const cy = rand(h * 0.05, h * 0.4)
+          const radius = rand(80, 260)
+          const cloud = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius)
+          cloud.addColorStop(0, `rgba(255, 255, 255, ${rand(0.25, 0.55).toFixed(3)})`)
+          cloud.addColorStop(1, 'rgba(255, 255, 255, 0)')
+          ctx.fillStyle = cloud
+          ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2)
+        }
+        ctx.restore()
+        paintVignette(ctx, w, h, 0.2)
+        paintGrain(ctx, w, h, 0.04, true)
+      })
+      build()
+    },
+    configure(values) {
+      amplitudeScale = 0.3 + ((values.amplitude ?? 50) / 100) * 1.5
+      speedScale = 0.2 + ((values.speed ?? 50) / 100) * 1.9
+      depthScale = 0.35 + ((values.depth ?? 55) / 100) * 0.6
+      foamAmount = (values.foam ?? 50) / 100
+      const next = clamp(Math.round(((values.layers ?? 50) / 100) * 3) + 2, 2, 5)
+      if (next !== count) count = next
+      build()
+    },
+    step(dt) {
+      time += dt
+      for (const layer of layers) layer.phase += dt * layer.speed * speedScale
+      // 浪尖上不断冒出泡沫
+      const chance = foamAmount * 6 * dt
+      for (const layer of layers) {
+        if (Math.random() < chance && foams.length < 120) {
+          const maxLife = rand(0.6, 1.4)
+          const crestY = height * (1 - depthScale) + layer.base * depthScale * 0.5 - layer.amplitude * amplitudeScale
+          foams.push({
+            x: rand(0, width),
+            y: clamp(crestY + rand(-8, 18), 0, height),
+            life: maxLife,
+            maxLife,
+            size: rand(6, 16) * (0.6 + foamAmount),
+          })
+        }
+      }
+      for (const foam of foams) foam.life -= dt
+      foams = foams.filter((foam) => foam.life > 0)
+    },
+    draw(ctx) {
+      if (background) ctx.drawImage(background, 0, 0, width, height)
+      const [r, g, b] = accent
+
+      ctx.save()
+      for (const layer of layers) {
+        const top = height * (1 - depthScale) + layer.base * depthScale * 0.5
+        const waveY = (x: number) => {
+          const t = (x / Math.max(1, width)) * TAU * layer.length
+          return (
+            top +
+            Math.sin(t + layer.phase) * layer.amplitude * amplitudeScale +
+            Math.sin(t * 2.4 + layer.phase * 1.6) * layer.amplitude * 0.34 * amplitudeScale
+          )
+        }
+        ctx.beginPath()
+        ctx.moveTo(0, height)
+        ctx.lineTo(0, waveY(0))
+        for (let x = 0; x <= width + 10; x += 10) ctx.lineTo(x, waveY(x))
+        ctx.lineTo(width, height)
+        ctx.closePath()
+        const gradient = ctx.createLinearGradient(0, top - layer.amplitude, 0, height)
+        gradient.addColorStop(0, rgbString([Math.round(r * 0.6 + 90), Math.round(g * 0.6 + 130), Math.round(b * 0.6 + 170)], layer.alpha * 1.6))
+        gradient.addColorStop(0.45, rgbString([r, g, b], layer.alpha * 1.15))
+        gradient.addColorStop(1, rgbString([Math.round(r * 0.7), Math.round(g * 0.7), Math.round(b * 0.75)], layer.alpha * 0.5))
+        ctx.fillStyle = gradient
+        ctx.fill()
+        // 浪尖高光
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        ctx.strokeStyle = `rgba(255,255,255,${(layer.sheen * 0.6).toFixed(3)})`
+        ctx.lineWidth = 1.6
+        ctx.beginPath()
+        ctx.moveTo(0, waveY(0))
+        for (let x = 0; x <= width + 10; x += 10) ctx.lineTo(x, waveY(x))
+        ctx.stroke()
+        ctx.restore()
+      }
+
+      // 泡沫：浪尖上的星芒与柔和光点
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      for (const foam of foams) {
+        const fade = clamp(foam.life / foam.maxLife, 0, 1)
+        const size = foam.size * (1.4 - fade * 0.4)
+        ctx.globalAlpha = fade * 0.9
+        if (sparkle) ctx.drawImage(sparkle, foam.x - size / 2, foam.y - size / 2, size, size)
+        if (bokeh) {
+          ctx.globalAlpha = fade * 0.5
+          const soft = size * 2.4
+          ctx.drawImage(bokeh, foam.x - soft / 2, foam.y - soft / 2, soft, soft)
+        }
+      }
+      // 水面上闪烁的碎光
+      for (let i = 0; i < layers.length; i += 1) {
+        const layer = layers[i]
+        const top = height * (1 - depthScale) + layer.base * depthScale * 0.5
+        for (let k = 0; k < 3; k += 1) {
+          const x = ((Math.sin(time * (0.2 + i * 0.07) + k * 2.1) * 0.5 + 0.5) * width)
+          const y = top + Math.sin(time * 0.6 + k + i) * layer.amplitude * amplitudeScale
+          const size = 10 + Math.sin(time * 1.4 + k + i) * 4
+          ctx.globalAlpha = clamp(0.35 + 0.3 * Math.sin(time * 1.1 + i + k), 0, 1) * 0.7
+          if (sparkle) ctx.drawImage(sparkle, x - size / 2, y - size / 2, size, size)
+        }
+      }
+      ctx.restore()
       ctx.restore()
     },
   }
@@ -455,6 +2022,16 @@ function createRenderer(scene: ActiveSceneId): Renderer {
       return createSunshine()
     case 'stars':
       return createStars()
+    case 'aurora':
+      return createAurora()
+    case 'sakura':
+      return createSakura()
+    case 'snow':
+      return createSnow()
+    case 'network':
+      return createNetwork()
+    case 'waves':
+      return createWaves()
   }
 }
 
@@ -542,6 +2119,12 @@ export function AnimatedBackdrop({ scene, values }: { scene: ActiveSceneId; valu
         start()
       }
     }
+    const onPointerMove = (event: PointerEvent) => {
+      renderer.pointer?.(event.clientX, event.clientY)
+    }
+    if (typeof renderer.pointer === 'function') {
+      window.addEventListener('pointermove', onPointerMove, { passive: true })
+    }
 
     sizeTo()
     start()
@@ -551,6 +2134,7 @@ export function AnimatedBackdrop({ scene, values }: { scene: ActiveSceneId; valu
 
     return () => {
       stop()
+      window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('resize', onResize)
       document.removeEventListener('visibilitychange', onVisibility)
       motion.removeEventListener('change', onMotion)
