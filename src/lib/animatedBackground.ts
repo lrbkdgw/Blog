@@ -6,8 +6,8 @@ import { readPersonalSetting, writePersonalSetting } from './settingsStore'
  * 场景定义、参数范围、校验与本地保存。
  * 渲染在 components/AnimatedBackdrop.tsx，界面在设置页。
  *
- * 动态背景只保存在浏览器本地（不同步到 GitHub），因为它是纯视觉偏好，
- * 且相比颜色渐变更依赖设备性能。
+ * 偏好优先保存在浏览器本地；登录 GitHub 后可随配色主题、明暗模式与背景色
+ * 一起写入账号偏好文件，在其他设备登录同一账号时自动恢复（见 background.tsx）。
  */
 
 export type SceneId = 'none' | 'sakura' | 'network' | 'snow' | 'rain' | 'bamboo'
@@ -131,7 +131,8 @@ export function getSceneValues(pref: AnimatedBackgroundPreference, scene: Active
   return normalizeSceneValues(spec, pref.values[scene])
 }
 
-function normalizePreference(raw: unknown): AnimatedBackgroundPreference {
+/** 把任意输入（本地旧数据 / GitHub 账号偏好文件）规范成完整的动态背景偏好。 */
+export function normalizeAnimatedBackground(raw: unknown): AnimatedBackgroundPreference {
   if (!raw || typeof raw !== 'object') return DEFAULT_PREFERENCE
   const data = raw as { scene?: unknown; values?: unknown }
   const scene = SCENES.some((item) => item.id === data.scene) || data.scene === 'none'
@@ -147,10 +148,17 @@ function normalizePreference(raw: unknown): AnimatedBackgroundPreference {
 
 export function readAnimatedBackground(): AnimatedBackgroundPreference {
   try {
-    return normalizePreference(readPersonalSetting<unknown>(STORAGE_NAME))
+    return normalizeAnimatedBackground(readPersonalSetting<unknown>(STORAGE_NAME))
   } catch {
     return DEFAULT_PREFERENCE
   }
+}
+
+/** 整体替换动态背景偏好（账号偏好恢复时使用）；会立即通知所有打开的视图。 */
+export function setAnimatedBackgroundPreference(raw: unknown): AnimatedBackgroundPreference {
+  const next = normalizeAnimatedBackground(raw)
+  write(next)
+  return next
 }
 
 function write(next: AnimatedBackgroundPreference) {

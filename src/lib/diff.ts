@@ -161,3 +161,115 @@ export function collapseContext(lines: DiffLine[], context = 3): (DiffLine | { t
   if (skipped > 0) output.push({ type: 'skip', count: skipped })
   return output
 }
+
+/* -------------------------------------------------------------------------- */
+/*                      渲染对比：仅显示较新版本的结构化差异                     */
+/* -------------------------------------------------------------------------- */
+
+export interface RenderedDiffChunk {
+  type: 'equal' | 'insert' | 'delete'
+  /** 可直接交给 Markdown 渲染的源码片段 */
+  text: string
+}
+
+interface SourceBlock {
+  /** 1 开始的行号（相对传入的文本） */
+  start: number
+  end: number
+  lines: string[]
+}
+
+/**
+ * 把 Markdown 按空行切成块，围栏代码块内部的空行不切。
+ * 渲染对比以「块」为单位着色：整块新增标绿、整块删除标红，
+ * 这样不会把标题、列表或代码围栏从中间截断。
+ */
+function splitMarkdownBlocks(text: string): SourceBlock[] {
+  const lines = text.replace(/\r\n/g, '\n').split('\n')
+  const blocks: SourceBlock[] = []
+  let current: { start: number; lines: string[] } | null = null
+  let inFence = false
+  let fenceChar = ''
+
+  const flush = (end: number) => {
+    if (!current || current.lines.length === 0) {
+      current = null
+      return
+    }
+    blocks.push({ start: current.start, end, lines: current.lines })
+    current = null
+  }
+
+  lines.forEach((line, index) => {
+    const lineNumber = index + 1
+    const fence = line.match(/^\s*(`{3,}|~{3,})/)
+    if (fence) {
+      const marker = fence[1]
+      if (!inFence) {
+        inFence = true
+        fenceChar = marker[0]
+      } else if (marker[0] === fenceChar) {
+        inFence = false
+      }
+    }
+
+    if (!inFence && line.trim() === '') {
+      flush(lineNumber - 1)
+      return
+    }
+
+    if (!current) current = { start: lineNumber, lines: [] }
+    current.lines.push(line)
+  })
+  flush(lines.length)
+  return blocks
+}
+
+/**
+ * 生成「只显示较新版本」的渲染对比片段：
+ *   - equal：未改动的内容，正常渲染；
+ *   - insert：新增的块，调用方用绿色标出；
+ *   - delete：被删除的旧内容，调用方用红色标出（没有对应新内容可显示）。
+ *
+ * 以 Markdown 块（空行分隔，围栏代码块内部的空行不切）为最小单位，
+ * 整块新增标绿、整块删除标红，避免把代码围栏、列表或表格从中间截断。
+ */
+export function renderedDiffBlocks(oldText: string, newText: string): RenderedDiffChunk[] {
+  const oldBlocks = splitMarkdownBlocks(oldText.replace(/\r\n/g, '\n'))
+  const newBlocks = splitMarkdownBlocks(newText.replace(/\r\n/g, '\n'))
+  if (oldBlocks.length === 0 && newBlocks.length === 0) return []
+
+  // 每个块编码成一行再复用行级 LCS：块内部的换行用 NUL 占位，
+  // 因此 diff 的行号可以直接映射回块下标，代码围栏也不会被拆开。
+  const encode = (block: SourceBlock) => block.lines.join('\u0000')
+  const rows = diffLines(
+    oldBlocks.map(encode).join('\n'),
+    newBlocks.map(encode).join('\n'),
+  )
+
+  const chunks: RenderedDiffChunk[] = []
+  const push = (type: RenderedDiffChunk['type'], text: string) => {
+    if (!text.trim()) return
+    const last = chunks[chunks.length - 1]
+    if (last && last.type === type) {
+      last.text = `${last.text.replace(/\s+$/, '')}\n\n${text}`
+    } else {
+      chunks.push({ type, text })
+    }
+  }
+
+  for (const row of rows) {
+    if (row.type === 'equal') {
+      const block = oldBlocks[(row.oldNumber ?? 1) - 1]
+      if (block) push('equal', block.lines.join('\n'))
+    } else if (row.type === 'delete') {
+      const block = oldBlocks[(row.oldNumber ?? 1) - 1]
+      if (block) push('delete', block.lines.join('\n'))
+    } else {
+      const block = newBlocks[(row.newNumber ?? 1) - 1]
+      if (block) push('insert', block.lines.join('\n'))
+    }
+  }
+
+  return chunks
+}

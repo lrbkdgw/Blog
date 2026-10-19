@@ -51,6 +51,7 @@ import {
 } from '../lib/updateQueue'
 import type { QueueItem, QueueItemKind } from '../lib/updateQueue'
 import { useRepoTarget } from '../lib/useRepoTarget'
+import { QueueDiffDialog } from '../components/QueueDiff'
 import type { Post } from '../lib/types'
 
 type MainTab = 'posts' | 'prs' | 'queue'
@@ -103,6 +104,7 @@ export default function Admin() {
   const [isRepoAdmin, setIsRepoAdmin] = useState(false)
 
   const [queue, setQueue] = useState<QueueItem[]>(getUpdateQueue)
+  const [diffItem, setDiffItem] = useState<QueueItem | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [flushing, setFlushing] = useState(false)
   const [flushErrors, setFlushErrors] = useState<Record<string, string>>({})
@@ -865,7 +867,20 @@ export default function Admin() {
                 return (
                   <div
                     key={item.id}
-                    className={`flex flex-wrap items-center gap-3 px-4 py-3.5 transition hover:bg-ink-50/70 dark:hover:bg-white/[.03] ${
+                    role="button"
+                    tabIndex={0}
+                    title="点击查看这条更新请求的 diff"
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest('button, input, label, a')) return
+                      setDiffItem(item)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return
+                      if ((event.target as HTMLElement).closest('button, input, label, a')) return
+                      event.preventDefault()
+                      setDiffItem(item)
+                    }}
+                    className={`flex cursor-pointer flex-wrap items-center gap-3 px-4 py-3.5 transition hover:bg-ink-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/40 dark:hover:bg-white/[.03] ${
                       isSelected ? 'bg-brand-50/40 dark:bg-brand-500/[0.06]' : ''
                     }`}
                   >
@@ -923,6 +938,15 @@ export default function Admin() {
 
                     <div className="flex shrink-0 items-center gap-1">
                       <button
+                        onClick={() => setDiffItem(item)}
+                        disabled={flushing}
+                        className="btn-ghost h-8 px-2 text-xs"
+                        title="查看这条更新请求的 diff"
+                      >
+                        <Eye size={14} />
+                        diff
+                      </button>
+                      <button
                         onClick={() => runFlush([item])}
                         disabled={flushing}
                         className="btn-ghost h-8 px-2 text-xs text-brand-600 dark:text-brand-300"
@@ -955,9 +979,12 @@ export default function Admin() {
 
           <p className="mb-16 text-xs leading-relaxed text-ink-400">
             更新时文件类更改（文章、图片、账号偏好、版本名称）会合并为一次 Git 提交并触发一次部署；发表申请会逐个创建 PR。失败的条目会保留在队列中，可稍后重试。
+            点击任意一条更新请求（或右侧的「diff」）可查看它相对仓库当前文件的差异。
           </p>
         </div>
       )}
+
+      {diffItem && <QueueDiffDialog item={diffItem} onClose={() => setDiffItem(null)} />}
     </div>
   )
 }

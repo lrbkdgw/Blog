@@ -197,13 +197,6 @@ function ColorThemeControls() {
         </div>
       </div>
 
-      <p className="mt-4 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
-        主题色阶通过 CSS 变量注入（<span className="font-mono">--brand-50…950</span>），因此按钮、链接、标签、光晕、
-        代码高亮外框与动态背景会一起换色。配色主题与明暗模式只保存在本设备，不会写入仓库。
-        <br />
-        开启配色主题（不是默认的「星野蓝」）后，页头那个单独的明暗切换按钮会自动收起——明暗模式在上面这一行切换，
-        切回「星野蓝」按钮即恢复。
-      </p>
     </>
   )
 }
@@ -275,10 +268,6 @@ function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreferen
         </div>
       )}
 
-      <p className="mt-5 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
-        动态背景仅保存在本设备，不会同步到 GitHub。五种场景都会跟随上面的明暗模式：白昼 / 夜樱、浅色星图 / 暗夜、雪日 / 雪夜、阴雨白昼 / 冷调雨夜、晨光竹林 / 月夜竹林。粒子星链的颜色还会跟随配色主题。切换明暗时保留粒子与竹竿的位置。暴雨的闪电默认关闭，可按需开启。系统开启“减少动态效果”时，背景只显示静态画面。
-        文章开头写 <code className="font-mono">::set-background[编号]</code> 可强制该文章使用指定背景（0 无 · 1 樱花 · 2 粒子星链 · 3 雪花 · 4 暴雨 · 5 竹林；参数仍用这里的值），离开文章即恢复上面的选择；正文与代码字体同理可用 <code className="font-mono">::set-font[字体名]</code> / <code className="font-mono">::set-code-font[字体名]</code> 只对本文强制。
-      </p>
     </>
   )
 }
@@ -501,10 +490,10 @@ export default function SettingsPage() {
   const { font, accountSync, setFontSize, resetFont, saveForGithub } = useFont()
   const {
     background,
-    accountSync: backgroundAccountSync,
+    accountSync: appearanceAccountSync,
     setBackground,
     resetBackground,
-    saveForGithub: saveBackgroundForGithub,
+    saveForGithub: saveAppearanceForGithub,
   } = useBackground()
   const animatedBackground = useAnimatedBackground()
   const toast = useToast()
@@ -516,7 +505,7 @@ export default function SettingsPage() {
   const [savingFont, setSavingFont] = useState(false)
   const [backgroundColor, setBackgroundColor] = useState(background.color || '#FBFBFD')
   const [backgroundIntensity, setBackgroundIntensity] = useState(background.intensity)
-  const [savingBackground, setSavingBackground] = useState(false)
+  const [savingAppearance, setSavingAppearance] = useState(false)
 
   useEffect(() => {
     setBackgroundColor(background.color || '#FBFBFD')
@@ -579,18 +568,18 @@ export default function SettingsPage() {
     }
   }
 
-  const saveBackgroundToGithub = async () => {
-    setSavingBackground(true)
+  const saveAppearanceToGithub = async () => {
+    setSavingAppearance(true)
     try {
-      await saveBackgroundForGithub()
-      toast(`背景颜色偏好已加入待更新队列，统一更新后同步到 @${ghUser?.login}`, 'success', {
+      await saveAppearanceForGithub()
+      toast(`外观偏好已加入待更新队列，统一更新后同步到 @${ghUser?.login}`, 'success', {
         label: '查看队列',
         href: '/admin?tab=queue',
       })
     } catch (err) {
-      toast(err instanceof Error ? err.message : '保存背景颜色偏好失败', 'error')
+      toast(err instanceof Error ? err.message : '保存外观偏好失败', 'error')
     } finally {
-      setSavingBackground(false)
+      setSavingAppearance(false)
     }
   }
 
@@ -858,33 +847,6 @@ export default function SettingsPage() {
               恢复默认
             </button>
           </div>
-
-          {canPublish && ghUser ? (
-            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-ink-200/70 pt-4 dark:border-white/10">
-              <button
-                type="button"
-                onClick={saveBackgroundToGithub}
-                disabled={savingBackground}
-                className="btn-outline h-9"
-              >
-                {savingBackground ? <Loader2 size={15} className="animate-spin" /> : <Cloud size={15} />}
-                保存到 GitHub（@{ghUser.login}）
-              </button>
-              <span className="text-xs text-ink-400">
-                {backgroundAccountSync === 'loading'
-                  ? '正在恢复账号背景偏好…'
-                  : backgroundAccountSync === 'queued'
-                    ? '已加入待更新队列，统一更新后同步到账号'
-                    : backgroundAccountSync === 'synced'
-                      ? '已与该账号的背景偏好同步'
-                      : '保存后可在其他设备同步'}
-              </span>
-            </div>
-          ) : (
-            <p className="mt-4 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
-              访客设置已直接保存在本地。
-            </p>
-          )}
         </Section>
 
         {/* ------------------------------ 动态背景 ------------------------------ */}
@@ -894,6 +856,43 @@ export default function SettingsPage() {
           icon={CloudRain}
         >
           <AnimatedBackgroundControls pref={animatedBackground} />
+        </Section>
+
+        {/* ------------------------------ 外观偏好同步 ------------------------------ */}
+        <Section
+          title="外观偏好同步"
+          desc="把配色主题、明暗模式、背景渐变与动态背景一起保存到 GitHub 账号；在其他设备登录同一账号后会读取并恢复。"
+          icon={Cloud}
+        >
+          {canPublish && ghUser ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={saveAppearanceToGithub}
+                disabled={savingAppearance}
+                className="btn-outline h-9"
+              >
+                {savingAppearance ? <Loader2 size={15} className="animate-spin" /> : <Cloud size={15} />}
+                同步外观到 GitHub（@{ghUser.login}）
+              </button>
+              <span className="text-xs text-ink-400">
+                {appearanceAccountSync === 'loading'
+                  ? '正在恢复账号外观偏好…'
+                  : appearanceAccountSync === 'queued'
+                    ? '已加入待更新队列，统一更新后同步到账号'
+                    : appearanceAccountSync === 'synced'
+                      ? '已与该账号的外观偏好同步'
+                      : '保存后可在其他设备登录同一账号自动恢复'}
+              </span>
+            </div>
+          ) : (
+            <p className="text-xs leading-relaxed text-ink-400">
+              访客设置已直接保存在本地。登录并连接 GitHub 账号后，可在这里把外观偏好同步到云端。
+            </p>
+          )}
+          <p className="mt-3 text-xs leading-relaxed text-ink-400">
+            偏好保存在仓库的 <code className="font-mono">.starlog/settings/background-preferences/</code> 下，每个 GitHub 账号一个文件，不会影响文章与站点其他人的设置。
+          </p>
         </Section>
 
         {/* ------------------------------ 编辑器行为 ----------------------------- */}
