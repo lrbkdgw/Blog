@@ -99,6 +99,26 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     applyColorTheme(colorTheme)
   }, [colorTheme])
 
+  /**
+   * 浏览器外壳（手机上的地址栏 / 状态栏）颜色跟随「实际生效的明暗 + 配色主题」。
+   *
+   * index.html 里原先是两个写死的 media 版 theme-color，只跟随系统的 prefers-color-scheme：
+   * 站内选了浅色而系统是深色时，浏览器顶栏会取到 #0d1017，页面下滑时顶部就是一条黑带；
+   * 反过来则是白带。它也完全不知道 10 套配色主题的存在。
+   *
+   * 这个 effect 必须排在 applyColorTheme 之后（React 按声明顺序执行 effect），
+   * 这样读到的 CSS 变量才是当前配色主题自己的页面底色。
+   */
+  useEffect(() => {
+    const root = document.documentElement
+    const meta = document.querySelector('meta[name="theme-color"]')
+    if (!meta) return
+    const surface = getComputedStyle(root)
+      .getPropertyValue(theme === 'dark' ? '--theme-surface-dark' : '--theme-surface-light')
+      .trim()
+    meta.setAttribute('content', surface || (theme === 'dark' ? '#0d1017' : '#fbfbfd'))
+  }, [theme, colorTheme])
+
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.theme, mode)

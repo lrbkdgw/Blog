@@ -34,7 +34,104 @@
 - 本地浏览器验证设置页五个入口、雪花大小即时调整、深浅切换、星链主题换色；控制台无警告或错误。
 - 修改未涉及 VS Code 扩展渲染或共享样式，无需重新打包扩展。
 
-## 2026-10-16 · 两种动态背景都适配深色 / 浅色 · 去掉粒子星链的噪点（本次）
+## 2026-10-16 · 处理 issue #53 / #54 / #55：页头底色跟随主题、代码字体独立设置、去掉空的动态背景推荐（本次）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+一次处理三个 open issue：
+- **#53**：任意页面下滑后，顶部变成一条与页面脱节的实色带——深色模式发黑，浅色模式发白（作者补充：什么模式、什么主题都会）。
+- **#54**：代码字体要能单独设置；默认字体改为正文 `Google Sans` → `Noto Sans CJK SC`、代码 `Cascadia Code`。
+- **#55**：设置页弹出的「某主题适合搭配动态背景某场景」提示，场景可能是空的。
+另外顺手修了排查过程中发现的几个相关问题（浏览器顶栏颜色、首屏闪烁、云端字体假死）。
+
+### 修复
+- **#53 吸顶页头变成白 / 黑带**。三个成因一起处理：
+  1. 滚动后的底色写死 `bg-white/75` 与 `dark:bg-ink-950/75`，而页面底色是跟着配色主题
+     （10 套 `--theme-surface-*`）、自定义渐变背景色与动态背景变的，两者永远对不上；
+  2. 未滚动时页头**完全没有** `background-color`，滚动时才加上 `bg-white/75`，`transition-all`
+     于是从 `transparent`（即 `rgba(0,0,0,0)`，透明的**黑**）插值到半透明白——不做预乘插值的引擎
+     会先经过一层灰黑；
+  3. `transition-all` 还把 `backdrop-filter` 等无关属性一起拖进过渡。
+
+  改法：新增 `--site-header-surface`（浅色取 `--theme-surface-light`，深色取 `--theme-surface-dark`），
+  页头与移动端展开的菜单面板改用 `color-mix(in srgb, var(--site-header-surface) 78% / 95%, transparent)`，
+  底色与页面底色**同源**；未滚动状态也写「同一个颜色、alpha = 0」，插值全程留在同色系里；
+  过渡收窄为 `background-color / border-color / box-shadow`；不支持 `color-mix` 的浏览器有中性白 / 深色
+  回退声明，不支持 `backdrop-filter` 的浏览器改用接近不透明的底色保证文字可读。
+  实现从 `Layout.tsx` 的类名拼接移到 `src/styles/index.css` 的 `.site-header` / `.site-header-panel`。
+- **#55 空的动态背景推荐提示**。`SettingsPage.tsx` 的判定是
+  `selected?.scene && selected.scene !== animated.scene`，而「没有推荐场景」的主题存的是
+  `scene: 'none'`——非空字符串，truthy。于是星野蓝 / 落日橙 / 森野绿 / 鎏金 / 墨白这 5 套主题
+  在当前动态背景不是「无」时，都会弹出「『落日橙』适合搭配动态背景『无』」+「一键套用」。
+  按 issue 要求整条提示移除；搭配建议本来就写在每张色卡的描述文字与 README 的主题表里，信息没有丢。
+- **浏览器顶栏颜色**。`index.html` 原先是两个写死的 media 版 `<meta name="theme-color">`，只跟随系统的
+  `prefers-color-scheme`：站内选了浅色而系统是深色时，手机浏览器顶栏就是 `#0d1017` 一条黑带（反之白带），
+  而且完全不知道 10 套配色主题的存在。改为单个 meta，由 `ThemeProvider` 按**实际生效**的明暗 + 当前配色主题
+  读 `--theme-surface-*` 写入；首屏脚本先按明暗写一个兜底值。
+- **首屏闪烁两处**：① 首屏脚本把 `starlog:theme === 'system'` 当成浅色（`stored === 'dark'`），
+  系统深色的用户会先闪一下白底，现在 `system` 与任何非法值都跟随系统；
+  ② README 一直声称「首屏脚本会在 React 启动前写入 `<html data-starlog-theme>`」，但代码里并没有这一步，
+  换肤用户首屏会闪一下默认「星野蓝」——补上 `THEME_IDS` 白名单与写入逻辑，文档与实现现在一致。
+- **CI 的 `verify` 作业从 PR #45 起一直是红的**（与本次三个 issue 无关，但它挡住了本次改动的验证）：
+  步骤「博客构建与扩展类型检查」里的 `npm --prefix vscode_extensions/v1 run typecheck` 会顺着 import
+  拉进博客的 `src/lib/posts.ts` 与 `src/lib/versionNames.ts`，这两个文件用了 Vite 专属的
+  `import.meta.glob`，而插件 tsconfig 的 `types` 只有 `node` / `vscode`，于是报
+  `TS2339: Property 'glob' does not exist on type 'ImportMeta'`。给插件 tsconfig 补上 `vite/client`
+  即可（vite 装在仓库根目录，插件的 `build.mjs` 本来就依赖根目录的 postcss / tailwindcss，
+  向上解析是既有约定而非新增耦合）。这两个文件运行时早有 try/catch 兜底，本次只补类型声明。
+- **改字体时假死**。`setFonts()` 会为本机没有的字体逐个 `await requestCloudFont()`，每个最多等 5 秒，
+  而 `fonts.googleapis.com` 在部分网络下根本连不通，失败后又只是静默忽略——表现就是「点了没反应」。
+  改为并行发起、不阻塞提交，字体到位后浏览器自己重排。
+
+### 新增
+- **代码字体独立设置（#54）**：`FontPreference` 增加 `monoFamilies`，`FontCtx` 的
+  `setFonts / addFont / removeFont / moveFont` 都增加 `target: 'sans' | 'mono'` 参数（默认 `sans`，
+  旧调用方式不变）；`applyToDocument` 相应写入 `--font-mono` 与 `data-font-mono-family`；
+  `resetFont()` 同时清空两组并把字号恢复 100%。
+- **设置页**：抽出可复用的 `FontPriorityEditor`，正文与代码各渲染一份（输入 + 本机字体候选 +
+  推荐预设 chips + 优先级列表 + 上下调序 / 移除 + **实时样例行**）；两组各有自己的预设
+  （`PRESET_SANS_FONTS` / `PRESET_MONO_FONTS`）。
+- **README** 新增「🔤 字体与字号」章节：默认字体栈表、自定义方式、账号偏好文件格式，
+  以及「默认字体栈有三份副本（index.css / font.tsx / index.html），改动要同步」的维护提示。
+
+### 调整
+- **默认字体栈（#54）**：`--font-sans` 改为 `Google Sans → Noto Sans CJK SC → Noto Sans SC → 系统无衬线`，
+  `--font-mono` 改为 `Cascadia Code → 系统等宽`；`src/lib/font.tsx` 导出 `SANS_FALLBACK` /
+  `SERIF_FALLBACK` / `MONO_FALLBACK`，用户自定义字体缺字形时回退到同一套默认栈（以前回退栈里
+  没有 Google Sans / Noto Sans CJK SC / Cascadia Code，与 CSS 默认值不一致）。
+- **账号字体偏好文件升到 `version: 3`**：多一个 `monoFamily` 字段；`fetchGithubFontPreference()`
+  兼容只有 `family` 的 v2 旧文件（代码字体回落默认栈），并且 `family` / `monoFamily` 只要有一个非空就算有效。
+- 仓库内 `@lrbkdgw` 的偏好文件同步为 v3：原先代码字体被混在正文列表里
+  （`"Google Sans, Noto Sans CJK SC, Cascadia Code"`），现在拆成 `family` 与 `monoFamily` 两项。
+- `font.tsx` 的本地偏好读取增加 `parseFamilies()`，统一兼容 `families` 数组 / 单个 `family` 字符串 /
+  `monoFamilies` / `monoFamily` 四种历史写法；`splitFamilies()` 提出为导出函数供账号恢复复用。
+- `themes.ts` 的 `scene` / `sceneName` 现在只作为文档元数据（README 主题表的「建议搭配」列），
+  不再驱动任何界面提示。
+- **合并 main（PR #57：新增雪花 / 暴雨 / 竹林三种动态背景）**：`SettingsPage.tsx` 自动合并成功
+  （新增的场景选项 / 图标与本次的字体编辑器、移除推荐提示互不重叠）；README 功能表取 main 的
+  「五种场景」描述 + 本次的「🔤 排版偏好」行；ChangeLog 两条新条目按日期倒序并列保留
+  （2026-10-17 在上、本次 2026-10-16 在下）。
+
+### 验证
+- `npm run build`（`tsc --noEmit && vite build`）通过（7.3s）；`tsc` 的 `noUnusedLocals` 同时确认
+  移除推荐提示后没有留下未使用的导入（`Sparkles` 已删）。
+- 检查构建产物 CSS：`.site-header[data-scrolled=true]` 同时含中性回退值与 `color-mix(...)`，
+  `@supports not (backdrop-filter…)` 分支与 `.dark` 分支都按预期生成。
+- `npm --prefix vscode_extensions/v1 run typecheck` 由**失败转为通过**（修 CI 前它在 HEAD 上就已经报错）。
+- `npm run extension:test`：61 项 —— 57 通过、4 跳过（需要 `BROWSER_EXECUTABLE_PATH`，本地无 Chromium）、0 失败。
+  插件复用同一份 `src/styles/index.css`，新增的 `.site-header*` 规则会被作用域化到
+  `.markdown-extension-preview` 下（预览里没有页头，属于无害的死规则），`body` / `:root` / `.dark`
+  与渐变背景开关的既有契约未变。
+- `vscode_extensions/v1/out/extension.js`、`out/preview.js` 保持仓库原样未提交：实测在 HEAD 上重新构建
+  这两个文件也会变（只是压缩后的标识符重命名），差异来自构建环境而非本次改动；博客 CSS 走的是
+  已被 `.gitignore` 忽略的 `out/preview.css`。
+
+## 2026-10-16 · 两种动态背景都适配深色 / 浅色 · 去掉粒子星链的噪点（上一轮）
 
 | 模型信息 | |
 | --- | --- |

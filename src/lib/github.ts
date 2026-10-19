@@ -1066,7 +1066,10 @@ export async function deleteBlogDiscussionComment(commentId: string): Promise<vo
 /* ---------------------------- 账号外观偏好 ---------------------------- */
 
 export interface GithubFontPreference {
+  /** 正文字体，逗号分隔，按优先级从高到低 */
   family: string
+  /** 代码字体，逗号分隔，按优先级从高到低（version 3 起，旧文件没有这一项） */
+  monoFamily: string
   sizePercent: number
   updatedAt: number
 }
@@ -1086,9 +1089,14 @@ export async function fetchGithubFontPreference(
   try {
     const { text } = await fetchRemoteFile(fontSettingsPath(login), target)
     const parsed = JSON.parse(text)
-    if (!parsed || typeof parsed.family !== 'string') return null
+    if (!parsed || typeof parsed !== 'object') return null
+    // version 2 的旧文件只有 family；version 3 起多一个 monoFamily（代码字体）。
+    const family = typeof parsed.family === 'string' ? parsed.family : ''
+    const monoFamily = typeof parsed.monoFamily === 'string' ? parsed.monoFamily : ''
+    if (!family && !monoFamily) return null
     return {
-      family: parsed.family,
+      family,
+      monoFamily,
       sizePercent: typeof parsed.sizePercent === 'number' ? parsed.sizePercent : 100,
       updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
     }
@@ -1115,8 +1123,9 @@ export function buildFontPreferenceFile(
     text:
       JSON.stringify(
         {
-          version: 2,
+          version: 3,
           family: preference.family,
+          monoFamily: preference.monoFamily || '',
           sizePercent: preference.sizePercent,
           updatedAt: preference.updatedAt || Date.now(),
         },

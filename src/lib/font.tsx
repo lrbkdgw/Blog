@@ -8,18 +8,42 @@ import { useAuth } from './auth'
 
 export type FontSource = 'default' | 'local' | 'cloud'
 export type FontStatus = 'idle' | 'checking-local' | 'loading-cloud' | 'ready' | 'fallback'
+/**
+ * 字体作用对象（issue #54：代码字体可以单独设置）：
+ * - `sans`：正文与界面文字，同时作用于 serif（标题）；
+ * - `mono`：代码块、行内代码、kbd 等等宽文字。
+ */
+export type FontTarget = 'sans' | 'mono'
 
 export const FONT_SIZE_MIN = 80
 export const FONT_SIZE_MAX = 130
 export const DEFAULT_FONT_SIZE = 100
 
+/**
+ * 默认字体栈（issue #54）：正文 Google Sans → Noto Sans CJK SC，代码 Cascadia Code，
+ * 后面接各自的系统回退。
+ *
+ * 这三条常量与 `src/styles/index.css` 的 `:root`、`index.html` 的首屏内联脚本必须保持一致：
+ * CSS 里的版本决定「用户没有自定义字体时」用什么，这里的版本决定「用户自定义字体缺字形时」
+ * 往哪儿回退，index.html 里的版本负责 React 挂载前的首屏。
+ */
+export const SANS_FALLBACK =
+  '"Google Sans", "Noto Sans CJK SC", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'
+export const SERIF_FALLBACK = '"Noto Serif SC", "Songti SC", STSong, SimSun, serif'
+export const MONO_FALLBACK =
+  '"Cascadia Code", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace'
+
 export interface FontPreference {
-  /** 字体列表，按优先级从前到后排列 */
+  /** 正文字体列表，按优先级从前到后排列 */
   families: string[]
+  /** 代码字体列表，按优先级从前到后排列 */
+  monoFamilies: string[]
   /** 全站字号百分比；标题、正文、公式和界面文字会一起缩放。 */
   sizePercent: number
   /** 兼容旧版单个字体字段 */
   family?: string
+  /** 兼容旧版单个代码字体字段 */
+  monoFamily?: string
   source?: FontSource
   updatedAt: number
 }
@@ -28,24 +52,26 @@ interface FontCtx {
   font: FontPreference
   status: FontStatus
   accountSync: 'idle' | 'loading' | 'synced' | 'queued' | 'error'
-  /** 设置完整的字体优先级列表 */
-  setFonts: (families: string[]) => Promise<FontPreference>
-  /** 添加一个字体到优先级列表末尾（若已存在则移至指定位置） */
-  addFont: (family: string) => Promise<FontPreference>
+  /** 设置完整的字体优先级列表；target 省略时为正文 */
+  setFonts: (families: string[], target?: FontTarget) => Promise<FontPreference>
+  /** 添加一个字体到优先级列表末尾（若已存在则移至末尾） */
+  addFont: (family: string, target?: FontTarget) => Promise<FontPreference>
   /** 移除某个字体 */
-  removeFont: (family: string) => Promise<FontPreference>
+  removeFont: (family: string, target?: FontTarget) => Promise<FontPreference>
   /** 上移或下移某个字体的优先级 */
-  moveFont: (index: number, direction: 'up' | 'down') => Promise<FontPreference>
+  moveFont: (index: number, direction: 'up' | 'down', target?: FontTarget) => Promise<FontPreference>
   /** 兼容旧版单个字体设置方法 */
   setFont: (family: string, knownLocal?: boolean) => Promise<FontPreference>
   /** 调整全站字号，标题、正文与公式同步缩放。 */
   setFontSize: (sizePercent: number) => FontPreference
+  /** 同时清空正文与代码字体、并把字号恢复 100% */
   resetFont: () => void
   saveForGithub: () => Promise<void>
 }
 
 const DEFAULT_FONT: FontPreference = {
   families: [],
+  monoFamilies: [],
   sizePercent: DEFAULT_FONT_SIZE,
   updatedAt: 0,
 }
@@ -78,6 +104,15 @@ function quoteFamily(family: string): string {
   return `"${family.replace(/["\\]/g, '\\$&')}"`
 }
 
+/** 把 `,` / `，` 分隔的字符串拆成字体名数组（账号偏好文件里的写法）。 */
+export function splitFamilies(value: string | undefined | null): string[] {
+  if (!value) return []
+  return value
+    .split(/[,，]/)
+    .map((family) => family.trim())
+    .filter(Boolean)
+}
+
 export function normalizeFontSize(value: unknown): number {
   const parsed = typeof value === 'number'
     ? value
@@ -88,18 +123,29 @@ export function normalizeFontSize(value: unknown): number {
   return Math.round(Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, parsed)))
 }
 
+/** 去重 + 校验一组字体名。 */
+function normalizeFamilies(families: string[]): string[] {
+  return [...new Set(families.map(normalizeFamily).filter(Boolean))]
+}
+
 function normalizePreference(preference: FontPreference): FontPreference {
   return {
     ...preference,
-    families: preference.families.map(normalizeFamily).filter(Boolean),
+    families: normalizeFamilies(preference.families ?? []),
+    monoFamilies: normalizeFamilies(preference.monoFamilies ?? []),
     sizePercent: normalizeFontSize(preference.sizePercent),
   }
+}
+
+/** 有自定义字体时拼出完整字体栈；列表为空返回 null，表示沿用 CSS 里的默认栈。 */
+function buildStack(families: string[], fallback: string): string | null {
+  if (families.length === 0) return null
+  return `${families.map(quoteFamily).join(', ')}, ${fallback}`
 }
 
 function applyToDocument(preference: FontPreference) {
   const root = document.documentElement
   const normalized = normalizePreference(preference)
-  const valid = normalized.families
 
   if (normalized.sizePercent === DEFAULT_FONT_SIZE) {
     root.style.removeProperty('--site-font-size')
@@ -109,27 +155,55 @@ function applyToDocument(preference: FontPreference) {
     root.dataset.fontSize = String(normalized.sizePercent)
   }
 
-  if (valid.length === 0) {
+  // 正文：sans 与 serif 用同一组自定义字体，只是回退栈不同。
+  const sans = buildStack(normalized.families, SANS_FALLBACK)
+  if (sans) {
+    root.style.setProperty('--font-sans', sans)
+    root.style.setProperty('--font-serif', buildStack(normalized.families, SERIF_FALLBACK)!)
+    root.dataset.fontFamily = normalized.families.join(', ')
+  } else {
     root.style.removeProperty('--font-sans')
     root.style.removeProperty('--font-serif')
     root.removeAttribute('data-font-family')
-    return
   }
 
-  const quoted = valid.map(quoteFamily).join(', ')
-  root.style.setProperty(
-    '--font-sans',
-    `${quoted}, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif`,
-  )
-  root.style.setProperty(
-    '--font-serif',
-    `${quoted}, "Noto Serif SC", "Songti SC", STSong, SimSun, serif`,
-  )
-  root.dataset.fontFamily = valid.join(', ')
+  // 代码：独立的一组优先级，留空则用 CSS 里默认的 Cascadia Code → 系统等宽。
+  const mono = buildStack(normalized.monoFamilies, MONO_FALLBACK)
+  if (mono) {
+    root.style.setProperty('--font-mono', mono)
+    root.dataset.fontMonoFamily = normalized.monoFamilies.join(', ')
+  } else {
+    root.style.removeProperty('--font-mono')
+    root.removeAttribute('data-font-mono-family')
+  }
 }
 
 function writeLocal(preference: FontPreference) {
   writePersonalSetting('font', preference)
+}
+
+/** 历史数据可能是 families 数组、单个 family 字符串，或者根本没有代码字体字段。 */
+function parseFamilies(list: unknown, single: unknown): string[] {
+  if (Array.isArray(list)) {
+    return list
+      .filter((family): family is string => typeof family === 'string')
+      .map((family) => {
+        try {
+          return normalizeFamily(family)
+        } catch {
+          return ''
+        }
+      })
+      .filter(Boolean)
+  }
+  if (typeof single === 'string' && single.trim()) {
+    try {
+      return [normalizeFamily(single)]
+    } catch {
+      return []
+    }
+  }
+  return []
 }
 
 function readLocal(): FontPreference {
@@ -137,21 +211,16 @@ function readLocal(): FontPreference {
   try {
     const parsed = readPersonalSetting<{
       families?: unknown
+      monoFamilies?: unknown
       family?: unknown
+      monoFamily?: unknown
       sizePercent?: unknown
       updatedAt?: unknown
     }>('font', STORAGE_KEYS.font)
     if (parsed && typeof parsed === 'object') {
-      const families = Array.isArray(parsed.families)
-        ? parsed.families
-            .filter((family): family is string => typeof family === 'string')
-            .map(normalizeFamily)
-            .filter(Boolean)
-        : typeof parsed.family === 'string' && parsed.family.trim()
-          ? [normalizeFamily(parsed.family)]
-          : []
       return {
-        families,
+        families: parseFamilies(parsed.families, parsed.family),
+        monoFamilies: parseFamilies(parsed.monoFamilies, parsed.monoFamily),
         sizePercent: normalizeFontSize(parsed.sizePercent),
         updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
       }
@@ -241,14 +310,29 @@ export function FontProvider({ children }: { children: ReactNode }) {
   const [accountSync, setAccountSync] = useState<FontCtx['accountSync']>('idle')
   const accountRef = useRef('')
 
-  const commit = useCallback((candidate: FontPreference, nextStatus: FontStatus = 'ready') => {
+  const commit = useCallback((candidate: FontPreference, nextStatus?: FontStatus) => {
     const next = normalizePreference(candidate)
     fontRef.current = next
     applyToDocument(next)
     writeLocal(next)
     setFontState(next)
-    setStatus(nextStatus)
+    setStatus(nextStatus ?? (next.families.length || next.monoFamilies.length ? 'ready' : 'idle'))
     return next
+  }, [])
+
+  /**
+   * 为本机没有的字体请求云端（Google Fonts）。
+   *
+   * 刻意**不阻塞**设置生效：旧实现逐个 `await requestCloudFont`，每个最多等 5 秒，
+   * 三个本机没有的字体就是十几秒的假死；而 fonts.googleapis.com 在部分网络下根本连不通，
+   * 失败后又只是静默忽略——用户只会觉得「点了没反应」。现在并行发起、失败静默，
+   * 字体到位后浏览器自己重排。
+   */
+  const warmCloudFonts = useCallback((families: string[]) => {
+    for (const family of families) {
+      if (localFontLikelyExists(family)) continue
+      void requestCloudFont(family).catch(() => {})
+    }
   }, [])
 
   const resetFont = useCallback(() => {
@@ -256,71 +340,52 @@ export function FontProvider({ children }: { children: ReactNode }) {
   }, [commit])
 
   const setFonts = useCallback(
-    async (
-      rawFamilies: string[],
-      sizePercent?: number,
-    ): Promise<FontPreference> => {
-      const unique = [
-        ...new Set(rawFamilies.map(normalizeFamily).filter((f) => Boolean(f))),
-      ]
-      if (unique.length === 0) {
-        return commit({
-          families: [],
-          sizePercent: normalizeFontSize(sizePercent ?? fontRef.current.sizePercent),
-          updatedAt: Date.now(),
-        }, 'idle')
-      }
-
-      // 尝试为不在本机的字体请求云端
-      for (const fam of unique) {
-        if (!localFontLikelyExists(fam)) {
-          try {
-            await requestCloudFont(fam)
-          } catch {
-            // 云端加载失败继续使用本地/系统回退
-          }
-        }
-      }
-
+    async (rawFamilies: string[], target: FontTarget = 'sans'): Promise<FontPreference> => {
+      const unique = normalizeFamilies(rawFamilies)
+      warmCloudFonts(unique)
       return commit({
-        families: unique,
-        sizePercent: normalizeFontSize(sizePercent ?? fontRef.current.sizePercent),
+        ...fontRef.current,
+        ...(target === 'mono' ? { monoFamilies: unique } : { families: unique }),
         updatedAt: Date.now(),
-      }, 'ready')
+      })
     },
-    [commit],
+    [commit, warmCloudFonts],
+  )
+
+  const listOf = useCallback(
+    (target: FontTarget) => (target === 'mono' ? fontRef.current.monoFamilies : fontRef.current.families),
+    [],
   )
 
   const addFont = useCallback(
-    async (family: string): Promise<FontPreference> => {
+    async (family: string, target: FontTarget = 'sans'): Promise<FontPreference> => {
       const normalized = normalizeFamily(family)
-      if (!normalized) return font
-      const current = font.families.filter((f) => f !== normalized)
-      return setFonts([...current, normalized])
+      if (!normalized) return fontRef.current
+      return setFonts([...listOf(target).filter((item) => item !== normalized), normalized], target)
     },
-    [font, setFonts],
+    [listOf, setFonts],
   )
 
   const removeFont = useCallback(
-    async (family: string): Promise<FontPreference> => {
+    async (family: string, target: FontTarget = 'sans'): Promise<FontPreference> => {
       const normalized = normalizeFamily(family)
-      return setFonts(font.families.filter((f) => f !== normalized))
+      return setFonts(listOf(target).filter((item) => item !== normalized), target)
     },
-    [font.families, setFonts],
+    [listOf, setFonts],
   )
 
   const moveFont = useCallback(
-    async (index: number, direction: 'up' | 'down'): Promise<FontPreference> => {
-      const list = [...font.families]
+    async (index: number, direction: 'up' | 'down', target: FontTarget = 'sans'): Promise<FontPreference> => {
+      const list = [...listOf(target)]
       const targetIndex = direction === 'up' ? index - 1 : index + 1
       if (index < 0 || index >= list.length || targetIndex < 0 || targetIndex >= list.length) {
-        return font
+        return fontRef.current
       }
       const [item] = list.splice(index, 1)
       list.splice(targetIndex, 0, item)
-      return setFonts(list)
+      return setFonts(list, target)
     },
-    [font, setFonts],
+    [listOf, setFonts],
   )
 
   const setFont = useCallback(
@@ -338,6 +403,26 @@ export function FontProvider({ children }: { children: ReactNode }) {
       updatedAt: Date.now(),
     }),
     [commit],
+  )
+
+  /** 一次性套用（本地账号缓存 / GitHub 上）保存下来的整套偏好。 */
+  const applyRestored = useCallback(
+    async (restored: {
+      families?: string[]
+      monoFamilies?: string[]
+      sizePercent?: number
+    }): Promise<FontPreference> => {
+      const families = normalizeFamilies(restored.families ?? [])
+      const monoFamilies = normalizeFamilies(restored.monoFamilies ?? [])
+      warmCloudFonts([...families, ...monoFamilies])
+      return commit({
+        families,
+        monoFamilies,
+        sizePercent: normalizeFontSize(restored.sizePercent),
+        updatedAt: Date.now(),
+      })
+    },
+    [commit, warmCloudFonts],
   )
 
   // Keep settings in other tabs and views in sync.
@@ -377,8 +462,8 @@ export function FontProvider({ children }: { children: ReactNode }) {
     const restore = async () => {
       try {
         const cached = readAccountCache()[login]
-        if (cached && Array.isArray(cached.families)) {
-          await setFonts(cached.families, cached.sizePercent)
+        if (cached && (Array.isArray(cached.families) || Array.isArray(cached.monoFamilies))) {
+          await applyRestored(cached)
         }
 
         // 有尚未更新到仓库的偏好更改时，不用旧的远程版本覆盖本地/队列中的新设置。
@@ -393,10 +478,11 @@ export function FontProvider({ children }: { children: ReactNode }) {
         const remote = await fetchGithubFontPreference(login)
         if (!active) return
         if (remote) {
-          const list = remote.family
-            ? remote.family.split(/[,，]/).map((f) => f.trim()).filter(Boolean)
-            : []
-          const restored = await setFonts(list, remote.sizePercent)
+          const restored = await applyRestored({
+            families: splitFamilies(remote.family),
+            monoFamilies: splitFamilies(remote.monoFamily),
+            sizePercent: remote.sizePercent,
+          })
           if (!active) return
           writeAccountCache(login, restored)
         }
@@ -410,13 +496,14 @@ export function FontProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false
     }
-  }, [authLoading, canPublish, ghUser, setFonts])
+  }, [authLoading, canPublish, ghUser, applyRestored])
 
   const saveForGithub = useCallback(async () => {
     if (!canPublish || !ghUser) throw new Error('请先登录并连接具备 Contents 写入权限的 GitHub 账号')
     // 更新仓库的操作先加入待更新队列，由内容管理统一更新。
     const file = buildFontPreferenceFile(ghUser.login, {
       family: font.families.join(', '),
+      monoFamily: font.monoFamilies.join(', '),
       sizePercent: font.sizePercent,
       updatedAt: font.updatedAt || Date.now(),
     })

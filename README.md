@@ -16,7 +16,7 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 🧮 **KaTeX 公式** | 行内 `$…$` 与独立 `$$…$$`，支持 `aligned`、矩阵、分段函数 |
 | 🎨 **配色主题** | 10 套主题（星野蓝 / 深海青 / 极光紫 / 樱花粉 / 落日橙 / 森野绿 / 绯红 / 鎏金 / 赛博霓虹 / 墨白）+ 浅色 / 深色 / **跟随系统**，页头色卡一键换肤，全站配色与动态背景一起变 |
 | 🌌 **动态背景** | 樱花 / 粒子星链 / 雪花 / 暴雨 / 竹林 五种场景，**各自适配深色与浅色**（白昼 / 夜樱、浅色星图 / 暗夜、雪日 / 雪夜、阴雨白昼 / 雨夜、晨光 / 月夜竹林）：飘落花瓣与散景、主题色光点与连线、鼠标吸引与数据脉冲…每种 5 项参数可调，星链颜色跟随配色主题 |
-| 🖋️ **排版偏好** | 多字体优先级、80%–130% 全站字号、自定义渐变背景色与强度 |
+| 🔤 **排版偏好** | **正文与代码字体分开**的多字体优先级（默认正文 Google Sans → Noto Sans CJK SC，代码 Cascadia Code）、80%–130% 全站字号、自定义渐变背景色与强度 |
 | 🔐 **GitHub OAuth 授权** | 基于 Device Flow 极简一键登录，令牌仅保存在浏览器本地 |
 | 🚀 **待更新队列** | 发布/删除文章、上传图片、发表申请、偏好同步、修改版本名称等仓库操作先保存在本地，可勾选部分或全部**一次批量更新**（合并为一次提交、一次部署） |
 | 🔍 **全文搜索** | <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>K</kbd> 唤起，支持方向键选择 |
@@ -141,7 +141,10 @@ Pages 项目 **Settings → Environment variables** 中新增 `VITE_GITHUB_CLIEN
 
 ### 配色主题
 
-换肤入口有两个：**页头的调色盘图标**（点一下就换，面板底部还有明暗模式快捷切换）和 **设置 → 配色主题**（带说明与「一键套用推荐动态背景」）。
+换肤入口有两个：**页头的调色盘图标**（点一下就换，面板底部还有明暗模式快捷切换）和 **设置 → 配色主题**（每套主题都带说明与预览色卡）。
+
+下表「建议搭配」只是文档里的推荐，设置页不会再弹「某主题适合搭配某动态背景」的提示条——
+有 5 套主题本来就没有推荐场景，那条提示会显示成「适合搭配动态背景『无』」（issue #55）。动态背景在 **设置 → 动态背景** 里自己选。
 
 一旦开启配色主题（即不是默认的「星野蓝」），页头那个单独的**明暗切换按钮会自动收起**——明暗模式改为在「配色主题」面板底部或 **设置 → 配色主题** 里切换，页头不会再并排挤两个按钮。切回「星野蓝」按钮即恢复。
 
@@ -164,6 +167,12 @@ Pages 项目 **Settings → Environment variables** 中新增 `VITE_GITHUB_CLIEN
 按钮、链接、标签、光晕、正文外框、动态背景会一起换色，**组件代码里没有任何主题分支**。
 `index.html` 的首屏脚本会在 React 启动前写入 `<html data-starlog-theme>`，避免闪一下再变色。
 配色主题的判定在 `src/lib/theme.tsx` 里通过 `useTheme().colorTheme` 暴露，页头据此决定是否显示明暗切换按钮。
+
+**页头与浏览器顶栏也跟着换肤**：吸顶页头滚动后的毛玻璃底色取 `--site-header-surface`
+（浅色 = `--theme-surface-light`，深色 = `--theme-surface-dark`），移动端展开的菜单面板同理；
+`<meta name="theme-color">` 由 `ThemeProvider` 按同一组变量写入，跟随**实际生效**的明暗而不是系统的
+`prefers-color-scheme`。因此换肤、换明暗或页面下滑时，页头与手机地址栏都是页面自己的底色，
+不会出现一条与正文脱节的白带 / 黑带（issue #53）。
 
 **新增一套主题**：复制一段色卡改成自己的色阶 → 在 `src/lib/themes.ts` 的 `COLOR_THEMES`
 里补一条（名称、描述、预览用色卡、建议场景）→ 在 `index.html` 的 `THEME_IDS` 数组里加上 id。
@@ -196,6 +205,39 @@ Pages 项目 **Settings → Environment variables** 中新增 `VITE_GITHUB_CLIEN
 
 粒子星链仍不添加随机微粒或颗粒噪点；细颗粒只保留在浅色樱花背景。
 无法识别的旧场景偏好回退为「无」，当前支持的场景会按现有参数范围读取；历史变化见 `ChangeLog.md`。
+
+---
+
+## 🔤 字体与字号
+
+设置页的「字体与字号设置」分三块：全站字号、**正文字体优先级**、**代码字体优先级**。
+
+### 默认字体栈
+
+| 用途 | CSS 变量 | 默认优先级（从高到低） |
+| --- | --- | --- |
+| 正文 / 界面 | `--font-sans` | `Google Sans` → `Noto Sans CJK SC` → `Noto Sans SC` → 系统无衬线（system-ui / -apple-system / Segoe UI / PingFang SC / Hiragino Sans GB / Microsoft YaHei） |
+| 代码 / 等宽 | `--font-mono` | `Cascadia Code` → 系统等宽（ui-monospace / SFMono-Regular / SF Mono / Menlo / Consolas / Noto Sans Mono CJK SC） |
+| 衬线回退 | `--font-serif` | Georgia → Songti SC → STSong → SimSun → Noto Serif SC |
+
+`Google Sans` 不含中文字形，中文自然落到第二优先级的 `Noto Sans CJK SC`；两个都没装时再回到系统字体。
+代码字体作用于代码块、行内代码、`<kbd>` 快捷键与表格里的等宽文字（Tailwind 的 `font-mono` 直接引用 `--font-mono`）。
+
+### 自定义
+
+- 正文与代码是**两组独立的优先级列表**（issue #54）：各自可以输入字体名添加、上下调序、移除，
+  列表下方有一行实时样例。留空即使用上面的默认栈。自定义的正文字体会同时写入 `--font-sans` 与 `--font-serif`。
+- 「读取本机字体」用浏览器的 Local Font Access API（Chromium 系）列出本机字体作为候选；不支持时手动输入即可。
+- 本机没有的字体会**在后台**尝试从 Google Fonts 拉取：不阻塞设置生效，拉不到就静默回退到本地 / 系统字体。
+  （旧实现是逐个 `await`、每个最多等 5 秒，加了几个本机没有的字体就会假死十几秒。）
+- 字号 80%–130% 写在 `<html>` 的 `--site-font-size` 上，正文、标题、界面文字与 KaTeX 公式按比例一起缩放。
+- 登录后可把「字体 + 字号」保存到 GitHub：仓库内 `.starlog/settings/font-preferences/<login>.json`，
+  `version: 3`，`family` 与 `monoFamily` 各是一个逗号分隔的优先级列表。该操作先进**待更新队列**，统一更新时才提交。
+  旧的 `version: 2` 文件（只有 `family`）仍能读取，代码字体回落到默认栈。
+
+**维护提示**：默认字体栈有三份副本，改动时要一起改——`src/styles/index.css` 的 `:root`（真正的默认值）、
+`src/lib/font.tsx` 的 `SANS_FALLBACK` / `SERIF_FALLBACK` / `MONO_FALLBACK`（自定义字体缺字形时的回退）、
+`index.html` 的首屏内联脚本（React 挂载前恢复本地偏好，避免闪字体）。
 
 ---
 
@@ -362,8 +404,8 @@ GitHub 的授权端点（`github.com/login/*`）不返回 CORS 头，浏览器�
 
 **换主题、开背景会把设置写进仓库吗？**
 不会。配色主题、明暗模式与动态背景都只保存在浏览器本地（`localStorage`），
-不会提交到 GitHub，也不会互相覆盖；同一台设备的其它标签页会立即同步。字体优先级与背景颜色
-仍然可以选择「保存到 GitHub」，以便在其他设备恢复。
+不会提交到 GitHub，也不会互相覆盖；同一台设备的其它标签页会立即同步。字体优先级（正文与代码各一组）、
+字号与背景颜色仍然可以选择「保存到 GitHub」，以便在其他设备恢复。
 
 **为什么背景不动？**
 ① 系统开启了「减少动态效果」时，动态背景只绘制一帧静态画面；② 标签页切到后台会暂停；
