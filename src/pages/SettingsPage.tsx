@@ -18,6 +18,8 @@ import {
   LogOut,
   Moon,
   Network,
+  Snowflake,
+  Trees,
   Paintbrush,
   Palette,
   Plus,
@@ -97,6 +99,9 @@ const SCENE_OPTIONS: { id: SceneId; label: string; icon: typeof Github }[] = [
   { id: 'none', label: '无', icon: Ban },
   { id: 'sakura', label: '樱花', icon: Flower2 },
   { id: 'network', label: '粒子星链', icon: Network },
+  { id: 'snow', label: '雪花', icon: Snowflake },
+  { id: 'rain', label: '暴雨', icon: CloudRain },
+  { id: 'bamboo', label: '竹林', icon: Trees },
 ]
 
 /** 明暗模式选项（新增「跟随系统」） */
@@ -271,7 +276,7 @@ function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreferen
       )}
 
       <p className="mt-5 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
-        动态背景仅保存在本设备，不会同步到 GitHub。两种场景都会跟随上面的明暗模式：樱花有白昼（浅色）与夜樱（深色）两版配色，粒子星链有暗夜与浅色星图两版；粒子星链的颜色还会跟随配色主题。切换明暗时画面会立即重建，不需要关掉背景。系统开启“减少动态效果”时，背景只显示静态画面。
+        动态背景仅保存在本设备，不会同步到 GitHub。五种场景都会跟随上面的明暗模式：白昼 / 夜樱、浅色星图 / 暗夜、雪日 / 雪夜、阴雨白昼 / 冷调雨夜、晨光竹林 / 月夜竹林。粒子星链的颜色还会跟随配色主题。切换明暗时保留粒子与竹竿的位置。暴雨的闪电默认关闭，可按需开启。系统开启“减少动态效果”时，背景只显示静态画面。
       </p>
     </>
   )
@@ -884,7 +889,7 @@ export default function SettingsPage() {
         {/* ------------------------------ 动态背景 ------------------------------ */}
         <Section
           title="动态背景"
-          desc="两种动态场景（樱花、粒子星链），每种 5 项参数可调，深浅色模式各有一套配色。背景显示在站点内容之下，不影响阅读。"
+          desc="五种动态场景（樱花、粒子星链、雪花、暴雨、竹林），每种 5 项参数可调，深浅色模式各有一套配色。背景显示在站点内容之下，不影响阅读。"
           icon={CloudRain}
         >
           <AnimatedBackgroundControls pref={animatedBackground} />

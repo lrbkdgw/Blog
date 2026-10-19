@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 
 /**
- * 动态背景（樱花 / 粒子星链）的数据层：
+ * 动态背景（樱花 / 粒子星链 / 雪花 / 暴雨 / 竹林）的数据层：
  * 场景定义、参数范围、校验与本地保存。
  * 渲染在 components/AnimatedBackdrop.tsx，界面在设置页。
  *
@@ -10,7 +10,7 @@ import { readPersonalSetting, writePersonalSetting } from './settingsStore'
  * 且相比颜色渐变更依赖设备性能。
  */
 
-export type SceneId = 'none' | 'sakura' | 'network'
+export type SceneId = 'none' | 'sakura' | 'network' | 'snow' | 'rain' | 'bamboo'
 export type ActiveSceneId = Exclude<SceneId, 'none'>
 
 export interface SceneParam {
@@ -53,6 +53,42 @@ export const SCENES: SceneSpec[] = [
       { key: 'speed', label: '漂移速度', hint: '粒子移动的快慢', min: 0, max: 100, step: 1, default: 35 },
       { key: 'glow', label: '辉光强度', hint: '粒子周围光晕与星芒的明显程度', min: 0, max: 100, step: 1, default: 55 },
       { key: 'pulse', label: '数据脉冲', hint: '沿连线滑动的亮点的多少', min: 0, max: 100, step: 1, default: 50 },
+    ],
+  },
+  {
+    id: 'snow',
+    name: '雪花',
+    desc: '六角雪晶与柔焦雪片分层飘落，远山隐在雪雾中；浅色是清冷雪日，深色是蓝调雪夜。',
+    params: [
+      { key: 'count', label: '雪花数量', hint: '远近雪片的密度', min: 0, max: 100, step: 1, default: 55 },
+      { key: 'speed', label: '飘落速度', hint: '雪片下降的快慢', min: 0, max: 100, step: 1, default: 35 },
+      { key: 'wind', label: '风向风力', hint: '负数向左，正数向右', min: -100, max: 100, step: 1, default: 12 },
+      { key: 'size', label: '雪花大小', hint: '整体缩放，立即作用于已有雪片', min: 0, max: 100, step: 1, default: 45 },
+      { key: 'swirl', label: '回旋幅度', hint: '雪片左右回旋的幅度', min: 0, max: 100, step: 1, default: 45 },
+    ],
+  },
+  {
+    id: 'rain',
+    name: '暴雨',
+    desc: '远近三层雨丝斜落，水面泛起涟漪，薄雾缓慢流动；浅色是阴雨白昼，深色是冷调雨夜，闪电默认关闭。',
+    params: [
+      { key: 'count', label: '雨量', hint: '雨丝密度，较低的值更省电', min: 0, max: 100, step: 1, default: 70 },
+      { key: 'speed', label: '落雨速度', hint: '雨滴速度与雨丝长度', min: 0, max: 100, step: 1, default: 65 },
+      { key: 'wind', label: '风向风力', hint: '负数向左，正数向右', min: -100, max: 100, step: 1, default: 25 },
+      { key: 'mist', label: '雨雾强度', hint: '远处低空雨雾的浓度', min: 0, max: 100, step: 1, default: 40 },
+      { key: 'lightning', label: '闪电亮度', hint: '0 关闭，开启后每隔 8–18 秒柔和闪亮一次', min: 0, max: 100, step: 1, default: 0 },
+    ],
+  },
+  {
+    id: 'bamboo',
+    name: '竹林',
+    desc: '远中近竹竿与叶簇随风轻摆，雾气和斜射光穿过林间；浅色是晨光青竹，深色是幽绿月夜。',
+    params: [
+      { key: 'density', label: '竹林密度', hint: '竹竿与叶簇数量', min: 0, max: 100, step: 1, default: 55 },
+      { key: 'wind', label: '摇曳幅度', hint: '竹竿随风摆动的幅度', min: 0, max: 100, step: 1, default: 40 },
+      { key: 'speed', label: '摇曳速度', hint: '林间风节奏的快慢', min: 0, max: 100, step: 1, default: 35 },
+      { key: 'mist', label: '林间薄雾', hint: '低处雾气的浓度', min: 0, max: 100, step: 1, default: 45 },
+      { key: 'light', label: '透光强度', hint: '穿过竹林的晨光或月光', min: 0, max: 100, step: 1, default: 45 },
     ],
   },
 ]

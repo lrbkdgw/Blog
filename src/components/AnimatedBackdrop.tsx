@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react'
 import type { ActiveSceneId, SceneValues } from '../lib/animatedBackground'
 import { useTheme } from '../lib/theme'
+import { createSnow, createRain, createBamboo } from './WeatherBackdrops'
 
 /**
- * 全屏动态背景（樱花 / 粒子星链），两种场景都跟随站点的明暗模式换一套配色。
+ * 全屏动态背景（樱花 / 粒子星链 / 雪花 / 暴雨 / 竹林），所有场景都跟随站点的明暗模式换一套配色。
  *
  * 画面构成分为三层，逐层叠加：
  *   ① 远景：一次性画进离屏 canvas 贴图（天空渐变、逆光光斑、暗角…），
@@ -19,7 +20,7 @@ import { useTheme } from '../lib/theme'
  *   - 标签页隐藏时暂停动画，系统开启「减少动态效果」时只绘制一帧静态画面。
  */
 
-interface Renderer {
+export interface Renderer {
   fps: number
   /** 按新的视口尺寸重建背景与粒子 */
   setup(width: number, height: number): void
@@ -288,7 +289,7 @@ function createSakura(initialDark: boolean): Renderer {
     return {
       x: rand(-60, width + 60),
       y: fromTop ? rand(-height * 0.4, -20) : rand(-height * 0.2, height),
-      size: (0.28 + depth * 0.8) * (0.55 + sizeScale / 100),
+      size: 0.28 + depth * 0.8,
       depth,
       angle: rand(0, TAU),
       spin: rand(-1.6, 1.6) * (0.6 + depth * 0.8),
@@ -309,9 +310,11 @@ function createSakura(initialDark: boolean): Renderer {
       gradient.addColorStop(1, 'rgba(226, 118, 165, 0.94)')
       ctx.fillStyle = gradient
       ctx.beginPath()
-      ctx.moveTo(32, 5)
-      ctx.bezierCurveTo(54, 13, 58, 40, 32, 59)
-      ctx.bezierCurveTo(6, 40, 10, 13, 32, 5)
+      ctx.moveTo(32, 13)
+      ctx.bezierCurveTo(41, -1, 55, 11, 54, 27)
+      ctx.bezierCurveTo(53, 42, 40, 53, 32, 59)
+      ctx.bezierCurveTo(13, 48, 5, 28, 14, 13)
+      ctx.bezierCurveTo(21, 2, 27, 5, 32, 13)
       ctx.closePath()
       ctx.fill()
       // 花瓣的浅色纹路与小缺口
@@ -394,7 +397,29 @@ function createSakura(initialDark: boolean): Renderer {
         }
       }
       ctx.restore()
-      paintVignette(ctx, w, h, dark ? 0.34 : 0.16)
+      // 两侧花枝构成前景框景，细枝与五瓣花簇只在背景重建时绘制。
+      ctx.strokeStyle = dark ? 'rgba(111,79,113,.5)' : 'rgba(130,92,105,.23)'
+      ctx.lineCap = 'round'
+      for (const side of [-1, 1]) {
+        ctx.save(); ctx.translate(side < 0 ? 0 : w, 0); ctx.scale(-side, 1)
+        ctx.lineWidth = 6
+        ctx.beginPath(); ctx.moveTo(-15, h * .3); ctx.bezierCurveTo(w * .08, h * .1, w * .13, h * .15, w * .27, -20); ctx.stroke()
+        ctx.lineWidth = 1.8
+        for (let i = 0; i < 9; i++) {
+          const bx = w * (.02 + i * .021), by = h * (.24 - i * .027)
+          ctx.beginPath(); ctx.moveTo(bx, by); ctx.quadraticCurveTo(bx + 18, by - 18, bx + 40, by + 6); ctx.stroke()
+          for (let j = 0; j < 3; j++) {
+            const fx = bx + 15 + j * 10, fy = by - 7 + Math.sin(i * 5 + j) * 9
+            ctx.fillStyle = dark ? 'rgba(239,166,204,.32)' : 'rgba(247,176,202,.5)'
+            for (let k = 0; k < 5; k++) {
+              const a = k * TAU / 5
+              ctx.beginPath(); ctx.ellipse(fx + Math.cos(a) * 4, fy + Math.sin(a) * 4, 3, 5, a - Math.PI / 2, 0, TAU); ctx.fill()
+            }
+          }
+        }
+        ctx.restore()
+      }
+      paintVignette(ctx, w, h, dark ? 0.28 : 0.1)
       // 细噪点只留在浅色底上（大片浅色容易「糊」）；深色底上颗粒会被看成脏点
       if (!dark) paintGrain(ctx, w, h, 0.04, true)
     })
@@ -463,7 +488,7 @@ function createSakura(initialDark: boolean): Renderer {
       for (const petal of petals) {
         const sprite = sprites[petal.sprite]
         if (!sprite) continue
-        const size = sprite.width * petal.size * 0.55
+        const size = sprite.width * petal.size * (0.55 + sizeScale / 100) * 0.55
         // 翻转带来的明暗变化，让旋转更有立体感
         const flip = Math.cos(petal.angle)
         ctx.save()
@@ -537,13 +562,22 @@ function createNetwork(initialDark: boolean): Renderer {
     pulse: rand(0.6, 1.8),
   })
 
-  const spawnPacket = (): Packet => ({
-    from: Math.floor(Math.random() * Math.max(1, nodes.length)),
-    to: Math.floor(Math.random() * Math.max(1, nodes.length)),
-    t: 0,
-    speed: rand(0.35, 1.1),
-    color: Math.random() < 0.5 ? 0 : 1,
-  })
+  const routePacket = (packet: Packet) => {
+    packet.from = Math.floor(Math.random() * Math.max(1, nodes.length))
+    const from = nodes[packet.from]
+    let chosen = packet.from, count = 0
+    if (from) for (let i = 0; i < nodes.length; i++) {
+      if (i === packet.from) continue
+      const other = nodes[i], dx = other.x - from.x, dy = other.y - from.y
+      if (dx * dx + dy * dy <= linkDistance * linkDistance && Math.random() < 1 / ++count) chosen = i
+    }
+    packet.to = chosen; packet.t = 0; packet.speed = rand(.35, .9)
+  }
+  const spawnPacket = (): Packet => {
+    const packet = { from: 0, to: 0, t: 0, speed: .5, color: Math.random() < .5 ? 0 : 1 }
+    routePacket(packet)
+    return packet
+  }
 
   const buildAssets = () => {
     const colors = themeColors()
@@ -563,6 +597,7 @@ function createNetwork(initialDark: boolean): Renderer {
       linkAlpha = 0.38
       nodeAlpha = 0.88
       glowScale = 0.45
+      accent = nodeRgb
     }
     // 64 像素的光晕贴图放大到几十像素时非常柔和，一张就够；不再另建大尺寸贴图
     glow = makeGlowSprite(colors.rgb[0], colors.rgb[1], colors.rgb[2], 64)
@@ -586,7 +621,7 @@ function createNetwork(initialDark: boolean): Renderer {
       ctx.fillStyle = sky
       ctx.fillRect(0, 0, w, h)
       ctx.save()
-      ctx.globalCompositeOperation = 'lighter'
+      ctx.globalCompositeOperation = dark ? 'lighter' : 'source-over'
       // 主题色星云
       const nebula = ctx.createRadialGradient(w * 0.3, h * 0.35, 0, w * 0.3, h * 0.35, Math.max(w, h) * 0.7)
       nebula.addColorStop(0, `rgba(${accentCss},${dark ? 0.2 : 0.1})`)
@@ -634,7 +669,6 @@ function createNetwork(initialDark: boolean): Renderer {
     },
     /** 明暗模式切换：只重建贴图（点与连线的位置保留） */
     setTone(next) {
-      if (next === dark) return
       dark = next
       buildAssets()
     },
@@ -677,10 +711,7 @@ function createNetwork(initialDark: boolean): Renderer {
       for (const packet of packets) {
         packet.t += dt * packet.speed
         if (packet.t >= 1) {
-          packet.t = 0
-          packet.from = Math.floor(Math.random() * Math.max(1, nodes.length))
-          packet.to = Math.floor(Math.random() * Math.max(1, nodes.length))
-          packet.speed = rand(0.35, 1.1)
+          routePacket(packet)
         }
       }
     },
@@ -692,11 +723,19 @@ function createNetwork(initialDark: boolean): Renderer {
 
       ctx.save()
       ctx.globalCompositeOperation = blend
+      // 空间分桶只比较相邻九格，密度较高时避免遍历全部节点对。
+      const cells = new Map<string, number[]>()
+      for (let i = 0; i < nodes.length; i++) {
+        const key = Math.floor(nodes[i].x / linkDistance) + ':' + Math.floor(nodes[i].y / linkDistance)
+        const cell = cells.get(key) ?? []; cell.push(i); cells.set(key, cell)
+      }
       // 连线：越近越亮，并带一点主题色的偏移
       ctx.lineWidth = 1
       for (let i = 0; i < nodes.length; i += 1) {
         const node = nodes[i]
-        for (let j = i + 1; j < nodes.length; j += 1) {
+        const cx = Math.floor(node.x / linkDistance), cy = Math.floor(node.y / linkDistance)
+        for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gy = cy - 1; gy <= cy + 1; gy++) for (const j of cells.get(gx + ':' + gy) ?? []) {
+          if (j <= i) continue
           const other = nodes[j]
           const dx = other.x - node.x
           const dy = other.y - node.y
@@ -716,11 +755,11 @@ function createNetwork(initialDark: boolean): Renderer {
       for (const packet of packets) {
         const from = nodes[packet.from]
         const to = nodes[packet.to]
-        if (!from || !to) continue
+        if (!from || !to || packet.from === packet.to) continue
         const px = from.x + (to.x - from.x) * packet.t
         const py = from.y + (to.y - from.y) * packet.t
         const distance = Math.hypot(to.x - from.x, to.y - from.y)
-        if (distance > linkDistance * 1.5) continue
+        if (distance > linkDistance) continue
         const trail = 0.14
         const tx = from.x + (to.x - from.x) * Math.max(0, packet.t - trail)
         const ty = from.y + (to.y - from.y) * Math.max(0, packet.t - trail)
@@ -770,6 +809,12 @@ function createRenderer(scene: ActiveSceneId, dark: boolean): Renderer {
       return createSakura(dark)
     case 'network':
       return createNetwork(dark)
+    case 'snow':
+      return createSnow(dark)
+    case 'rain':
+      return createRain(dark)
+    case 'bamboo':
+      return createBamboo(dark)
   }
 }
 
@@ -784,7 +829,7 @@ export function AnimatedBackdrop({ scene, values }: { scene: ActiveSceneId; valu
   const valuesRef = useRef<SceneValues>(values)
   valuesRef.current = values
   // 画面按站点的明暗模式换配色（樱花：白昼 / 夜樱；粒子星链：暗夜 / 浅色星图）
-  const { theme } = useTheme()
+  const { theme, colorTheme } = useTheme()
   const dark = theme === 'dark'
   const darkRef = useRef(dark)
   darkRef.current = dark
@@ -804,7 +849,7 @@ export function AnimatedBackdrop({ scene, values }: { scene: ActiveSceneId; valu
     let last = 0
     let width = 0
     let height = 0
-    let resizeQueued = false
+    let resizeFrame = 0
 
     const redraw = () => renderer.draw(ctx)
     redrawRef.current = redraw
@@ -822,7 +867,7 @@ export function AnimatedBackdrop({ scene, values }: { scene: ActiveSceneId; valu
       // 先按视口尺寸铺设背景与粒子，再套用当前参数（粒子数量依赖面积）
       renderer.setup(width, height)
       renderer.configure(valuesRef.current)
-      if (motion.matches) redraw()
+      redraw()
     }
 
     const tick = (now: number) => {
@@ -846,10 +891,9 @@ export function AnimatedBackdrop({ scene, values }: { scene: ActiveSceneId; valu
     }
 
     const onResize = () => {
-      if (resizeQueued) return
-      resizeQueued = true
-      requestAnimationFrame(() => {
-        resizeQueued = false
+      if (resizeFrame) return
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0
         sizeTo()
       })
     }
@@ -865,8 +909,11 @@ export function AnimatedBackdrop({ scene, values }: { scene: ActiveSceneId; valu
     const onPointerMove = (event: PointerEvent) => {
       renderer.pointer?.(event.clientX, event.clientY)
     }
+    const onPointerLeave = () => renderer.pointer?.(-9999, -9999)
     if (typeof renderer.pointer === 'function') {
       window.addEventListener('pointermove', onPointerMove, { passive: true })
+      document.documentElement.addEventListener('pointerleave', onPointerLeave)
+      window.addEventListener('blur', onPointerLeave)
     }
 
     sizeTo()
@@ -877,6 +924,9 @@ export function AnimatedBackdrop({ scene, values }: { scene: ActiveSceneId; valu
 
     return () => {
       stop()
+      if (resizeFrame) cancelAnimationFrame(resizeFrame)
+      document.documentElement.removeEventListener('pointerleave', onPointerLeave)
+      window.removeEventListener('blur', onPointerLeave)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('resize', onResize)
       document.removeEventListener('visibilitychange', onVisibility)
@@ -894,13 +944,13 @@ export function AnimatedBackdrop({ scene, values }: { scene: ActiveSceneId; valu
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) redrawRef.current?.()
   }, [valuesKey])
 
-  // 明暗切换：不打断动画循环，只让渲染器重建与配色相关的贴图
+  // 明暗或配色主题切换：不打断动画循环，只重建与配色相关的贴图
   useEffect(() => {
     rendererRef.current?.setTone?.(dark)
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) redrawRef.current?.()
-    // 场景切换的 effect 已用最新的 darkRef.current 建好渲染器，这里只处理「只换明暗」的情况
+    // 星链的 setTone 也会刷新主题主色，其他场景在明暗未变时保持原有贴图
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dark])
+  }, [dark, colorTheme])
 
   return (
     <canvas
