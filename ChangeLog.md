@@ -74,9 +74,20 @@
 - 离线版管理页与设置页仍残留「同步到线上 / 连接 GitHub」入口与文案（共 6 处），逐一按新语义改写，
   避免指向已删除的 `?tab=sync` 标签。
 
+### 修复
+
+- CI `extension.yml`（check 名 `verify`）在 `npm --prefix vscode_extensions/v1 run typecheck`
+  报 `TS2304: Cannot find name '__STARLOG_OFFLINE__'`（`src/lib/runtime.ts` 两处）：插件 tsconfig 的
+  `include` 只有自己的 `src`，却顺着 import 复用了站点 `src/lib`，拿不到 `src/offline-globals.d.ts`
+  里的全局声明。改为在 `vscode_extensions/v1/tsconfig.json` 的 `include` 中显式带上该声明文件，
+  并把 `src/offline-globals.d.ts` 注释里写错的文件名（`vite.config.offline.ts` → `vite.offline.config.ts`）改正。
+  根因是本地验证矩阵漏了这一步：`npm run extension:test` 只做 build + `node --test`，不跑 tsc；
+  已在 `AI_README.md`「建议的更新流程」第 3 步补上这条红线。
+
 ### 验证
 
-- `npx tsc --noEmit` 无错误；`npm run build`（线上版）通过。
+- `npx tsc --noEmit` 与 `npm --prefix vscode_extensions/v1 run typecheck` 均无错误；
+  `npm run build`（线上版）通过。
 - `npm run build:offline` 通过：产物 3.01 MB，内联 CSS 1.49 MB / 内联 JS 1.50 MB / `@font-face` 20 条 /
   10 篇内置文章齐全；第 8 组端点检查全绿（先失败过一次——`/graphql` 字面量残留，补上 `GRAPHQL` 常量后置空后通过）。
 - 用 jsdom 以 `file://` 加载产物，并把 `fetch` / `WebSocket` / `EventSource` 全部插桩计数：
