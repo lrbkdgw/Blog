@@ -12,7 +12,7 @@ on:
     branches: [main]
     paths:
       - 'src/**'
-      - 'content/posts/**'
+      - 'content/**'
       - 'index.html'
       - 'package.json'
       - 'package-lock.json'

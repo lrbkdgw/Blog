@@ -117,6 +117,9 @@
   （需要浏览器环境的用例）；本次未改动插件代码，结果与基线一致。
 - 三份 workflow（`offline.yml` / `deploy.yml` / `extension.yml`）用 `js-yaml` 解析通过，
   并确认 `deploy.yml` 中「放离线文件」一步排在 `npm run build` **之前**（否则不会进入 `dist/`）。
+- 站内帮助页 `content/about.md` 新增「离线版（单文件）」小节：能做什么、文章存在哪、为什么要导出离线档案、
+  联网后从哪儿同步；`.github/workflows/offline.yml` 的触发路径因此从 `content/posts/**` 放宽到 `content/**`
+  （`about.md` 等站内内容同样会被打进离线文件）。
 - `AI_README.md` 的更新流程补充第 3 步的离线验证要求（本条即按「规则修改需登记」记录）。
 - 已知未处理（按要求暂缓）：自定义字体走 Google Fonts，离线时回退到系统字体；`content/posts/` 中的远程图片在断网时不显示。
 
