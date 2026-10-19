@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import { siteConfig } from '../lib/config'
+import { installHeaderYield, requestHeaderYieldRefresh } from '../lib/headerYield'
 import { useTheme } from '../lib/theme'
 import { DEFAULT_COLOR_THEME } from '../lib/themes'
 import { useAuth } from '../lib/auth'
@@ -397,7 +398,12 @@ export function Layout() {
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
+    // 换页之后正文不一定触发滚动事件，主动请重算一次「让路」状态（issue #71）
+    requestHeaderYieldRefresh()
   }, [pathname])
+
+  // issue #71：正文滚到页头这一栏下方时先渐变淡掉（只改正文，不碰背景）
+  useEffect(() => installHeaderYield(), [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

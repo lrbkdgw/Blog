@@ -1,5 +1,73 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-19 · issue #71 落地：正文按滚动位置自己淡出，页头保持全透明
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+上一条留下的判断是对的：**页头那一条是一个平面，在它上面做任何遮挡都会连背景一起遮掉**。
+因此「正文让路」不能由页头实现，只能让**正文元素自己**按滚动位置淡出——把遮挡写进内容层，
+背景图层一像素都不用碰。这条路线同时满足 #53 / #63（页头全透明）与 #71（正文给页头让路），
+也避开了上一条列出的两个高代价方案（`main` 改独立滚动区要连带改 `window.scrollTo` / 锚点 /
+`scrollRestoration`；给容器整体挂 mask 会为 `fixed` 后代建立包含块，阅读进度条与各处弹窗都会被牵连）。
+
+### 新增
+
+- `src/lib/headerYield.ts`：`installHeaderYield()` 在每次滚动 / 尺寸变化 / `starlog:content-changed`
+  后（`requestAnimationFrame` 合帧，一帧只算一次）遍历内容块，量出「页头下沿相对块顶部的距离」，
+  只给**与这一栏有交集**的块写 `data-yield=on` + `--yield-top` / `--yield-fade`，其余一律
+  `removeAttribute`，所以整页任意时刻最多 0～3 个元素带蒙版。
+  - 块顺序是先读完所有几何再统一写样式，避免读写交替把一帧变成多次重排；
+  - 淡出行程按块高自适应（`24px ~ 64px`）：一行标题用短行程，整段 / 代码块 / 卡片用长行程，
+    矮块不会因为刚露头就被抹平；
+  - 整块都在页头之下时按「完全淡出」处理（梯度基准一致，父块已淡时子块重复写一次也无害）；
+  - 高度为 0 的元素直接跳过（jsdom、折叠容器、未渲染块都属此类）。
+- `src/styles/index.css`：`[data-yield='on']` 的蒙版规则
+  `mask-image: linear-gradient(to bottom, transparent 0, transparent calc(var(--yield-top) - var(--yield-fade, 40px)), #000 var(--yield-top))`
+  （附 `-webkit-mask-image`），外加 `@media print` 全量还原——打印时每页顶部都会落进这个区间。
+- 内容块来源两处：`.prose > *`（Markdown 渲染出的文章 / 帮助页 / 评论正文，自动覆盖）
+  与 `[data-yield-list] > *`（首页卡片网格、归档年表、标签网格、文章页 `<article>`，
+  在 4 个页面各加一个属性标记）。
+
+### 调整
+
+- `src/components/Layout.tsx`：挂载 / 卸载该监听（`useEffect(() => installHeaderYield(), [])`），
+  并在路由切换的 `scrollTo` 之后 `requestHeaderYieldRefresh()` 一次——换页不一定伴随滚动事件。
+- README 功能表那一行改为「全透明页头 + 正文让路」。
+- 上一条「待决」小节的三个候选里，本次采用的是**方案 1（逐块淡出）**并按方案 3 的思路把
+  作用面限定在内容容器（`.prose > *` 与显式标记的列表），编辑器的输入区不参与
+  （那里 `fixed` 浮层多，且正在打字的内容不该被淡掉）。
+
+### 验证
+
+- `npx tsc --noEmit` 无错误；`npm run build` 通过，编译后的 CSS 里
+  `[data-yield=on]{-webkit-mask-image:linear-gradient(…calc(var(--yield-top) - var(--yield-fade, 40px))…)` 与
+  `@media print` 还原规则都在（`-webkit-` 前缀这次没被 esbuild 去掉）。
+- `headerYield` 几何契约单测（jsdom 伪造 `getBoundingClientRect`，直接 import 该模块）7 例全中：
+  块顶进栏 84px → `on 84px/64px`；远在栏下 → `off`；整块在栏上 → `on 264px/64px`（完全淡出）；
+  18px 矮块 → 行程取下限 24px；2000px 高块 → 梯度基准仍是页头下沿（`on 104px/64px`）；
+  零高度块 → `off`；全部滚离后残留蒙版 0 个。
+- 离线产物里再跑一遍真实页面（`#/posts/hello-starlog`）：蒙版只落在 `.prose` 的内容块上，
+  背景层 / 页头 / 导航上挂蒙版的元素数为 0；页头没有被加类、没有被藏、没有 `inert`；全程零出网。
+- `npm run build:offline` 8 组自检全绿（3.01 MB），`offline/index.html` 已同步；
+  `npm run extension:test` 61 通过 / 0 失败 / 4 跳过，插件 `tsc --noEmit` 无错误。
+
+### 待办
+
+- 视觉效果需要真机人眼确认（沙箱里没有浏览器，只能验几何契约与副作用边界）：
+  淡出行程的两个调参入口是 `FADE_MIN_PX` / `FADE_MAX_PX`（24–64px，按块高在区间内取值），
+  觉得淡得太早或太晚就改这里。另外计算是每帧一次、先批量读几何再批量写样式，
+  长文（约 200 个内容块）一帧的量测开销在 0.2ms 量级；若以后要再省，
+  可换成 IntersectionObserver 维护候选集，代价是多一个观察器与 resize 时的 rootMargin 维护。
+- 本条**没有**在 PR #69 里用 closing keyword 关联 #71（GitHub 的 `Fixes #71` 会在合并时自动关
+  issue，而这套淡出还没经过人眼验收），PR 正文里刻意写成「issue 71」而不是「#71」。
+
+
 ## 2026-10-19 · 回退页头「让路层」：页头必须全透明，不许遮挡背景
 
 | 模型信息 | |

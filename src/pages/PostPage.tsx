@@ -551,7 +551,7 @@ export default function PostPage() {
       <div className="container-page grid grid-cols-1 gap-10 pt-10 xl:grid-cols-[minmax(0,1fr)_14rem]">
         {/* ::set-font / ::set-code-font 覆盖整个本文区域（含标题与摘要）；正文本体
             还会在 Markdown 组件根节点重复同一组样式，保证其他渲染入口一致。 */}
-        <article className="min-w-0 animate-fade-up" style={articleFontStyle(directives)}>
+        <article className="min-w-0 animate-fade-up" style={articleFontStyle(directives)} data-yield-list>
           <Link to="/" className="no-print group mb-8 inline-flex items-center gap-1.5 text-sm text-ink-400 transition hover:text-brand-600 dark:hover:text-brand-300">
             <ArrowLeft size={14} className="transition-transform group-hover:-translate-x-0.5" /> 返回文章列表
           </Link>

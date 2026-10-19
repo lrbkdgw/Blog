@@ -45,7 +45,7 @@ export default function TagsPage() {
         </h1>
         <p className="mt-2 text-sm text-ink-500">共 {filtered.length} 篇文章</p>
 
-        <div className="mt-10 grid gap-5 sm:grid-cols-2">
+        <div className="mt-10 grid gap-5 sm:grid-cols-2" data-yield-list>
           {filtered.map((p, i) => (
             <PostCard key={p.slug} post={p} index={i} />
           ))}

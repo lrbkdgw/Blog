@@ -27,7 +27,7 @@ export default function Archive() {
         />
       </div>
 
-      <div className="mt-12 space-y-12">
+      <div className="mt-12 space-y-12" data-yield-list>
         {groups.length === 0 && <p className="py-16 text-center text-sm text-ink-400">没有匹配的文章</p>}
 
         {groups.map((group, gi) => (
