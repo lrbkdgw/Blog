@@ -43,6 +43,9 @@
 
 - **删除** `src/lib/offlineSync.ts`、`src/components/OfflineSyncPanel.tsx`、`src/lib/useOnlineStatus.ts`：
   离线版不再有「同步到线上」这条需要网络的通道。
+- 回退上一轮为「离线 Device Flow」改动的站点侧代码：`functions/login/[[path]].ts` 与
+  `oauth-relay/worker.js` 恢复到改动前的状态（离线版不再调用它们，未部署的中继留在仓库里只会误导）；
+  `src/lib/config.ts` 的 `relayUrl` 注释改为「站点默认不带轮询中继，需要时由部署者自行准备」。
 - `src/lib/runtime.ts` 重写：移除 `getSiteBaseUrl()` / `getOAuthRelayUrl()`；
   `resolveOfflineImageSrc()` 改为「远程与站内图片一律解析为空」，由渲染处显示
   「离线版不加载远程图片」说明（`Markdown.tsx` 的 `img`、`PostCard` / `PostPage` 的封面），
