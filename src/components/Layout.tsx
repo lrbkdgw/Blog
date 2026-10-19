@@ -154,22 +154,14 @@ function UserMenu() {
 }
 
 function Header({ onSearch }: { onSearch: () => void }) {
-  const [scrolled, setScrolled] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const { isAuthed } = useAuth()
   const location = useLocation()
 
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8)
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
-
   useEffect(() => setMobileOpen(false), [location.pathname])
 
   return (
-    <header data-scrolled={scrolled ? 'true' : 'false'} className="site-header no-print sticky top-0 z-50">
+    <header className="site-header no-print sticky top-0 z-50">
       <div className="container-page flex h-16 items-center gap-3">
         <Logo />
 

@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeftRight, Columns2, FileText, GitCompareArrows, Loader2, X } from 'lucide-react'
 import { fetchPostHistoryMarkdown, getRepoTarget } from '../lib/github'
 import type { PostHistoryVersion } from '../lib/github'
-import { collapseContext, diffLines, diffStats } from '../lib/diff'
-import type { DiffLine } from '../lib/diff'
+import { diffLines, diffStats, renderedDiffBlocks } from '../lib/diff'
+import type { RenderedDiffChunk } from '../lib/diff'
+import { parseFrontmatter } from '../lib/frontmatter'
 import { Markdown } from './Markdown'
+import { DiffTable } from './DiffView'
 import { resolveVersionName, VERSION_NAMES_CHANGED_EVENT } from '../lib/versionNames'
 
 type CompareMode = 'source' | 'render'
@@ -85,17 +87,18 @@ export function VersionCompare({
     [texts],
   )
   const stats = useMemo(() => diffStats(lines), [lines])
-  const rows = useMemo(
-    () => (onlyChanges ? collapseContext(lines, 3) : lines),
-    [lines, onlyChanges],
-  )
+  // 渲染对比只展示较新版本：正文按块着色，绿色 = 新增，红色 = 已删除。
+  // frontmatter 不参与正文渲染（与文章页一致），只比较正文内容。
+  const renderedChunks = useMemo<RenderedDiffChunk[]>(() => {
+    if (!texts) return []
+    return renderedDiffBlocks(parseFrontmatter(texts.base).content, parseFrontmatter(texts.target).content)
+  }, [texts])
   const identical = texts !== null && stats.added === 0 && stats.removed === 0
 
   const nameOf = (sha: string) => {
     void namesVersion
     return resolveVersionName(sha, slug)
   }
-  const baseIndex = versions.findIndex((v) => v.sha === baseSha)
   const targetIndex = versions.findIndex((v) => v.sha === targetSha)
 
   const swap = () => {
@@ -118,7 +121,7 @@ export function VersionCompare({
               版本对比
             </h2>
             <p className="mt-1 text-xs text-ink-400">
-              选择原始版本与新版本，查看 Markdown 源码差异或并排的渲染效果。
+              选择原始版本与新版本，查看 Markdown 源码差异，或在较新版本的渲染结果中查看新增 / 删除内容。
             </p>
           </div>
           <button type="button" onClick={onClose} className="btn-ghost h-8 w-8 !px-0" aria-label="关闭版本对比">
@@ -209,7 +212,15 @@ export function VersionCompare({
             </>
           )}
           {mode === 'render' && (
-            <span className="ml-auto text-ink-400">左右并排渲染两个版本，可分别滚动查看</span>
+            <>
+              <span className="ml-auto text-ink-400">仅显示较新版本</span>
+              <span className="flex items-center gap-1">
+                <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500/40" /> 新增
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-2.5 w-2.5 rounded-sm bg-rose-500/40" /> 已删除
+              </span>
+            </>
           )}
         </div>
 
@@ -222,92 +233,72 @@ export function VersionCompare({
             <p className="p-5 text-sm text-rose-600 dark:text-rose-400">{error}</p>
           ) : baseSha === targetSha ? (
             <p className="p-10 text-center text-sm text-ink-500">请选择两个不同的版本进行对比。</p>
-          ) : mode === 'render' ? (
-            <div className="grid gap-4 p-4 lg:grid-cols-2">
-              {[
-                {
-                  label: '原始版本',
-                  text: texts?.base ?? '',
-                  index: baseIndex,
-                  sha: baseSha,
-                },
-                {
-                  label: '新版本',
-                  text: texts?.target ?? '',
-                  index: targetIndex,
-                  sha: targetSha,
-                },
-              ].map((pane) => (
-                <section
-                  key={pane.label}
-                  className="flex max-h-[60vh] min-w-0 flex-col overflow-hidden rounded-xl border border-ink-200/70 bg-white dark:border-white/10 dark:bg-ink-900/60"
-                >
-                  <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ink-200/70 px-4 py-2.5 dark:border-white/10">
-                    <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] font-semibold text-brand-600 dark:text-brand-300">
-                      {pane.label}
-                    </span>
-                    <span className="min-w-0 truncate font-mono text-[11px] text-ink-400">
-                      {pane.index >= 0
-                        ? shortVersionName(
-                            versions[pane.index],
-                            pane.index,
-                            versions.length,
-                            nameOf(pane.sha),
-                          )
-                        : pane.sha.slice(0, 7)}
-                    </span>
-                  </header>
-                  <div className="prose prose-sm dark:prose-invert max-w-none flex-1 overflow-y-auto px-4 py-3">
-                    <Markdown content={pane.text} />
-                  </div>
-                </section>
-              ))}
-            </div>
           ) : identical ? (
             <p className="p-10 text-center text-sm text-ink-500">这两个版本的内容完全相同。</p>
+          ) : mode === 'render' ? (
+            <div className="mx-auto max-w-3xl p-4">
+              <section className="overflow-hidden rounded-xl border border-ink-200/70 bg-white dark:border-white/10 dark:bg-ink-900/60">
+                <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ink-200/70 px-4 py-2.5 dark:border-white/10">
+                  <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] font-semibold text-brand-600 dark:text-brand-300">
+                    较新版本
+                  </span>
+                  <span className="min-w-0 truncate font-mono text-[11px] text-ink-400">
+                    {targetIndex >= 0
+                      ? shortVersionName(
+                          versions[targetIndex],
+                          targetIndex,
+                          versions.length,
+                          nameOf(targetSha),
+                        )
+                      : targetSha.slice(0, 7)}
+                  </span>
+                  <span className="ml-auto font-mono text-[11px] text-ink-400">
+                    <span className="text-emerald-600 dark:text-emerald-400">+{stats.added}</span>{' '}
+                    <span className="text-rose-600 dark:text-rose-400">−{stats.removed}</span>
+                  </span>
+                </header>
+                <div className="max-h-[60vh] overflow-y-auto px-4 py-3">
+                  {renderedChunks.map((chunk, index) =>
+                    chunk.type === 'equal' ? (
+                      <Markdown key={`equal-${index}`} content={chunk.text} />
+                    ) : (
+                      <div
+                        key={`${chunk.type}-${index}`}
+                        className={`relative my-3 rounded-lg border px-3 py-1 ${
+                          chunk.type === 'insert'
+                            ? 'border-emerald-300/70 bg-emerald-500/[0.08] dark:border-emerald-400/25'
+                            : 'border-rose-300/70 bg-rose-500/[0.08] dark:border-rose-400/25'
+                        }`}
+                      >
+                        <span
+                          className={`absolute -top-2 left-3 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            chunk.type === 'insert'
+                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+                              : 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'
+                          }`}
+                        >
+                          {chunk.type === 'insert' ? '新增' : '已删除'}
+                        </span>
+                        <div
+                          className={
+                            chunk.type === 'delete'
+                              ? 'opacity-80 [&_.prose]:line-through [&_.prose]:decoration-rose-400/50 [&_.prose]:decoration-1'
+                              : ''
+                          }
+                        >
+                          <Markdown content={chunk.text} />
+                        </div>
+                      </div>
+                    ),
+                  )}
+                </div>
+              </section>
+            </div>
           ) : (
-            <table className="w-full border-collapse font-mono text-[12.5px] leading-relaxed">
-              <tbody>
-                {rows.map((row, index) =>
-                  row.type === 'skip' ? (
-                    <tr key={`skip-${index}`}>
-                      <td colSpan={3} className="bg-ink-100/70 px-3 py-1 text-center text-[11px] text-ink-400 dark:bg-white/[0.04]">
-                        … 省略 {row.count} 行未改动内容 …
-                      </td>
-                    </tr>
-                  ) : (
-                    <DiffRow key={`line-${index}`} line={row} />
-                  ),
-                )}
-              </tbody>
-            </table>
+            <DiffTable lines={lines} onlyChanges={onlyChanges} />
           )}
         </div>
       </div>
     </div>
-  )
-}
-
-function DiffRow({ line }: { line: DiffLine }) {
-  const tone =
-    line.type === 'insert'
-      ? 'bg-emerald-500/[0.12] text-emerald-900 dark:text-emerald-200'
-      : line.type === 'delete'
-        ? 'bg-rose-500/[0.12] text-rose-900 dark:text-rose-200'
-        : 'text-ink-600 dark:text-ink-300'
-  const sign = line.type === 'insert' ? '+' : line.type === 'delete' ? '−' : ' '
-  return (
-    <tr className={tone}>
-      <td className="w-10 select-none border-r border-ink-200/60 px-2 text-right align-top text-[11px] text-ink-400 dark:border-white/10">
-        {line.oldNumber ?? ''}
-      </td>
-      <td className="w-10 select-none border-r border-ink-200/60 px-2 text-right align-top text-[11px] text-ink-400 dark:border-white/10">
-        {line.newNumber ?? ''}
-      </td>
-      <td className="whitespace-pre-wrap break-words px-3 align-top">
-        <span className="select-none pr-2 opacity-70">{sign}</span>
-        {line.text || '\u00a0'}
-      </td>
-    </tr>
   )
 }

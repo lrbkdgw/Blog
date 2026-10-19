@@ -1153,10 +1153,27 @@ export async function saveGithubFontPreference(
   })
 }
 
+export interface GithubAnimatedBackgroundPreference {
+  scene: string
+  values: Record<string, Record<string, number>>
+}
+
+/**
+ * 账号外观偏好文件（`background-preferences/<login>.json`）。
+ *
+ * version 2 只保存渐变背景色与强度；version 3 起同时保存配色主题、明暗模式
+ * 与动态背景场景参数，旧文件仍然可以正常读取（缺少的字段按本地默认值处理）。
+ */
 export interface GithubBackgroundPreference {
   color: string
   intensity: number
   updatedAt: number
+  /** 配色主题 id（见 src/lib/themes.ts） */
+  colorTheme?: string
+  /** 明暗模式：light / dark / system */
+  themeMode?: string
+  /** 动态背景场景与每个场景各自的参数 */
+  animatedBackground?: GithubAnimatedBackgroundPreference
 }
 
 const BACKGROUND_SETTINGS_DIR = '.starlog/settings/background-preferences'
@@ -1179,6 +1196,9 @@ export async function fetchGithubBackgroundPreference(
       color: parsed.color,
       intensity: typeof parsed.intensity === 'number' ? parsed.intensity : 50,
       updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
+      colorTheme: typeof parsed.colorTheme === 'string' ? parsed.colorTheme : undefined,
+      themeMode: typeof parsed.themeMode === 'string' ? parsed.themeMode : undefined,
+      animatedBackground: parseAnimatedBackgroundPreference(parsed.animatedBackground),
     }
   } catch (err) {
     if (err instanceof Error && /找不到资源/.test(err.message)) return null
@@ -1186,20 +1206,42 @@ export async function fetchGithubBackgroundPreference(
   }
 }
 
-/** 构造背景偏好设置文件内容（供立即提交或「待更新队列」暂存使用）。 */
+/** 读取账号文件里的动态背景偏好；无效数据返回 undefined，由本地默认值兜底。 */
+function parseAnimatedBackgroundPreference(raw: unknown): GithubAnimatedBackgroundPreference | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const data = raw as { scene?: unknown; values?: unknown }
+  if (typeof data.scene !== 'string') return undefined
+  const values: Record<string, Record<string, number>> = {}
+  if (data.values && typeof data.values === 'object') {
+    for (const [scene, params] of Object.entries(data.values as Record<string, unknown>)) {
+      if (!params || typeof params !== 'object') continue
+      const numbers: Record<string, number> = {}
+      for (const [key, value] of Object.entries(params as Record<string, unknown>)) {
+        if (typeof value === 'number' && Number.isFinite(value)) numbers[key] = value
+      }
+      values[scene] = numbers
+    }
+  }
+  return { scene: data.scene, values }
+}
+
+/** 构造外观偏好设置文件内容（供立即提交或「待更新队列」暂存使用）。 */
 export function buildBackgroundPreferenceFile(
   login: string,
   preference: GithubBackgroundPreference,
 ): SettingsFileUpdate {
   return {
     path: backgroundSettingsPath(login),
-    message: `chore(settings): 保存 @${login} 的背景颜色偏好`,
+    message: `chore(settings): 保存 @${login} 的外观偏好`,
     text:
       JSON.stringify(
         {
-          version: 2,
+          version: 3,
           color: preference.color,
           intensity: preference.intensity,
+          colorTheme: preference.colorTheme ?? '',
+          themeMode: preference.themeMode ?? 'system',
+          animatedBackground: preference.animatedBackground ?? { scene: 'none', values: {} },
           updatedAt: preference.updatedAt || Date.now(),
         },
         null,

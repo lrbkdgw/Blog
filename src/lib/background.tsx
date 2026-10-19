@@ -5,6 +5,12 @@ import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 import { fetchGithubBackgroundPreference, buildBackgroundPreferenceFile, backgroundSettingsPath } from './github'
 import { enqueueSettingsSync, getUpdateQueue } from './updateQueue'
 import { useAuth } from './auth'
+import { useTheme } from './theme'
+import {
+  setAnimatedBackgroundPreference,
+  useAnimatedBackground,
+  type AnimatedBackgroundPreference,
+} from './animatedBackground'
 
 export interface BackgroundPreference {
   color: string
@@ -148,7 +154,20 @@ function readLocal(): BackgroundPreference {
   return DEFAULT_BACKGROUND
 }
 
-function readAccountCache(): Record<string, BackgroundPreference> {
+/**
+ * 账号外观缓存：除了旧的渐变背景色，还记住配色主题、明暗模式与动态背景，
+ * 这样刚登录、远端文件还没读完时也能先恢复上一台设备的样子。
+ */
+interface AccountAppearanceCache {
+  color?: string
+  intensity?: number
+  updatedAt?: number
+  colorTheme?: string
+  mode?: string
+  animated?: AnimatedBackgroundPreference
+}
+
+function readAccountCache(): Record<string, AccountAppearanceCache> {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.backgroundAccounts) || '{}')
     return parsed && typeof parsed === 'object' ? parsed : {}
@@ -157,31 +176,42 @@ function readAccountCache(): Record<string, BackgroundPreference> {
   }
 }
 
-function writeAccountCache(login: string, preference: BackgroundPreference) {
+function writeAccountCache(login: string, appearance: AccountAppearanceCache) {
   const cache = readAccountCache()
-  cache[login] = preference
+  cache[login] = appearance
   localStorage.setItem(STORAGE_KEYS.backgroundAccounts, JSON.stringify(cache))
+}
+
+function isThemeMode(value: unknown): value is 'light' | 'dark' | 'system' {
+  return value === 'light' || value === 'dark' || value === 'system'
 }
 
 export function BackgroundProvider({ children }: { children: ReactNode }) {
   const { ghUser, canPublish, loading: authLoading } = useAuth()
+  // 配色主题与动态背景也属于「账号外观」，由这里一起恢复 / 保存到同一份 GitHub 偏好文件。
+  const { colorTheme, mode, setColorTheme, setMode } = useTheme()
+  const animatedBackground = useAnimatedBackground()
   const [background, setBackgroundState] = useState<BackgroundPreference>(readLocal)
+  const backgroundRef = useRef(background)
   const [accountSync, setAccountSync] = useState<AccountSync>('idle')
   const accountRef = useRef('')
 
   const commit = useCallback((next: BackgroundPreference) => {
     applyToDocument(next.color, next.intensity)
     writeLocal(next)
+    backgroundRef.current = next
     setBackgroundState(next)
     return next
   }, [])
 
+  // 通过 ref 读取当前强度，让 setBackground 的身份保持稳定：
+  // 否则恢复账号偏好时状态一变更就会重建回调，触发恢复 effect 的清理，把远程结果误判为已取消。
   const setBackground = useCallback(
-    (value: string, intensity = background.intensity) => {
+    (value: string, intensity = backgroundRef.current.intensity) => {
       const color = normalizeBackgroundColor(value)
       return commit({ color, intensity: normalizeBackgroundIntensity(intensity), updatedAt: Date.now() })
     },
-    [background.intensity, commit],
+    [commit],
   )
 
   const resetBackground = useCallback(() => {
@@ -194,6 +224,7 @@ export function BackgroundProvider({ children }: { children: ReactNode }) {
     const sync = () => {
       const next = readLocal()
       applyToDocument(next.color, next.intensity)
+      backgroundRef.current = next
       setBackgroundState(next)
     }
     window.addEventListener('starlog:settings-changed', sync)
@@ -224,8 +255,13 @@ export function BackgroundProvider({ children }: { children: ReactNode }) {
     const restore = async () => {
       try {
         const cached = readAccountCache()[login]
-        if (cached && typeof cached.color === 'string') {
-          setBackground(cached.color, typeof cached.intensity === 'number' ? cached.intensity : DEFAULT_INTENSITY)
+        if (cached) {
+          if (typeof cached.color === 'string') {
+            setBackground(cached.color, typeof cached.intensity === 'number' ? cached.intensity : DEFAULT_INTENSITY)
+          }
+          if (cached.colorTheme) setColorTheme(cached.colorTheme)
+          if (isThemeMode(cached.mode)) setMode(cached.mode)
+          if (cached.animated) setAnimatedBackgroundPreference(cached.animated)
         }
 
         // 有尚未更新到仓库的偏好更改时，不用旧的远程版本覆盖本地/队列中的新设置。
@@ -240,9 +276,24 @@ export function BackgroundProvider({ children }: { children: ReactNode }) {
         const remote = await fetchGithubBackgroundPreference(login)
         if (!active) return
         if (remote) {
-          const restored = setBackground(remote.color, remote.intensity)
+          setBackground(remote.color, remote.intensity)
           if (!active) return
-          writeAccountCache(login, restored)
+          if (remote.colorTheme) setColorTheme(remote.colorTheme)
+          if (isThemeMode(remote.themeMode)) setMode(remote.themeMode)
+          if (remote.animatedBackground) setAnimatedBackgroundPreference(remote.animatedBackground)
+          writeAccountCache(login, {
+            color: remote.color,
+            intensity: remote.intensity,
+            updatedAt: remote.updatedAt,
+            colorTheme: remote.colorTheme,
+            mode: remote.themeMode,
+            animated: remote.animatedBackground
+              ? {
+                  scene: remote.animatedBackground.scene as AnimatedBackgroundPreference['scene'],
+                  values: remote.animatedBackground.values as AnimatedBackgroundPreference['values'],
+                }
+              : undefined,
+          })
         }
         setAccountSync('synced')
       } catch {
@@ -254,16 +305,36 @@ export function BackgroundProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false
     }
-  }, [authLoading, canPublish, ghUser, setBackground])
+  }, [authLoading, canPublish, ghUser, setBackground, setColorTheme, setMode])
 
   const saveForGithub = useCallback(async () => {
     if (!canPublish || !ghUser) throw new Error('请先登录并连接具备 Contents 写入权限的 GitHub 账号')
     // 更新仓库的操作先加入待更新队列，由内容管理统一更新。
-    const file = buildBackgroundPreferenceFile(ghUser.login, background)
-    enqueueSettingsSync(file.path, `同步 @${ghUser.login} 的背景颜色偏好`, file.text)
-    writeAccountCache(ghUser.login, background)
+    // 配色主题、明暗模式、渐变背景与动态背景写在同一份账号外观偏好里。
+    const file = buildBackgroundPreferenceFile(ghUser.login, {
+      color: background.color,
+      intensity: background.intensity,
+      colorTheme,
+      themeMode: mode,
+      animatedBackground: {
+        scene: animatedBackground.scene,
+        values: animatedBackground.values as Record<string, Record<string, number>>,
+      },
+      updatedAt: Date.now(),
+    })
+    enqueueSettingsSync(
+      file.path,
+      `同步 @${ghUser.login} 的配色主题、明暗模式、背景与动态背景`,
+      file.text,
+    )
+    writeAccountCache(ghUser.login, {
+      ...background,
+      colorTheme,
+      mode,
+      animated: animatedBackground,
+    })
     setAccountSync('queued')
-  }, [background, canPublish, ghUser])
+  }, [background, canPublish, ghUser, colorTheme, mode, animatedBackground])
 
   const value = useMemo(
     () => ({ background, accountSync, setBackground, resetBackground, saveForGithub }),
