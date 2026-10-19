@@ -18,6 +18,7 @@ import {
 import { useAuth } from '../lib/auth'
 import { useToast } from '../components/Toast'
 import { Markdown } from './Markdown'
+import { focusWithoutScroll, restoreCaret } from '../lib/caret'
 import { LatexPicker } from './LatexPicker'
 import { latexSymbolInsert, type LatexSymbol } from '../lib/latexSymbols'
 import { formatDate, relativeTime } from '../lib/posts'
@@ -244,10 +245,8 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
     const { text, selectionStart, selectionEnd } = latexSymbolInsert(symbol)
     setContent(content.slice(0, start) + text + content.slice(end))
     requestAnimationFrame(() => {
-      const ta = composerRef.current
-      if (!ta) return
-      ta.focus()
-      ta.setSelectionRange(start + selectionStart, start + selectionEnd)
+      // 与编辑器同理：先恢复光标再聚焦，避免页面被滚到评论框文本末尾（issue #70）。
+      restoreCaret(composerRef.current, start + selectionStart, start + selectionEnd)
     })
   }
 
@@ -616,7 +615,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
         open={latexPickerOpen}
         onClose={() => {
           setLatexPickerOpen(false)
-          requestAnimationFrame(() => composerRef.current?.focus())
+          requestAnimationFrame(() => focusWithoutScroll(composerRef.current))
         }}
         onInsert={insertLatexSymbol}
       />

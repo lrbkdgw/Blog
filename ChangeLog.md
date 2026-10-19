@@ -1,5 +1,70 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-19 · 修复 issue #70 / #71：LaTeX 符号插入不再跳到文末、页头上划后渐变让位
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+仓库里两个未填正文的 issue：
+
+- **#70**「使用搜索 LaTeX 功能后会异常跳转到文章末尾。」
+- **#71**「任意界面上划到顶部后就应消失，避免挡住页面选择栏。」（与提出者确认后明确为：
+  正文上划穿过含「首页 / 归档」等按钮的那一条页头之后，页头自己渐变消失，不要挡住视野）
+
+#70 的成因不在符号选择框，而在「改完受控 textarea 的 value 之后怎么把光标放回去」：
+React 把新 `value` 写回 `<textarea>` 时，浏览器按规范把光标挪到**文本末尾**（只有元素处于
+聚焦态时 React 才会代为保存 / 恢复选区）。而工具栏与符号选择框的旧写法是
+`ta.focus()` 再 `ta.setSelectionRange(...)`——`focus()` 为了「把光标滚进视野」，
+会先把整页拽到文末，随后 `setSelectionRange` 只是把光标挪回去，页面却停在底部。
+评论输入框里的 LaTeX 插入是同一套写法，因此一并修。
+
+### 新增
+
+- `src/lib/caret.ts`：两个小工具，把上面这条顺序固定下来，避免各处再各写一遍。
+  - `focusWithoutScroll(el)`：`el.focus({ preventScroll: true })`，老浏览器不认识该选项时
+    `try/catch` 退回普通 `focus()`；
+  - `restoreCaret(ta, start, end)`：先 `setSelectionRange`（并夹紧到 `[0, value.length]`，
+    防止长度已变时传入越界偏移）再以 `preventScroll` 聚焦，最后比对前后 `window.scrollX/Y`，
+    若这两步把页面滚走了就用 `behavior:'instant'` 还原——textarea 自身滚动保留，光标仍在视野内。
+
+### 调整
+
+- `src/pages/Editor.tsx`：`applyAction()`（工具栏加粗 / 斜体 / 链接 / 代码块 / 数学公式 /
+  交互展示框与 LaTeX 符号插入的共同出口）改为 `restoreCaret(...)`；符号选择框 `onClose` 里的
+  `requestAnimationFrame(() => ta.focus())` 改为 `focusWithoutScroll(ta)`。
+- `src/components/Comments.tsx`：评论框的 `insertLatexSymbol` / 选择框 `onClose` 同样处理。
+- `src/components/Layout.tsx`：页头改为滚动驱动自动隐藏——`headerRef.current.offsetHeight || 64`
+  之上再留 16px 作为隐藏阈值，恢复阈值比它低 32px 形成迟滞（惯性滚动与滚轮微抖不会来回闪），
+  `offsetHeight` 用 `||` 而非 `??` 是为了在布局不可用（打印、隐藏容器、单测环境）时阈值不塌成 0
+  而把页头永久藏起来。隐藏态为 `pointer-events-none -translate-y-full opacity-0` +
+  `transition-[transform,opacity] duration-300`，并有 `motion-reduce:transition-none`；
+  同时给 `<header>` 加 `inert={hidden}`，避免焦点 Tab 进看不见的导航。
+  判据只看滚动位置、不看滚动方向（避免阅读途中忽然多出一条横杠），移动端菜单展开时不隐藏，
+  监听用 `requestAnimationFrame` 合帧。搜索弹层自带 `body` 滚动锁，不受影响。
+
+### 修复
+
+- #70 使用 LaTeX 符号选择框（以及所有工具栏插入操作）后页面被滚到文末。
+- #71 页头在正文滚过之后仍然占住顶部一条视野。
+
+### 验证
+
+- `npx tsc --noEmit`（站点）与插件 `tsc --noEmit` 均无错误；`npm run build` 通过。
+- `npm run build:offline` 自检通过（3.01 MB，10/10 内置文章），`offline/index.html` 已同步重建。
+- jsdom 行为回归（针对离线产物，与线上同一套代码）10 项全绿：
+  页头在顶部可见 → 滚到 500px 消失且 `inert` + `pointer-events-none` 且有过渡类 → 60px 处
+  因迟滞保持隐藏 → 回 0 恢复 → 75px（阈值 80 之内）不误隐；
+  编辑器内先输入 400 字并把光标放到 100，再用工具栏打开符号框搜 `pm` 回车 →
+  `\pm` 恰好插在 100、光标停在 103、调用序列为 `setSelectionRange → focus({preventScroll:true})`、
+  全程没有 `window.scrollTo`。
+- `npm run extension:test`：61 通过 / 0 失败 / 4 跳过（插件 `out/` 重新构建后与提交内容一致）。
+
+
 ## 2026-10-19 · 离线版改为「完全不联网」：只用本机字体，移除全部在线功能
 
 | 模型信息 | |

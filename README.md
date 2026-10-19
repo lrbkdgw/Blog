@@ -27,6 +27,7 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 🎛️ **交互展示框** | Markdown 中可声明整数、有理数、字符串变量，实时计算并渲染展示内容 |
 | 📄 **文章排版指令** | 文首 `::set-font` / `::set-code-font` / `::set-background` 强制本文的字体与动态背景，仅在阅读本文时生效 |
 | 📱 **响应式** | 手机 / 平板 / 桌面均已适配，支持打印样式 |
+| 🧭 **页头自动隐藏** | 正文上划穿过页头后，顶部导航条**渐变淡出**（同时 `inert` + 不截获点击），回到顶部自动恢复；阈值带 32px 迟滞不闪，移动端菜单展开时不隐藏（issue #71） |
 | 📴 **离线单文件版** | 整站打包成一个 HTML，**完全不联网**也能阅读与写作（含加密文章、本机版本历史）；要回线上用「文章包」导入（见「📴 离线版」） |
 
 ---
@@ -397,7 +398,7 @@ pinned: false    # true 则置顶到首页
 | <kbd>⌘</kbd> + <kbd>B</kbd> / <kbd>I</kbd> | 粗体 / 斜体 |
 | <kbd>⌘</kbd> + <kbd>K</kbd> | 插入链接 |
 | <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | 缩进 / 反缩进 |
-| <kbd>Shift</kbd> + <kbd>↑</kbd> | 打开 **LaTeX 符号选择框**：按命令或别名搜索（「正负」→ `\pm`、「异或」→ `\oplus`），方向键选择、Enter 插入到光标处，插入后光标落在第一个空参数内；最近用过的符号会记住（评论输入框同样支持，符号目录 `src/lib/latexSymbols.ts`，与 VS Code 插件共用） |
+| <kbd>Shift</kbd> + <kbd>↑</kbd> | 打开 **LaTeX 符号选择框**：按命令或别名搜索（「正负」→ `\pm`、「异或」→ `\oplus`），方向键选择、Enter 插入到光标处，插入后光标落在第一个空参数内；插入过程不会把页面拽到文末（先恢复光标再以 `preventScroll` 聚焦，见 `src/lib/caret.ts`，issue #70）；最近用过的符号会记住（评论输入框同样支持，符号目录 `src/lib/latexSymbols.ts`，与 VS Code 插件共用） |
 | <kbd>Enter</kbd> | 列表内自动续行（空项自动结束列表） |
 
 全站快捷键：<kbd>⌘</kbd>+<kbd>K</kbd> 或 <kbd>/</kbd> 打开搜索。

@@ -70,6 +70,7 @@ import { siteConfig } from '../lib/config'
 import { parseArticleDirectives } from '../lib/articleDirectives'
 import { setAnimatedSceneOverride } from '../lib/animatedBackground'
 import { warmFontFamilies } from '../lib/font'
+import { focusWithoutScroll, restoreCaret } from '../lib/caret'
 import { latexSymbolInsert, type LatexSymbol } from '../lib/latexSymbols'
 import { handleEditorKey, insertBlock, toggleLinePrefix, toggleWrap } from '../lib/editor'
 import type { EditAction } from '../lib/editor'
@@ -495,10 +496,9 @@ export default function Editor() {
     setContent(action.value)
     markDirty()
     requestAnimationFrame(() => {
-      const ta = textareaRef.current
-      if (!ta) return
-      ta.focus()
-      ta.setSelectionRange(action.selectionStart, action.selectionEnd)
+      // 先放回插入点再抢焦点：直接 focus() 会因为「把光标滚进视野」把整页
+      // 拽到文章末尾（issue #70），细节见 src/lib/caret.ts。
+      restoreCaret(textareaRef.current, action.selectionStart, action.selectionEnd)
     })
   }
 
@@ -1560,8 +1560,8 @@ export default function Editor() {
         open={latexPickerOpen}
         onClose={() => {
           setLatexPickerOpen(false)
-          // 关闭后把焦点还给编辑区，继续原来的写作位置。
-          requestAnimationFrame(() => textareaRef.current?.focus())
+          // 关闭后把焦点还给编辑区，继续原来的写作位置——但不允许 focus() 顺手滚页。
+          requestAnimationFrame(() => focusWithoutScroll(textareaRef.current))
         }}
         onInsert={insertLatexSymbol}
       />
