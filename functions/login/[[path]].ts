@@ -26,37 +26,16 @@ interface NextableContext {
   next: () => Promise<Response>
 }
 
-/**
- * 跨域头：让离线单文件版（file:// 打开，Origin 为 null）也能把这个 Pages Function
- * 当作 Device Flow 中转使用。Device Flow 不需要 client_secret，中转不持有任何机密，
- * 因此这里用 * 而不是收紧来源白名单（与 oauth-relay/worker.js 保持一致）。
- */
-const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Accept',
-  'Access-Control-Max-Age': '86400',
-}
-
-function headers(extra: Record<string, string> = {}): Record<string, string> {
-  return { ...CORS_HEADERS, ...extra }
-}
-
 function json(data: Record<string, string>, status: number): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: headers({ 'Content-Type': 'application/json; charset=utf-8' }),
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
   })
 }
 
 export const onRequest = async (context: NextableContext): Promise<Response> => {
   const { request, next } = context
   const url = new URL(request.url)
-
-  // 预检：浏览器带 Content-Type: application/x-www-form-urlencoded 会先发 OPTIONS
-  if (request.method === 'OPTIONS' && ALLOWED_PATHS.has(url.pathname)) {
-    return new Response(null, { status: 204, headers: headers() })
-  }
 
   // 不是 OAuth 中转请求 → 交给静态站点（SPA 路由、静态资源、_redirects）
   if (request.method !== 'POST' || !ALLOWED_PATHS.has(url.pathname)) {
@@ -92,9 +71,9 @@ export const onRequest = async (context: NextableContext): Promise<Response> => 
   const text = await upstream.text()
   return new Response(text, {
     status: upstream.status,
-    headers: headers({
+    headers: {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
-    }),
+    },
   })
 }
