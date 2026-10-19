@@ -87,7 +87,7 @@ test('插件名、命令分类、预览贡献与实际构建产物一致', () =>
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
   assert.equal(manifest.displayName, 'Markdown 语法拓展')
   assert.equal(manifest.name, 'starlog-markdown') // 保留扩展 ID，旧用户直接升级。
-  assert.equal(manifest.version, '2.0.2')
+  assert.equal(manifest.version, '2.1.0')
   assert.ok(manifest.contributes.commands.every((command) => command.category === 'Markdown 语法拓展'))
   for (const file of [manifest.main, ...manifest.contributes['markdown.previewStyles'], ...manifest.contributes['markdown.previewScripts']]) {
     assert.ok(existsSync(resolve(root, file)), file)

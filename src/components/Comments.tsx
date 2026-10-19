@@ -8,6 +8,7 @@ import {
   HardDrive,
   Loader2,
   MessageSquare,
+  Omega,
   PenLine,
   RefreshCw,
   Send,
@@ -17,6 +18,8 @@ import {
 import { useAuth } from '../lib/auth'
 import { useToast } from '../components/Toast'
 import { Markdown } from './Markdown'
+import { LatexPicker } from './LatexPicker'
+import { latexSymbolInsert, type LatexSymbol } from '../lib/latexSymbols'
 import { formatDate, relativeTime } from '../lib/posts'
 import { siteConfig } from '../lib/config'
 import {
@@ -116,6 +119,11 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
   const [submitting, setSubmitting] = useState(false)
   const [deletingId, setDeletingId] = useState('')
   const [preview, setPreview] = useState(false)
+  // LaTeX 符号选择框（issue #60）：与编辑器一样 Shift + ↑ 打开，
+  // 打开时记住评论输入框的选区，符号插回原光标处。
+  const composerRef = useRef<HTMLTextAreaElement>(null)
+  const [latexPickerOpen, setLatexPickerOpen] = useState(false)
+  const latexSelectionRef = useRef<{ start: number; end: number } | null>(null)
 
   const loadLegacyComments = useCallback(() => {
     setLegacyComments(getCommentsForPost(postSlug))
@@ -186,6 +194,29 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
     () => [...remoteComments, ...legacyComments].sort((left, right) => left.createdAt - right.createdAt),
     [legacyComments, remoteComments],
   )
+
+  const openLatexPicker = () => {
+    const ta = composerRef.current
+    latexSelectionRef.current = ta
+      ? { start: ta.selectionStart, end: ta.selectionEnd }
+      : { start: content.length, end: content.length }
+    setPreview(false)
+    setLatexPickerOpen(true)
+  }
+
+  const insertLatexSymbol = (symbol: LatexSymbol) => {
+    const saved = latexSelectionRef.current
+    const start = Math.min(saved?.start ?? content.length, content.length)
+    const end = Math.min(saved?.end ?? start, content.length)
+    const { text, selectionStart, selectionEnd } = latexSymbolInsert(symbol)
+    setContent(content.slice(0, start) + text + content.slice(end))
+    requestAnimationFrame(() => {
+      const ta = composerRef.current
+      if (!ta) return
+      ta.focus()
+      ta.setSelectionRange(start + selectionStart, start + selectionEnd)
+    })
+  }
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -313,31 +344,57 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
                 )}
               </div>
 
-              <button
-                type="button"
-                onClick={() => setPreview((value) => !value)}
-                className="btn-ghost h-7 !px-2 text-xs"
-              >
-                {preview ? <PenLine size={13} /> : <Eye size={13} />}
-                {preview ? '编辑' : '预览 Markdown'}
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={openLatexPicker}
+                  title="插入 LaTeX 符号 (Shift + ↑)"
+                  className="btn-ghost h-7 !px-2 text-xs"
+                >
+                  <Omega size={13} />
+                  <span className="hidden sm:inline">LaTeX 符号</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreview((value) => !value)}
+                  className="btn-ghost h-7 !px-2 text-xs"
+                >
+                  {preview ? <PenLine size={13} /> : <Eye size={13} />}
+                  {preview ? '编辑' : '预览 Markdown'}
+                </button>
+              </div>
             </div>
 
             {preview ? (
               <div className="min-h-[6rem] rounded-xl border border-ink-200/70 bg-ink-50/40 p-4 dark:border-white/10 dark:bg-white/[0.02]">
                 {content.trim() ? (
-                  <Markdown content={content} />
+                  <Markdown content={content} applyDirectives={false} />
                 ) : (
                   <p className="text-xs text-ink-400">输入内容后在此预览效果…</p>
                 )}
               </div>
             ) : (
               <textarea
+                ref={composerRef}
                 value={content}
                 onChange={(event) => setContent(event.target.value)}
+                onKeyDown={(event) => {
+                  // 与编辑器一致：Shift + ↑ 打开 LaTeX 符号选择框（输入法组合中不拦截）。
+                  if (
+                    event.shiftKey &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !event.altKey &&
+                    event.key === 'ArrowUp' &&
+                    !event.nativeEvent.isComposing
+                  ) {
+                    event.preventDefault()
+                    openLatexPicker()
+                  }
+                }}
                 rows={3}
                 maxLength={10000}
-                placeholder="撰写你的评论（支持 Markdown、公式与代码）…"
+                placeholder="撰写你的评论（支持 Markdown、公式与代码，Shift + ↑ 插入 LaTeX 符号）…"
                 className="input resize-y font-mono text-[13.5px]"
                 required
               />
@@ -488,13 +545,21 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
                 </div>
 
                 <div className="mt-3 text-[14.5px] leading-relaxed text-ink-700 dark:text-ink-200">
-                  <Markdown content={comment.content} />
+                  <Markdown content={comment.content} applyDirectives={false} />
                 </div>
               </div>
             )
           })
         )}
       </div>
+      <LatexPicker
+        open={latexPickerOpen}
+        onClose={() => {
+          setLatexPickerOpen(false)
+          requestAnimationFrame(() => composerRef.current?.focus())
+        }}
+        onInsert={insertLatexSymbol}
+      />
     </section>
   )
 }

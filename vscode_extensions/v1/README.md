@@ -2,14 +2,14 @@
 
 安装后，在 **VS Code 内置 Markdown 预览**中使用与本仓库博客相同的正文渲染：同一份 React 组件、Markdown 插件链、KaTeX、代码高亮、交互展示框和 Tailwind 样式，而不是另写一套近似实现。
 
-当前版本：**2.0.2**。目录 `v1/` 与扩展 ID `lrbkdgw.starlog-markdown` 保留以兼容旧版；插件展示名称、设置标题、命令分类均为 **Markdown 语法拓展**。
+当前版本：**2.1.0**。目录 `v1/` 与扩展 ID `lrbkdgw.starlog-markdown` 保留以兼容旧版；插件展示名称、设置标题、命令分类均为 **Markdown 语法拓展**。
 
 ## 安装与使用
 
 在仓库根目录执行：
 
 ```bash
-code --install-extension vscode_extensions/v1/starlog-markdown-2.0.2.vsix --force
+code --install-extension vscode_extensions/v1/starlog-markdown-2.1.0.vsix --force
 ```
 
 也可以在扩展侧边栏的 `…` 菜单选择 **从 VSIX 安装…**，安装上面的文件。升级后按 VS Code 的提示重新加载窗口，并重新打开预览。
@@ -42,6 +42,8 @@ VS Code **Settings** 中搜索 `@ext:lrbkdgw.starlog-markdown` 或「渐变」�
 | 展示框布局、数字框 / 滑动条 / 文本框及实时重渲染 | `src/components/ShowBox.tsx` |
 | 变量解析、映射、表达式与取整 | `src/lib/showBox.ts` |
 | 复制为洛谷 / 基本 Markdown | `src/lib/markdownSource.ts` |
+| 文首排版指令（`::set-font` / `::set-code-font` / `::set-background`）的解析与字体栈 | `src/lib/articleDirectives.ts`、`src/lib/fontStacks.ts` |
+| LaTeX 符号目录（命令、别名、插入光标） | `src/lib/latexSymbols.ts` |
 | 默认排版、深浅色主题与控件样式 | `src/styles/index.css`、`tailwind.config.js` |
 | React / KaTeX / remark / rehype 的版本 | 仓库根目录 `package-lock.json` |
 
@@ -49,7 +51,7 @@ VS Code **Settings** 中搜索 `@ext:lrbkdgw.starlog-markdown` 或「渐变」�
 
 样式在构建时直接从博客生成，并加正文作用域；宿主适配层仅中和 VS Code 自带的字号、标题下边距、引用圆角等冲突，不维护另一份博客主题。公式 CSS 也放在同一样式入口中，确保加载顺序一致。
 
-- 默认采用博客的字体栈与 16px 基准字号，不使用 `markdown.preview.fontFamily` / `fontSize` 改写正文。
+- 默认采用博客的字体栈与 16px 基准字号，不使用 `markdown.preview.fontFamily` / `fontSize` 改写正文。文章开头若写了 `::set-font[…]` / `::set-code-font[…]`，与博客一致直接套用到预览正文（需本机装有该字体，插件不会联网下载）；`::set-background[…]` 针对博客网页的动态背景，预览只移除指令行、不切换背景。
 - 随 VS Code 的深浅色主题选择博客对应的配色；博客网页上个人设置的字体、字号和背景偏好不会自动跨应用同步。
 - YAML frontmatter 与博客一样不作为正文渲染，源行号保留原始偏移。
 - 本地图片经过 VS Code 的资源转换；相对链接仍由内置预览打开。
@@ -70,11 +72,11 @@ VS Code **Settings** 中搜索 `@ext:lrbkdgw.starlog-markdown` 或「渐变」�
 | `*&变量:{键,内容;…}*&` | 变量到 Markdown 内容的映射，未声明的变量自动生成控件 |
 | `:::info[标题]{open}` … `:::` | 折叠框，支持 `info/note/tip/success/warning/error/danger` 与多层嵌套 |
 | `::cute-table{tuack}` | Tuack 表格 |
-| `::set-font[字体]` / `::set-code-font[字体]` | 文章级字体覆盖，指令写在文章开头，预览中即时生效 |
-| `::set-background[0–5]` | 博客文章页的临时动态背景；VS Code 预览没有动态背景，该指令仅被移除 |
 | 表格内的 `<` / `^` | 向左 / 向上合并单元格 |
 | `$…$`、`$$` 块、`math` 围栏 | 与博客相同的 KaTeX 公式 |
 | 普通 Markdown / GFM | 高亮代码、任务列表、删除线、脚注、表格、原始 HTML 等 |
+| 文首 `::set-font[字体名]` / `::set-code-font[字体名]` | 强制本文正文 / 代码字体；可写多条，越早优先级越高，后面的作回退 |
+| 文首 `::set-background[0–5]` | 强制在博客阅读本文时的动态背景（0 无 · 1 樱花 · 2 粒子星链 · 3 雪花 · 4 暴雨 · 5 竹林），插件预览中仅移除该行 |
 
 变量定义：`名字:类型=默认值[最小,最大,步长]`。`Z` 为整数，`Q` 为有理数，`S` 为字符串。整数默认有滑动条；有理数需加 `{faster_set}` 才显示滑动条；字符串的两个限制是最小、最大长度。
 
@@ -97,13 +99,14 @@ int a = *&show(a)*&;
 命令面板中的分类统一为 **Markdown 语法拓展**：
 
 - 插入交互展示框 / 折叠框 / Tuack 表格。
+- 插入 LaTeX 符号…：按 `Shift + ↑`（仅 Markdown 编辑器聚焦时）或从命令面板打开，可搜命令或别名（「正负」→ `\pm`、「异或」→ `\oplus`），选中插入光标处；符号目录与博客站内编辑器共用 `src/lib/latexSymbols.ts`。`Shift + ↑` 在 Markdown 里被本扩展接管，如需恢复选区上扩，可在键盘快捷方式里改绑 `starlog.insertLatexSymbol`。
 - 复制为洛谷源码 / 基本 Markdown 源码（有选区时只转换选区）。
 - 打开语法示例文档。
 - 安装 / 移除 Markdown Preview Enhanced 静态兼容支持。
 
 旧的 `starlog.*` 命令 ID 和设置键保留，原有快捷键无需修改。
 
-代码片段包括 `show`、`varz`、`varq`、`vars`、`show(`、`hs(`、`floor(`、`ceil(`、`map`、`callout`、`tuack`。
+代码片段包括 `show`、`varz`、`varq`、`vars`、`show(`、`hs(`、`floor(`、`ceil(`、`map`、`callout`、`tuack`、`setfont`、`setcodefont`、`setbackground`。
 
 ## Markdown Preview Enhanced（可选，静态兼容）
 
@@ -124,7 +127,7 @@ npm ci --prefix vscode_extensions/v1
 npm run build                              # 博客类型检查与生产构建
 npm --prefix vscode_extensions/v1 run typecheck
 npm run extension:test                     # 构建 + DOM / CSS / jsdom / 主进程 / MPE 回归
-npm run extension:package                  # 构建并生成 starlog-markdown-2.0.2.vsix
+npm run extension:package                  # 构建并生成 starlog-markdown-2.1.0.vsix
 npm --prefix vscode_extensions/v1 run watch # 监听共享源码、样式、Tailwind 配置与 MPE 源码
 ```
 

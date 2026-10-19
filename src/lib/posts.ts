@@ -1,6 +1,6 @@
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter'
+import { stripArticleDirectives } from './articleDirectives'
 import { STORAGE_KEYS } from './config'
-import { stripLeadingDirectives } from './postDirectives'
 import type { Post, PostMeta } from './types'
 
 /* -------------------------------------------------------------------------- */
@@ -49,8 +49,7 @@ export function today(): string {
 
 /** 去掉 Markdown 标记，用于摘要与字数统计 */
 export function stripMarkdown(md: string): string {
-  // 文章级排版指令（::set-font 等）不是正文，不应进入摘要、字数统计或阅读时长。
-  return stripLeadingDirectives(md)
+  return md
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`]*`/g, ' ')
     .replace(/\$\$[\s\S]*?\$\$/g, ' ')
@@ -67,7 +66,8 @@ export function stripMarkdown(md: string): string {
 }
 
 export function countWords(md: string): number {
-  const text = stripMarkdown(md)
+  // 文首排版指令（::set-font[…] 等）不是正文，不计入字数与阅读时长。
+  const text = stripMarkdown(stripArticleDirectives(md))
   const cjk = (text.match(/[\u4e00-\u9fa5\u3040-\u30ff]/g) || []).length
   const words = (
     text.replace(/[\u4e00-\u9fa5\u3040-\u30ff]/g, ' ').match(/[A-Za-z0-9'’-]+/g) || []
@@ -80,7 +80,8 @@ export function readingTime(md: string): number {
 }
 
 export function excerpt(md: string, len = 120): string {
-  const text = stripMarkdown(md)
+  // 自动摘要不要把文首的排版指令原文截进卡片里。
+  const text = stripMarkdown(stripArticleDirectives(md))
   return text.length > len ? `${text.slice(0, len)}…` : text
 }
 

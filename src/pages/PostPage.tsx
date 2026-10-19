@@ -49,9 +49,9 @@ import { useAuth } from '../lib/auth'
 import { useToast } from '../components/Toast'
 import { siteConfig } from '../lib/config'
 import { convertMarkdownForCopy, type MarkdownCopyTarget } from '../lib/markdownSource'
-import { directiveFontVars, parsePostDirectives } from '../lib/postDirectives'
-import { backgroundSceneFromId, setSceneOverride } from '../lib/animatedBackground'
-import type { CSSProperties } from 'react'
+import { articleFontStyle, parseArticleDirectives } from '../lib/articleDirectives'
+import { setAnimatedSceneOverride } from '../lib/animatedBackground'
+import { warmFontFamilies } from '../lib/font'
 
 function ReadingProgress() {
   const [progress, setProgress] = useState(0)
@@ -313,12 +313,23 @@ export default function PostPage() {
   const previous = index > 0 ? published[index - 1] : undefined
   const next = index >= 0 && index < published.length - 1 ? published[index + 1] : undefined
   const toc = useMemo(() => (visiblePost && !isEncryptedPost(visiblePost) ? extractToc(visiblePost.content) : []), [visiblePost])
-  // 文章级排版指令（issue #59）：字体作用在文章容器上，背景只在浏览本文期间临时覆盖。
-  const directives = useMemo(() => parsePostDirectives(visiblePost?.content ?? ''), [visiblePost])
-  const articleFontStyle = useMemo(
-    () => directiveFontVars(directives) as CSSProperties | undefined,
-    [directives],
-  )
+  // 文首排版指令（issue #59）：加密文章未解锁时正文仍是密文包装、解析为空，
+  // 解锁 / 切到历史版本后 visiblePost 变化会自然重算。
+  const directives = useMemo(() => parseArticleDirectives(visiblePost?.content ?? ''), [visiblePost])
+  const directivesKey = `${directives.fonts.join('\n')}\n${directives.codeFonts.join('\n')}`
+
+  // ::set-background 强制本文的动态背景：离开文章页（或指令变化）后清除，
+  // 恢复读者自己的偏好；不写入任何本地或云端设置。
+  useEffect(() => {
+    setAnimatedSceneOverride(directives.background)
+    return () => setAnimatedSceneOverride(null)
+  }, [directives])
+
+  // 指令指定的字体本机没有时在后台尝试云端版本，与设置页自定义字体同一套逻辑。
+  useEffect(() => {
+    warmFontFamilies([...directives.fonts, ...directives.codeFonts])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [directivesKey])
 
   useEffect(() => {
     setHistoricalPost(null)
@@ -330,13 +341,6 @@ export default function PostPage() {
     setHistoryError('')
     setCopyOpen(false)
   }, [slug])
-
-  // `::set-background[<id>]` 只是「浏览本文时的背景」，不写回设置页偏好；离开文章即恢复。
-  useEffect(() => {
-    const scene = directives.background === undefined ? null : backgroundSceneFromId(directives.background)
-    setSceneOverride(scene)
-    return () => setSceneOverride(null)
-  }, [directives.background])
 
   useEffect(() => {
     let active = true
@@ -541,7 +545,9 @@ export default function PostPage() {
     <>
       <ReadingProgress />
       <div className="container-page grid grid-cols-1 gap-10 pt-10 xl:grid-cols-[minmax(0,1fr)_14rem]">
-        <article className="min-w-0 animate-fade-up" style={articleFontStyle}>
+        {/* ::set-font / ::set-code-font 覆盖整个本文区域（含标题与摘要）；正文本体
+            还会在 Markdown 组件根节点重复同一组样式，保证其他渲染入口一致。 */}
+        <article className="min-w-0 animate-fade-up" style={articleFontStyle(directives)}>
           <Link to="/" className="no-print group mb-8 inline-flex items-center gap-1.5 text-sm text-ink-400 transition hover:text-brand-600 dark:hover:text-brand-300">
             <ArrowLeft size={14} className="transition-transform group-hover:-translate-x-0.5" /> 返回文章列表
           </Link>

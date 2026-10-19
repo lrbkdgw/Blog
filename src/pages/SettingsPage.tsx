@@ -277,6 +277,7 @@ function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreferen
 
       <p className="mt-5 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
         动态背景仅保存在本设备，不会同步到 GitHub。五种场景都会跟随上面的明暗模式：白昼 / 夜樱、浅色星图 / 暗夜、雪日 / 雪夜、阴雨白昼 / 冷调雨夜、晨光竹林 / 月夜竹林。粒子星链的颜色还会跟随配色主题。切换明暗时保留粒子与竹竿的位置。暴雨的闪电默认关闭，可按需开启。系统开启“减少动态效果”时，背景只显示静态画面。
+        文章开头写 <code className="font-mono">::set-background[编号]</code> 可强制该文章使用指定背景（0 无 · 1 樱花 · 2 粒子星链 · 3 雪花 · 4 暴雨 · 5 竹林；参数仍用这里的值），离开文章即恢复上面的选择；正文与代码字体同理可用 <code className="font-mono">::set-font[字体名]</code> / <code className="font-mono">::set-code-font[字体名]</code> 只对本文强制。
       </p>
     </>
   )

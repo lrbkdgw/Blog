@@ -1,6 +1,6 @@
 # 更新日志 · ChangeLog
 
-## 2026-10-19 · 处理 issue #59 / #60：文章级排版指令与 LaTeX 符号选择框
+## 2026-10-19 · 处理 issue #59 / #60（替代实现，取代 PR #61 的版本）：文首排版指令与 LaTeX 符号选择框
 
 | 模型信息 | |
 | --- | --- |
@@ -9,45 +9,41 @@
 | 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
 
 ### 背景
-一次处理两个 open issue：
-
-- **#59**：新增三种写在文章开头的 Markdown 语法 `::set-font[<name>]`、
-  `::set-code-font[<name>]`、`::set-background[<id>]`，强制覆盖本文的正文 / 代码字体与浏览背景（编号 0–5）。
-- **#60**：编辑器支持 <kbd>Shift</kbd> + <kbd>↑</kbd> 打开 LaTeX 语法选择框，可搜索并选择，
-  每个符号支持多种别名（例如 `\pm` = 正负 / 加减，`\oplus` = 异或 / 直和）。
+同一天的两个 open issue 被两个并行会话各自独立实现：PR #61 先合入并关闭了 issue，
+本条目是并行完成的另一份实现，经对比后以本实现取代其代码（#61 的记录保留在 Git
+历史与 PR 中）。与 #61 相比，本实现的实质差异：字体样式除 CSS 变量外还写容器级
+`font-family`（只写变量时，生成的 CSS 里 `font-family: var(--font-sans)` 只在
+`html` 上求值、正文段落靠继承，内层覆盖变量并不会让正文换字体）；多条字体指令
+组成优先级回退列表而非只取第一条；指令字体本机没有时预热 Google Fonts；
+选择框支持评论框、最近使用与 280 个符号；VS Code 插件升 2.1.0 并新增
+「插入 LaTeX 符号…」命令；帮助页与插件测试同步补齐。
+原始需求：
+- **#59**：新增 Markdown 语法 #3——文章开头用 `::set-font[<name>]` / `::set-code-font[<name>]` / `::set-background[<id>]` 强制本文字体、代码字体与阅读时的背景（id 范围 0–5），同一指令写多个时越早出现的优先级越高。
+- **#60**：`Shift + ↑` 打开 LaTeX 符号选择框，可以搜索并选择，每个符号支持多种别名（如 `\pm` 的「正负 / 加减」；`\oplus` 的「异或」）。
 
 ### 新增
-- `src/lib/postDirectives.ts`：解析文章开头的排版指令，返回指令、去掉指令行的正文与原行号映射；
-  同类语句多次出现时保留最早的一条，字体名与背景编号做白名单式校验。
-- `src/lib/latexSymbols.ts`：225 个常用 LaTeX 符号，分希腊字母、关系与比较、运算与大型运算符、
-  逻辑与集合、箭头、括号 / 省略号 / 结构六类；每个符号带中文、英文、读法、Unicode 字符等多个别名，
-  并提供忽略大小写与反斜杠的多关键词搜索。
-- `src/components/LatexSymbolPicker.tsx`：可搜索、可按分类筛选、KaTeX 实时预览的符号选择框；
-  方向键选择、<kbd>Enter</kbd> 插入、<kbd>Esc</kbd> 关闭，`\frac{}{}` 等模板把光标放进第一个花括号。
-- 编辑器工具栏新增 Ω 按钮（移动端 / 纯鼠标也能打开选择框），提示栏补充快捷键说明。
-- `src/lib/fontStacks.ts`：把默认字体栈与 `quoteFamily` 从 `font.tsx` 抽到无 React 依赖的轻量模块，
-  供设置页与 Markdown 的文章级字体共用；`font.tsx` 继续导出原常量，既有引用不变。
+- **文首排版指令**（issue #59），解析集中在新的纯函数模块 `src/lib/articleDirectives.ts`：
+  - 只有位于文章最开头（可夹空行、正文开始前）的连续指令行有效；正文后、代码围栏、展示框 / 折叠框内的同形文字均不触发，教程里用围栏展示语法是安全的。
+  - `::set-font` / `::set-code-font` 可多条或逗号分隔多个字体名：越早出现的优先级越高、后面的作回退，最后接站点默认字体栈；字体名校验与偏好设置一致（坏名字静默丢弃，不整篇报错）。`::set-background` 的 id 固定映射为 0 无 · 1 樱花 · 2 粒子星链 · 3 雪花 · 4 暴雨 · 5 竹林（`ARTICLE_BACKGROUND_SCENES`，后续场景只许追加编号），多条时第一个合法编号生效。
+  - 指令行在渲染预处理中整体移除（编辑器双栏行号映射保持），也不再进入自动摘要、字数与阅读时长；「直接复制源码」原样保留，洛谷 / 基本源码与 MPE 静态兼容输出都会移除。
+  - 字体以作用域 CSS 变量 + 容器 `font-family` 的形式作用于本文区域（文章页含标题区、编辑器预览、版本对比、VS Code 插件预览；评论传 `applyDirectives={false}`，他人的内容不能改排版）；指定的字体本机没有时复用 `font.tsx` 新抽出的 `warmFontFamilies` 在后台尝试 Google Fonts。
+  - 背景在 `animatedBackground.ts` 新增内存级覆盖 `setAnimatedSceneOverride`：文章页 / 编辑器声明、离开清除，Layout 的背景层读取「覆盖 ?? 个人场景」，参数仍用读者为该场景保存的值；不写 localStorage / 队列 / GitHub，个人偏好原封不动。
+- **LaTeX 符号选择框**（issue #60），符号目录在新模块 `src/lib/latexSymbols.ts`，站内编辑器、评论输入框与 VS Code 插件共用：
+  - 收录 280 个符号（结构 / 希腊字母 / 运算 / 关系 / 集合与逻辑 / 箭头 / 大型运算符 / 函数 / 其他九类），每个带中文与英文多类别名、KaTeX 预览源码、实际插入文本与插入后的光标偏移（例如 `\frac{}{}` 光标落在分子处、矩阵 / 分段环境光标落在中间空行）。
+  - 站内选择框 `src/components/LatexPicker.tsx`：搜索同时匹配命令（忽略反斜杠与大小写）与别名，命令完全一致 / 前缀优先；分类标签浏览、方向键移动（左右在搜索词首尾边界时不抢夺文本编辑）、Enter / 点击插入回打开时的光标位置、Esc 关闭；KaTeX 预览带模块级缓存，翻开即显；最近用过的 18 个符号记在本机并独立成页。
+  - 编辑器 `Shift + ↑` 与工具栏 Ω 按钮、评论框 `Shift + ↑` 与「LaTeX 符号」按钮均可打开；输入法组合中不拦截；编辑器全屏时 Esc 先关选择框而不是退全屏。
+- **VS Code 插件升级到 2.1.0 并重新打包 VSIX**：
+  - 新增命令「插入 LaTeX 符号…」（`starlog.insertLatexSymbol`，Markdown 编辑器 `Shift + ↑`）：QuickPick 以字形 + 命令为标签、别名为描述，可搜「正负 / 异或」；插入后光标规则与站内一致。
+  - 文首字体指令在内置预览正文中与博客一致生效（只认本机字体、插件不联网），背景指令在预览中仅移除；新增 `setfont` / `setcodefont` / `setbackground` 代码片段、注入语法高亮与语法示例新章节。
+- 文档同步：`README.md` 新增「文章排版指令」整节（含编号表、作用范围、实现说明）并更新功能表 / 快捷键表 / FAQ / 目录结构 / 字体维护提示 / 插件版本；站内帮助页 `content/about.md` 新增「文章开头排版指令」小节、LaTeX 选择框说明与快捷键行；设置 → 动态背景 增加一行编号说明。
 
 ### 调整
-- `Markdown.tsx` 的预处理改为先剥离开头指令，并用映射保持处理后每一行仍对齐回原始源码行号，
-  编辑器双栏滚动同步不受影响；字体指令写到 Markdown 根节点的 CSS 变量上，正文、标题、代码一起生效。
-- 文章页在 `<article>` 上套用字体指令，标题与正文一致；`::set-background` 通过临时覆盖层生效，
-  **不写入** `localStorage`、不改动设置页偏好，离开文章（含切换到另一篇）后自动恢复。
-- 「复制 → 洛谷源码 / 基本源码」会移除文章级指令；「直接复制源码」保留。
-- VS Code 插件共用同一份 Markdown 组件，因此预览也会剥离指令并套用字体；其 README 的支持语法表已同步，
-  并重新打包 `starlog-markdown-2.0.2.vsix`（版本号与命令、设置项不变，`out/extension.js` / `out/preview.js` 一并更新）。
-
-### 修复
-- 无（本次未改动既有行为；`font.tsx` 的常量改为再导出属等价重构）。
+- 默认字体栈三常量与字体栈拼接逻辑从 `font.tsx` 抽到新的纯模块 `src/lib/fontStacks.ts`（`font.tsx` re-export 保持引用兼容），使文章字体指令与 VS Code 插件共用一份拼栈规则；README 的「三份副本」维护提示随之改为指向该模块。行为无变化：偏好设置（issue #54 的正文 / 代码独立优先级）与首屏脚本均未改动。
 
 ### 验证
-- `npm run build`（`tsc --noEmit && vite build`）通过。
-- `npm run extension:test`：61 项中 57 项通过、4 项跳过、0 项失败（插件预览与博客 DOM 仍完全一致）；
-  `npm run extension:package` 重新打包 VSIX 成功。
-- 额外用 esbuild + Node 验证：指令剥离与行号映射、同类型指令「最早优先」、非法字体 / 越界背景被忽略、
-  字体 CSS 变量生成、225 个符号无重复、`正负` / `异或` / `\oplus` 均能命中目标符号；
-  并用 `react-dom/server` 渲染确认指令不会出现在正文、字体变量写到 Markdown 根节点。
-- README 已补「文章级排版指令」章节、背景编号表、快捷键与目录结构；插件 README 同步支持语法表。
+- `npm run build`（`tsc --noEmit` + `vite build`）通过。
+- 21 项定向逻辑检查（把三个纯模块打包到 Node 里跑断言）全部通过：文首边界 / 字体优先级与去重 / 背景取第一个合法 id 与 0 合法 / 非法值忽略 / frontmatter 与 CRLF 的 strip / 复制转换三态；别名搜索命中 issue 的两个示例（「正负」「加减」→ `\pm`、「异或」→ `\oplus`，且 `\veebar` 也在结果中）、命令搜索大小写与前缀排序、`\frac` / `\sqrt[n]` / `\left(` 的插入光标；280 个符号的 KaTeX 预览以 `throwOnError: true` 逐个渲染无一失败。
+- VS Code 插件：`npm ci --prefix vscode_extensions/v1` 后 `typecheck` 通过；`npm run extension:test` 全部通过——65 项里 61 项通过、4 项真实浏览器测试因本机未设 `BROWSER_EXECUTABLE_PATH` 跳过（新增的指令同款 DOM 对照、解析 / 转换与别名搜索断言均在通过之列）；`npm run extension:package` 生成 `starlog-markdown-2.1.0.vsix`。
 
 ## 2026-10-17 · 优化樱花与粒子星链，新增雪花 / 暴雨 / 竹林
 

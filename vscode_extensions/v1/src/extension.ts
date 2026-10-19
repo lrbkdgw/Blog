@@ -3,13 +3,19 @@
  *
  * 导出 `extendMarkdownIt` 给内置 Markdown 预览；同时注册命令，用于：
  *   - 向 Markdown Preview Enhanced 安装 / 卸载静态兼容支持；
- *   - 插入展示框 / 折叠框 / Tuack 表格模板；
+ *   - 插入展示框 / 折叠框 / Tuack 表格模板与 LaTeX 符号（可按别名搜索）；
  *   - 把当前文档转换（复制）为洛谷源码或基本 Markdown。
  */
 
 import * as vscode from 'vscode'
 import { extendMarkdownIt } from './markdownIt'
 import { convertMarkdownForCopy, type MarkdownCopyTarget } from './core/sourceConvert'
+import {
+  LATEX_SYMBOLS,
+  latexCategoryName,
+  latexSymbolInsert,
+  type LatexSymbol,
+} from './core/latexSymbols'
 import {
   MPE_EXTENSION_ID,
   enableExtendedTableSyntax,
@@ -86,6 +92,39 @@ async function insertSnippet(snippet: vscode.SnippetString): Promise<void> {
   await editor.insertSnippet(snippet)
 }
 
+/**
+ * 插入 LaTeX 符号（与博客站内编辑器 Shift + ↑ 的选择框同一份符号目录）：
+ * QuickPick 可按命令或任意别名过滤（「正负」→ \pm、「异或」→ \oplus），
+ * 选好后把符号插入光标处并按目录里登记的 cursor 把光标放到空参数里。
+ */
+async function insertLatexSymbol(): Promise<void> {
+  const editor = currentMarkdownEditor()
+  if (!editor) return
+  interface SymbolPick extends vscode.QuickPickItem {
+    symbol: LatexSymbol
+  }
+  const picks: SymbolPick[] = LATEX_SYMBOLS.map((symbol) => ({
+    label: symbol.glyph ? `${symbol.glyph}  ${symbol.command}` : symbol.command,
+    description: symbol.aliases.slice(0, 3).join(' · '),
+    detail: `${latexCategoryName(symbol.category)} · ${symbol.aliases.join(' · ')}`,
+    symbol,
+  }))
+  const picked = await vscode.window.showQuickPick(picks, {
+    title: '插入 LaTeX 符号',
+    placeHolder: '搜索命令或别名，如 pm、正负、异或、积分…',
+    matchOnDescription: true,
+    matchOnDetail: true,
+  })
+  if (!picked) return
+  const { text, selectionStart, selectionEnd } = latexSymbolInsert(picked.symbol)
+  const selection = editor.selection
+  const startOffset = editor.document.offsetAt(selection.start)
+  await editor.edit((builder) => builder.replace(selection, text))
+  const cursorStart = editor.document.positionAt(startOffset + selectionStart)
+  const cursorEnd = editor.document.positionAt(startOffset + selectionEnd)
+  editor.selection = new vscode.Selection(cursorStart, cursorEnd)
+}
+
 async function insertCallout(): Promise<void> {
   const types = ['info', 'note', 'tip', 'success', 'warning', 'error', 'danger']
   const picked = await vscode.window.showQuickPick(types, { title: '折叠框类型' })
@@ -134,6 +173,7 @@ export function activate(context: vscode.ExtensionContext) {
       ),
     ),
     vscode.commands.registerCommand('starlog.insertCallout', () => insertCallout()),
+    vscode.commands.registerCommand('starlog.insertLatexSymbol', () => insertLatexSymbol()),
     vscode.commands.registerCommand('starlog.insertTuackTable', () =>
       insertSnippet(
         new vscode.SnippetString(

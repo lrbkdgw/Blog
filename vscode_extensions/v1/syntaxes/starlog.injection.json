@@ -7,6 +7,7 @@
     { "include": "#show-end" },
     { "include": "#callout-open" },
     { "include": "#callout-close" },
+    { "include": "#article-directives" },
     { "include": "#cute-table" },
     { "include": "#inline-tokens" }
   ],
@@ -64,6 +65,16 @@
       "match": "^\\s*(:{3,})\\s*$",
       "captures": {
         "1": { "name": "punctuation.definition.starlog.markdown" }
+      }
+    },
+    "article-directives": {
+      "name": "meta.starlog.article-directive.markdown",
+      "match": "(?i)^\\s*(::set-font|::set-code-font|::set-background)(\\[)([^\\]]*)(\\])\\s*$",
+      "captures": {
+        "1": { "name": "keyword.control.starlog.markdown" },
+        "2": { "name": "punctuation.definition.starlog.markdown" },
+        "3": { "name": "string.unquoted.starlog.markdown" },
+        "4": { "name": "punctuation.definition.starlog.markdown" }
       }
     },
     "cute-table": {

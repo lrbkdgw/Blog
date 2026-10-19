@@ -5,11 +5,7 @@ import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 import { fetchGithubFontPreference, buildFontPreferenceFile, fontSettingsPath } from './github'
 import { enqueueSettingsSync, getUpdateQueue } from './updateQueue'
 import { useAuth } from './auth'
-import { MONO_FALLBACK, SANS_FALLBACK, SERIF_FALLBACK, quoteFamily } from './fontStacks'
-
-// 回退栈本体在 fontStacks.ts（Markdown 的文章级字体指令也用同一份）。
-// 这里继续导出，保持既有引用与文档中的 `src/lib/font.tsx` 说法可用。
-export { MONO_FALLBACK, SANS_FALLBACK, SERIF_FALLBACK }
+import { MONO_FALLBACK, SANS_FALLBACK, SERIF_FALLBACK, buildFontStack, quoteFontFamily } from './fontStacks'
 
 export type FontSource = 'default' | 'local' | 'cloud'
 export type FontStatus = 'idle' | 'checking-local' | 'loading-cloud' | 'ready' | 'fallback'
@@ -23,6 +19,14 @@ export type FontTarget = 'sans' | 'mono'
 export const FONT_SIZE_MIN = 80
 export const FONT_SIZE_MAX = 130
 export const DEFAULT_FONT_SIZE = 100
+
+/**
+ * 默认字体栈（issue #54）：正文 Google Sans → Noto Sans CJK SC，代码 Cascadia Code，
+ * 后面接各自的系统回退。常量本体在 `./fontStacks`（与文章级排版指令共用一份，
+ * 且需与 `src/styles/index.css` 的 `:root`、`index.html` 的首屏脚本保持一致），
+ * 这里 re-export 以保持既有引用不变。
+ */
+export { MONO_FALLBACK, SANS_FALLBACK, SERIF_FALLBACK } from './fontStacks'
 
 export interface FontPreference {
   /** 正文字体列表，按优先级从前到后排列 */
@@ -124,12 +128,6 @@ function normalizePreference(preference: FontPreference): FontPreference {
   }
 }
 
-/** 有自定义字体时拼出完整字体栈；列表为空返回 null，表示沿用 CSS 里的默认栈。 */
-function buildStack(families: string[], fallback: string): string | null {
-  if (families.length === 0) return null
-  return `${families.map(quoteFamily).join(', ')}, ${fallback}`
-}
-
 function applyToDocument(preference: FontPreference) {
   const root = document.documentElement
   const normalized = normalizePreference(preference)
@@ -143,10 +141,10 @@ function applyToDocument(preference: FontPreference) {
   }
 
   // 正文：sans 与 serif 用同一组自定义字体，只是回退栈不同。
-  const sans = buildStack(normalized.families, SANS_FALLBACK)
+  const sans = buildFontStack(normalized.families, SANS_FALLBACK)
   if (sans) {
     root.style.setProperty('--font-sans', sans)
-    root.style.setProperty('--font-serif', buildStack(normalized.families, SERIF_FALLBACK)!)
+    root.style.setProperty('--font-serif', buildFontStack(normalized.families, SERIF_FALLBACK)!)
     root.dataset.fontFamily = normalized.families.join(', ')
   } else {
     root.style.removeProperty('--font-sans')
@@ -155,7 +153,7 @@ function applyToDocument(preference: FontPreference) {
   }
 
   // 代码：独立的一组优先级，留空则用 CSS 里默认的 Cascadia Code → 系统等宽。
-  const mono = buildStack(normalized.monoFamilies, MONO_FALLBACK)
+  const mono = buildFontStack(normalized.monoFamilies, MONO_FALLBACK)
   if (mono) {
     root.style.setProperty('--font-mono', mono)
     root.dataset.fontMonoFamily = normalized.monoFamilies.join(', ')
@@ -245,7 +243,7 @@ export function localFontLikelyExists(family: string): boolean {
     fallbacks.some((fallback) => {
       context.font = `72px ${fallback}`
       const fallbackWidth = context.measureText(sample).width
-      context.font = `72px ${quoteFamily(family)}, ${fallback}`
+      context.font = `72px ${quoteFontFamily(family)}, ${fallback}`
       return Math.abs(context.measureText(sample).width - fallbackWidth) > 0.1
     }),
   )
@@ -275,7 +273,7 @@ export async function requestCloudFont(family: string, timeout = CLOUD_TIMEOUT):
 
     const remaining = Math.max(1, timeout - (Date.now() - startedAt))
     await Promise.race([
-      document.fonts.load(`16px ${quoteFamily(family)}`),
+      document.fonts.load(`16px ${quoteFontFamily(family)}`),
       new Promise<never>((_, reject) =>
         window.setTimeout(() => reject(new Error('云端字体加载超时')), remaining),
       ),
@@ -286,6 +284,21 @@ export async function requestCloudFont(family: string, timeout = CLOUD_TIMEOUT):
     throw error
   } finally {
     window.clearTimeout(timer)
+  }
+}
+
+/**
+ * 为本机没有的字体在后台请求云端（Google Fonts），失败静默回退。
+ *
+ * 刻意**不阻塞**调用方生效（字体到位后浏览器自己重排）——逐个 `await` 会在
+ * 网络不通时假死十几秒。FontProvider 的偏好设置与文章级排版指令（issue #59，
+ * `::set-font[…]` 在文章页 / 编辑器里要求读者设备没有的字体时）共用此逻辑；
+ * 只应在**可信内容**（自己仓库里的文章）上调用，评论等外部内容不触发网络请求。
+ */
+export function warmFontFamilies(families: string[]): void {
+  for (const family of families) {
+    if (localFontLikelyExists(family)) continue
+    void requestCloudFont(family).catch(() => {})
   }
 }
 
@@ -307,19 +320,9 @@ export function FontProvider({ children }: { children: ReactNode }) {
     return next
   }, [])
 
-  /**
-   * 为本机没有的字体请求云端（Google Fonts）。
-   *
-   * 刻意**不阻塞**设置生效：旧实现逐个 `await requestCloudFont`，每个最多等 5 秒，
-   * 三个本机没有的字体就是十几秒的假死；而 fonts.googleapis.com 在部分网络下根本连不通，
-   * 失败后又只是静默忽略——用户只会觉得「点了没反应」。现在并行发起、失败静默，
-   * 字体到位后浏览器自己重排。
-   */
+  /** 本机没有的字体在后台预热云端版本；逻辑见模块级 `warmFontFamilies`。 */
   const warmCloudFonts = useCallback((families: string[]) => {
-    for (const family of families) {
-      if (localFontLikelyExists(family)) continue
-      void requestCloudFont(family).catch(() => {})
-    }
+    warmFontFamilies(families)
   }, [])
 
   const resetFont = useCallback(() => {

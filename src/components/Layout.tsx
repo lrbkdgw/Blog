@@ -20,7 +20,7 @@ import { useTheme } from '../lib/theme'
 import { DEFAULT_COLOR_THEME } from '../lib/themes'
 import { useAuth } from '../lib/auth'
 import { AnimatedBackdrop } from './AnimatedBackdrop'
-import { getSceneValues, useAnimatedBackground, useSceneOverride } from '../lib/animatedBackground'
+import { useAnimatedBackground, useAnimatedSceneOverride, getSceneValues } from '../lib/animatedBackground'
 import { SearchDialog } from './SearchDialog'
 import { ThemePicker } from './ThemePicker'
 import logoVenti from '../assets/logo-venti.jpg'
@@ -331,9 +331,9 @@ function Footer() {
 
 function AnimatedBackdropLayer() {
   const pref = useAnimatedBackground()
-  // 文章里的 `::set-background[<id>]` 只在浏览该文章期间临时覆盖设置页选定的场景，
-  // 不写入本地存储；离开文章后覆盖清空，原场景自动恢复（issue #59）。
-  const override = useSceneOverride()
+  // 文章开头的 ::set-background[<id>]（issue #59）可在阅读本文时临时强制场景，
+  // 参数仍用读者为该场景保存（或默认）的值；离开文章后覆盖被清除，恢复个人偏好。
+  const override = useAnimatedSceneOverride()
   const scene = override ?? pref.scene
   if (scene === 'none') return null
   return <AnimatedBackdrop scene={scene} values={getSceneValues(pref, scene)} />

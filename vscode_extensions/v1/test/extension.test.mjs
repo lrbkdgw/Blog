@@ -13,6 +13,7 @@ const corpus = [
   '::cute-table{tuack}\n\n| A | B | C |\n| :-: | :-: | :-: |\n| 甲 | < | $n$ |\n| ^ | ^ | 乙 |\n\n| A | B |\n| - | - |\n| 甲 | 乙 |\n| ^ | < |',
   '```markdown\n::show_begin{示例}{a:Z=1[0,2,1]}\n::show_end\n:::info[不执行]\n:::\n```\n\n~~~text\n::cute-table{tuack}\n~~~\n\n::show_begin{未闭合}{a:Z=1}\n正文',
   '<div class="custom"><strong>原始 HTML</strong></div>\n\n![图片](./images/demo.png)\n\n| 转义 | 代码 |\n| - | - |\n| 甲 | 乙 |\n| `^` | &lt; |',
+  '::set-font[LXGW WenKai]\n::set-code-font[Fira Code]\n::set-background[1]\n\n## 标题\n\n正文 $a\\pm b$ 与 `code`。\n\n```markdown\n::set-font[围栏内只是示例]\n```',
 ]
 
 for (const [index, source] of corpus.entries()) {
@@ -156,4 +157,44 @@ test('预览模型拒绝非布尔背景配置，并兼容未配置背景的旧�
   delete model.enableGradientBackground
   wrapper.setAttribute('data-markdown-model', encodeURIComponent(JSON.stringify(model)))
   assert.equal(core.readPreviewModel(wrapper).enableGradientBackground, false)
+})
+
+test('文首排版指令与博客一致：解析、移除指令行、字体样式与围栏示例不执行', () => {
+  const source = '::set-font[LXGW WenKai]\n::set-code-font[Fira Code]\n::set-background[4]\n::set-background[1]\n\n## 标题\n\n正文'
+  const parsed = core.parseArticleDirectives(source)
+  assert.deepEqual(parsed.fonts, ['LXGW WenKai'])
+  assert.deepEqual(parsed.codeFonts, ['Fira Code'])
+  assert.equal(parsed.background, 'rain') // 多个背景编号时第一个合法的生效
+  assert.equal(core.stripArticleDirectives(source), '\n## 标题\n\n正文')
+  // 正文开始后的指令不生效
+  assert.deepEqual(core.parseArticleDirectives('正文\n::set-font[X]').fonts, [])
+
+  const html = render(source)
+  assert.doesNotMatch(html, /::set-font|::set-code-font|::set-background/)
+  assert.match(html, /LXGW WenKai/) // 字体写入正文根节点的行内样式
+  assert.match(html, /Fira Code/)
+  const doc = documentOf(html)
+  assert.equal(doc.querySelector('h2').textContent, '标题')
+
+  // 代码围栏里的语法示例保持原样输出，不会被执行
+  const fenced = render('```markdown\n::set-font[示例]\n```')
+  assert.match(fenced, /::set-font/)
+})
+
+test('洛谷 / 基本复制与 MPE 静态转换会移除文首排版指令', () => {
+  const source = '---\ntitle: "t"\n---\n::set-font[X]\n::set-background[2]\n\n正文'
+  assert.equal(core.convertMarkdownForCopy(source, 'direct'), source)
+  assert.doesNotMatch(core.convertMarkdownForCopy(source, 'luogu'), /::set-/)
+  assert.doesNotMatch(core.convertMarkdownForCopy(source, 'basic'), /::set-/)
+  assert.doesNotMatch(core.transformMarkdown(source), /::set-/)
+})
+
+test('LaTeX 符号可按别名搜索，插入光标落在第一个空参数内', () => {
+  assert.ok(core.LATEX_SYMBOLS.length >= 200)
+  assert.equal(core.searchLatexSymbols('正负')[0].command, '\\pm')
+  assert.equal(core.searchLatexSymbols('加减')[0].command, '\\pm')
+  assert.equal(core.searchLatexSymbols('异或')[0].command, '\\oplus')
+  assert.equal(core.searchLatexSymbols('pm')[0].command, '\\pm')
+  const frac = core.LATEX_SYMBOLS.find((symbol) => symbol.command === '\\frac{}{}')
+  assert.deepEqual(core.latexSymbolInsert(frac), { text: '\\frac{}{}', selectionStart: 6, selectionEnd: 6 })
 })

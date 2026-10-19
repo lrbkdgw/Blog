@@ -1,10 +1,10 @@
+import { stripArticleDirectives } from './articleDirectives'
 import {
   initialShowValues,
   parseShowMappings,
   parseShowVariables,
   renderShowContent,
 } from './showBox'
-import { stripLeadingDirectives } from './postDirectives'
 
 export type MarkdownCopyTarget = 'direct' | 'luogu' | 'basic'
 
@@ -250,12 +250,12 @@ export function convertLuoguExtensionsToMarkdown(markdown: string): string {
 }
 
 /**
- * direct：原样源码；luogu：只移除 Blog 展示框语法；basic：再移除洛谷扩展。
+ * direct：原样源码；luogu：移除 Blog 专属语法（展示框与文首排版指令 ::set-font 等，
+ * 洛谷不认识这些指令，留着只会变成正文杂质）；basic：再移除洛谷扩展。
  */
 export function convertMarkdownForCopy(markdown: string, target: MarkdownCopyTarget): string {
   if (target === 'direct') return markdown
-  // 文章级排版指令是博客专属语法，洛谷 / 基本 Markdown 里没有对应写法，直接移除。
-  const withoutBlogExtensions = convertShowBoxesToMarkdown(stripLeadingDirectives(markdown))
+  const withoutBlogExtensions = convertShowBoxesToMarkdown(stripArticleDirectives(markdown))
   if (target === 'luogu') return withoutBlogExtensions
   return convertLuoguExtensionsToMarkdown(expandMergedTableCells(withoutBlogExtensions))
 }

@@ -1,5 +1,5 @@
 import { Children, cloneElement, createElement, isValidElement, memo, useCallback, useMemo, useState } from 'react'
-import type { CSSProperties, HTMLAttributes, ReactNode } from 'react'
+import type { HTMLAttributes, ReactNode } from 'react'
 import katex from 'katex'
 import ReactMarkdown from 'react-markdown'
 import type { UrlTransform } from 'react-markdown'
@@ -11,9 +11,13 @@ import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeSlug from 'rehype-slug'
 import { ShowBox } from './ShowBox'
-import { directiveFontVars, parseLeadingDirectives } from '../lib/postDirectives'
-import type { PostDirectives } from '../lib/postDirectives'
 import { resolvePendingImageSrc } from '../lib/updateQueue'
+import {
+  EMPTY_ARTICLE_DIRECTIVES,
+  articleFontStyle,
+  scanArticleDirectives,
+  type ArticleDirectives,
+} from '../lib/articleDirectives'
 import {
   AlertCircle,
   AlertTriangle,
@@ -277,18 +281,24 @@ export interface PreprocessedMarkdown {
    * 供编辑器把渲染结果对齐回源文本行号。
    */
   lineMap: number[]
-  /** 文章开头的排版指令（`::set-font` 等），已从 text 中移除。 */
-  directives: PostDirectives
+  /** 文首文章排版指令（issue #59：::set-font / ::set-code-font / ::set-background）。 */
+  directives: ArticleDirectives
 }
 
-/** 预处理 Markdown，支持文章级排版指令、折叠框与 Tuack 风格表格 */
-export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
-  if (!md) return { text: '', lineMap: [], directives: {} }
-  // 开头的 `::set-font[...]` / `::set-code-font[...]` / `::set-background[...]`
-  // 不进入渲染，但原行号要通过 parse 给出的映射继续对齐回源文本。
-  const parsed = parseLeadingDirectives(md)
-  const lines = parsed.body.split('\n')
-  const sourceLines = parsed.lineMap
+/** 预处理 Markdown，支持折叠框与 Tuack 风格表格 */
+export function preprocessMarkdownDetailed(
+  md: string,
+  options: { articleDirectives?: boolean } = {},
+): PreprocessedMarkdown {
+  if (!md) return { text: '', lineMap: [], directives: EMPTY_ARTICLE_DIRECTIVES }
+  const lines = md.split('\n')
+  // 文章排版指令只认文首（见 articleDirectives.ts）：先整段扫描出要移除的指令行，
+  // 代码围栏、正文之后的同形文字都不会被当成指令。评论、展示框片段等非文章
+  // 内容关闭此项，指令样文字按普通文本显示、不执行也不吞掉。
+  const scanned =
+    options.articleDirectives !== false
+      ? scanArticleDirectives(lines)
+      : { directives: EMPTY_ARTICLE_DIRECTIVES, directiveLines: new Set<number>() }
   const result: string[] = []
   const lineMap: number[] = []
   const stack: { colonsCount: number; type: string }[] = []
@@ -298,7 +308,6 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
     result.push(line)
     lineMap.push(sourceLine)
   }
-  const sourceLineOf = (index: number) => sourceLines[index] ?? index
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -306,11 +315,18 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
     // 扩展指令不应解析代码示例；否则文档中的语法会被执行而无法展示源码。
     if (/^\s*(`{3,}|~{3,})/.test(line)) {
       inCodeFence = !inCodeFence
-      push(line, sourceLineOf(i))
+      push(line, i)
       continue
     }
     if (inCodeFence) {
-      push(line, sourceLineOf(i))
+      push(line, i)
+      continue
+    }
+
+    // 文首排版指令行（::set-font[…] 等）不是正文：整体移除，
+    // 只留一个映射回原行的空行，保持编辑器双栏的行号对齐。
+    if (scanned.directiveLines.has(i)) {
+      push('', i)
       continue
     }
 
@@ -330,9 +346,9 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
       if (end < lines.length) {
         push(
           `<div data-show-box="true" data-show-title="${encodeURIComponent(showMatch[1])}" data-show-vars="${encodeURIComponent(showMatch[2])}" data-show-content="${encodeURIComponent(body.join('\n'))}"></div>`,
-          sourceLineOf(i),
+          i,
         )
-        push('', sourceLineOf(i))
+        push('', i)
         i = end
         continue
       }
@@ -341,8 +357,8 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
     // ::cute-table{tuack} 或 :::cute-table{tuack}
     const tuackMatch = line.match(/^ *(?:::+|:::+)(?:cute-table)\s*\{([^}]+)\}\s*$/i)
     if (tuackMatch) {
-      push('<div class="table-tuack-wrapper">', sourceLineOf(i))
-      push('', sourceLineOf(i))
+      push('<div class="table-tuack-wrapper">', i)
+      push('', i)
       let j = i + 1
       while (j < lines.length && lines[j].trim() === '') {
         j++
@@ -351,12 +367,12 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
         j < lines.length &&
         (lines[j].trim().startsWith('|') || lines[j].trim().includes('|'))
       ) {
-        push(lines[j], sourceLineOf(j))
+        push(lines[j], j)
         j++
       }
-      push('', sourceLineOf(i))
-      push('</div>', sourceLineOf(i))
-      push('', sourceLineOf(i))
+      push('', i)
+      push('</div>', i)
+      push('', i)
       i = j - 1
       continue
     }
@@ -368,10 +384,10 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
       const top = stack[stack.length - 1]
       if (colons >= top.colonsCount) {
         stack.pop()
-        push('', sourceLineOf(i))
-        push('</div>', sourceLineOf(i))
-        push('</details>', sourceLineOf(i))
-        push('', sourceLineOf(i))
+        push('', i)
+        push('</div>', i)
+        push('</details>', i)
+        push('', i)
         continue
       }
     }
@@ -388,33 +404,33 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
 
       stack.push({ colonsCount, type })
       const encodedTitle = encodeURIComponent(rawTitle)
-      push('', sourceLineOf(i))
+      push('', i)
       push(
         `<details class="callout callout-${type}" data-callout="${type}" data-title="${encodedTitle}" ${
           isOpen ? 'open' : ''
         }>`,
-        sourceLineOf(i),
+        i,
       )
       push(
         `<summary class="callout-summary" data-callout="${type}" data-title="${encodedTitle}">${rawTitle}</summary>`,
-        sourceLineOf(i),
+        i,
       )
-      push('<div class="callout-content">', sourceLineOf(i))
-      push('', sourceLineOf(i))
+      push('<div class="callout-content">', i)
+      push('', i)
       continue
     }
 
-    push(line, sourceLineOf(i))
+    push(line, i)
   }
 
   while (stack.pop()) {
-    const last = sourceLineOf(lines.length - 1)
+    const last = lines.length - 1
     push('', last)
     push('</div>', last)
     push('</details>', last)
   }
 
-  return { text: result.join('\n'), lineMap, directives: parsed.directives }
+  return { text: result.join('\n'), lineMap, directives: scanned.directives }
 }
 
 export function preprocessMarkdown(md: string): string {
@@ -639,6 +655,13 @@ interface MarkdownProps {
    * 编辑器双栏视图用它做滚动同步锚点；其他场景保持关闭即可。
    */
   sourceLineMarkers?: boolean
+  /**
+   * 是否识别文首的文章排版指令（::set-font / ::set-code-font / ::set-background）：
+   * 默认识别（移除指令行并让字体作用于本渲染区域）。评论等他人提交的内容与
+   * 展示框内的片段应传 false——指令样文字按普通文本显示（与 GitHub 上一致），
+   * 既不执行也不会被吞掉（issue #59）。
+   */
+  applyDirectives?: boolean
 }
 
 type SourceLineResolver = (node: unknown) => number | undefined
@@ -760,8 +783,12 @@ export const Markdown = memo(function Markdown({
   headingAnchors = true,
   sourceLineMarkers = false,
   urlTransform,
+  applyDirectives = true,
 }: MarkdownProps) {
-  const processed = useMemo(() => preprocessMarkdownDetailed(content), [content])
+  const processed = useMemo(
+    () => preprocessMarkdownDetailed(content, { articleDirectives: applyDirectives }),
+    [content, applyDirectives],
+  )
 
   const toSourceLine = useCallback<SourceLineResolver>(
     (node) => {
@@ -780,17 +807,10 @@ export const Markdown = memo(function Markdown({
     [sourceLineMarkers, toSourceLine, urlTransform],
   )
 
-  // 文章级字体指令只作用于本 Markdown 容器：Tailwind 的 font-* 工具类都引用这些 CSS 变量，
-  // 因此正文、标题、代码会一起换字体，而页头、目录等文章之外的部分不受影响。
-  const fontStyle = useMemo(
-    () => directiveFontVars(processed.directives) as CSSProperties | undefined,
-    [processed.directives],
-  )
-
   return (
     <div
       className="prose prose-base dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight"
-      style={fontStyle}
+      style={applyDirectives ? articleFontStyle(processed.directives) : undefined}
     >
       <ReactMarkdown
         urlTransform={urlTransform}
