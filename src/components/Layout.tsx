@@ -165,11 +165,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
 
   return (
     <header className="site-header no-print sticky top-0 z-50">
-      {/* issue #71：让路的是正文，不是页头——文字在滑进这一栏之前先渐变淡出（模糊 + 降饱和）。
-          页头本身依旧完全透明（见 styles/index.css 里 issue #53 / #63 的约束），
-          所以不会在顶部多出一条与页面脱节的实色带；导航文字画在这层之上，保持清晰。 */}
-      <div className="site-header-fade" aria-hidden="true" />
-      <div className="container-page relative z-10 flex h-16 items-center gap-3">
+      <div className="container-page flex h-16 items-center gap-3">
         <Logo />
 
         <nav className="ml-3 hidden items-center gap-1 md:flex">
@@ -243,7 +239,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
       </div>
 
       {mobileOpen && (
-        <div className="site-header-panel relative z-10 animate-fade-in md:hidden">
+        <div className="site-header-panel animate-fade-in md:hidden">
           <nav className="container-page flex flex-col py-3">
             {NAV.map((item) => (
               <NavLink

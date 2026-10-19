@@ -333,36 +333,16 @@
   /* ------------------------------------------------------------------ */
   /*  吸顶页头（issue #53 / #63：下滑时顶部不能出现白条或黑条）            */
   /*  页头本身保持完全透明：不铺底色、不加毛玻璃、不描边、不投影，          */
-  /*  因此无论浅色 / 深色、哪套配色主题、是否开启动态背景，都不会再出现     */
-  /*  一条与页面脱节的实色横带。导航元素自身的按钮背景仍然可用，            */
-  /*  但它们只覆盖按钮大小，不是整条横带。                                  */
-  /*  issue #71 走的是同一个方向：让路的是正文，不是页头——文字在滑进这一栏   */
-  /*  之前先渐变虚化掉，页头始终留在原位（而不是把页头藏起来）。             */
+  /*  页面内容与动态背景会原样从导航文字下面滚过，因此无论浅色 / 深色、     */
+  /*  哪套配色主题、是否开启动态背景，都不会再出现一条与页面脱节的实色条。 */
+  /*  导航元素自身的按钮背景仍然可用，但它们只覆盖按钮大小，不是整条横带。  */
+  /*  也别试图在页头这一带加 backdrop-filter / 蒙版来「让正文让路」（issue #71）：  */
+  /*  那一层会连主题背景与动态背景一起糊掉，等于又做出一条横带来。                    */
   /* ------------------------------------------------------------------ */
   .site-header {
     border-bottom: 0;
     background-color: transparent;
     box-shadow: none;
-  }
-  /* 正文的「渐变让路」层：只改写它背后那片像素（越靠视口顶糊得越狠），
-     本身不铺任何颜色，所以不会违反上面那条「不许出色带」的约束。
-     导航与移动端面板用 relative z-10 画在这层之上，保持清晰。 */
-  .site-header-fade {
-    position: absolute;
-    /* 往下多铺 24px：文字在真正抵达这一栏之前就开始虚化，看着像主动让位 */
-    inset: 0 0 -1.5rem;
-    pointer-events: none;
-    -webkit-backdrop-filter: blur(14px) saturate(0.7);
-    backdrop-filter: blur(14px) saturate(0.7);
-    -webkit-mask-image: linear-gradient(to top, transparent 0, rgba(0, 0, 0, 0.35) 28%, #000 70%);
-    mask-image: linear-gradient(to top, transparent 0, rgba(0, 0, 0, 0.35) 28%, #000 70%);
-  }
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    /* 没有 backdrop-filter 就什么都不做：宁可退回「文字从导航下面滚过」，
-       也不用铺色去换可读性——那正是 issue #53 / #63 要求消除的色带。 */
-    .site-header-fade {
-      display: none;
-    }
   }
   /* 移动端展开的导航面板：独立的浮层底色（页头本身已经透明） */
   .site-header-panel {
