@@ -158,59 +158,18 @@ function UserMenu() {
 
 function Header({ onSearch }: { onSearch: () => void }) {
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [hidden, setHidden] = useState(false)
-  const headerRef = useRef<HTMLElement>(null)
   const { isAuthed } = useAuth()
   const location = useLocation()
 
   useEffect(() => setMobileOpen(false), [location.pathname])
 
-  // issue #71：任意界面里，正文上划穿过页头之后就让它渐变消失，别挡住视野。
-  // 判据只看「滚过了页头的高度」，不看滚动方向，这样阅读中途不会忽然多出一条横杠；
-  // 回到顶部（或点目录/锚点跳回上方）时它再渐变回来。收起移动端菜单前不隐藏，
-  // 否则展开的面板会跟着一起消失。
-  useEffect(() => {
-    if (mobileOpen) {
-      setHidden(false)
-      return
-    }
-    let frame = 0
-    const measure = () => {
-      frame = 0
-      // offsetHeight 用 `||` 而不是 `??`：布局不可用时它返回 0（打印、display:none、
-      // 单测环境），阈值不能因此塌成 0，否则页头会卡在「永远隐藏」。
-      const height = headerRef.current?.offsetHeight || 64
-      const hideAt = height + 16
-      // 隐藏阈值与恢复阈值差 32px：临界点上（手机惯性滚动、鼠标滚轮微抖）不来回闪。
-      const showAt = Math.max(0, hideAt - 32)
-      setHidden((prev) => (prev ? window.scrollY > showAt : window.scrollY > hideAt))
-    }
-    const onScroll = () => {
-      if (frame) return
-      frame = requestAnimationFrame(measure)
-    }
-    measure()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    window.addEventListener('resize', onScroll)
-    return () => {
-      if (frame) cancelAnimationFrame(frame)
-      window.removeEventListener('scroll', onScroll)
-      window.removeEventListener('resize', onScroll)
-    }
-  }, [mobileOpen])
-
   return (
-    <header
-      ref={headerRef}
-      // 隐藏时从 Tab 序列里摘出去（inert），避免焦点跑到看不见的导航上
-      inert={hidden}
-      className={`site-header no-print sticky top-0 z-50 transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none ${
-        hidden
-          ? 'pointer-events-none -translate-y-full opacity-0'
-          : 'translate-y-0 opacity-100'
-      }`}
-    >
-      <div className="container-page flex h-16 items-center gap-3">
+    <header className="site-header no-print sticky top-0 z-50">
+      {/* issue #71：让路的是正文，不是页头——文字在滑进这一栏之前先渐变淡出（模糊 + 降饱和）。
+          页头本身依旧完全透明（见 styles/index.css 里 issue #53 / #63 的约束），
+          所以不会在顶部多出一条与页面脱节的实色带；导航文字画在这层之上，保持清晰。 */}
+      <div className="site-header-fade" aria-hidden="true" />
+      <div className="container-page relative z-10 flex h-16 items-center gap-3">
         <Logo />
 
         <nav className="ml-3 hidden items-center gap-1 md:flex">
@@ -284,7 +243,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
       </div>
 
       {mobileOpen && (
-        <div className="site-header-panel animate-fade-in md:hidden">
+        <div className="site-header-panel relative z-10 animate-fade-in md:hidden">
           <nav className="container-page flex flex-col py-3">
             {NAV.map((item) => (
               <NavLink

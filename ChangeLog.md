@@ -1,5 +1,55 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-19 · issue #71 方向修正：让路的是正文，不是页头
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+上一条把 #71 实现成「正文滚过页头后，页头自己渐变消失」。方向反了：
+**应该是文章给标题栏让路，而不是标题栏给文章让路**——页头要一直在原位，
+是正文在滑进那一栏之前先渐变淡掉。同时 `src/styles/index.css` 里 issue #53 / #63
+的既有约束写着页头必须完全透明（不铺底色、不加毛玻璃、不描边），
+所以不能用「给页头加半透明底」来换可读性，那会在顶部造出一条与页面脱节的实色带。
+
+### 新增
+
+- `.site-header-fade`（`src/styles/index.css`）：页头内一层 `position:absolute` 的
+  **backdrop-filter 蒙版**——`blur(14px) saturate(.7)` 配
+  `mask-image: linear-gradient(to top, transparent → #000 70%)`，越靠近视口顶把底下的
+  文字糊得越狠，直到看不见。它只改写「自己背后那片像素」，本身不含任何颜色，
+  因此既让正文让了路，又不违反 #53 / #63 的无色带约束。
+- `inset: 0 0 -1.5rem`：往下多铺 24px，文字在真正抵达这一栏之前就开始虚化。
+- `Layout.tsx` 里 `<header>` 内挂载该层（`aria-hidden` + `pointer-events-none`），
+  导航容器与移动端面板改为 `relative z-10` 画在它之上，导航文字本身不受影响。
+
+### 调整
+
+- **回退**上一条的页头自动隐藏：删掉 `hidden` 状态、`headerRef` 滚动测量与迟滞逻辑、
+  `inert={hidden}`、`-translate-y-full opacity-0` 过渡类（`src/components/Layout.tsx` 回到 7147fb9 的页头行为）。
+  #70 的光标修复不受影响，保留。
+- README 功能表那一行改写为「页头让路效果」。
+
+### 修复
+
+- #71 的真实诉求（正文与导航条互相干扰 → 正文让路），上一版修反了方向。
+
+### 验证
+
+- `npx tsc --noEmit` 无错误；`npm run build` 通过，编译后的 CSS 里
+  `.site-header-fade{…backdrop-filter:blur(14px) saturate(.7);mask-image:linear-gradient(to top,transparent 0,…#000 70%)}` 与
+  `@supports not (backdrop-filter…){display:none}` 均已生成。
+- jsdom（跑离线产物）确认：页头滚动后不再被隐藏（`.site-header` 无 `-translate-y-full` / 无 `inert`）、
+  `.site-header-fade` 位于 `<header>` 内且带 `aria-hidden`、导航容器带 `z-10`。
+- 优雅降级说明：esbuild 按 target 去掉了 `-webkit-backdrop-filter` 前缀，
+  所以 Safari 18 以下看不到虚化（只是没有该效果，不会出现色带或遮挡）；
+  不支持 `backdrop-filter` 的浏览器由 `@supports not` 直接不渲染这一层。
+
+
 ## 2026-10-19 · 修复 issue #70 / #71：LaTeX 符号插入不再跳到文末、页头上划后渐变让位
 
 | 模型信息 | |
