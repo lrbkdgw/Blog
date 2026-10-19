@@ -13,7 +13,7 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | | |
 | --- | --- |
 | 📝 **在线编辑** | 分栏实时预览、工具栏、快捷键、滚动同步、自动保存草稿 |
-| 🧮 **KaTeX 公式** | 行内 `$…$` 与独立 `$$…$$`，支持 `aligned`、矩阵、分段函数 |
+| 🧮 **KaTeX 公式** | 行内 `$…$` 与独立 `$$…$$`，支持 `aligned`、矩阵、分段函数；编辑器按 <kbd>Shift</kbd> + <kbd>↑</kbd> 打开**可搜索、带多重别名**的 LaTeX 符号选择框（如「正负」→ `\pm`、「异或」→ `\oplus`） |
 | 🎨 **配色主题** | 10 套主题（星野蓝 / 深海青 / 极光紫 / 樱花粉 / 落日橙 / 森野绿 / 绯红 / 鎏金 / 赛博霓虹 / 墨白）+ 浅色 / 深色 / **跟随系统**，页头色卡一键换肤，全站配色与动态背景一起变 |
 | 🌌 **动态背景** | 樱花 / 粒子星链 / 雪花 / 暴雨 / 竹林 五种场景，**各自适配深色与浅色**（白昼 / 夜樱、浅色星图 / 暗夜、雪日 / 雪夜、阴雨白昼 / 雨夜、晨光 / 月夜竹林）：飘落花瓣与散景、主题色光点与连线、鼠标吸引与数据脉冲…每种 5 项参数可调，星链颜色跟随配色主题 |
 | 🔤 **排版偏好** | **正文与代码字体分开**的多字体优先级（默认正文 Google Sans → Noto Sans CJK SC，代码 Cascadia Code）、80%–130% 全站字号、自定义渐变背景色与强度 |
@@ -235,9 +235,43 @@ Pages 项目 **Settings → Environment variables** 中新增 `VITE_GITHUB_CLIEN
   `version: 3`，`family` 与 `monoFamily` 各是一个逗号分隔的优先级列表。该操作先进**待更新队列**，统一更新时才提交。
   旧的 `version: 2` 文件（只有 `family`）仍能读取，代码字体回落到默认栈。
 
-**维护提示**：默认字体栈有三份副本，改动时要一起改——`src/styles/index.css` 的 `:root`（真正的默认值）、
-`src/lib/font.tsx` 的 `SANS_FALLBACK` / `SERIF_FALLBACK` / `MONO_FALLBACK`（自定义字体缺字形时的回退）、
-`index.html` 的首屏内联脚本（React 挂载前恢复本地偏好，避免闪字体）。
+**维护提示**：默认字体栈有三处副本，改动时要一起改——`src/styles/index.css` 的 `:root`（真正的默认值）、
+`src/lib/fontStacks.ts` 的 `SANS_FALLBACK` / `SERIF_FALLBACK` / `MONO_FALLBACK`（自定义字体与文章强制字体缺字形时的回退；
+`src/lib/font.tsx` 会再导出这三个常量）、`index.html` 的首屏内联脚本（React 挂载前恢复本地偏好，避免闪字体）。
+
+---
+
+## 🪄 文章级排版指令
+
+在文章**最开头**（前面可以有空格 / 空行）可以写下面三条语句，用来强制覆盖这篇文章的排版。
+它们不会显示在正文里，也不会影响页头、目录等文章之外的部分；文章页的「复制 → 直接复制源码」会保留这些语句，
+「复制洛谷源码 / 基本源码」会把它们移除（洛谷与基本 Markdown 没有对应写法）。
+
+```markdown
+::set-font[LXGW WenKai]
+::set-code-font[JetBrains Mono]
+::set-background[2]
+```
+
+| 语句 | 作用 |
+| --- | --- |
+| `::set-font[<name>]` | 强制本文正文、标题使用 `<name>` 字体（缺字形时回退到默认正文栈） |
+| `::set-code-font[<name>]` | 强制本文代码块、行内代码使用 `<name>` 字体（缺字形时回退到默认等宽栈） |
+| `::set-background[<id>]` | 浏览本文时临时使用指定的动态背景，**不写入**设置页偏好，离开本文后自动恢复 |
+
+`::set-background` 的编号：
+
+| 编号 | 0 | 1 | 2 | 3 | 4 | 5 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 背景 | 无 | 樱花 | 粒子星链 | 雪花 | 暴雨 | 竹林 |
+
+使用规则：
+
+- 只识别文章开头的连续指令段；正文中间出现的同款文本会按普通文字显示。
+- 同一类语句写多次时，**越早出现的优先级越高**，后面的同类型语句只被移除、不覆盖前面的值。
+- 字体名不能包含 `{ } ; < > [ ]`，最长 120 个字符；`::set-background` 只接受 0–5 的整数，越界视为无效。
+- 指令不会主动请求云端字体：本机已安装（或页面已通过设置页 / 站点样式加载）该字体时生效，否则回退到默认字体栈。
+- 编辑器预览会实时套用字体指令；背景指令在文章页生效（编辑器本身仍使用设置页选择的背景）。
 
 ---
 
@@ -337,6 +371,7 @@ pinned: false    # true 则置顶到首页
 | <kbd>⌘</kbd> + <kbd>K</kbd> | 插入链接 |
 | <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | 缩进 / 反缩进 |
 | <kbd>Enter</kbd> | 列表内自动续行（空项自动结束列表） |
+| <kbd>Shift</kbd>+<kbd>↑</kbd> | 打开 LaTeX 符号选择框：可搜索命令 / 中文别名 / 英文名，<kbd>↑</kbd><kbd>↓</kbd> 选择、<kbd>Enter</kbd> 插入、<kbd>Esc</kbd> 关闭 |
 
 全站快捷键：<kbd>⌘</kbd>+<kbd>K</kbd> 或 <kbd>/</kbd> 打开搜索。
 
@@ -357,9 +392,13 @@ pinned: false    # true 则置顶到首页
 │   ├── components/                # Layout / Markdown / 搜索 / 目录 / Toast / GitHub 授权
 │   │   ├── AnimatedBackdrop.tsx   # 动态背景生命周期、樱花与粒子星链
 │   │   ├── WeatherBackdrops.ts     # 雪花、暴雨与竹林（Canvas）
+│   │   ├── LatexSymbolPicker.tsx  # Shift+↑ 打开的 LaTeX 符号选择框
 │   │   └── ThemePicker.tsx        # 页头配色主题色卡
 │   ├── lib/                       # 配置、文章解析、认证、GitHub API、待更新队列、主题
 │   │   ├── themes.ts              # 配色主题元数据（真实色卡在 styles/index.css）
+│   │   ├── postDirectives.ts      # 文章级 ::set-font / ::set-code-font / ::set-background
+│   │   ├── latexSymbols.ts        # LaTeX 符号目录与多重别名搜索
+│   │   └── fontStacks.ts          # 默认字体栈（CSS / 首屏脚本之外的唯一源码副本）
 │   ├── pages/                     # 首页 / 文章 / 归档 / 标签 / 关于 / 登录 / 后台 / 编辑器
 │   ├── styles/index.css           # Tailwind + 代码高亮 + 排版细节
 │   ├── App.tsx                    # 路由

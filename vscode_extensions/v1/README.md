@@ -70,6 +70,8 @@ VS Code **Settings** 中搜索 `@ext:lrbkdgw.starlog-markdown` 或「渐变」�
 | `*&变量:{键,内容;…}*&` | 变量到 Markdown 内容的映射，未声明的变量自动生成控件 |
 | `:::info[标题]{open}` … `:::` | 折叠框，支持 `info/note/tip/success/warning/error/danger` 与多层嵌套 |
 | `::cute-table{tuack}` | Tuack 表格 |
+| `::set-font[字体]` / `::set-code-font[字体]` | 文章级字体覆盖，指令写在文章开头，预览中即时生效 |
+| `::set-background[0–5]` | 博客文章页的临时动态背景；VS Code 预览没有动态背景，该指令仅被移除 |
 | 表格内的 `<` / `^` | 向左 / 向上合并单元格 |
 | `$…$`、`$$` 块、`math` 围栏 | 与博客相同的 KaTeX 公式 |
 | 普通 Markdown / GFM | 高亮代码、任务列表、删除线、脚注、表格、原始 HTML 等 |

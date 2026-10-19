@@ -1,5 +1,54 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-19 · 处理 issue #59 / #60：文章级排版指令与 LaTeX 符号选择框
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+一次处理两个 open issue：
+
+- **#59**：新增三种写在文章开头的 Markdown 语法 `::set-font[<name>]`、
+  `::set-code-font[<name>]`、`::set-background[<id>]`，强制覆盖本文的正文 / 代码字体与浏览背景（编号 0–5）。
+- **#60**：编辑器支持 <kbd>Shift</kbd> + <kbd>↑</kbd> 打开 LaTeX 语法选择框，可搜索并选择，
+  每个符号支持多种别名（例如 `\pm` = 正负 / 加减，`\oplus` = 异或 / 直和）。
+
+### 新增
+- `src/lib/postDirectives.ts`：解析文章开头的排版指令，返回指令、去掉指令行的正文与原行号映射；
+  同类语句多次出现时保留最早的一条，字体名与背景编号做白名单式校验。
+- `src/lib/latexSymbols.ts`：225 个常用 LaTeX 符号，分希腊字母、关系与比较、运算与大型运算符、
+  逻辑与集合、箭头、括号 / 省略号 / 结构六类；每个符号带中文、英文、读法、Unicode 字符等多个别名，
+  并提供忽略大小写与反斜杠的多关键词搜索。
+- `src/components/LatexSymbolPicker.tsx`：可搜索、可按分类筛选、KaTeX 实时预览的符号选择框；
+  方向键选择、<kbd>Enter</kbd> 插入、<kbd>Esc</kbd> 关闭，`\frac{}{}` 等模板把光标放进第一个花括号。
+- 编辑器工具栏新增 Ω 按钮（移动端 / 纯鼠标也能打开选择框），提示栏补充快捷键说明。
+- `src/lib/fontStacks.ts`：把默认字体栈与 `quoteFamily` 从 `font.tsx` 抽到无 React 依赖的轻量模块，
+  供设置页与 Markdown 的文章级字体共用；`font.tsx` 继续导出原常量，既有引用不变。
+
+### 调整
+- `Markdown.tsx` 的预处理改为先剥离开头指令，并用映射保持处理后每一行仍对齐回原始源码行号，
+  编辑器双栏滚动同步不受影响；字体指令写到 Markdown 根节点的 CSS 变量上，正文、标题、代码一起生效。
+- 文章页在 `<article>` 上套用字体指令，标题与正文一致；`::set-background` 通过临时覆盖层生效，
+  **不写入** `localStorage`、不改动设置页偏好，离开文章（含切换到另一篇）后自动恢复。
+- 「复制 → 洛谷源码 / 基本源码」会移除文章级指令；「直接复制源码」保留。
+- VS Code 插件共用同一份 Markdown 组件，因此预览也会剥离指令并套用字体；其 README 的支持语法表已同步，
+  并重新打包 `starlog-markdown-2.0.2.vsix`（版本号与命令、设置项不变，`out/extension.js` / `out/preview.js` 一并更新）。
+
+### 修复
+- 无（本次未改动既有行为；`font.tsx` 的常量改为再导出属等价重构）。
+
+### 验证
+- `npm run build`（`tsc --noEmit && vite build`）通过。
+- `npm run extension:test`：61 项中 57 项通过、4 项跳过、0 项失败（插件预览与博客 DOM 仍完全一致）；
+  `npm run extension:package` 重新打包 VSIX 成功。
+- 额外用 esbuild + Node 验证：指令剥离与行号映射、同类型指令「最早优先」、非法字体 / 越界背景被忽略、
+  字体 CSS 变量生成、225 个符号无重复、`正负` / `异或` / `\oplus` 均能命中目标符号；
+  并用 `react-dom/server` 渲染确认指令不会出现在正文、字体变量写到 Markdown 根节点。
+- README 已补「文章级排版指令」章节、背景编号表、快捷键与目录结构；插件 README 同步支持语法表。
+
 ## 2026-10-17 · 优化樱花与粒子星链，新增雪花 / 暴雨 / 竹林
 
 | 模型信息 | |

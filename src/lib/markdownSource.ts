@@ -4,6 +4,7 @@ import {
   parseShowVariables,
   renderShowContent,
 } from './showBox'
+import { stripLeadingDirectives } from './postDirectives'
 
 export type MarkdownCopyTarget = 'direct' | 'luogu' | 'basic'
 
@@ -253,7 +254,8 @@ export function convertLuoguExtensionsToMarkdown(markdown: string): string {
  */
 export function convertMarkdownForCopy(markdown: string, target: MarkdownCopyTarget): string {
   if (target === 'direct') return markdown
-  const withoutBlogExtensions = convertShowBoxesToMarkdown(markdown)
+  // 文章级排版指令是博客专属语法，洛谷 / 基本 Markdown 里没有对应写法，直接移除。
+  const withoutBlogExtensions = convertShowBoxesToMarkdown(stripLeadingDirectives(markdown))
   if (target === 'luogu') return withoutBlogExtensions
   return convertLuoguExtensionsToMarkdown(expandMergedTableCells(withoutBlogExtensions))
 }

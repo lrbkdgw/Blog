@@ -5,6 +5,11 @@ import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 import { fetchGithubFontPreference, buildFontPreferenceFile, fontSettingsPath } from './github'
 import { enqueueSettingsSync, getUpdateQueue } from './updateQueue'
 import { useAuth } from './auth'
+import { MONO_FALLBACK, SANS_FALLBACK, SERIF_FALLBACK, quoteFamily } from './fontStacks'
+
+// 回退栈本体在 fontStacks.ts（Markdown 的文章级字体指令也用同一份）。
+// 这里继续导出，保持既有引用与文档中的 `src/lib/font.tsx` 说法可用。
+export { MONO_FALLBACK, SANS_FALLBACK, SERIF_FALLBACK }
 
 export type FontSource = 'default' | 'local' | 'cloud'
 export type FontStatus = 'idle' | 'checking-local' | 'loading-cloud' | 'ready' | 'fallback'
@@ -18,20 +23,6 @@ export type FontTarget = 'sans' | 'mono'
 export const FONT_SIZE_MIN = 80
 export const FONT_SIZE_MAX = 130
 export const DEFAULT_FONT_SIZE = 100
-
-/**
- * 默认字体栈（issue #54）：正文 Google Sans → Noto Sans CJK SC，代码 Cascadia Code，
- * 后面接各自的系统回退。
- *
- * 这三条常量与 `src/styles/index.css` 的 `:root`、`index.html` 的首屏内联脚本必须保持一致：
- * CSS 里的版本决定「用户没有自定义字体时」用什么，这里的版本决定「用户自定义字体缺字形时」
- * 往哪儿回退，index.html 里的版本负责 React 挂载前的首屏。
- */
-export const SANS_FALLBACK =
-  '"Google Sans", "Noto Sans CJK SC", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'
-export const SERIF_FALLBACK = '"Noto Serif SC", "Songti SC", STSong, SimSun, serif'
-export const MONO_FALLBACK =
-  '"Cascadia Code", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace'
 
 export interface FontPreference {
   /** 正文字体列表，按优先级从前到后排列 */
@@ -98,10 +89,6 @@ export function normalizeFamily(value: string): string {
     throw new Error('字体名称格式不正确，请填写有效字体名称')
   }
   return family
-}
-
-function quoteFamily(family: string): string {
-  return `"${family.replace(/["\\]/g, '\\$&')}"`
 }
 
 /** 把 `,` / `，` 分隔的字符串拆成字体名数组（账号偏好文件里的写法）。 */
