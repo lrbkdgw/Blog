@@ -39,6 +39,7 @@ import {
   setAnimatedScene,
   setSceneValue,
   useAnimatedBackground,
+  useAnimatedBackgroundSync,
   type AnimatedBackgroundPreference,
   type SceneId,
 } from '../lib/animatedBackground'
@@ -196,14 +197,6 @@ function ColorThemeControls() {
           })}
         </div>
       </div>
-
-      <p className="mt-4 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
-        主题色阶通过 CSS 变量注入（<span className="font-mono">--brand-50…950</span>），因此按钮、链接、标签、光晕、
-        代码高亮外框与动态背景会一起换色。配色主题与明暗模式只保存在本设备，不会写入仓库。
-        <br />
-        开启配色主题（不是默认的「星野蓝」）后，页头那个单独的明暗切换按钮会自动收起——明暗模式在上面这一行切换，
-        切回「星野蓝」按钮即恢复。
-      </p>
     </>
   )
 }
@@ -274,11 +267,6 @@ function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreferen
           </button>
         </div>
       )}
-
-      <p className="mt-5 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
-        动态背景仅保存在本设备，不会同步到 GitHub。五种场景都会跟随上面的明暗模式：白昼 / 夜樱、浅色星图 / 暗夜、雪日 / 雪夜、阴雨白昼 / 冷调雨夜、晨光竹林 / 月夜竹林。粒子星链的颜色还会跟随配色主题。切换明暗时保留粒子与竹竿的位置。暴雨的闪电默认关闭，可按需开启。系统开启“减少动态效果”时，背景只显示静态画面。
-        文章开头写 <code className="font-mono">::set-background[编号]</code> 可强制该文章使用指定背景（0 无 · 1 樱花 · 2 粒子星链 · 3 雪花 · 4 暴雨 · 5 竹林；参数仍用这里的值），离开文章即恢复上面的选择；正文与代码字体同理可用 <code className="font-mono">::set-font[字体名]</code> / <code className="font-mono">::set-code-font[字体名]</code> 只对本文强制。
-      </p>
     </>
   )
 }
@@ -507,6 +495,8 @@ export default function SettingsPage() {
     saveForGithub: saveBackgroundForGithub,
   } = useBackground()
   const animatedBackground = useAnimatedBackground()
+  const { accountSync: animatedAccountSync, saveForGithub: saveAnimatedForGithub } = useAnimatedBackgroundSync()
+  const { accountSync: themeAccountSync, saveForGithub: saveThemeForGithub } = useTheme()
   const toast = useToast()
   const [editorScrollSync, setEditorScrollSync] = useEditorScrollSync()
 
@@ -517,6 +507,8 @@ export default function SettingsPage() {
   const [backgroundColor, setBackgroundColor] = useState(background.color || '#FBFBFD')
   const [backgroundIntensity, setBackgroundIntensity] = useState(background.intensity)
   const [savingBackground, setSavingBackground] = useState(false)
+  const [savingTheme, setSavingTheme] = useState(false)
+  const [savingAnimated, setSavingAnimated] = useState(false)
 
   useEffect(() => {
     setBackgroundColor(background.color || '#FBFBFD')
@@ -594,6 +586,36 @@ export default function SettingsPage() {
     }
   }
 
+  const saveThemeToGithub = async () => {
+    setSavingTheme(true)
+    try {
+      await saveThemeForGithub()
+      toast(`配色与模式偏好已加入待更新队列，统一更新后同步到 @${ghUser?.login}`, 'success', {
+        label: '查看队列',
+        href: '/admin?tab=queue',
+      })
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '保存配色偏好失败', 'error')
+    } finally {
+      setSavingTheme(false)
+    }
+  }
+
+  const saveAnimatedToGithub = async () => {
+    setSavingAnimated(true)
+    try {
+      await saveAnimatedForGithub()
+      toast(`动态背景偏好已加入待更新队列，统一更新后同步到 @${ghUser?.login}`, 'success', {
+        label: '查看队列',
+        href: '/admin?tab=queue',
+      })
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '保存动态背景偏好失败', 'error')
+    } finally {
+      setSavingAnimated(false)
+    }
+  }
+
   const exportAll = () => {
     const posts = getLocalPosts()
     if (posts.length === 0) {
@@ -653,6 +675,32 @@ export default function SettingsPage() {
           icon={Palette}
         >
           <ColorThemeControls />
+          {canPublish && ghUser ? (
+            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-ink-200/70 pt-4 dark:border-white/10">
+              <button
+                type="button"
+                onClick={saveThemeToGithub}
+                disabled={savingTheme}
+                className="btn-outline h-9"
+              >
+                {savingTheme ? <Loader2 size={15} className="animate-spin" /> : <Cloud size={15} />}
+                保存到 GitHub（@{ghUser.login}）
+              </button>
+              <span className="text-xs text-ink-400">
+                {themeAccountSync === 'loading'
+                  ? '正在恢复账号配色偏好…'
+                  : themeAccountSync === 'queued'
+                    ? '已加入待更新队列，统一更新后同步到账号'
+                    : themeAccountSync === 'synced'
+                      ? '已与该账号的配色偏好同步'
+                      : '保存后可在其他设备同步'}
+              </span>
+            </div>
+          ) : (
+            <p className="mt-4 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
+              访客设置已直接保存在本地。登录后可同步配色与明暗偏好到 GitHub 账号。
+            </p>
+          )}
         </Section>
 
         {/* --------------------- 字号 + 正文字体 / 代码字体两组优先级（issue #54） --------------------- */}
@@ -894,6 +942,32 @@ export default function SettingsPage() {
           icon={CloudRain}
         >
           <AnimatedBackgroundControls pref={animatedBackground} />
+          {canPublish && ghUser ? (
+            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-ink-200/70 pt-4 dark:border-white/10">
+              <button
+                type="button"
+                onClick={saveAnimatedToGithub}
+                disabled={savingAnimated}
+                className="btn-outline h-9"
+              >
+                {savingAnimated ? <Loader2 size={15} className="animate-spin" /> : <Cloud size={15} />}
+                保存到 GitHub（@{ghUser.login}）
+              </button>
+              <span className="text-xs text-ink-400">
+                {animatedAccountSync === 'loading'
+                  ? '正在恢复账号动态背景偏好…'
+                  : animatedAccountSync === 'queued'
+                    ? '已加入待更新队列，统一更新后同步到账号'
+                    : animatedAccountSync === 'synced'
+                      ? '已与该账号的动态背景偏好同步'
+                      : '保存后可在其他设备同步'}
+              </span>
+            </div>
+          ) : (
+            <p className="mt-4 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
+              访客设置已直接保存在本地。登录后可同步动态背景偏好到 GitHub 账号。
+            </p>
+          )}
         </Section>
 
         {/* ------------------------------ 编辑器行为 ----------------------------- */}

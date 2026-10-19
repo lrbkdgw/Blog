@@ -5,6 +5,7 @@ import App from './App'
 import { ThemeProvider } from './lib/theme'
 import { FontProvider } from './lib/font'
 import { BackgroundProvider } from './lib/background'
+import { AnimatedBackgroundProvider } from './lib/animatedBackground'
 import { AuthProvider } from './lib/auth'
 import { ToastProvider } from './components/Toast'
 import './styles/index.css'
@@ -14,17 +15,19 @@ const basename = import.meta.env.BASE_URL.replace(/\/$/, '')
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter basename={basename || '/'}>
-      <ThemeProvider>
-        <AuthProvider>
+      <AuthProvider>
+        <ThemeProvider>
           <FontProvider>
             <BackgroundProvider>
-              <ToastProvider>
-                <App />
-              </ToastProvider>
+              <AnimatedBackgroundProvider>
+                <ToastProvider>
+                  <App />
+                </ToastProvider>
+              </AnimatedBackgroundProvider>
             </BackgroundProvider>
           </FontProvider>
-        </AuthProvider>
-      </ThemeProvider>
+        </ThemeProvider>
+      </AuthProvider>
     </BrowserRouter>
   </StrictMode>,
 )

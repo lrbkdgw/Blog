@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { STORAGE_KEYS } from './config'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
@@ -10,10 +10,19 @@ import {
   type ColorTheme,
   type ThemeMode,
 } from './themes'
+import {
+  fetchGithubThemePreference,
+  buildThemePreferenceFile,
+  themeSettingsPath,
+} from './github'
+import { enqueueSettingsSync, getUpdateQueue } from './updateQueue'
+import { useAuth } from './auth'
 
 type Theme = 'light' | 'dark'
 
 const COLOR_THEME_SETTING = 'colorTheme'
+
+type AccountSync = 'idle' | 'loading' | 'synced' | 'queued' | 'error'
 
 interface ThemeCtx {
   /** 实际生效的明暗（用户的设置 / 跟随系统）；动态背景会读取它来切换自己的配色。 */
@@ -30,6 +39,8 @@ interface ThemeCtx {
   /** 当前配色主题的元数据 */
   colorThemeMeta: ColorTheme
   setColorTheme: (id: string) => void
+  accountSync: AccountSync
+  saveForGithub: () => Promise<void>
 }
 
 const Ctx = createContext<ThemeCtx>({
@@ -42,6 +53,8 @@ const Ctx = createContext<ThemeCtx>({
   colorTheme: DEFAULT_COLOR_THEME,
   colorThemeMeta: findColorTheme(DEFAULT_COLOR_THEME)!,
   setColorTheme: () => {},
+  accountSync: 'idle',
+  saveForGithub: async () => {},
 })
 
 function readMode(): ThemeMode {
@@ -78,9 +91,27 @@ function useSystemDark(): boolean {
   return dark
 }
 
+function readAccountCache(): Record<string, { colorTheme: string; mode: ThemeMode; updatedAt: number }> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.themeAccounts) || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeAccountCache(login: string, preference: { colorTheme: string; mode: ThemeMode; updatedAt: number }) {
+  const cache = readAccountCache()
+  cache[login] = preference
+  localStorage.setItem(STORAGE_KEYS.themeAccounts, JSON.stringify(cache))
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
+  const { ghUser, canPublish, loading: authLoading } = useAuth()
   const [mode, setModeState] = useState<ThemeMode>(readMode)
   const [colorTheme, setColorThemeState] = useState<string>(readColorTheme)
+  const [accountSync, setAccountSync] = useState<AccountSync>('idle')
+  const accountRef = useRef('')
   const systemDark = useSystemDark()
 
   const preferredTheme: Theme = mode === 'system' ? (systemDark ? 'dark' : 'light') : mode
@@ -132,6 +163,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const sync = (event?: Event) => {
       const name = (event as CustomEvent<{ name?: string }> | undefined)?.detail?.name
       if (!name || name === COLOR_THEME_SETTING) setColorThemeState(readColorTheme())
+      // 监听 mode 的存储变化
+      if (!event || event.type === 'storage') {
+        setModeState(readMode())
+      }
     }
     window.addEventListener('starlog:settings-changed', sync)
     window.addEventListener('storage', sync)
@@ -160,6 +195,68 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // 同步到 GitHub 账号：类似 font/background，直接本地恢复与远程恢复
+  useEffect(() => {
+    if (authLoading || !canPublish || !ghUser) {
+      accountRef.current = ''
+      if (!authLoading) setAccountSync('idle')
+      return
+    }
+    const login = ghUser.login
+    if (accountRef.current === login) return
+    accountRef.current = login
+    let active = true
+    setAccountSync('loading')
+
+    const restore = async () => {
+      try {
+        const cached = readAccountCache()[login]
+        if (cached && typeof cached.colorTheme === 'string' && typeof cached.mode === 'string') {
+          if (isColorThemeId(cached.colorTheme)) setColorThemeState(normalizeColorTheme(cached.colorTheme))
+          if (cached.mode === 'light' || cached.mode === 'dark' || cached.mode === 'system') setModeState(cached.mode)
+        }
+
+        const hasPending = getUpdateQueue().some(
+          (item) => item.kind === 'settings-sync' && item.target === themeSettingsPath(login),
+        )
+        if (hasPending) {
+          if (active) setAccountSync('queued')
+          return
+        }
+
+        const remote = await fetchGithubThemePreference(login)
+        if (!active) return
+        if (remote) {
+          const modeVal = remote.mode as ThemeMode
+          if (modeVal === 'light' || modeVal === 'dark' || modeVal === 'system') setModeState(modeVal)
+          setColorThemeState(normalizeColorTheme(remote.colorTheme))
+          if (!active) return
+          writeAccountCache(login, { colorTheme: normalizeColorTheme(remote.colorTheme), mode: modeVal as ThemeMode, updatedAt: Date.now() })
+        }
+        setAccountSync('synced')
+      } catch {
+        if (active) setAccountSync('error')
+      }
+    }
+
+    void restore()
+    return () => {
+      active = false
+    }
+  }, [authLoading, canPublish, ghUser])
+
+  const saveForGithub = useCallback(async () => {
+    if (!canPublish || !ghUser) throw new Error('请先登录并连接具备 Contents 写入权限的 GitHub 账号')
+    const file = buildThemePreferenceFile(ghUser.login, {
+      colorTheme,
+      mode,
+      updatedAt: Date.now(),
+    })
+    enqueueSettingsSync(file.path, `同步 @${ghUser.login} 的配色与模式偏好`, file.text)
+    writeAccountCache(ghUser.login, { colorTheme, mode, updatedAt: Date.now() })
+    setAccountSync('queued')
+  }, [colorTheme, mode, canPublish, ghUser])
+
   const value = useMemo(
     () => ({
       theme,
@@ -171,11 +268,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       colorTheme,
       colorThemeMeta: findColorTheme(colorTheme) ?? findColorTheme(DEFAULT_COLOR_THEME)!,
       setColorTheme,
+      accountSync,
+      saveForGithub,
     }),
-    [theme, preferredTheme, mode, setMode, setTheme, colorTheme, setColorTheme],
+    [theme, preferredTheme, mode, setMode, setTheme, colorTheme, setColorTheme, accountSync, saveForGithub],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
+}
+
+function isColorThemeId(value: unknown): value is string {
+  return typeof value === 'string' && !!findColorTheme(value)
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

@@ -91,10 +91,12 @@ export const oauthConfig = {
 
 export const STORAGE_KEYS = {
   theme: 'starlog:theme',
+  themeAccounts: 'starlog:theme-accounts',
   font: 'starlog:font',
   fontAccounts: 'starlog:font-accounts',
   background: 'starlog:background',
   backgroundAccounts: 'starlog:background-accounts',
+  animatedBackgroundAccounts: 'starlog:animated-accounts',
   /** 集中保存个人偏好，使用 localStorage + 事件更新。 */
   personalSettings: 'starlog:personal-settings',
   session: 'starlog:session',

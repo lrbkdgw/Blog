@@ -1225,3 +1225,148 @@ export async function saveGithubBackgroundPreference(
     }),
   })
 }
+
+export interface GithubThemePreference {
+  colorTheme: string
+  mode: string
+  updatedAt: number
+}
+
+const THEME_SETTINGS_DIR = '.starlog/settings/theme-preferences'
+
+export function themeSettingsPath(login: string): string {
+  const safeLogin = login.trim().replace(/[^a-zA-Z0-9-]/g, '')
+  if (!safeLogin) throw new Error('GitHub 用户名无效')
+  return `${THEME_SETTINGS_DIR}/${safeLogin}.json`
+}
+
+export async function fetchGithubThemePreference(
+  login: string,
+  target = getRepoTarget(),
+): Promise<GithubThemePreference | null> {
+  try {
+    const { text } = await fetchRemoteFile(themeSettingsPath(login), target)
+    const parsed = JSON.parse(text)
+    if (!parsed || typeof parsed !== 'object') return null
+    if (typeof parsed.colorTheme !== 'string' || typeof parsed.mode !== 'string') return null
+    return {
+      colorTheme: parsed.colorTheme,
+      mode: parsed.mode,
+      updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
+    }
+  } catch (err) {
+    if (err instanceof Error && /找不到资源/.test(err.message)) return null
+    throw err
+  }
+}
+
+export function buildThemePreferenceFile(
+  login: string,
+  preference: GithubThemePreference,
+): SettingsFileUpdate {
+  return {
+    path: themeSettingsPath(login),
+    message: `chore(settings): 保存 @${login} 的配色与模式偏好`,
+    text:
+      JSON.stringify(
+        {
+          version: 1,
+          colorTheme: preference.colorTheme,
+          mode: preference.mode,
+          updatedAt: preference.updatedAt || Date.now(),
+        },
+        null,
+        2,
+      ) + '\n',
+  }
+}
+
+export async function saveGithubThemePreference(
+  login: string,
+  preference: GithubThemePreference,
+  target = getRepoTarget(),
+): Promise<void> {
+  const file = buildThemePreferenceFile(login, preference)
+  const sha = await getSha(file.path, target)
+  await gh(`/repos/${target.owner}/${target.repo}/contents/${encodeRepoPath(file.path)}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      message: file.message,
+      content: encodeBase64(file.text),
+      branch: target.branch,
+      ...(sha ? { sha } : {}),
+    }),
+  })
+}
+
+export interface GithubAnimatedPreference {
+  scene: string
+  values: Record<string, Record<string, number>>
+  updatedAt: number
+}
+
+const ANIMATED_SETTINGS_DIR = '.starlog/settings/animated-preferences'
+
+export function animatedSettingsPath(login: string): string {
+  const safeLogin = login.trim().replace(/[^a-zA-Z0-9-]/g, '')
+  if (!safeLogin) throw new Error('GitHub 用户名无效')
+  return `${ANIMATED_SETTINGS_DIR}/${safeLogin}.json`
+}
+
+export async function fetchGithubAnimatedPreference(
+  login: string,
+  target = getRepoTarget(),
+): Promise<GithubAnimatedPreference | null> {
+  try {
+    const { text } = await fetchRemoteFile(animatedSettingsPath(login), target)
+    const parsed = JSON.parse(text)
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.scene !== 'string') return null
+    return {
+      scene: parsed.scene,
+      values: parsed.values && typeof parsed.values === 'object' ? (parsed.values as Record<string, Record<string, number>>) : {},
+      updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
+    }
+  } catch (err) {
+    if (err instanceof Error && /找不到资源/.test(err.message)) return null
+    throw err
+  }
+}
+
+export function buildAnimatedPreferenceFile(
+  login: string,
+  preference: GithubAnimatedPreference,
+): SettingsFileUpdate {
+  return {
+    path: animatedSettingsPath(login),
+    message: `chore(settings): 保存 @${login} 的动态背景偏好`,
+    text:
+      JSON.stringify(
+        {
+          version: 1,
+          scene: preference.scene,
+          values: preference.values || {},
+          updatedAt: preference.updatedAt || Date.now(),
+        },
+        null,
+        2,
+      ) + '\n',
+  }
+}
+
+export async function saveGithubAnimatedPreference(
+  login: string,
+  preference: GithubAnimatedPreference,
+  target = getRepoTarget(),
+): Promise<void> {
+  const file = buildAnimatedPreferenceFile(login, preference)
+  const sha = await getSha(file.path, target)
+  await gh(`/repos/${target.owner}/${target.repo}/contents/${encodeRepoPath(file.path)}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      message: file.message,
+      content: encodeBase64(file.text),
+      branch: target.branch,
+      ...(sha ? { sha } : {}),
+    }),
+  })
+}

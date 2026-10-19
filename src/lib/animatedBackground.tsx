@@ -1,13 +1,19 @@
-import { useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
+import { STORAGE_KEYS } from './config'
+import {
+  fetchGithubAnimatedPreference,
+  buildAnimatedPreferenceFile,
+  animatedSettingsPath,
+} from './github'
+import { enqueueSettingsSync, getUpdateQueue } from './updateQueue'
+import { useAuth } from './auth'
 
 /**
  * 动态背景（樱花 / 粒子星链 / 雪花 / 暴雨 / 竹林）的数据层：
  * 场景定义、参数范围、校验与本地保存。
  * 渲染在 components/AnimatedBackdrop.tsx，界面在设置页。
- *
- * 动态背景只保存在浏览器本地（不同步到 GitHub），因为它是纯视觉偏好，
- * 且相比颜色渐变更依赖设备性能。
  */
 
 export type SceneId = 'none' | 'sakura' | 'network' | 'snow' | 'rain' | 'bamboo'
@@ -232,4 +238,117 @@ export function useAnimatedBackground(): AnimatedBackgroundPreference {
   }, [])
   return pref
 }
+
+type AccountSync = 'idle' | 'loading' | 'synced' | 'queued' | 'error'
+
+interface AnimatedBackgroundCtxValue {
+  accountSync: AccountSync
+  saveForGithub: () => Promise<void>
+}
+
+const AnimatedCtx = createContext<AnimatedBackgroundCtxValue>({
+  accountSync: 'idle',
+  saveForGithub: async () => {},
+})
+
+function readAccountCache(): Record<string, AnimatedBackgroundPreference & { updatedAt: number }> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.animatedBackgroundAccounts) || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeAccountCache(login: string, preference: AnimatedBackgroundPreference) {
+  const cache = readAccountCache()
+  cache[login] = { ...preference, updatedAt: Date.now() }
+  localStorage.setItem(STORAGE_KEYS.animatedBackgroundAccounts, JSON.stringify(cache))
+}
+
+export function AnimatedBackgroundProvider({ children }: { children: ReactNode }) {
+  const { ghUser, canPublish, loading: authLoading } = useAuth()
+  const [accountSync, setAccountSync] = useState<AccountSync>('idle')
+  const accountRef = useRef('')
+
+  useEffect(() => {
+    if (authLoading || !canPublish || !ghUser) {
+      accountRef.current = ''
+      if (!authLoading) setAccountSync('idle')
+      return
+    }
+    const login = ghUser.login
+    if (accountRef.current === login) return
+    accountRef.current = login
+    let active = true
+    setAccountSync('loading')
+
+    const restore = async () => {
+      try {
+        const cached = readAccountCache()[login]
+        if (cached && typeof cached.scene === 'string') {
+          const normalized = normalizePreference(cached)
+          if (active) write(normalized)
+        }
+
+        const hasPending = getUpdateQueue().some(
+          (item) => item.kind === 'settings-sync' && item.target === animatedSettingsPath(login),
+        )
+        if (hasPending) {
+          if (active) setAccountSync('queued')
+          return
+        }
+
+        const remote = await fetchGithubAnimatedPreference(login)
+        if (!active) return
+        if (remote) {
+          const normalized: AnimatedBackgroundPreference = {
+            scene: (SCENES.some((s) => s.id === remote.scene) || remote.scene === 'none'
+              ? (remote.scene as SceneId)
+              : 'none'),
+            values: {},
+          }
+          // 远程 values 是 Record<string, Record<string, number>>
+          if (remote.values && typeof remote.values === 'object') {
+            for (const spec of SCENES) {
+              const raw = (remote.values as Record<string, unknown>)[spec.id]
+              normalized.values[spec.id] = normalizeSceneValues(spec, raw)
+            }
+          }
+          write(normalized)
+          if (!active) return
+          writeAccountCache(login, normalized)
+        }
+        setAccountSync('synced')
+      } catch {
+        if (active) setAccountSync('error')
+      }
+    }
+
+    void restore()
+    return () => {
+      active = false
+    }
+  }, [authLoading, canPublish, ghUser])
+
+  const saveForGithub = useCallback(async () => {
+    if (!canPublish || !ghUser) throw new Error('请先登录并连接具备 Contents 写入权限的 GitHub 账号')
+    const pref = readAnimatedBackground()
+    const file = buildAnimatedPreferenceFile(ghUser.login, {
+      scene: pref.scene,
+      values: (pref.values as Record<string, Record<string, number>>) || {},
+      updatedAt: Date.now(),
+    })
+    enqueueSettingsSync(file.path, `同步 @${ghUser.login} 的动态背景偏好`, file.text)
+    writeAccountCache(ghUser.login, pref)
+    setAccountSync('queued')
+  }, [canPublish, ghUser])
+
+  const value = useMemo(() => ({ accountSync, saveForGithub }), [accountSync, saveForGithub])
+
+  return <AnimatedCtx.Provider value={value}>{children}</AnimatedCtx.Provider>
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export const useAnimatedBackgroundSync = () => useContext(AnimatedCtx)
 

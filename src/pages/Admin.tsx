@@ -37,10 +37,15 @@ import {
 import {
   checkUserRepoPermissions,
   closePublicationPR,
+  fetchRemoteFile,
+  getRepoTarget,
   listPublicationPRs,
   mergePublicationPR,
 } from '../lib/github'
 import type { PublicationPR } from '../lib/github'
+import { collapseContext, diffLines, diffStats } from '../lib/diff'
+import type { DiffLine } from '../lib/diff'
+import { Markdown } from '../components/Markdown'
 import {
   clearUpdateQueue,
   enqueuePostDelete,
@@ -106,6 +111,7 @@ export default function Admin() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [flushing, setFlushing] = useState(false)
   const [flushErrors, setFlushErrors] = useState<Record<string, string>>({})
+  const [queueDiffItem, setQueueDiffItem] = useState<QueueItem | null>(null)
 
   const [mainTab, setMainTab] = useState<MainTab>('posts')
   const [query, setQuery] = useState('')
@@ -865,13 +871,23 @@ export default function Admin() {
                 return (
                   <div
                     key={item.id}
-                    className={`flex flex-wrap items-center gap-3 px-4 py-3.5 transition hover:bg-ink-50/70 dark:hover:bg-white/[.03] ${
+                    onClick={() => setQueueDiffItem(item)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') setQueueDiffItem(item)
+                    }}
+                    title="点击查看 diff"
+                    className={`flex cursor-pointer flex-wrap items-center gap-3 px-4 py-3.5 transition hover:bg-ink-50/70 dark:hover:bg-white/[.03] ${
                       isSelected ? 'bg-brand-50/40 dark:bg-brand-500/[0.06]' : ''
                     }`}
                   >
                     <button
                       type="button"
-                      onClick={() => toggleSelected(item.id)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleSelected(item.id)
+                      }}
                       disabled={flushing}
                       className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-ink-300 text-brand-600 transition hover:border-brand-400 dark:border-white/20 dark:text-brand-300"
                       aria-label={isSelected ? '取消选择' : '选择'}
@@ -923,7 +939,20 @@ export default function Admin() {
 
                     <div className="flex shrink-0 items-center gap-1">
                       <button
-                        onClick={() => runFlush([item])}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setQueueDiffItem(item)
+                        }}
+                        className="btn-ghost h-8 w-8 !px-0 text-ink-500 hover:text-brand-600 dark:text-ink-400"
+                        title="查看 diff"
+                      >
+                        <Eye size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          runFlush([item])
+                        }}
                         disabled={flushing}
                         className="btn-ghost h-8 px-2 text-xs text-brand-600 dark:text-brand-300"
                         title="立即更新这一项"
@@ -936,7 +965,8 @@ export default function Admin() {
                         更新
                       </button>
                       <button
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation()
                           removeQueueItem(item.id)
                           reloadQueue()
                         }}
@@ -958,6 +988,356 @@ export default function Admin() {
           </p>
         </div>
       )}
+      {queueDiffItem && (
+        <QueueItemDiffDialog item={queueDiffItem} onClose={() => setQueueDiffItem(null)} />
+      )}
+    </div>
+  )
+}
+
+function QueueItemDiffDialog({ item, onClose }: { item: QueueItem; onClose: () => void }) {
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [oldText, setOldText] = useState<string | null>(null)
+  const [newText, setNewText] = useState<string | null>(null)
+  const [mode, setMode] = useState<'source' | 'render'>('source')
+  const [onlyChanges, setOnlyChanges] = useState(true)
+
+  const meta = QUEUE_KIND_META[item.kind] ?? QUEUE_KIND_META['post-publish']
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    setOldText(null)
+    setNewText(null)
+
+    const load = async () => {
+      try {
+        const repo = getRepoTarget()
+        let oldContent = ''
+        let newContent: string | null = null
+        let isImage = false
+
+        if (item.kind === 'post-publish' || item.kind === 'post-pr' || item.kind === 'post-delete') {
+          const path = `${repo.postsDir}/${item.target}.md`
+          try {
+            const { text } = await fetchRemoteFile(path)
+            oldContent = text
+          } catch (err) {
+            if ((err as { status?: number }).status === 404 || (err instanceof Error && /找不到资源/.test(err.message))) {
+              oldContent = ''
+            } else throw err
+          }
+          if (item.kind === 'post-delete') newContent = ''
+          else newContent = item.markdown ?? ''
+        } else if (item.kind === 'image-upload') {
+          isImage = true
+          // 图片：尝试获取远程（若不存在则为空）
+          try {
+            // 图片是二进制，这里仅尝试获取文本占位，实际不用于 diff
+            const { text } = await fetchRemoteFile(item.target)
+            oldContent = text
+          } catch {
+            oldContent = ''
+          }
+          newContent = item.dataUrl ?? ''
+          // 对于图片 diff，oldText/newText 用于特殊渲染
+          if (isImage) {
+            if (!cancelled) {
+              setOldText(oldContent)
+              setNewText(newContent)
+              setLoading(false)
+            }
+            return
+          }
+        } else if (item.kind === 'settings-sync') {
+          const path = item.target
+          try {
+            const { text } = await fetchRemoteFile(path)
+            oldContent = text
+          } catch (err) {
+            if ((err as { status?: number }).status === 404 || (err instanceof Error && /找不到资源/.test(err.message))) oldContent = ''
+            else throw err
+          }
+          newContent = item.text ?? ''
+        } else if (item.kind === 'version-name') {
+          const slug = item.target
+          const path = `${repo.postsDir}/${slug}.versions.json`
+          let currentNames: Record<string, string> = {}
+          try {
+            const { text } = await fetchRemoteFile(path)
+            oldContent = text
+            try {
+              currentNames = JSON.parse(text)
+              if (!currentNames || typeof currentNames !== 'object') currentNames = {}
+            } catch {
+              currentNames = {}
+            }
+          } catch (err) {
+            if ((err as { status?: number }).status === 404 || (err instanceof Error && /找不到资源/.test(err.message))) {
+              oldContent = ''
+              currentNames = {}
+            } else throw err
+          }
+          const nextNames: Record<string, string> = { ...currentNames }
+          for (const [sha, name] of Object.entries(item.renames ?? {})) {
+            const k = sha.trim()
+            if (!k) continue
+            const v = name?.trim()
+            if (v) nextNames[k] = v
+            else delete nextNames[k]
+          }
+          newContent = Object.keys(nextNames).length === 0 ? '' : JSON.stringify(nextNames, null, 2) + '\n'
+          // 如果 old 为空且 new 有内容，old 应视为空 JSON
+          if (!oldContent) oldContent = Object.keys(currentNames).length === 0 ? '' : JSON.stringify(currentNames, null, 2) + '\n'
+        }
+
+        if (!cancelled) {
+          setOldText(oldContent)
+          setNewText(newContent ?? '')
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : '无法读取差异内容')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [item])
+
+  const lines = useMemo(() => {
+    if (oldText === null || newText === null) return []
+    return diffLines(oldText, newText)
+  }, [oldText, newText])
+  const stats = useMemo(() => diffStats(lines), [lines])
+  const rows = useMemo(() => (onlyChanges ? collapseContext(lines, 3) : lines), [lines, onlyChanges])
+  const identical = oldText !== null && newText !== null && stats.added === 0 && stats.removed === 0
+
+  const isMarkdown = item.kind === 'post-publish' || item.kind === 'post-pr' || item.kind === 'post-delete'
+  const isImage = item.kind === 'image-upload'
+
+  // 渲染模式使用新版本的 Markdown 分组（与 VersionCompare 一致）
+  const renderBlocks = useMemo(() => {
+    type Block = { type: DiffLine['type'] | 'skip'; text: string; count?: number }
+    const blocks: Block[] = []
+    let cur: Block | null = null
+    for (const row of rows) {
+      if (row.type === 'skip') {
+        if (cur) {
+          blocks.push(cur)
+          cur = null
+        }
+        blocks.push({ type: 'skip', text: '', count: row.count })
+        continue
+      }
+      if (!cur || cur.type !== row.type) {
+        if (cur) blocks.push(cur)
+        cur = { type: row.type, text: row.text }
+      } else {
+        cur.text += '\n' + row.text
+      }
+    }
+    if (cur) blocks.push(cur)
+    return blocks
+  }, [rows])
+
+  return (
+    <div
+      className="no-print fixed inset-0 z-[95] flex items-center justify-center bg-ink-950/50 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label="更新队列差异"
+      onClick={onClose}
+    >
+      <div
+        className="card flex max-h-[min(48rem,calc(100vh-2rem))] w-full max-w-5xl flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-ink-200/70 px-5 py-4 dark:border-white/10">
+          <div className="min-w-0 flex-1">
+            <h2 className="flex items-center gap-2 font-serif text-lg font-bold text-ink-900 dark:text-white">
+              <span className={`flex h-7 w-7 items-center justify-center rounded-lg ${meta.tone}`}>
+                <meta.icon size={14} />
+              </span>
+              {item.title}
+              <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${meta.tone}`}>{meta.label}</span>
+            </h2>
+            <p className="mt-1 truncate font-mono text-xs text-ink-400">{item.target} · 加入于 {relativeTime(item.createdAt)}</p>
+          </div>
+          <button type="button" onClick={onClose} className="btn-ghost h-8 w-8 shrink-0 !px-0" aria-label="关闭">
+            <XCircle size={16} />
+          </button>
+        </div>
+
+        {isImage ? (
+          <div className="flex-1 overflow-auto bg-ink-50/50 p-4 dark:bg-black/20">
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-sm text-ink-500">
+                <Loader2 size={16} className="animate-spin" /> 正在读取…
+              </div>
+            ) : error ? (
+              <p className="p-4 text-sm text-rose-600 dark:text-rose-400">{error}</p>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-xl border border-ink-200/70 bg-white p-3 dark:border-white/10 dark:bg-ink-900/60">
+                  <p className="mb-2 text-xs font-medium text-ink-500">新图片（本地暂存）</p>
+                  {newText ? (
+                    <img src={newText} alt="" className="max-h-80 w-full rounded-lg border border-ink-200/60 object-contain dark:border-white/10" />
+                  ) : (
+                    <p className="text-xs text-ink-400">无图片数据</p>
+                  )}
+                  <p className="mt-2 break-all font-mono text-[11px] text-ink-400">{item.url ?? item.target}</p>
+                </div>
+                <div className="rounded-xl border border-ink-200/70 bg-white p-3 dark:border-white/10 dark:bg-ink-900/60">
+                  <p className="mb-2 text-xs font-medium text-ink-500">仓库状态</p>
+                  {oldText ? (
+                    <p className="text-xs text-ink-500">该路径在仓库中已存在（图片为二进制，无法文本对比）</p>
+                  ) : (
+                    <p className="text-xs text-ink-500">仓库中尚无该图片（新文件）</p>
+                  )}
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex items-center gap-1 text-xs text-brand-600 hover:underline"
+                  >
+                    尝试访问远程地址 <Github size={12} />
+                  </a>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-3 border-b border-ink-200/70 px-5 py-2.5 text-xs dark:border-white/10">
+              <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">+{stats.added}</span>
+              <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">−{stats.removed}</span>
+              <label className="ml-auto flex cursor-pointer items-center gap-2 text-ink-500">
+                <input
+                  type="checkbox"
+                  checked={onlyChanges}
+                  onChange={(e) => setOnlyChanges(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded accent-brand-500"
+                />
+                仅显示差异附近
+              </label>
+              {isMarkdown && (
+                <div className="flex gap-0.5 rounded-lg bg-ink-100/80 p-0.5 dark:bg-white/5">
+                  <button
+                    type="button"
+                    onClick={() => setMode('source')}
+                    className={`rounded-md px-2.5 py-1 font-medium ${mode === 'source' ? 'bg-white shadow-sm dark:bg-white/10' : 'text-ink-500'}`}
+                  >
+                    源码
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode('render')}
+                    className={`rounded-md px-2.5 py-1 font-medium ${mode === 'render' ? 'bg-white shadow-sm dark:bg-white/10' : 'text-ink-500'}`}
+                  >
+                    渲染
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="min-h-32 flex-1 overflow-auto bg-ink-50/50 dark:bg-black/20">
+              {loading ? (
+                <div className="flex items-center justify-center gap-2 py-16 text-sm text-ink-500">
+                  <Loader2 size={16} className="animate-spin" /> 正在读取差异…
+                </div>
+              ) : error ? (
+                <p className="p-5 text-sm text-rose-600 dark:text-rose-400">{error}</p>
+              ) : identical ? (
+                <p className="p-10 text-center text-sm text-ink-500">
+                  {oldText === '' ? '这是新建文件，仓库中尚无该内容' : '该文件内容与仓库中一致，无差异'}
+                </p>
+              ) : mode === 'render' && isMarkdown ? (
+                <div className="space-y-2 p-4">
+                  {renderBlocks.map((block, idx) => {
+                    if (block.type === 'skip') {
+                      return (
+                        <div key={`skip-${idx}`} className="rounded-lg bg-ink-100/70 px-3 py-1 text-center text-[11px] text-ink-400 dark:bg-white/[0.04]">
+                          … 省略 {block.count} 行未改动内容 …
+                        </div>
+                      )
+                    }
+                    const tone =
+                      block.type === 'insert'
+                        ? 'border-emerald-200 bg-emerald-50/80 dark:border-emerald-500/20 dark:bg-emerald-500/[0.08]'
+                        : block.type === 'delete'
+                          ? 'border-rose-200 bg-rose-50/80 dark:border-rose-500/20 dark:bg-rose-500/[0.08]'
+                          : 'border-ink-200/60 bg-white dark:border-white/10 dark:bg-ink-900/40'
+                    const label = block.type === 'insert' ? '新增' : block.type === 'delete' ? '删除' : '未改动'
+                    const labelTone =
+                      block.type === 'insert'
+                        ? 'bg-emerald-500 text-white'
+                        : block.type === 'delete'
+                          ? 'bg-rose-500 text-white'
+                          : 'bg-ink-200 text-ink-600 dark:bg-white/10 dark:text-ink-300'
+                    return (
+                      <div key={`block-${idx}`} className={`overflow-hidden rounded-xl border ${tone}`}>
+                        <div
+                          className={`flex items-center gap-2 px-3 py-1 text-[11px] ${block.type === 'equal' ? 'bg-ink-50/50 border-b border-ink-200/60 dark:bg-white/[0.02] dark:border-white/10' : block.type === 'insert' ? 'bg-emerald-500/10 border-b border-emerald-200/50' : 'bg-rose-500/10 border-b border-rose-200/50'}`}
+                        >
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${labelTone}`}>{label}</span>
+                        </div>
+                        <div className="prose prose-sm dark:prose-invert max-w-none px-4 py-3">
+                          {block.text.trim() ? <Markdown content={block.text} /> : <span className="text-xs text-ink-400">（空行）</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <table className="w-full border-collapse font-mono text-[12.5px] leading-relaxed">
+                  <tbody>
+                    {rows.map((row, idx) =>
+                      row.type === 'skip' ? (
+                        <tr key={`skip-${idx}`}>
+                          <td colSpan={3} className="bg-ink-100/70 px-3 py-1 text-center text-[11px] text-ink-400 dark:bg-white/[0.04]">
+                            … 省略 {row.count} 行未改动内容 …
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr
+                          key={`l-${idx}`}
+                          className={
+                            row.type === 'insert'
+                              ? 'bg-emerald-500/[0.12] text-emerald-900 dark:text-emerald-200'
+                              : row.type === 'delete'
+                                ? 'bg-rose-500/[0.12] text-rose-900 dark:text-rose-200'
+                                : 'text-ink-600 dark:text-ink-300'
+                          }
+                        >
+                          <td className="w-10 select-none border-r border-ink-200/60 px-2 text-right align-top text-[11px] text-ink-400 dark:border-white/10">
+                            {row.oldNumber ?? ''}
+                          </td>
+                          <td className="w-10 select-none border-r border-ink-200/60 px-2 text-right align-top text-[11px] text-ink-400 dark:border-white/10">
+                            {row.newNumber ?? ''}
+                          </td>
+                          <td className="whitespace-pre-wrap break-words px-3 align-top">
+                            <span className="select-none pr-2 opacity-70">{row.type === 'insert' ? '+' : row.type === 'delete' ? '−' : ' '}</span>
+                            {row.text || '\u00a0'}
+                          </td>
+                        </tr>
+                      ),
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </>
+        )}
+        <div className="flex justify-end gap-2 border-t border-ink-200/70 px-5 py-3 dark:border-white/10">
+          <button onClick={onClose} className="btn-outline h-8 px-3 text-xs">
+            关闭
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -21,11 +21,6 @@ function versionLabel(
   return `${tag} · ${version.sha.slice(0, 7)} · ${when} · ${name}`
 }
 
-function shortVersionName(version: PostHistoryVersion, index: number, total: number, customName?: string | null) {
-  const tag = index === 0 ? '最新' : `#${total - index}`
-  return `${tag} · ${version.sha.slice(0, 7)} · ${customName || version.message}`
-}
-
 export function VersionCompare({
   versions,
   slug,
@@ -37,7 +32,6 @@ export function VersionCompare({
   path?: string
   onClose: () => void
 }) {
-  // 默认对比「上一版 → 最新版」，这是最常见的诉求。
   const [baseSha, setBaseSha] = useState(() => versions[Math.min(1, versions.length - 1)]?.sha ?? '')
   const [targetSha, setTargetSha] = useState(() => versions[0]?.sha ?? '')
   const [loading, setLoading] = useState(false)
@@ -45,7 +39,6 @@ export function VersionCompare({
   const [texts, setTexts] = useState<{ base: string; target: string } | null>(null)
   const [onlyChanges, setOnlyChanges] = useState(true)
   const [mode, setMode] = useState<CompareMode>('source')
-  // 版本名称在历史列表中被修改后，这里同步刷新
   const [namesVersion, setNamesVersion] = useState(0)
   useEffect(() => {
     const handler = () => setNamesVersion((value) => value + 1)
@@ -95,13 +88,37 @@ export function VersionCompare({
     void namesVersion
     return resolveVersionName(sha, slug)
   }
-  const baseIndex = versions.findIndex((v) => v.sha === baseSha)
-  const targetIndex = versions.findIndex((v) => v.sha === targetSha)
 
   const swap = () => {
     setBaseSha(targetSha)
     setTargetSha(baseSha)
   }
+
+  const renderBlocks = useMemo(() => {
+    type Block = { type: DiffLine['type'] | 'skip'; text: string; count?: number }
+    const blocks: Block[] = []
+    let current: Block | null = null
+    for (const row of rows) {
+      if (row.type === 'skip') {
+        if (current) {
+          blocks.push(current)
+          current = null
+        }
+        blocks.push({ type: 'skip', text: '', count: row.count })
+        continue
+      }
+      if (!current || current.type !== row.type) {
+        if (current) blocks.push(current)
+        current = { type: row.type, text: row.text }
+      } else {
+        current.text += '\n' + row.text
+      }
+    }
+    if (current) blocks.push(current)
+    return blocks
+  }, [rows])
+
+  const targetIndex = versions.findIndex((v) => v.sha === targetSha)
 
   return (
     <div
@@ -118,7 +135,7 @@ export function VersionCompare({
               版本对比
             </h2>
             <p className="mt-1 text-xs text-ink-400">
-              选择原始版本与新版本，查看 Markdown 源码差异或并排的渲染效果。
+              选择原始版本与新版本，查看 Markdown 源码差异或渲染效果（渲染仅显示新版本，新增/删除用颜色标记）。
             </p>
           </div>
           <button type="button" onClick={onClose} className="btn-ghost h-8 w-8 !px-0" aria-label="关闭版本对比">
@@ -193,23 +210,19 @@ export function VersionCompare({
               渲染对比
             </button>
           </div>
-          {mode === 'source' && (
-            <>
-              <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">+{stats.added}</span>
-              <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">−{stats.removed}</span>
-              <label className="ml-auto flex cursor-pointer items-center gap-2 text-ink-500">
-                <input
-                  type="checkbox"
-                  checked={onlyChanges}
-                  onChange={(event) => setOnlyChanges(event.target.checked)}
-                  className="h-3.5 w-3.5 rounded accent-brand-500"
-                />
-                仅显示差异附近的内容
-              </label>
-            </>
-          )}
+          <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">+{stats.added}</span>
+          <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">−{stats.removed}</span>
+          <label className="ml-auto flex cursor-pointer items-center gap-2 text-ink-500">
+            <input
+              type="checkbox"
+              checked={onlyChanges}
+              onChange={(event) => setOnlyChanges(event.target.checked)}
+              className="h-3.5 w-3.5 rounded accent-brand-500"
+            />
+            仅显示差异附近的内容
+          </label>
           {mode === 'render' && (
-            <span className="ml-auto text-ink-400">左右并排渲染两个版本，可分别滚动查看</span>
+            <span className="hidden text-ink-400 sm:inline">· 绿色为新增、红色为删除（仅显示新版本）</span>
           )}
         </div>
 
@@ -222,49 +235,79 @@ export function VersionCompare({
             <p className="p-5 text-sm text-rose-600 dark:text-rose-400">{error}</p>
           ) : baseSha === targetSha ? (
             <p className="p-10 text-center text-sm text-ink-500">请选择两个不同的版本进行对比。</p>
-          ) : mode === 'render' ? (
-            <div className="grid gap-4 p-4 lg:grid-cols-2">
-              {[
-                {
-                  label: '原始版本',
-                  text: texts?.base ?? '',
-                  index: baseIndex,
-                  sha: baseSha,
-                },
-                {
-                  label: '新版本',
-                  text: texts?.target ?? '',
-                  index: targetIndex,
-                  sha: targetSha,
-                },
-              ].map((pane) => (
-                <section
-                  key={pane.label}
-                  className="flex max-h-[60vh] min-w-0 flex-col overflow-hidden rounded-xl border border-ink-200/70 bg-white dark:border-white/10 dark:bg-ink-900/60"
-                >
-                  <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ink-200/70 px-4 py-2.5 dark:border-white/10">
-                    <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] font-semibold text-brand-600 dark:text-brand-300">
-                      {pane.label}
-                    </span>
-                    <span className="min-w-0 truncate font-mono text-[11px] text-ink-400">
-                      {pane.index >= 0
-                        ? shortVersionName(
-                            versions[pane.index],
-                            pane.index,
-                            versions.length,
-                            nameOf(pane.sha),
-                          )
-                        : pane.sha.slice(0, 7)}
-                    </span>
-                  </header>
-                  <div className="prose prose-sm dark:prose-invert max-w-none flex-1 overflow-y-auto px-4 py-3">
-                    <Markdown content={pane.text} />
-                  </div>
-                </section>
-              ))}
-            </div>
           ) : identical ? (
             <p className="p-10 text-center text-sm text-ink-500">这两个版本的内容完全相同。</p>
+          ) : mode === 'render' ? (
+            <div className="p-4">
+              <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ink-200/70 bg-white px-3 py-2 dark:border-white/10 dark:bg-ink-900/60">
+                <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                  新版本
+                </span>
+                <span className="min-w-0 truncate font-mono text-[11px] text-ink-500">
+                  {targetIndex >= 0
+                    ? `${versions[targetIndex].sha.slice(0, 7)} · ${nameOf(targetSha)} · ${versions[targetIndex].committedAt ? new Date(versions[targetIndex].committedAt).toLocaleString('zh-CN') : ''}`
+                    : targetSha.slice(0, 7)}
+                </span>
+                <span className="ml-auto flex items-center gap-2 text-[11px]">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-3 w-3 rounded bg-emerald-500/20 border border-emerald-500/30" /> 新增
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-3 w-3 rounded bg-rose-500/20 border border-rose-500/30" /> 删除
+                  </span>
+                </span>
+              </div>
+              <div className="space-y-2">
+                {renderBlocks.map((block, idx) => {
+                  if (block.type === 'skip') {
+                    return (
+                      <div
+                        key={`skip-${idx}`}
+                        className="rounded-lg bg-ink-100/70 px-3 py-1 text-center text-[11px] text-ink-400 dark:bg-white/[0.04]"
+                      >
+                        … 省略 {block.count} 行未改动内容 …
+                      </div>
+                    )
+                  }
+                  const tone =
+                    block.type === 'insert'
+                      ? 'border-emerald-200 bg-emerald-50/80 dark:border-emerald-500/20 dark:bg-emerald-500/[0.08]'
+                      : block.type === 'delete'
+                        ? 'border-rose-200 bg-rose-50/80 dark:border-rose-500/20 dark:bg-rose-500/[0.08]'
+                        : 'border-ink-200/60 bg-white dark:border-white/10 dark:bg-ink-900/40'
+                  const label =
+                    block.type === 'insert' ? '新增' : block.type === 'delete' ? '删除' : '未改动'
+                  const labelTone =
+                    block.type === 'insert'
+                      ? 'bg-emerald-500 text-white'
+                      : block.type === 'delete'
+                        ? 'bg-rose-500 text-white'
+                        : 'bg-ink-200 text-ink-600 dark:bg-white/10 dark:text-ink-300'
+                  return (
+                    <div
+                      key={`block-${idx}`}
+                      className={`overflow-hidden rounded-xl border ${tone} ${block.type !== 'equal' ? 'shadow-sm' : ''}`}
+                    >
+                      <div className={`flex items-center gap-2 px-3 py-1 text-[11px] ${block.type === 'equal' ? 'bg-ink-50/50 dark:bg-white/[0.02] border-b border-ink-200/60 dark:border-white/10' : block.type === 'insert' ? 'bg-emerald-500/10 border-b border-emerald-200/50 dark:border-emerald-500/20' : 'bg-rose-500/10 border-b border-rose-200/50 dark:border-rose-500/20'}`}>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${labelTone}`}>{label}</span>
+                        {block.type !== 'equal' && (
+                          <span className="font-mono text-[10px] text-ink-400">
+                            {block.type === 'insert' ? '+' : '−'} {block.text.split('\n').length} 行
+                          </span>
+                        )}
+                      </div>
+                      <div className="prose prose-sm dark:prose-invert max-w-none px-4 py-3">
+                        {block.text.trim() ? (
+                          <Markdown content={block.text} />
+                        ) : (
+                          <span className="text-xs text-ink-400">（空行）</span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           ) : (
             <table className="w-full border-collapse font-mono text-[12.5px] leading-relaxed">
               <tbody>
