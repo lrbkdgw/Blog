@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Github,
+  HardDrive,
   LayoutDashboard,
   LogIn,
   LogOut,
@@ -11,6 +12,7 @@ import {
   PenLine,
   Rss,
   Search,
+  WifiOff,
   Settings,
   Sun,
   X,
@@ -22,6 +24,9 @@ import { useAuth } from '../lib/auth'
 import { AnimatedBackdrop } from './AnimatedBackdrop'
 import { useAnimatedBackground, useAnimatedSceneOverride, getSceneValues } from '../lib/animatedBackground'
 import { SearchDialog } from './SearchDialog'
+import { OFFLINE } from '../lib/runtime'
+import { planOfflineSync } from '../lib/offlineSync'
+import { useOnlineStatus } from '../lib/useOnlineStatus'
 import { ThemePicker } from './ThemePicker'
 import logoVenti from '../assets/logo-venti.jpg'
 
@@ -211,6 +216,8 @@ function Header({ onSearch }: { onSearch: () => void }) {
             <Settings size={18} />
           </Link>
 
+          <OfflineBadge />
+
           <ThemePicker />
 
           <ThemeToggle />
@@ -254,6 +261,12 @@ function Header({ onSearch }: { onSearch: () => void }) {
                 <Settings size={15} />
                 设置
               </Link>
+              {OFFLINE && (
+                <Link to="/admin?tab=sync" className="btn-outline">
+                  <HardDrive size={15} />
+                  同步
+                </Link>
+              )}
               {isAuthed ? (
                 <>
                   <Link to="/admin" className="btn-outline flex-1">
@@ -329,6 +342,44 @@ function AnimatedBackdropLayer() {
   const scene = override ?? pref.scene
   if (scene === 'none') return null
   return <AnimatedBackdrop scene={scene} values={getSceneValues(pref, scene)} />
+}
+
+/** 离线版页头徽标：本机文章库的待同步数量 + 联网状态 */
+function OfflineBadge() {
+  const online = useOnlineStatus()
+  const [pending, setPending] = useState(() => (OFFLINE ? planOfflineSync().items.length : 0))
+  useEffect(() => {
+    if (!OFFLINE) return
+    const refresh = () => setPending(planOfflineSync().items.length)
+    window.addEventListener('starlog:posts-changed', refresh)
+    window.addEventListener('starlog:queue-changed', refresh)
+    window.addEventListener('storage', refresh)
+    return () => {
+      window.removeEventListener('starlog:posts-changed', refresh)
+      window.removeEventListener('starlog:queue-changed', refresh)
+      window.removeEventListener('storage', refresh)
+    }
+  }, [])
+  if (!OFFLINE) return null
+  return (
+    <Link
+      to="/admin?tab=sync"
+      title={
+        online
+          ? '离线版：文章保存在本机。点这里查看待同步内容并一次提交到仓库'
+          : '离线版：当前没有网络，写作照常；同步需要联网'
+      }
+      className="btn-ghost h-9 gap-1.5 !px-2.5 text-xs"
+    >
+      {online ? <HardDrive size={15} /> : <WifiOff size={15} className="text-amber-500" />}
+      <span className="hidden lg:inline">离线版</span>
+      {pending > 0 && (
+        <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+          {pending} 待同步
+        </span>
+      )}
+    </Link>
+  )
 }
 
 export function Layout() {

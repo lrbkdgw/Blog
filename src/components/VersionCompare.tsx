@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeftRight, Columns2, FileText, GitCompareArrows, Loader2, X } from 'lucide-react'
-import { fetchPostHistoryMarkdown, getRepoTarget } from '../lib/github'
+import { loadPostHistoryMarkdown } from '../lib/postHistory'
 import type { PostHistoryVersion } from '../lib/github'
 import { diffLines, diffStats, renderedDiffBlocks } from '../lib/diff'
 import type { RenderedDiffChunk } from '../lib/diff'
@@ -60,10 +60,9 @@ export function VersionCompare({
     let cancelled = false
     setLoading(true)
     setError('')
-    const target = getRepoTarget()
     Promise.all([
-      fetchPostHistoryMarkdown(slug, baseSha, target, path),
-      fetchPostHistoryMarkdown(slug, targetSha, target, path),
+      loadPostHistoryMarkdown(slug, baseSha, path),
+      loadPostHistoryMarkdown(slug, targetSha, path),
     ])
       .then(([base, next]) => {
         if (!cancelled) setTexts({ base, target: next })

@@ -15,12 +15,15 @@ import {
   commitFileChanges,
   fetchRemoteFile,
   getRepoTarget,
+  getToken,
   submitPublicationPR,
   type FileChange,
 } from './github'
 import { normalizeVersionNames } from './versionNames'
 import { recordPublishTime } from './publishTimes'
 import { removeLocalPostIfSynced } from './posts'
+import { recordSeedDeletion, restoreSeedPost } from './offlineLibrary'
+import { OFFLINE, hasNetwork, resolveOfflineImageSrc } from './runtime'
 
 export type QueueItemKind =
   | 'post-publish'
@@ -73,8 +76,12 @@ export const QUEUE_CHANGED_EVENT = 'starlog:queue-changed'
 /** 与文章相关的三种意图共享同一 slug 命名空间：同一篇文章只保留最新意图。 */
 const POST_KINDS: QueueItemKind[] = ['post-publish', 'post-delete', 'post-pr']
 
-/** localStorage 存不下超大图片（base64 还会膨胀约 1/3），提前拦截。 */
-const MAX_IMAGE_DATAURL_CHARS = 3_200_000
+/**
+ * localStorage 存不下超大图片（base64 还会膨胀约 1/3），提前拦截。
+ * 离线版首选写入 IndexedDB，容量放宽到 32MB；若离线版降级到 localStorage，
+ * 超量会在写入时抛出「本地存储空间不足」，不会静默丢弃。
+ */
+const MAX_IMAGE_DATAURL_CHARS = OFFLINE ? 32_000_000 : 3_200_000
 
 const QUEUE_KINDS: QueueItemKind[] = ['post-publish', 'post-delete', 'post-pr', 'image-upload', 'settings-sync', 'version-name']
 
@@ -208,14 +215,32 @@ export async function enqueueImageUpload(file: File): Promise<string> {
     reader.readAsDataURL(file)
   })
   if (!dataUrl.startsWith('data:')) throw new Error('无法读取所选图片文件')
+  const safeName = file.name.replace(/[^\w.-]+/g, '-')
+  return enqueueImageUploadDataUrl(dataUrl, safeName).url
+}
+
+/**
+ * 以已有的 data URL 暂存图片（离线导入、批量导入用）。
+ * 与 enqueueImageUpload 走同一条队列语义：先存本地，统一更新时提交到仓库。
+ */
+export function enqueueImageUploadDataUrl(
+  dataUrl: string,
+  name: string,
+  repoPath?: string,
+): { url: string; path: string; title: string } {
+  if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
+    throw new Error('图片数据不完整（应为 data URL）')
+  }
   if (dataUrl.length > MAX_IMAGE_DATAURL_CHARS) {
     throw new Error(
-      '图片过大，无法暂存到本地待更新队列（约 2.4MB 以上）。请压缩图片或改用外链图片',
+      OFFLINE
+        ? `图片过大（约 ${Math.round(dataUrl.length / 1_000_000)}MB），超出离线文章库单图上限。请压缩图片后重试`
+        : '图片过大，无法暂存到本地待更新队列（约 2.4MB 以上）。请压缩图片或改用外链图片',
     )
   }
   const target = getRepoTarget()
-  const safeName = file.name.replace(/[^\w.-]+/g, '-')
-  const path = `public/uploads/${Date.now()}-${safeName}`
+  const safeName = (name || 'image').replace(/[^\w.-]+/g, '-')
+  const path = repoPath?.trim() || `public/uploads/${Date.now()}-${safeName}`
   const url = `https://raw.githubusercontent.com/${target.owner}/${target.repo}/${target.branch}/${path}`
   enqueueUpdate({
     kind: 'image-upload',
@@ -224,7 +249,7 @@ export async function enqueueImageUpload(file: File): Promise<string> {
     dataUrl,
     url,
   })
-  return url
+  return { url, path, title: safeName }
 }
 
 export function removeQueueItem(id: string) {
@@ -260,10 +285,28 @@ function getImageCache(): Map<string, string> {
   return imageCache
 }
 
-/** 队列中的图片尚未上传时，返回本地 data URL 供预览；否则原样返回。 */
+/**
+ * 队列中的图片尚未上传时，返回本地 data URL 供预览；否则原样返回。
+ * 离线版还会把文章里的站内绝对路径（`/uploads/x.png`）改写到线上站点地址，
+ * 使 HTML 内置文章的图片在联网时仍能显示。
+ */
 export function resolvePendingImageSrc(src: string): string {
   if (!src) return src
-  return getImageCache().get(src) ?? src
+  const local = getImageCache().get(src)
+  if (local) return local
+  return OFFLINE ? resolveOfflineImageSrc(src) : src
+}
+
+/** 离线版：列出本机暂存的图片（待上传的 data URL），用于导出离线档案与同步包 */
+export function listStagedImages(): { path: string; url: string; title: string; dataUrl: string }[] {
+  return readStore()
+    .filter((item) => item.kind === 'image-upload' && item.dataUrl && item.url)
+    .map((item) => ({
+      path: item.target,
+      url: item.url as string,
+      title: item.title,
+      dataUrl: item.dataUrl as string,
+    }))
 }
 
 /* -------------------------------- 批量更新 ------------------------------- */
@@ -403,6 +446,12 @@ function bestEffort(fn: () => unknown) {
  * 失败的条目会保留在队列中，成功的条目自动移除。
  */
 export async function flushUpdateQueue(selected?: QueueItem[]): Promise<FlushResult> {
+  if (OFFLINE && !hasNetwork()) {
+    throw new Error('当前处于离线状态：更新线上仓库需要联网。连网后在「内容管理 → 同步到线上」重试即可。')
+  }
+  if (!getToken()) {
+    throw new Error('尚未连接 GitHub 账号：请先在「设置 → GitHub 连接」（或登录页）完成 Device Flow 授权，再执行统一更新。')
+  }
   const queue = getUpdateQueue()
   const wanted = [...(selected ?? queue)]
   // 文章引用的图片必须与文章一起提交，否则已发布的文章会指向尚不存在的图片。
@@ -502,7 +551,27 @@ export async function flushUpdateQueue(selected?: QueueItem[]): Promise<FlushRes
         if (item.kind === 'post-publish') {
           // 提交已经成功：本地记录失败（如存储空间不足）不能让这次提交被误报为失败
           bestEffort(() => recordPublishTime(item.target, Date.now()))
-          if (item.markdown) bestEffort(() => removeLocalPostIfSynced(item.target, item.markdown!))
+          // 线上站点：本地草稿与仓库内容一致时删掉它，免得本地版本一直盖住仓库里的新版本。
+          // 离线版：本地文章库是文章的正式存放处而非「待同步草稿」，内容一致也不能删——
+          // 删了这篇在离线文件里就没了。这里只在被清掉时留一条明确日志，绝不静默改动用户内容。
+          if (item.markdown && !OFFLINE) {
+            bestEffort(() => {
+              const removed = removeLocalPostIfSynced(item.target, item.markdown!)
+              if (removed) console.info(`[待更新队列] 《${item.title}》的本地草稿与仓库内容一致，已清除本机副本`)
+            })
+          } else if (item.markdown) {
+            console.warn(
+              `[待更新队列] 《${item.title}》已提交到仓库；离线版保留本机文章库中的同内容副本（离线阅读需要），未自动删除。`,
+            )
+          }
+        }
+        if (item.kind === 'post-delete' && OFFLINE) {
+          // 离线版删除内置文章时先记墓碑；提交成功后把墓碑转成「已提交删除」记录：
+          // 文章继续隐藏，但墓碑不会无限累积，日后同 slug 重新发布也不会被旧记录误隐藏。
+          bestEffort(() => {
+            recordSeedDeletion(item.target)
+            restoreSeedPost(item.target)
+          })
         }
         succeeded.push(item)
       }
@@ -518,7 +587,17 @@ export async function flushUpdateQueue(selected?: QueueItem[]): Promise<FlushRes
         deleteSlug: item.renamedFrom,
       })
       prUrls.push(pr.html_url)
-      if (item.markdown) bestEffort(() => removeLocalPostIfSynced(item.target, item.markdown!))
+      // 同直推路径：离线版不删除本机文章库副本，只在真正清掉草稿时留日志
+      if (item.markdown && !OFFLINE) {
+        bestEffort(() => {
+          const removed = removeLocalPostIfSynced(item.target, item.markdown!)
+          if (removed) console.info(`[待更新队列] 《${item.title}》的本地草稿已进入 PR，内容一致，已清除本机副本`)
+        })
+      } else if (item.markdown) {
+        console.warn(
+          `[待更新队列] 《${item.title}》的发表申请已创建；离线版保留本机文章库中的副本，未自动删除。`,
+        )
+      }
       succeeded.push(item)
     } catch (err) {
       failed.push({ item, message: err instanceof Error ? err.message : '创建发表申请失败' })

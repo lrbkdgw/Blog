@@ -70,7 +70,12 @@
 
 1. 阅读本文件与当前 [README.md](README.md)、[ChangeLog.md](ChangeLog.md)，了解现状与已记录的历史。
 2. 进行代码 / 内容修改。
-3. 运行验证（常规：`npm run build`；涉及 VS Code 插件时：`npm ci --prefix vscode_extensions/v1` 后 `npm run extension:test`）。
+3. 运行验证（常规：`npm run build`；涉及 VS Code 插件时：`npm ci --prefix vscode_extensions/v1` 后 `npm run extension:test`；
+   **涉及 `src/**`、`vite*.config.ts`、`scripts/vite-plugin-single-html.mjs` 或 `content/posts/**` 时**，
+   还必须跑 `npm run build:offline` 并通过 `scripts/verify-offline.mjs` 的自检——离线版是单文件产物，
+   少字体、漏文章、内联脚本被破坏这类问题只在线上构建里看不出来）。
+   自检通过后，把 `dist-offline/index.html` 拷到 `offline/index.html` 一并提交（该文件由
+   `.github/workflows/offline.yml` 自动维护，**不要手工编辑**，也不要提交 `dist-offline/`）。
 4. **更新 README.md**（按规则 1）与 **ChangeLog.md**（按规则 1、2、3，含模型信息）。
 5. 将代码与文档一并提交并推送；提交信息写清本次变更。
 

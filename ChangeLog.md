@@ -1,5 +1,126 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-19 · 离线单文件版：断网可用、写作可用、联网后一键同步回线上站点
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+需求：推出本站点的**离线版本**，结构为单个 HTML 文件，支持除「必须联网」以外的全部功能；
+联网后可以把离线期间写的所有文章**一键导入**线上站点
+（`blog-apa.pages.dev` 或 `lrbkdgw.github.io/Blog`）的文章列表。
+
+两条设计约束在实现过程中被明确固化下来：
+
+1. **同步不新建通道**——复用站点原有的 GitHub Device Flow 授权与「待更新队列」批量提交，
+   不引入 postMessage 中转页、不写第二套上传逻辑；
+2. **任何降级都不静默**——存储不可用、资源无法内联、文章没进包，一律变成可见错误或直接构建失败，
+   绝不允许「提示保存成功但其实没存」。
+
+### 新增
+
+- **运行时开关与站点感知**：`src/lib/runtime.ts` 提供 `OFFLINE`（由构建期 `__STARLOG_OFFLINE__` 决定）、
+  `hasNetwork()`、`getSiteBaseUrl()`、`resolveOfflineImageSrc()`、`getOAuthRelayUrl()`；
+  线上构建在 `vite.config.ts` 里固定 `__STARLOG_OFFLINE__ = 'false'`，两版共用一套源码。
+- **两级本机存储**：`src/lib/offlineStorage.ts` 用 IndexedDB（库 `starlog-offline`）为主、
+  `localStorage` 为冗余与降级后端，`window.localStorage` 被替换为「内存镜像 + 写回」的 shim，
+  使既有同步读写代码无需改语义；写操作 200ms 去抖，关键路径必须 `await flushStorage()`；
+  两级都不可用时后端判为 `none` 并拒绝一切写入。
+- **存储护栏**：`src/components/StorageGuard.tsx`（离线专用，包在 App 外层）——
+  `backend === 'none'` 时整页拦住并给出可执行解决办法（含「下载当前内容」）；
+  有错误或未落盘改动时显示顶部横幅，并每 4s 尝试确认落盘。
+- **离线文章库**：`src/lib/offlineLibrary.ts`（墓碑删除 / 已提交删除记录 / 本机版本快照）、
+  `src/lib/postHistory.ts`（版本列表与正文读取，区分「仓库版本」与「本机版本」）、
+  `src/lib/posts.ts` 的 `saveLocalPostRaw / localPostExists / postFingerprint / serializePost` 等；
+  `content/posts/*.md` 在构建时通过 `import.meta.glob(..., { query: '?raw' })` 打进文件。
+- **同步到线上**：`src/lib/offlineSync.ts`（`planOfflineSync / stageOfflineSync / runOfflineSync`）
+  把选中的离线文章（含暂存图片）写进**既有**待更新队列，再调用 `flushUpdateQueue()` 一次提交；
+  成功后记录内容指纹，内置文章的「删除墓碑」转换为已提交删除记录，避免墓碑累积。
+  面板为 `src/components/OfflineSyncPanel.tsx`，挂在管理页 `?tab=sync`；
+  页头新增「离线版」徽标（`Layout.tsx` 的 `OfflineBadge`，带待同步数量，移动端菜单同项）。
+- **离线设置**：`src/components/OfflineSettingsCard.tsx`（设置页离线板块）——存储后端与占用、
+  线上站点地址与 OAuth 中转地址覆盖、导出 / 导入离线档案、导出文章包、立即落盘。
+- **单文件构建**：`vite.offline.config.ts`（`base: './'`、iife + `inlineDynamicImports`、
+  `assetsInlineLimit` 设为极大值、关闭 `copyPublicDir` 与 modulepreload）
+  + 自研插件 `scripts/vite-plugin-single-html.mjs`：把 JS / CSS / `public/` 图标全部内联，
+  漏网的资源转成 data URI 并回写引用，移除 manifest / preconnect / modulepreload 链接。
+- **构建后自检**：`scripts/verify-offline.mjs` 硬检查——产物目录只有一个 HTML、无残留相对引用、
+  无 `type="module"`、内联脚本能被 JS 引擎解析、CSS 含 `.katex` / `hljs-` / `@font-face` 且 `url()` 全部内联、
+  `content/posts/` 每篇文章都在文件里；体积超过 48 MB 直接失败，> 25 MB 提示。
+  脚本入口：`npm run build:offline`、`npm run verify:offline`、`npm run preview:offline`。
+- **发布链路**：`.github/workflows/offline.yml`——构建 → 自检 → 把产物提交回 `offline/index.html`
+  （提交信息带 `[skip ci]`，避免与 Pages 部署互相触发）→ 更新滚动 Release（tag `offline`）→ 附 artifact；
+  `deploy.yml` 在站点构建前把 `offline/index.html` 放进 `public/offline/`，让线上站点可直接下载离线文件；
+  新增 `offline/README.md` 与 `.github/offline-release-notes.md`。
+- **离线写作体验**：`Editor.tsx` 的 `saveAndFlush()` 统一处理 ⌘S / 保存草稿 / 自动保存 / 离线发布——
+  先写入、再 `await flushStorage()`、最后用 `localPostExists()` 回读确认，**确认之后才提示成功**；
+  内容未变且距上次写入 < 50ms 时按去重跳过（返回 `deduped`，不算失败）；
+  加密文章尚未解锁时 `written: false`，调用方不得当成已保存；
+  图片选择改为离线暂存进队列（上限 32 MB/张，线上仍为 3.2 MB）。
+- **评论**：离线模式下列表不请求 GitHub，提交写入本机笔记（`appendLocalComment`），
+  可删除自己的条目，未登录也能写（不 gate 在 `canPublish` 上）。
+- OAuth 中转从 `file://` 可用：`functions/login/[[path]].ts` 与 `oauth-relay/worker.js` 补 CORS 头与
+  `OPTIONS` 预检，`github.ts` 的 `oauthRelay()` 在 `relayUrl` 为空时回退到离线配置 / 用户设置。
+
+### 调整
+
+- `main.tsx` 先初始化存储再渲染（`boot()` 内 `await initOfflineStorage()`），并按协议选择路由：
+  `file://` 下用 `HashRouter`（无服务端 rewrite），线上仍用 `BrowserRouter`；provider 顺序为
+  Theme → Auth → Font → Background → Toast → StorageGuard → App。
+- `Admin.tsx`：主标签新增 `sync`，离线时隐藏 PR 标签与远端拉取，删除内置文章改为写墓碑并给出「去同步」入口，
+  列表计数拆成「文件内置 / 离线文章库 / 草稿」，顶部显示墓碑与已提交删除的说明条（可一键清除记录）。
+- `Posts.tsx` / `PostPage.tsx` / `VersionCompare.tsx` 改用 `lib/postHistory` 与统一的文章来源，
+  版本改名只在能提交仓库时入队。
+- `font.tsx`：无网络时不再触发 Google Fonts 的 warm-up（直接返回并留一条 info 日志），避免离线打开时的无谓失败。
+- `updateQueue.ts`：`flushUpdateQueue` 的前置条件改为「有网络 + 有令牌」；
+  提交成功后清理本地正文的逻辑只在 `!OFFLINE` 时执行，离线模式改为把墓碑转成已提交删除记录，
+  使「离线文章库与仓库内容一致」时不会静默丢掉本机内容、也不会累积墓碑。
+- `settingsStore.ts` / `config.ts`：离线相关设置项与 `offlineConfig` 收敛到一处；
+  删除被否决方案留下的死配置（`importPath`、`maxPostMessageBytes`）。
+- `offlineBundle.ts`：`applyImport()` 必须显式接收导入包（原先读模块内缓存的「最近一次 plan」，
+  调用顺序一变就静默丢图片与偏好），并删除 `prepareImportPlan` / `optionsBundleHint`。
+
+### 修复
+
+- **离线产物内联脚本被破坏**：插件把脚本插入 HTML 时用 `html.replace('</body>', scriptTag)`，
+  代码里的 `$&` / `` $` `` 被当成替换模式展开，产物「构建成功但语法错误」。
+  改为函数形式的替换，并在插件与自检脚本里各加一道 `vm.Script` 语法校验。
+- **JS chunk 内容为空**：Rollup 的 chunk 把代码放在 `.code`、asset 才在 `.source`，
+  只读 `.source` 会安静地内联进一个空脚本；改为按类型取值，取不到就报错，并断言内联 JS 长度。
+- **误报「有改动尚未确认写入磁盘」**：`reportError()` 会把 `dirty` 置真，而 `file://` 下降级到
+  localStorage 属于正常提示；且 localStorage 后端下 `persist()` 不会重试真实写入，dirty 永不清除。
+  现在 `dirty` 只由「待落盘队列 + 失败键集合」推导（`syncDirty()`），localStorage 后端也会真正确认落盘。
+- 内联脚本的转义补齐 `<!--`（HTML escaped 状态会吃掉闭合标签），自检不再用「数 `<script>` 标签」这种
+  会被文章正文里的 `<script>` 字符串误伤的判断。
+- `Comments.tsx` 在放开离线评论条件后出现 6 处可空访问（TS18047），通过把 `currentAuthor` 放在
+  `&&` 链末位让类型收窄，并给 `@login` 加可选守卫。
+- `vite.offline.config.ts` 去掉多余的 `loadEnv` / `envPrefix` 与 `VITE_OFFLINE`（源码只用到
+  `import.meta.env.BASE_URL`），改由 `define` 单点控制离线开关。
+- `workflow` 的 YAML：Release 资产改为固定名 `starlog-offline-latest.html`（滚动 tag 上用带哈希的
+  文件名会让资产无限堆积）；步骤名中的 `（tag: offline）` 需加引号，否则 YAML 把「: 」当成映射分隔符。
+
+### 验证
+
+- `npx tsc --noEmit` 无错误；`npm run build` 通过（站点版，2287 modules，`index.js` 511.94 kB / gzip 200.34 kB）。
+- `npm run build:offline` 通过，产物 `dist-offline/index.html` 3.03 MB（内联 CSS 1.49 MB、内联 JS 1.52 MB、
+  data URI 1.07 MB / 42 个、`@font-face` 20 条、内置文章 10/10），`node scripts/verify-offline.mjs` 全项通过。
+- 用 jsdom 以 `file:///…/starlog-offline.html` 真实加载产物做冒烟测试：
+  首页列出内置文章、`#/posts/hello-starlog` 渲染出 2 个代码块 / 10 个 `code`、
+  KaTeX 公式 21 个节点、管理页 `?tab=sync` 面板与编辑器页均正常挂载，控制台无错误；
+  在没有 IndexedDB 且 `localStorage` 为不透明来源的环境里，页面按设计**拦住并给出解决办法**（而非静默丢数据），
+  补上 localStorage 后写入正常、误报横幅消失。
+- `npm ci --prefix vscode_extensions/v1` + `npm run extension:test`：65 项中 61 通过、0 失败、4 跳过
+  （需要浏览器环境的用例）；本次未改动插件代码，结果与基线一致。
+- 三份 workflow（`offline.yml` / `deploy.yml` / `extension.yml`）用 `js-yaml` 解析通过，
+  并确认 `deploy.yml` 中「放离线文件」一步排在 `npm run build` **之前**（否则不会进入 `dist/`）。
+- `AI_README.md` 的更新流程补充第 3 步的离线验证要求（本条即按「规则修改需登记」记录）。
+- 已知未处理（按要求暂缓）：自定义字体走 Google Fonts，离线时回退到系统字体；`content/posts/` 中的远程图片在断网时不显示。
+
+
 ## 2026-10-19 · 处理 issue #63 / #64 / #65 / #66：透明页头、队列 diff、渲染差异与外观同步
 
 | 模型信息 | |

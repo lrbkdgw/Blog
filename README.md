@@ -27,6 +27,7 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 🎛️ **交互展示框** | Markdown 中可声明整数、有理数、字符串变量，实时计算并渲染展示内容 |
 | 📄 **文章排版指令** | 文首 `::set-font` / `::set-code-font` / `::set-background` 强制本文的字体与动态背景，仅在阅读本文时生效 |
 | 📱 **响应式** | 手机 / 平板 / 桌面均已适配，支持打印样式 |
+| 📴 **离线单文件版** | 整站打包成一个 HTML，断网可用（阅读 + 写作 + 加密 + 版本历史），联网后一键把离线文章同步回线上站点（见「📴 离线版」） |
 
 ---
 
@@ -408,6 +409,11 @@ pinned: false    # true 则置顶到首页
 ```
 .
 ├── .github/workflows/deploy.yml   # GitHub Pages 自动部署（路线 B）
+├── .github/workflows/offline.yml  # 离线单文件版构建（自检后提交到 offline/，并发布 Rolling Release）
+├── offline/index.html             # 离线单文件版产物（自动生成，请勿手工编辑，见 offline/README.md）
+├── vite.offline.config.ts         # 离线构建配置（内联一切，`__STARLOG_OFFLINE__ = true`）
+├── scripts/vite-plugin-single-html.mjs  # 单文件内联插件（含构建期硬校验）
+├── scripts/verify-offline.mjs           # 构建后自检：缺字体 / 缺文章 / 残留外链 / 语法破坏 → 失败
 ├── functions/login/[[path]].ts    # OAuth 同源中转（Cloudflare Pages，路线 A）
 ├── oauth-relay/                   # OAuth 极简 CORS 中转（独立 Worker，路线 B 用）
 ├── content/
@@ -437,6 +443,62 @@ pinned: false    # true 则置顶到首页
 ├── tailwind.config.js
 └── vite.config.ts                 # base path + SPA 404 兜底
 ```
+
+---
+
+## 📴 离线版（单文件）
+
+整个博客可以打包成**一个 HTML 文件**：拷进 U 盘、发给自己、断网双击打开，阅读和写作都照常工作；
+等有了网络，再把离线期间写的文章**一键同步回线上站点**。
+
+- 产物由 [`.github/workflows/offline.yml`](.github/workflows/offline.yml) 自动构建，提交在仓库的
+  [`offline/index.html`](offline/index.html)，并挂在 Releases 的滚动 tag `offline`（`starlog-offline-latest.html`）；
+- 本地构建：`npm run build:offline`（= `vite build --config vite.offline.config.ts` + 产物自检），
+  想先用浏览器验证：`npm run preview:offline`；
+- 构建后自检是**硬性**的：只要有多余文件、残留外链、KaTeX 字体缺失、内联脚本语法被破坏、
+  或者某篇文章没进包，构建就直接失败，不会留下一个「看着正常、打开才发现坏」的文件。
+
+### 支持范围
+
+| | |
+| --- | --- |
+| ✅ 阅读 | 构建时打包进文件的全部文章：列表、归档、标签、站内搜索、目录、打印样式 |
+| ✅ 排版 | KaTeX 公式、代码高亮、10 套配色主题、动态背景、字体与字号偏好（样式与字体均已内联，不请求任何 CDN） |
+| ✅ 写作 | 新建 / 编辑 / 自动保存 / 加密文章（浏览器 WebCrypto 本机加解密）/ 本机版本历史与差异对比 |
+| ✅ 评论 | 变为「本机笔记」：只写在自己设备上，不访问 GitHub Discussion |
+| 📤 同步 | 「管理 → 同步到线上」：用与站点相同的 GitHub **Device Flow** 授权，把勾选的文章（含待上传的图片）经原有**待更新队列**一次提交到仓库，Actions 部署后线上列表里就有了 |
+| ❌ 不支持 | 拉取仓库新内容、发表线上评论、PR 流程；内置文章是构建那一刻的快照，不会自动更新 |
+
+### 数据存在哪、会不会丢
+
+- 优先写 **IndexedDB**；从 `file://` 直接打开时多数浏览器禁用 IndexedDB，此时自动降级为
+  **localStorage（约 5 MB）**，界面上会写明当前用的哪一个；
+- 两级都不可用（无痕模式、浏览器禁止站点保存数据）时，`StorageGuard` 会**拦住页面并给出解决办法**，
+  同时拒绝一切写入——绝不会出现「提示保存成功、其实没存」的情况；
+- 保存 / 发布 / 同步都会 `await flushStorage()` 把在途写入真正落盘，**落盘确认之后**才提示成功；
+  失败会把「未保存」标记还原并把原因告诉你；
+- 「设置 → 离线版」可以**导出 / 导入离线档案**（全部本机数据，用于备份或换设备），
+  也可以导出**文章包**（`*.starlog-import.json`）交给线上站点导入；
+- 记住一条：清除浏览器数据 = 本机文章一起没了，长文请随手导出档案备份。
+
+### 体积与性能
+
+以当前仓库内容（`content/posts/` 10 篇）实测：**单文件约 3.0 MB**
+——内联 CSS 1.49 MB（其中 KaTeX 字体 base64 约 1.07 MB）、内联 JS 1.52 MB，无其他文件。
+
+- 首屏只有**一次文件读取**：没有 chunk 瀑布、没有字体/图片请求，离线状态下网络请求数为 0；
+- 代价是首次解析这 3 MB（桌面约 60–150 ms，移动端更慢），之后路由切换是纯本地渲染，
+  阅读体验通常比线上版更快（没有往返）；
+- 文件体积随内容线性增长：正文和图片都会进包。想显著减小体积，把图片改用外链，
+  或只把需要离线看的文章放进 `content/posts/`；
+- 构建脚本对成品有上限保护：超过 48 MB 直接失败，超过 25 MB 会在自检输出里提示（邮件/网盘分发会难受）。
+
+### 与线上站点的关系
+
+离线版和线上版是**同一套源码、两次构建**（`vite.offline.config.ts` 里把 `__STARLOG_OFFLINE__` 置为 `true`，
+线上构建固定为 `false`），因此不会出现「离线版是另一个玩具站」的功能漂移；
+所有只在离线成立的分支都写在 `src/lib/runtime.ts` 的 `OFFLINE` 判断下，可逐条审计。
+同步走的也是站点既有的「待更新队列 + Device Flow」，没有第二套上传逻辑。
 
 ---
 

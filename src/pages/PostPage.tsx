@@ -38,10 +38,11 @@ import {
 } from '../lib/posts'
 import { decryptPost, isEncryptedPost, restorePostUnlock } from '../lib/crypto'
 import {
-  fetchPostHistoryMarkdown,
-  getRepoTarget,
-  listPostHistory,
-} from '../lib/github'
+  loadPostHistory,
+  loadPostHistoryMarkdown,
+  VERSION_SOURCE_LABEL,
+} from '../lib/postHistory'
+import { OFFLINE } from '../lib/runtime'
 import type { PostHistoryVersion } from '../lib/github'
 import type { Post } from '../lib/types'
 import { usePosts } from '../lib/usePosts'
@@ -144,7 +145,9 @@ function HistoryDialog({
       }
       // 先记录到本地立即生效，同时加入待更新队列，统一更新后保存到 GitHub 对应文章下
       setVersionName(version.sha, trimmed || null)
-      enqueueVersionRename({ slug, title: postTitle }, version.sha, trimmed || null)
+      // 离线版：版本名称只在本机保存。仓库里的 {slug}.versions.json 记录的是 Git 提交 sha，
+      // 把本机快照 id 提交上去没有任何意义，因此不入队。
+      if (!OFFLINE) enqueueVersionRename({ slug, title: postTitle }, version.sha, trimmed || null)
       setEditingSha(null)
       toast(
         trimmed
@@ -167,7 +170,7 @@ function HistoryDialog({
           <div>
             <h2 className="flex items-center gap-2 font-serif text-lg font-bold text-ink-900 dark:text-white">
               <History size={18} className="text-brand-500" />
-              文章历史版本
+              文章历史版本{OFFLINE ? `（${VERSION_SOURCE_LABEL}）` : ''}
             </h2>
             <p className="mt-1 text-xs text-ink-400">
               每次发布都会保留为一个 Git 提交，可在此查看任一版本；点击铅笔可修改版本名称，更改会加入待更新队列，统一更新后保存到 GitHub 对应文章下。
@@ -196,7 +199,11 @@ function HistoryDialog({
           ) : error ? (
             <p className="p-5 text-sm text-rose-600 dark:text-rose-400">{error}</p>
           ) : versions.length === 0 ? (
-            <p className="p-8 text-center text-sm text-ink-500">尚未找到可查看的历史版本。</p>
+            <p className="p-8 text-center text-sm text-ink-500">
+              {OFFLINE
+                ? '还没有本机快照：在离线版里每次保存文章都会留一份，可随时回看与对比。'
+                : '尚未找到可查看的历史版本。'}
+            </p>
           ) : (
             versions.map((version, index) => {
               const customName = resolveVersionName(version.sha, slug)
@@ -421,7 +428,7 @@ export default function PostPage() {
     if (history.length > 0) return
     setHistoryLoading(true)
     try {
-      setHistory(await listPostHistory(historyBase.slug, getRepoTarget(), historyBase.path))
+      setHistory(await loadPostHistory(historyBase.slug, historyBase.path))
     } catch (error) {
       setHistoryError(error instanceof Error ? error.message : '无法加载文章历史')
     } finally {
@@ -432,12 +439,7 @@ export default function PostPage() {
   const selectHistory = async (version: PostHistoryVersion) => {
     setSelectingVersion(version.sha)
     try {
-      const raw = await fetchPostHistoryMarkdown(
-        historyBase.slug,
-        version.sha,
-        getRepoTarget(),
-        historyBase.path,
-      )
+      const raw = await loadPostHistoryMarkdown(historyBase.slug, version.sha, historyBase.path)
       setHistoricalPost(buildPost(raw, { slug: historyBase.slug, path: historyBase.path, source: 'repo' }))
       setUnlockedPost(null)
       setHistoryOpen(false)
@@ -531,7 +533,7 @@ export default function PostPage() {
             </div>
           )}
           <div className="mt-5 text-center">
-            <button type="button" onClick={openHistory} className="btn-ghost h-8 text-xs"><History size={13} />历史版本</button>
+            <button type="button" onClick={openHistory} className="btn-ghost h-8 text-xs"><History size={13} />{OFFLINE ? '本机版本' : '历史版本'}</button>
           </div>
         </div>
         {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} slug={historyBase.slug} postTitle={historyBase.title} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} onCompare={() => setCompareOpen(true)} selecting={selectingVersion} />}

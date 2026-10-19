@@ -1,0 +1,115 @@
+name: 构建离线单文件版
+
+# 产出：一个可直接双击打开的 HTML（离线版博客），提交回仓库的 offline/index.html，
+# 并更新 Rolling Release（tag: offline）。
+#
+# 为什么不用第三方 vite-plugin-singlefile：它不认识 public/ 里的图标、不会转义内联代码里的
+# `</script`、也不会校验 KaTeX 字体是否真的进了文件；这三件事在离线版里都属于「静默坏掉」，
+# 所以我们用自研插件（scripts/vite-plugin-single-html.mjs）+ 构建后自检（scripts/verify-offline.mjs）。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'content/posts/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
+      - 'vite.offline.config.ts'
+      - 'scripts/vite-plugin-single-html.mjs'
+      - 'scripts/verify-offline.mjs'
+      - '.github/workflows/offline.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# 提交回仓库的动作必须串行，否则会互相覆盖；这里不取消进行中的任务。
+concurrency:
+  group: offline-single-file
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 类型检查
+        run: npx tsc --noEmit
+
+      - name: 构建离线单文件版
+        run: npx vite build --config vite.offline.config.ts
+
+      - name: 自检产物（缺字体 / 缺文章 / 残留外链 / 内联脚本语法被破坏 → 直接失败）
+        run: node scripts/verify-offline.mjs
+
+      - name: 体积摘要（写进任务日志，方便回看每次构建的变化）
+        run: |
+          size=$(wc -c < dist-offline/index.html)
+          echo "### 离线单文件体积：${size} bytes" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 把产物提交回 offline/index.html
+        id: commit
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test -f dist-offline/index.html
+          mkdir -p offline
+          cp dist-offline/index.html offline/index.html
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add offline/index.html
+          if git diff --cached --quiet; then
+            echo "离线文件与仓库中已有版本一致，无需提交"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # [skip ci] 很关键：这个提交会命中 deploy.yml 的 push 触发条件，
+          # 没有它就会出现「Actions 提交 → 触发部署 → 触发离线构建 → 再提交」的循环。
+          git commit -m "chore(offline): 更新离线单文件版 [skip ci]" --no-verify
+          git push origin "HEAD:${BRANCH}"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: "更新 Rolling Release（tag: offline）"
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # 只保留一个固定名字的资产：滚动 tag 上如果每次都用新文件名，资产会无限堆积。
+          # 需要历史版本时看仓库里的 offline/index.html（每次提交都有对应版本）。
+          cp dist-offline/index.html starlog-offline-latest.html
+          if gh release view offline >/dev/null 2>&1; then
+            gh release edit offline --title "离线单文件版（rolling）" \
+              --notes-file .github/offline-release-notes.md --latest=false
+            gh release upload offline starlog-offline-latest.html --clobber
+          else
+            gh release create offline starlog-offline-latest.html \
+              --title "离线单文件版（rolling）（${SHA}）" \
+              --notes-file .github/offline-release-notes.md \
+              --target "$(git rev-parse HEAD)" \
+              --prerelease --latest=false
+          fi
+
+      # Actions 的 artifact 只保留 90 天，Release 才是长期入口；这里作为备用下载
+      - name: 上传本次运行的 Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: starlog-offline-single-file
+          path: dist-offline/index.html
+          if-no-files-found: error
+          retention-days: 30

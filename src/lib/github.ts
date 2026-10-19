@@ -1,5 +1,6 @@
 import { commentsConfig, githubConfig, oauthConfig, STORAGE_KEYS } from './config'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
+import { getOAuthRelayUrl } from './runtime'
 
 export interface RepoTarget {
   owner: string
@@ -158,7 +159,8 @@ export interface DeviceAuthInfo {
 }
 
 function oauthRelay(path: string): string {
-  const relay = oauthConfig.relayUrl.trim()
+  // 离线单文件版（file://）没有「与站点同源」的中转，回退到配置 / 设置里指定的绝对地址
+  const relay = oauthConfig.relayUrl.trim() || getOAuthRelayUrl()
   if (!relay) return path
   return `${relay.replace(/\/+$/, '')}${path}`
 }

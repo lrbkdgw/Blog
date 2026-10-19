@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { STORAGE_KEYS } from './config'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 import { fetchGithubFontPreference, buildFontPreferenceFile, fontSettingsPath } from './github'
+import { OFFLINE, hasNetwork } from './runtime'
 import { enqueueSettingsSync, getUpdateQueue } from './updateQueue'
 import { useAuth } from './auth'
 import { MONO_FALLBACK, SANS_FALLBACK, SERIF_FALLBACK, buildFontStack, quoteFontFamily } from './fontStacks'
@@ -296,6 +297,14 @@ export async function requestCloudFont(family: string, timeout = CLOUD_TIMEOUT):
  * 只应在**可信内容**（自己仓库里的文章）上调用，评论等外部内容不触发网络请求。
  */
 export function warmFontFamilies(families: string[]): void {
+  // 离线版在没有网络时不去敲 Google Fonts：请求会挂到超时，白等十几秒。
+  // 字体只是外观差异，失败仍按既有约定静默回退到本机字体栈。
+  if (!hasNetwork()) {
+    if (OFFLINE) {
+      console.info('[字体] 当前离线，跳过云端字体请求，使用本机字体栈')
+    }
+    return
+  }
   for (const family of families) {
     if (localFontLikelyExists(family)) continue
     void requestCloudFont(family).catch(() => {})

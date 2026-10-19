@@ -1,6 +1,8 @@
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter'
 import { stripArticleDirectives } from './articleDirectives'
 import { STORAGE_KEYS } from './config'
+import { deletedSeedSlugs, hiddenSeedSlugs } from './offlineLibrary'
+import { OFFLINE } from './runtime'
 import type { Post, PostMeta } from './types'
 
 /* -------------------------------------------------------------------------- */
@@ -238,6 +240,41 @@ export function deleteLocalPost(slug: string) {
 }
 
 /**
+ * 直接以「原始 Markdown」写入本地文章库（离线版发布 / 离线导入用）。
+ *
+ * 与 saveLocalPost 的区别：调用方已经准备好了完整的 Markdown 文本
+ * （例如加密信封、或从别的设备导入的原文），这里不再由 Post 对象重新序列化，
+ * 避免往返过程中丢失 frontmatter 里的 encrypted / encryption 等字段。
+ */
+export function saveLocalPostRaw(slug: string, raw: string, prevSlug?: string): Post {
+  const items = readStore().filter((d) => d.slug !== slug && d.slug !== prevSlug)
+  const savedAt = Date.now()
+  let encrypt = false
+  try {
+    const data = parseFrontmatter(raw).data
+    encrypt = data.encrypted === true || data.encrypted === 'true'
+  } catch {
+    encrypt = false
+  }
+  items.unshift({ slug, raw, savedAt, encrypt })
+  try {
+    writeStore(items)
+  } catch (err) {
+    if (!OFFLINE) throw err
+    // 离线版这里失败的往往是「整库体积」：文章内容、图片 data URL、以及内置文章的
+    // 删除记录同处一个存储，写失败时三者都可能不同步，必须一并提示去核对。
+    const message = err instanceof Error ? err.message : '未知错误'
+    console.error('[posts] 离线文章库写入失败', err)
+    throw new Error(
+      `离线文章库写入失败（${message}）：《${slug}》可能没有保存成功。` +
+        '同时请核对内置文章的删除记录（「内容管理」顶部的隐藏提示与「同步到线上」的计划）——' +
+        '它们与文章库同库写入，这次可能一起失败了。建议先导出离线档案备份，再清理空间后重试。',
+    )
+  }
+  return buildPost(raw, { slug, source: 'local', savedAt })
+}
+
+/**
  * 文章已成功提交到仓库后，删除内容完全相同的本地草稿。
  * 草稿仍在覆盖公开版本（getAllPosts 中本地优先），不删除会导致仓库里的新版本永远看不到。
  * 若草稿在提交之后又被修改（内容不同），则保留，避免丢失用户的新改动。
@@ -280,9 +317,16 @@ export function getPublishTime(post: Post): number | null {
 /* -------------------------------------------------------------------------- */
 
 export function getRepoPosts(): Post[] {
-  return Object.entries(rawModules).map(([path, raw]) =>
+  const posts = Object.entries(rawModules).map(([path, raw]) =>
     buildPost(raw, { path: path.replace(/^\//, ''), source: 'repo' }),
   )
+  if (!OFFLINE) return posts
+  // 离线版：单文件里的内置文章删不掉，只能记住「本机已删除」（待提交的墓碑，
+  // 或已提交到仓库的删除记录）并把它隐藏。
+  const hidden = hiddenSeedSlugs()
+  const committed = deletedSeedSlugs()
+  if (hidden.length === 0 && committed.size === 0) return posts
+  return posts.filter((post) => !hidden.includes(post.slug) && !committed.has(post.slug))
 }
 
 /** 指定 slug 对应的仓库加密文章（不存在则返回 undefined）。
@@ -300,12 +344,13 @@ function sortPosts(posts: Post[]): Post[] {
 
 /** 公开聚合：本地草稿与仓库文章同名时，以本地版本为准。
  * 例外：仓库中的加密文章不能被同名的明文本地草稿顶替，
- * 否则公开页面会绕过密码直接显示明文内容。 */
+ * 否则公开页面会绕过密码直接显示明文内容。
+ * 本地版本自带加密信封时允许覆盖——离线版「重新加密发布」正是这条路径。 */
 export function getAllPosts(): Post[] {
   const map = new Map<string, Post>()
   for (const p of getRepoPosts()) map.set(p.slug, p)
   for (const p of getLocalPosts()) {
-    if (map.get(p.slug)?.encryption) continue
+    if (map.get(p.slug)?.encryption && !p.encryption) continue
     map.set(p.slug, p)
   }
   return sortPosts([...map.values()])

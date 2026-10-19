@@ -16,6 +16,10 @@ export default defineConfig(({ mode, command }) => {
 
   return {
     base,
+    define: {
+      // 线上站点版：运行时的所有 `OFFLINE` 分支在这里被静态关掉（离线版见 vite.offline.config.ts）
+      __STARLOG_OFFLINE__: 'false',
+    },
     plugins: [
       react(),
       {

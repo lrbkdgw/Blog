@@ -52,10 +52,29 @@ import {
 import type { QueueItem, QueueItemKind } from '../lib/updateQueue'
 import { useRepoTarget } from '../lib/useRepoTarget'
 import { QueueDiffDialog } from '../components/QueueDiff'
+import { OfflineSyncPanel } from '../components/OfflineSyncPanel'
+import { hiddenSeedSlugs, hideSeedPost, resetSeedDeletions } from '../lib/offlineLibrary'
+import { planOfflineSync } from '../lib/offlineSync'
+import { OFFLINE } from '../lib/runtime'
 import type { Post } from '../lib/types'
 
-type MainTab = 'posts' | 'prs' | 'queue'
+type MainTab = 'posts' | 'prs' | 'queue' | 'sync'
 type Filter = 'all' | 'repo' | 'local' | 'draft'
+
+/** 列表筛选项：离线版里 source=repo 是「打包进 HTML 的内置文章」，source=local 是本机文章库 */
+const FILTER_OPTIONS: { id: Filter; label: string }[] = OFFLINE
+  ? [
+      { id: 'all', label: '全部' },
+      { id: 'repo', label: '文件内置' },
+      { id: 'local', label: '离线文章库' },
+      { id: 'draft', label: '草稿' },
+    ]
+  : [
+      { id: 'all', label: '全部' },
+      { id: 'repo', label: '已发布到仓库' },
+      { id: 'local', label: '本地草稿' },
+      { id: 'draft', label: '草稿' },
+    ]
 
 const QUEUE_KIND_META: Record<
   QueueItemKind,
@@ -116,8 +135,15 @@ export default function Admin() {
 
   const target = useRepoTarget()
 
+  const [syncCount, setSyncCount] = useState(() => (OFFLINE ? planOfflineSync().items.length : 0))
+  const [hiddenCount, setHiddenCount] = useState(() => (OFFLINE ? hiddenSeedSlugs().length : 0))
+
   const reloadPosts = () => {
     setPosts(getAllAdminPosts())
+    if (OFFLINE) {
+      setSyncCount(planOfflineSync().items.length)
+      setHiddenCount(hiddenSeedSlugs().length)
+    }
   }
 
   const reloadQueue = () => {
@@ -170,7 +196,7 @@ export default function Admin() {
   // 支持 /admin?tab=queue 等入口直达指定标签页
   useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab === 'posts' || tab === 'prs' || tab === 'queue') setMainTab(tab)
+    if (tab === 'posts' || tab === 'prs' || tab === 'queue' || tab === 'sync') setMainTab(tab)
   }, [searchParams])
 
   // 加载 PR 列表
@@ -185,6 +211,9 @@ export default function Admin() {
   }
 
   useEffect(() => {
+    // 离线版：PR 审核依赖 GitHub API，没有网络/令牌可用时不做无谓请求；
+    // 需要审批流程时直接到线上站点处理。
+    if (OFFLINE) return
     fetchPRs()
     const handler = () => fetchPRs()
     window.addEventListener('starlog:prs-changed', handler)
@@ -320,6 +349,21 @@ export default function Admin() {
       toast('本地草稿已删除', 'info')
       return
     }
+    if (OFFLINE) {
+      // 单文件里的内置文章无法真的从文件里删除：本机隐藏（墓碑），同步到线上时再从仓库删除。
+      if (!confirm(`将「${post.title}」从离线版隐藏，并在下次「同步到线上」时从仓库删除？（不会改动这个 HTML 文件本身）`)) return
+      try {
+        hideSeedPost(post.slug)
+        reloadPosts()
+        toast('已在离线版中隐藏；同步到线上时会一并删除仓库文件', 'success', {
+          label: '去同步',
+          href: '/admin?tab=sync',
+        })
+      } catch (err) {
+        toast(err instanceof Error ? err.message : '删除失败', 'error')
+      }
+      return
+    }
     if (!canPublish) {
       toast('删除仓库文章需要先连接 GitHub', 'warning')
       return
@@ -412,8 +456,8 @@ export default function Admin() {
         </div>
       </header>
 
-      {/* 访客提示 */}
-      {!canPublish && (
+      {/* 访客提示（离线版：文章本来就存在本机，不需要登录即可写与发布到文章库） */}
+      {!canPublish && !OFFLINE && (
         <div className="card mt-6 flex flex-wrap items-center justify-between gap-3 border-brand-200/60 bg-brand-50/50 p-4 text-sm dark:border-brand-500/20 dark:bg-brand-500/10">
           <div className="flex items-center gap-2.5 text-brand-900 dark:text-brand-200">
             <HardDrive size={18} className="shrink-0 text-brand-500" />
@@ -422,6 +466,26 @@ export default function Admin() {
           <Link to="/login" className="btn-primary h-8 !px-3 text-xs">
             登录 GitHub
           </Link>
+        </div>
+      )}
+
+      {OFFLINE && hiddenCount > 0 && (
+        <div className="card mt-6 flex flex-wrap items-center justify-between gap-3 border-amber-200/70 bg-amber-50/60 p-4 text-sm dark:border-amber-500/20 dark:!bg-amber-500/[0.06]">
+          <span className="flex items-center gap-2 text-ink-700 dark:text-ink-200">
+            <HardDrive size={17} className="text-amber-600" />
+            有 <strong>{hiddenCount}</strong> 篇内置文章在离线版中被隐藏（删除记录会随「同步到线上」提交到仓库）。
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              resetSeedDeletions()
+              reloadPosts()
+              toast('已恢复全部被隐藏的内置文章', 'info')
+            }}
+            className="btn-outline h-8 text-xs"
+          >
+            全部恢复显示
+          </button>
         </div>
       )}
 
@@ -442,23 +506,44 @@ export default function Admin() {
             {posts.length}
           </span>
         </button>
-        <button
-          type="button"
-          onClick={() => setMainTab('prs')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
-            mainTab === 'prs'
-              ? 'border-brand-500 text-brand-600 dark:text-brand-300'
-              : 'border-transparent text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
-          }`}
-        >
-          <GitPullRequest size={16} />
-          发表申请 (PR 审核)
-          {openPRsCount > 0 && (
-            <span className="rounded-full bg-brand-500 px-2 py-0.5 text-xs font-bold text-white">
-              {openPRsCount} 待审核
-            </span>
-          )}
-        </button>
+        {!OFFLINE && (
+          <button
+            type="button"
+            onClick={() => setMainTab('prs')}
+            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+              mainTab === 'prs'
+                ? 'border-brand-500 text-brand-600 dark:text-brand-300'
+                : 'border-transparent text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
+            }`}
+          >
+            <GitPullRequest size={16} />
+            发表申请 (PR 审核)
+            {openPRsCount > 0 && (
+              <span className="rounded-full bg-brand-500 px-2 py-0.5 text-xs font-bold text-white">
+                {openPRsCount} 待审核
+              </span>
+            )}
+          </button>
+        )}
+        {OFFLINE && (
+          <button
+            type="button"
+            onClick={() => setMainTab('sync')}
+            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+              mainTab === 'sync'
+                ? 'border-brand-500 text-brand-600 dark:text-brand-300'
+                : 'border-transparent text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
+            }`}
+          >
+            <CloudUpload size={16} />
+            同步到线上
+            {syncCount > 0 && (
+              <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
+                {syncCount} 待同步
+              </span>
+            )}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setMainTab('queue')}
@@ -498,14 +583,7 @@ export default function Admin() {
               />
             </div>
             <div className="flex gap-0.5 rounded-xl bg-ink-100/80 p-1 dark:bg-white/5">
-              {(
-                [
-                  { id: 'all', label: '全部' },
-                  { id: 'repo', label: '已发布到仓库' },
-                  { id: 'local', label: '本地草稿' },
-                  { id: 'draft', label: '草稿' },
-                ] as const
-              ).map((f) => (
+              {FILTER_OPTIONS.map((f) => (
                 <button
                   key={f.id}
                   onClick={() => setFilter(f.id)}
@@ -668,6 +746,11 @@ export default function Admin() {
             当同一文章存在已发布的仓库版本与本地编辑的草稿时，列表中会同时显示为两条记录，方便分别查看与管理。发布与删除等仓库操作会先进入「待更新队列」，统一更新后才会真正提交到 GitHub。
           </p>
         </>
+      ) : mainTab === 'sync' ? (
+        /* ----------------------- 离线版：同步到线上 ----------------------- */
+        <div className="mt-6 animate-fade-up">
+          <OfflineSyncPanel />
+        </div>
       ) : mainTab === 'prs' ? (
         /* -------------------------- 发表申请 (PR 审批) -------------------------- */
         <div className="mt-6 space-y-4">

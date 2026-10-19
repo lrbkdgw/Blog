@@ -59,6 +59,8 @@ import { getLocalPosts, serializePost } from '../lib/posts'
 import { STORAGE_KEYS } from '../lib/config'
 import { clearRememberedPostUnlocks } from '../lib/crypto'
 import { useEditorScrollSync } from '../lib/editorSettings'
+import { OfflineSettingsCard } from '../components/OfflineSettingsCard'
+import { OFFLINE } from '../lib/runtime'
 
 type LocalFontData = { family?: string }
 
@@ -1018,6 +1020,9 @@ export default function SettingsPage() {
             保存仓库设置
           </button>
         </Section>
+
+        {/* ------------------------------ 离线版专属 ------------------------------ */}
+        {OFFLINE && <OfflineSettingsCard />}
 
         {/* ------------------------------ 本地数据 ------------------------------- */}
         <Section
