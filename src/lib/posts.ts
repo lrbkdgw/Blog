@@ -1,5 +1,6 @@
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter'
 import { STORAGE_KEYS } from './config'
+import { stripLeadingDirectives } from './postDirectives'
 import type { Post, PostMeta } from './types'
 
 /* -------------------------------------------------------------------------- */
@@ -48,7 +49,8 @@ export function today(): string {
 
 /** 去掉 Markdown 标记，用于摘要与字数统计 */
 export function stripMarkdown(md: string): string {
-  return md
+  // 文章级排版指令（::set-font 等）不是正文，不应进入摘要、字数统计或阅读时长。
+  return stripLeadingDirectives(md)
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`]*`/g, ' ')
     .replace(/\$\$[\s\S]*?\$\$/g, ' ')

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 
 /**
@@ -104,6 +104,18 @@ export interface AnimatedBackgroundPreference {
 const STORAGE_NAME = 'animatedBackground'
 const DEFAULT_PREFERENCE: AnimatedBackgroundPreference = { scene: 'none', values: {} }
 
+/**
+ * `::set-background[<id>]` 的编号顺序（issue #59）：0 = 无，1 = 樱花，2 = 粒子星链，
+ * 3 = 雪花，4 = 暴雨，5 = 竹林。编号一旦发布就不要调整，否则旧文章会换到别的背景。
+ */
+export const BACKGROUND_SCENE_IDS: SceneId[] = ['none', 'sakura', 'network', 'snow', 'rain', 'bamboo']
+
+/** 把文章里的背景编号转成场景；越界或非整数返回 null（视为没有该指令）。 */
+export function backgroundSceneFromId(id: number): SceneId | null {
+  if (!Number.isInteger(id) || id < 0 || id >= BACKGROUND_SCENE_IDS.length) return null
+  return BACKGROUND_SCENE_IDS[id]
+}
+
 export function findScene(id: SceneId): SceneSpec | undefined {
   return SCENES.find((scene) => scene.id === id)
 }
@@ -175,6 +187,36 @@ export function resetSceneValues(scene: ActiveSceneId) {
   if (!spec) return
   const current = readAnimatedBackground()
   write({ ...current, values: { ...current.values, [scene]: defaultSceneValues(spec) } })
+}
+
+/**
+ * 文章级临时背景覆盖（`::set-background`）。
+ *
+ * 只影响「当前正在浏览的文章页」，不写入 localStorage、也不改动用户在设置页选定的场景：
+ * 离开文章后覆盖被清空，原来的背景立即恢复。因此用模块级的小订阅仓库而不是设置存储。
+ */
+let sceneOverride: SceneId | null = null
+const sceneOverrideListeners = new Set<() => void>()
+
+function subscribeSceneOverride(listener: () => void): () => void {
+  sceneOverrideListeners.add(listener)
+  return () => sceneOverrideListeners.delete(listener)
+}
+
+function readSceneOverride(): SceneId | null {
+  return sceneOverride
+}
+
+/** 设置/清除临时背景覆盖；传 null 表示恢复用户自己的设置。 */
+export function setSceneOverride(scene: SceneId | null): void {
+  if (sceneOverride === scene) return
+  sceneOverride = scene
+  for (const listener of sceneOverrideListeners) listener()
+}
+
+/** 当前文章的临时背景覆盖；没有时为 null。 */
+export function useSceneOverride(): SceneId | null {
+  return useSyncExternalStore(subscribeSceneOverride, readSceneOverride, () => null)
 }
 
 /** 订阅动态背景设置（同一页面、其他标签页的修改都会立即生效）。 */

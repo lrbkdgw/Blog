@@ -18,6 +18,7 @@ import {
   List,
   ListOrdered,
   Loader2,
+  Omega,
   LogIn,
   LockKeyhole,
   Maximize2,
@@ -32,6 +33,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react'
+import { LatexSymbolPicker } from '../components/LatexSymbolPicker'
 import { Markdown } from '../components/Markdown'
 import { PasswordPrompt } from '../components/PasswordPrompt'
 import { useToast } from '../components/Toast'
@@ -189,6 +191,9 @@ export default function Editor() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  // LaTeX 符号选择框（issue #60）：打开时记住选区，插入后把光标停到合适位置。
+  const [symbolPickerOpen, setSymbolPickerOpen] = useState(false)
+  const symbolSelectionRef = useRef<{ start: number; end: number } | null>(null)
 
   const tags = useMemo(
     () =>
@@ -385,6 +390,43 @@ export default function Editor() {
     applyAction(fn(ta.value, ta.selectionStart, ta.selectionEnd))
   }
 
+  /** 打开符号选择框：先记住编辑区选区，关闭后可以原样恢复。 */
+  const openSymbolPicker = () => {
+    const ta = textareaRef.current
+    symbolSelectionRef.current = ta ? { start: ta.selectionStart, end: ta.selectionEnd } : null
+    setSymbolPickerOpen(true)
+  }
+
+  /**
+   * 关闭符号选择框。
+   * 若刚刚插入过符号，选区由 applyAction 负责（symbolSelectionRef 已被清空），
+   * 这里只把焦点还给编辑区，避免把光标又拨回打开选择框之前的位置。
+   */
+  const closeSymbolPicker = () => {
+    setSymbolPickerOpen(false)
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current
+      if (!ta) return
+      ta.focus()
+      const selection = symbolSelectionRef.current
+      if (selection) ta.setSelectionRange(selection.start, selection.end)
+    })
+  }
+
+  /** 在记住的选区处插入符号；模板类命令把光标放进第一个花括号。 */
+  const insertLatexSymbol = (latex: string, cursor?: number) => {
+    // 仅预览模式下没有 textarea，此时把符号追加到正文末尾，避免点了没反应。
+    const ta = textareaRef.current
+    const base = ta?.value ?? content
+    const selection = symbolSelectionRef.current
+    const start = selection?.start ?? (ta ? ta.selectionStart : base.length)
+    const end = selection?.end ?? (ta ? ta.selectionEnd : base.length)
+    const next = base.slice(0, start) + latex + base.slice(end)
+    const caret = start + (cursor ?? latex.length)
+    symbolSelectionRef.current = null
+    applyAction({ value: next, selectionStart: caret, selectionEnd: caret })
+  }
+
   const tools = [
     {
       icon: Bold,
@@ -467,6 +509,18 @@ export default function Editor() {
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const mod = e.metaKey || e.ctrlKey
+    // Shift + ↑ 打开 LaTeX 符号选择框（输入法组合中的按键不算）。
+    if (
+      e.shiftKey &&
+      !mod &&
+      !e.altKey &&
+      e.key === 'ArrowUp' &&
+      !e.nativeEvent.isComposing
+    ) {
+      e.preventDefault()
+      openSymbolPicker()
+      return
+    }
     if (mod && e.key.toLowerCase() === 's') {
       e.preventDefault()
       save()
@@ -1113,6 +1167,15 @@ export default function Editor() {
                 <t.icon size={15} />
               </button>
             ))}
+            <button
+              onClick={openSymbolPicker}
+              title="LaTeX 符号选择（Shift + ↑）"
+              aria-label="打开 LaTeX 符号选择框"
+              type="button"
+              className="rounded-md p-1.5 text-ink-500 transition hover:bg-ink-100 hover:text-brand-600 dark:text-ink-400 dark:hover:bg-white/10 dark:hover:text-brand-300"
+            >
+              <Omega size={15} />
+            </button>
             <span className="mx-1 h-4 w-px bg-ink-200 dark:bg-white/10" />
             <button
               onClick={() => fileRef.current?.click()}
@@ -1233,10 +1296,15 @@ export default function Editor() {
               连接 GitHub 以启用发布
             </Link>
           )}
-          <span className="hidden sm:inline">快捷键：⌘S 保存 · ⌘B 粗体 · ⌘I 斜体 · ⌘K 链接</span>
+          <span className="hidden sm:inline">快捷键：⌘S 保存 · ⌘B 粗体 · ⌘I 斜体 · ⌘K 链接 · Shift + ↑ 符号</span>
         </div>
         )}
       </div>
+      <LatexSymbolPicker
+        open={symbolPickerOpen}
+        onClose={closeSymbolPicker}
+        onInsert={insertLatexSymbol}
+      />
     </div>
   )
 }

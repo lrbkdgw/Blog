@@ -1,5 +1,5 @@
 import { Children, cloneElement, createElement, isValidElement, memo, useCallback, useMemo, useState } from 'react'
-import type { HTMLAttributes, ReactNode } from 'react'
+import type { CSSProperties, HTMLAttributes, ReactNode } from 'react'
 import katex from 'katex'
 import ReactMarkdown from 'react-markdown'
 import type { UrlTransform } from 'react-markdown'
@@ -11,6 +11,8 @@ import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeSlug from 'rehype-slug'
 import { ShowBox } from './ShowBox'
+import { directiveFontVars, parseLeadingDirectives } from '../lib/postDirectives'
+import type { PostDirectives } from '../lib/postDirectives'
 import { resolvePendingImageSrc } from '../lib/updateQueue'
 import {
   AlertCircle,
@@ -275,12 +277,18 @@ export interface PreprocessedMarkdown {
    * 供编辑器把渲染结果对齐回源文本行号。
    */
   lineMap: number[]
+  /** 文章开头的排版指令（`::set-font` 等），已从 text 中移除。 */
+  directives: PostDirectives
 }
 
-/** 预处理 Markdown，支持折叠框与 Tuack 风格表格 */
+/** 预处理 Markdown，支持文章级排版指令、折叠框与 Tuack 风格表格 */
 export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
-  if (!md) return { text: '', lineMap: [] }
-  const lines = md.split('\n')
+  if (!md) return { text: '', lineMap: [], directives: {} }
+  // 开头的 `::set-font[...]` / `::set-code-font[...]` / `::set-background[...]`
+  // 不进入渲染，但原行号要通过 parse 给出的映射继续对齐回源文本。
+  const parsed = parseLeadingDirectives(md)
+  const lines = parsed.body.split('\n')
+  const sourceLines = parsed.lineMap
   const result: string[] = []
   const lineMap: number[] = []
   const stack: { colonsCount: number; type: string }[] = []
@@ -290,6 +298,7 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
     result.push(line)
     lineMap.push(sourceLine)
   }
+  const sourceLineOf = (index: number) => sourceLines[index] ?? index
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -297,11 +306,11 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
     // 扩展指令不应解析代码示例；否则文档中的语法会被执行而无法展示源码。
     if (/^\s*(`{3,}|~{3,})/.test(line)) {
       inCodeFence = !inCodeFence
-      push(line, i)
+      push(line, sourceLineOf(i))
       continue
     }
     if (inCodeFence) {
-      push(line, i)
+      push(line, sourceLineOf(i))
       continue
     }
 
@@ -321,9 +330,9 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
       if (end < lines.length) {
         push(
           `<div data-show-box="true" data-show-title="${encodeURIComponent(showMatch[1])}" data-show-vars="${encodeURIComponent(showMatch[2])}" data-show-content="${encodeURIComponent(body.join('\n'))}"></div>`,
-          i,
+          sourceLineOf(i),
         )
-        push('', i)
+        push('', sourceLineOf(i))
         i = end
         continue
       }
@@ -332,8 +341,8 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
     // ::cute-table{tuack} 或 :::cute-table{tuack}
     const tuackMatch = line.match(/^ *(?:::+|:::+)(?:cute-table)\s*\{([^}]+)\}\s*$/i)
     if (tuackMatch) {
-      push('<div class="table-tuack-wrapper">', i)
-      push('', i)
+      push('<div class="table-tuack-wrapper">', sourceLineOf(i))
+      push('', sourceLineOf(i))
       let j = i + 1
       while (j < lines.length && lines[j].trim() === '') {
         j++
@@ -342,12 +351,12 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
         j < lines.length &&
         (lines[j].trim().startsWith('|') || lines[j].trim().includes('|'))
       ) {
-        push(lines[j], j)
+        push(lines[j], sourceLineOf(j))
         j++
       }
-      push('', i)
-      push('</div>', i)
-      push('', i)
+      push('', sourceLineOf(i))
+      push('</div>', sourceLineOf(i))
+      push('', sourceLineOf(i))
       i = j - 1
       continue
     }
@@ -359,10 +368,10 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
       const top = stack[stack.length - 1]
       if (colons >= top.colonsCount) {
         stack.pop()
-        push('', i)
-        push('</div>', i)
-        push('</details>', i)
-        push('', i)
+        push('', sourceLineOf(i))
+        push('</div>', sourceLineOf(i))
+        push('</details>', sourceLineOf(i))
+        push('', sourceLineOf(i))
         continue
       }
     }
@@ -379,33 +388,33 @@ export function preprocessMarkdownDetailed(md: string): PreprocessedMarkdown {
 
       stack.push({ colonsCount, type })
       const encodedTitle = encodeURIComponent(rawTitle)
-      push('', i)
+      push('', sourceLineOf(i))
       push(
         `<details class="callout callout-${type}" data-callout="${type}" data-title="${encodedTitle}" ${
           isOpen ? 'open' : ''
         }>`,
-        i,
+        sourceLineOf(i),
       )
       push(
         `<summary class="callout-summary" data-callout="${type}" data-title="${encodedTitle}">${rawTitle}</summary>`,
-        i,
+        sourceLineOf(i),
       )
-      push('<div class="callout-content">', i)
-      push('', i)
+      push('<div class="callout-content">', sourceLineOf(i))
+      push('', sourceLineOf(i))
       continue
     }
 
-    push(line, i)
+    push(line, sourceLineOf(i))
   }
 
   while (stack.pop()) {
-    const last = lines.length - 1
+    const last = sourceLineOf(lines.length - 1)
     push('', last)
     push('</div>', last)
     push('</details>', last)
   }
 
-  return { text: result.join('\n'), lineMap }
+  return { text: result.join('\n'), lineMap, directives: parsed.directives }
 }
 
 export function preprocessMarkdown(md: string): string {
@@ -771,8 +780,18 @@ export const Markdown = memo(function Markdown({
     [sourceLineMarkers, toSourceLine, urlTransform],
   )
 
+  // 文章级字体指令只作用于本 Markdown 容器：Tailwind 的 font-* 工具类都引用这些 CSS 变量，
+  // 因此正文、标题、代码会一起换字体，而页头、目录等文章之外的部分不受影响。
+  const fontStyle = useMemo(
+    () => directiveFontVars(processed.directives) as CSSProperties | undefined,
+    [processed.directives],
+  )
+
   return (
-    <div className="prose prose-base dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight">
+    <div
+      className="prose prose-base dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight"
+      style={fontStyle}
+    >
       <ReactMarkdown
         urlTransform={urlTransform}
         remarkPlugins={[remarkGfm, remarkMath]}
