@@ -2,7 +2,7 @@
   "name": "starlog-markdown",
   "displayName": "Markdown 语法拓展",
   "description": "直接复用博客的 Markdown 渲染组件与样式：交互展示框、折叠框、合并表格、KaTeX 公式与代码高亮，在 VS Code 内置预览中获得同款效果。",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "publisher": "lrbkdgw",
   "license": "MIT",
   "engines": {
@@ -89,6 +89,11 @@
         "category": "Markdown 语法拓展"
       },
       {
+        "command": "starlog.insertLatexSymbol",
+        "title": "插入 LaTeX 符号…",
+        "category": "Markdown 语法拓展"
+      },
+      {
         "command": "starlog.copyAsLuogu",
         "title": "复制为洛谷源码",
         "category": "Markdown 语法拓展"
@@ -125,6 +130,10 @@
         {
           "command": "starlog.copyAsBasic",
           "when": "editorLangId == markdown"
+        },
+        {
+          "command": "starlog.insertLatexSymbol",
+          "when": "editorLangId == markdown"
         }
       ]
     },
@@ -143,7 +152,15 @@
           "description": "检测到 Markdown Preview Enhanced 时提示安装静态兼容模式。与博客完全一致的交互渲染请使用 VS Code 内置 Markdown 预览，无需额外安装或配置。"
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "starlog.insertLatexSymbol",
+        "key": "shift+up",
+        "mac": "shift+up",
+        "when": "editorTextFocus && editorLangId == 'markdown'"
+      }
+    ]
   },
   "scripts": {
     "build": "node build.mjs",

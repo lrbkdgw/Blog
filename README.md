@@ -12,8 +12,8 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 
 | | |
 | --- | --- |
-| 📝 **在线编辑** | 分栏实时预览、工具栏、快捷键、滚动同步、自动保存草稿 |
-| 🧮 **KaTeX 公式** | 行内 `$…$` 与独立 `$$…$$`，支持 `aligned`、矩阵、分段函数；编辑器按 <kbd>Shift</kbd> + <kbd>↑</kbd> 打开**可搜索、带多重别名**的 LaTeX 符号选择框（如「正负」→ `\pm`、「异或」→ `\oplus`） |
+| 📝 **在线编辑** | 分栏实时预览、工具栏、快捷键、LaTeX 符号选择框（Shift + ↑，按别名搜索）、滚动同步、自动保存草稿 |
+| 🧮 **KaTeX 公式** | 行内 `$…$` 与独立 `$$…$$`，支持 `aligned`、矩阵、分段函数 |
 | 🎨 **配色主题** | 10 套主题（星野蓝 / 深海青 / 极光紫 / 樱花粉 / 落日橙 / 森野绿 / 绯红 / 鎏金 / 赛博霓虹 / 墨白）+ 浅色 / 深色 / **跟随系统**，页头色卡一键换肤，全站配色与动态背景一起变 |
 | 🌌 **动态背景** | 樱花 / 粒子星链 / 雪花 / 暴雨 / 竹林 五种场景，**各自适配深色与浅色**（白昼 / 夜樱、浅色星图 / 暗夜、雪日 / 雪夜、阴雨白昼 / 雨夜、晨光 / 月夜竹林）：飘落花瓣与散景、主题色光点与连线、鼠标吸引与数据脉冲…每种 5 项参数可调，星链颜色跟随配色主题 |
 | 🔤 **排版偏好** | **正文与代码字体分开**的多字体优先级（默认正文 Google Sans → Noto Sans CJK SC，代码 Cascadia Code）、80%–130% 全站字号、自定义渐变背景色与强度 |
@@ -25,6 +25,7 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 🕓 **历史版本** | 每次发布均保留 Git 提交版本；可浏览、查看、继续编辑、**自定义版本名称**（随待更新队列保存到 GitHub 对应文章下），并对比任意两个版本的**源码差异或并排渲染效果** |
 | 🔒 **密码文章** | 标题与标签公开，正文与其他信息由浏览器 Web Crypto 加密；本设备成功解锁一次后可自动恢复 |
 | 🎛️ **交互展示框** | Markdown 中可声明整数、有理数、字符串变量，实时计算并渲染展示内容 |
+| 📄 **文章排版指令** | 文首 `::set-font` / `::set-code-font` / `::set-background` 强制本文的字体与动态背景，仅在阅读本文时生效 |
 | 📱 **响应式** | 手机 / 平板 / 桌面均已适配，支持打印样式 |
 
 ---
@@ -206,6 +207,11 @@ Pages 项目 **Settings → Environment variables** 中新增 `VITE_GITHUB_CLIEN
 粒子星链仍不添加随机微粒或颗粒噪点；细颗粒只保留在浅色樱花背景。
 无法识别的旧场景偏好回退为「无」，当前支持的场景会按现有参数范围读取；历史变化见 `ChangeLog.md`。
 
+**文章可强制指定场景**：在文章开头写 `::set-background[<id>]`（见下方「文章排版指令」），
+阅读本文时临时改用指定场景（参数仍用读者为该场景保存的值），离开文章立即恢复个人偏好，
+不写入任何设置。编号固定为 0 无 · 1 樱花 · 2 粒子星链 · 3 雪花 · 4 暴雨 · 5 竹林，
+定义在 `src/lib/articleDirectives.ts` 的 `ARTICLE_BACKGROUND_SCENES`（新增场景只能往后追加编号）。
+
 ---
 
 ## 🔤 字体与字号
@@ -235,43 +241,14 @@ Pages 项目 **Settings → Environment variables** 中新增 `VITE_GITHUB_CLIEN
   `version: 3`，`family` 与 `monoFamily` 各是一个逗号分隔的优先级列表。该操作先进**待更新队列**，统一更新时才提交。
   旧的 `version: 2` 文件（只有 `family`）仍能读取，代码字体回落到默认栈。
 
-**维护提示**：默认字体栈有三处副本，改动时要一起改——`src/styles/index.css` 的 `:root`（真正的默认值）、
-`src/lib/fontStacks.ts` 的 `SANS_FALLBACK` / `SERIF_FALLBACK` / `MONO_FALLBACK`（自定义字体与文章强制字体缺字形时的回退；
-`src/lib/font.tsx` 会再导出这三个常量）、`index.html` 的首屏内联脚本（React 挂载前恢复本地偏好，避免闪字体）。
+**维护提示**：默认字体栈有三份副本，改动时要一起改——`src/styles/index.css` 的 `:root`（真正的默认值）、
+`src/lib/fontStacks.ts` 的 `SANS_FALLBACK` / `SERIF_FALLBACK` / `MONO_FALLBACK`（自定义字体缺字形时的回退，
+字体偏好与文章排版指令共用，`font.tsx` 仅 re-export）、
+`index.html` 的首屏内联脚本（React 挂载前恢复本地偏好，避免闪字体）。
 
----
-
-## 🪄 文章级排版指令
-
-在文章**最开头**（前面可以有空格 / 空行）可以写下面三条语句，用来强制覆盖这篇文章的排版。
-它们不会显示在正文里，也不会影响页头、目录等文章之外的部分；文章页的「复制 → 直接复制源码」会保留这些语句，
-「复制洛谷源码 / 基本源码」会把它们移除（洛谷与基本 Markdown 没有对应写法）。
-
-```markdown
-::set-font[LXGW WenKai]
-::set-code-font[JetBrains Mono]
-::set-background[2]
-```
-
-| 语句 | 作用 |
-| --- | --- |
-| `::set-font[<name>]` | 强制本文正文、标题使用 `<name>` 字体（缺字形时回退到默认正文栈） |
-| `::set-code-font[<name>]` | 强制本文代码块、行内代码使用 `<name>` 字体（缺字形时回退到默认等宽栈） |
-| `::set-background[<id>]` | 浏览本文时临时使用指定的动态背景，**不写入**设置页偏好，离开本文后自动恢复 |
-
-`::set-background` 的编号：
-
-| 编号 | 0 | 1 | 2 | 3 | 4 | 5 |
-| --- | --- | --- | --- | --- | --- | --- |
-| 背景 | 无 | 樱花 | 粒子星链 | 雪花 | 暴雨 | 竹林 |
-
-使用规则：
-
-- 只识别文章开头的连续指令段；正文中间出现的同款文本会按普通文字显示。
-- 同一类语句写多次时，**越早出现的优先级越高**，后面的同类型语句只被移除、不覆盖前面的值。
-- 字体名不能包含 `{ } ; < > [ ]`，最长 120 个字符；`::set-background` 只接受 0–5 的整数，越界视为无效。
-- 指令不会主动请求云端字体：本机已安装（或页面已通过设置页 / 站点样式加载）该字体时生效，否则回退到默认字体栈。
-- 编辑器预览会实时套用字体指令；背景指令在文章页生效（编辑器本身仍使用设置页选择的背景）。
+文章也可以只对**自身**强制字体：在开头写 `::set-font[字体名]` / `::set-code-font[字体名]`
+（见下方「文章排版指令」），优先级高于这里的个人偏好，本机没有的字体会同样在后台尝试
+Google Fonts，离开文章即恢复，不改动已保存的设置。
 
 ---
 
@@ -280,12 +257,14 @@ Pages 项目 **Settings → Environment variables** 中新增 `VITE_GITHUB_CLIEN
 仓库自带可直接安装的 **Markdown 语法拓展**插件。它在 VS Code **内置 Markdown 预览**中直接复用本站的 React 渲染组件、KaTeX / 高亮配置与 Tailwind 样式，展示框中的公式、表格和代码也会随变量实时更新。
 
 ```bash
-code --install-extension vscode_extensions/v1/starlog-markdown-2.0.2.vsix --force
+code --install-extension vscode_extensions/v1/starlog-markdown-2.1.0.vsix --force
 ```
 
 安装后打开 `.md` 并使用 `Ctrl/⌘+K V` 分屏预览；命令 **Markdown 语法拓展: 打开语法示例文档**可用于对照检查。成品内嵌所需脚本、样式与公式字体，无需额外插件或本地博客服务。MPE 保留为可选静态兼容模式，完整同款交互效果请使用内置预览。
 
 普通/合并表格默认靠左，Tuack 表格保持居中。VS Code Settings 中的 `starlog.preview.enableGradientBackground` 可以启用博客渐变背景，默认关闭，修改后自动刷新预览。
+
+插件与本站共用同一份扩展语法实现，包括下文的**文章排版指令**（字体指令在预览正文中生效，背景指令在预览中只移除不切换）与 **LaTeX 符号目录**：在 Markdown 编辑器中按 `Shift + ↑` 或执行命令「插入 LaTeX 符号…」，即可按命令或别名搜索并把符号插入光标处。
 
 安装、语法和开发说明见 [插件 README](vscode_extensions/v1/README.md)。在根目录安装依赖并执行 `npm ci --prefix vscode_extensions/v1` 后，可运行 `npm run extension:test` / `npm run extension:package` 验证或重新打包。
 
@@ -350,7 +329,44 @@ pinned: false    # true 则置顶到首页
 
 以上写法均等价于在源码中把该片段直接替换为对应的值或字符串（不会额外套一层代码框），因此可以用在正文、表格、公式或代码块中。`floor` / `ceil` 的数值参数也可以是包含数值变量的表达式。
 
-文章页的「复制」菜单可以复制文章链接、原始源码、洛谷源码或基本 Markdown 源码。洛谷源码会把 Blog 专属的展示框按变量默认值转换为静态 Markdown；基本源码还会把单元格合并、折叠框和 Tuack 表格等洛谷扩展转换为普通 Markdown。
+文章页的「复制」菜单可以复制文章链接、原始源码、洛谷源码或基本 Markdown 源码。洛谷源码会把 Blog 专属的展示框按变量默认值转换为静态 Markdown，并移除下文的文首排版指令；基本源码还会把单元格合并、折叠框和 Tuack 表格等洛谷扩展转换为普通 Markdown。
+
+## 📄 文章排版指令（字体与背景）
+
+在文章**最开头**（frontmatter 之后、第一段正文之前）可以写三条指令，强制本文的排版。指令行本身不是正文，不会出现在渲染结果、摘要与字数统计里：
+
+```markdown
+::set-font[LXGW WenKai]
+::set-code-font[Fira Code]
+::set-background[1]
+
+正文从这里开始……
+```
+
+| 指令 | 作用 |
+| --- | --- |
+| `::set-font[<name>]` | 本文的正文字体（含标题与摘要区） |
+| `::set-code-font[<name>]` | 本文的代码字体（代码块、行内代码、`<kbd>` 等） |
+| `::set-background[<id>]` | 阅读本文时的动态背景场景编号（见下表，`0` 表示强制无背景） |
+
+场景编号（与「设置 → 动态背景」的场景一一对应，参数仍用读者为该场景保存的值）：
+
+| id | 0 | 1 | 2 | 3 | 4 | 5 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 场景 | 无 | 樱花 | 粒子星链 | 雪花 | 暴雨 | 竹林 |
+
+规则细节：
+
+- **只有文首的连续指令区有效**（可夹空行）。正文开始之后再写同形文字只是普通文本；在代码围栏里演示语法不会被执行。
+- `::set-font` / `::set-code-font` 可写多条：**越早出现的优先级越高**，后面的作为回退（与设置页的字体优先级列表相同模型），一条指令里也可用逗号写多个字体名，列表最后仍接站点默认字体栈兜底。`::set-background` 写多条时第一个**合法**编号（0–5）生效，非法编号忽略。
+- **只是临时覆盖**：优先级高于读者的个人字体 / 背景偏好，但不写入浏览器、待更新队列或 GitHub，离开文章页立即恢复。指定的字体本机没有时，与设置页自定义字体一样在后台尝试 Google Fonts，拉不到则回退。
+- 生效范围：字体——文章页（含标题区）、编辑器预览、版本对比、VS Code 插件预览；背景——文章页与站内编辑器（插件没有 Canvas 动态背景，预览中仅移除该行）。评论不识别这组指令（按普通文字显示，与 GitHub Discussions 上一致），他人内容无法借此改动页面排版。
+- 复制源码时：「直接复制」原样保留指令；洛谷 / 基本源码会移除（那两个平台不认识这组语法）。
+
+实现：解析在 `src/lib/articleDirectives.ts`（含编号↔场景映射与字体样式拼接），
+渲染管线在 `src/components/Markdown.tsx` 的预处理里整体移除指令行（行号映射照常对齐），
+字体通过作用域 CSS 变量 + 容器 `font-family` 局部生效，背景经
+`src/lib/animatedBackground.ts` 的内存级 `setAnimatedSceneOverride` 临时覆盖 Layout 的背景层。
 
 ## 🕓 历史版本与加密文章
 
@@ -370,8 +386,8 @@ pinned: false    # true 则置顶到首页
 | <kbd>⌘</kbd> + <kbd>B</kbd> / <kbd>I</kbd> | 粗体 / 斜体 |
 | <kbd>⌘</kbd> + <kbd>K</kbd> | 插入链接 |
 | <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | 缩进 / 反缩进 |
+| <kbd>Shift</kbd> + <kbd>↑</kbd> | 打开 **LaTeX 符号选择框**：按命令或别名搜索（「正负」→ `\pm`、「异或」→ `\oplus`），方向键选择、Enter 插入到光标处，插入后光标落在第一个空参数内；最近用过的符号会记住（评论输入框同样支持，符号目录 `src/lib/latexSymbols.ts`，与 VS Code 插件共用） |
 | <kbd>Enter</kbd> | 列表内自动续行（空项自动结束列表） |
-| <kbd>Shift</kbd>+<kbd>↑</kbd> | 打开 LaTeX 符号选择框：可搜索命令 / 中文别名 / 英文名，<kbd>↑</kbd><kbd>↓</kbd> 选择、<kbd>Enter</kbd> 插入、<kbd>Esc</kbd> 关闭 |
 
 全站快捷键：<kbd>⌘</kbd>+<kbd>K</kbd> 或 <kbd>/</kbd> 打开搜索。
 
@@ -392,13 +408,13 @@ pinned: false    # true 则置顶到首页
 │   ├── components/                # Layout / Markdown / 搜索 / 目录 / Toast / GitHub 授权
 │   │   ├── AnimatedBackdrop.tsx   # 动态背景生命周期、樱花与粒子星链
 │   │   ├── WeatherBackdrops.ts     # 雪花、暴雨与竹林（Canvas）
-│   │   ├── LatexSymbolPicker.tsx  # Shift+↑ 打开的 LaTeX 符号选择框
+│   │   ├── LatexPicker.tsx        # LaTeX 符号选择框（Shift + ↑）
 │   │   └── ThemePicker.tsx        # 页头配色主题色卡
 │   ├── lib/                       # 配置、文章解析、认证、GitHub API、待更新队列、主题
 │   │   ├── themes.ts              # 配色主题元数据（真实色卡在 styles/index.css）
-│   │   ├── postDirectives.ts      # 文章级 ::set-font / ::set-code-font / ::set-background
-│   │   ├── latexSymbols.ts        # LaTeX 符号目录与多重别名搜索
-│   │   └── fontStacks.ts          # 默认字体栈（CSS / 首屏脚本之外的唯一源码副本）
+│   │   ├── articleDirectives.ts   # 文首排版指令 ::set-font / ::set-code-font / ::set-background
+│   │   ├── latexSymbols.ts        # LaTeX 符号目录（别名搜索，编辑器与 VS Code 插件共用）
+│   │   └── fontStacks.ts          # 默认字体栈（字体偏好与文章指令共用）
 │   ├── pages/                     # 首页 / 文章 / 归档 / 标签 / 关于 / 登录 / 后台 / 编辑器
 │   ├── styles/index.css           # Tailwind + 代码高亮 + 排版细节
 │   ├── App.tsx                    # 路由
@@ -445,6 +461,9 @@ GitHub 的授权端点（`github.com/login/*`）不返回 CORS 头，浏览器�
 不会。配色主题、明暗模式与动态背景都只保存在浏览器本地（`localStorage`），
 不会提交到 GitHub，也不会互相覆盖；同一台设备的其它标签页会立即同步。字体优先级（正文与代码各一组）、
 字号与背景颜色仍然可以选择「保存到 GitHub」，以便在其他设备恢复。
+
+**文章开头的 `::set-font` / `::set-background` 会改掉我的字体与背景设置吗？**
+不会。它们只是「阅读本文时」的临时覆盖：打开文章时生效，离开文章（或回到列表）立即恢复你在设置里保存的字体与动态背景，什么都不会写入浏览器或 GitHub。反过来，如果指令感觉没生效，先确认它写在正文最开头（正文之后再写只是普通文字）、背景编号在 0–5 之间，以及字体名拼对了（本机没有的字体会尝试从 Google Fonts 拉取，失败则回退到默认字体）。详见「文章排版指令」一节。
 
 **为什么背景不动？**
 ① 系统开启了「减少动态效果」时，动态背景只绘制一帧静态画面；② 标签页切到后台会暂停；

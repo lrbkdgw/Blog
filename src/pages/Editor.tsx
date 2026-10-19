@@ -33,8 +33,8 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react'
-import { LatexSymbolPicker } from '../components/LatexSymbolPicker'
 import { Markdown } from '../components/Markdown'
+import { LatexPicker } from '../components/LatexPicker'
 import { PasswordPrompt } from '../components/PasswordPrompt'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../lib/auth'
@@ -59,6 +59,10 @@ import {
   today,
 } from '../lib/posts'
 import { siteConfig } from '../lib/config'
+import { parseArticleDirectives } from '../lib/articleDirectives'
+import { setAnimatedSceneOverride } from '../lib/animatedBackground'
+import { warmFontFamilies } from '../lib/font'
+import { latexSymbolInsert, type LatexSymbol } from '../lib/latexSymbols'
 import { handleEditorKey, insertBlock, toggleLinePrefix, toggleWrap } from '../lib/editor'
 import type { EditAction } from '../lib/editor'
 import { useEditorScrollSync } from '../lib/editorSettings'
@@ -191,9 +195,6 @@ export default function Editor() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-  // LaTeX 符号选择框（issue #60）：打开时记住选区，插入后把光标停到合适位置。
-  const [symbolPickerOpen, setSymbolPickerOpen] = useState(false)
-  const symbolSelectionRef = useRef<{ start: number; end: number } | null>(null)
 
   const tags = useMemo(
     () =>
@@ -216,6 +217,23 @@ export default function Editor() {
   const deferredContent = useDeferredValue(debouncedContent)
   const words = useMemo(() => countWords(deferredContent), [deferredContent])
   const readingMinutes = useMemo(() => Math.max(1, Math.round(words / 400)), [words])
+
+  // 文首排版指令（issue #59）在编辑器里同样实时生效，做到所见即所得：
+  // 字体由预览的 Markdown 组件直接套用，这里再处理背景强制与云端字体预热。
+  const directives = useMemo(() => parseArticleDirectives(deferredContent), [deferredContent])
+  const directivesFontsKey = `${directives.fonts.join('\n')}\n${directives.codeFonts.join('\n')}`
+  useEffect(() => {
+    setAnimatedSceneOverride(directives.background)
+    return () => setAnimatedSceneOverride(null)
+  }, [directives])
+  useEffect(() => {
+    warmFontFamilies([...directives.fonts, ...directives.codeFonts])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [directivesFontsKey])
+
+  // LaTeX 符号选择框（issue #60）：打开时记住当时的选区，符号就插回那里。
+  const [latexPickerOpen, setLatexPickerOpen] = useState(false)
+  const latexSelectionRef = useRef<{ start: number; end: number } | null>(null)
 
   // 加密文章是否已把解密后的内容载入编辑器（防止解锁完成前把空白表单存成草稿）。
   const hydratedRef = useRef(false)
@@ -390,41 +408,24 @@ export default function Editor() {
     applyAction(fn(ta.value, ta.selectionStart, ta.selectionEnd))
   }
 
-  /** 打开符号选择框：先记住编辑区选区，关闭后可以原样恢复。 */
-  const openSymbolPicker = () => {
+  const openLatexPicker = () => {
     const ta = textareaRef.current
-    symbolSelectionRef.current = ta ? { start: ta.selectionStart, end: ta.selectionEnd } : null
-    setSymbolPickerOpen(true)
+    latexSelectionRef.current = ta
+      ? { start: ta.selectionStart, end: ta.selectionEnd }
+      : { start: content.length, end: content.length }
+    setLatexPickerOpen(true)
   }
 
-  /**
-   * 关闭符号选择框。
-   * 若刚刚插入过符号，选区由 applyAction 负责（symbolSelectionRef 已被清空），
-   * 这里只把焦点还给编辑区，避免把光标又拨回打开选择框之前的位置。
-   */
-  const closeSymbolPicker = () => {
-    setSymbolPickerOpen(false)
-    requestAnimationFrame(() => {
-      const ta = textareaRef.current
-      if (!ta) return
-      ta.focus()
-      const selection = symbolSelectionRef.current
-      if (selection) ta.setSelectionRange(selection.start, selection.end)
+  const insertLatexSymbol = (symbol: LatexSymbol) => {
+    const saved = latexSelectionRef.current
+    const start = Math.min(saved?.start ?? content.length, content.length)
+    const end = Math.min(saved?.end ?? start, content.length)
+    const { text, selectionStart, selectionEnd } = latexSymbolInsert(symbol)
+    applyAction({
+      value: content.slice(0, start) + text + content.slice(end),
+      selectionStart: start + selectionStart,
+      selectionEnd: start + selectionEnd,
     })
-  }
-
-  /** 在记住的选区处插入符号；模板类命令把光标放进第一个花括号。 */
-  const insertLatexSymbol = (latex: string, cursor?: number) => {
-    // 仅预览模式下没有 textarea，此时把符号追加到正文末尾，避免点了没反应。
-    const ta = textareaRef.current
-    const base = ta?.value ?? content
-    const selection = symbolSelectionRef.current
-    const start = selection?.start ?? (ta ? ta.selectionStart : base.length)
-    const end = selection?.end ?? (ta ? ta.selectionEnd : base.length)
-    const next = base.slice(0, start) + latex + base.slice(end)
-    const caret = start + (cursor ?? latex.length)
-    symbolSelectionRef.current = null
-    applyAction({ value: next, selectionStart: caret, selectionEnd: caret })
   }
 
   const tools = [
@@ -480,6 +481,11 @@ export default function Editor() {
         withSelection((v, s, e) => insertBlock(v, s, e, '$$\n\\int_a^b f(x)\\,\\mathrm{d}x\n$$\n')),
     },
     {
+      icon: Omega,
+      title: 'LaTeX 符号 (Shift + ↑)',
+      run: openLatexPicker,
+    },
+    {
       icon: SlidersHorizontal,
       title: '交互展示框',
       run: () =>
@@ -508,19 +514,20 @@ export default function Editor() {
   ]
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    const mod = e.metaKey || e.ctrlKey
-    // Shift + ↑ 打开 LaTeX 符号选择框（输入法组合中的按键不算）。
+    // Shift + ↑ 打开 LaTeX 符号选择框（issue #60）；输入法组合中不拦截。
     if (
       e.shiftKey &&
-      !mod &&
+      !e.metaKey &&
+      !e.ctrlKey &&
       !e.altKey &&
       e.key === 'ArrowUp' &&
       !e.nativeEvent.isComposing
     ) {
       e.preventDefault()
-      openSymbolPicker()
+      openLatexPicker()
       return
     }
+    const mod = e.metaKey || e.ctrlKey
     if (mod && e.key.toLowerCase() === 's') {
       e.preventDefault()
       save()
@@ -822,15 +829,16 @@ export default function Editor() {
     pv.scrollTop = Math.max(0, Math.min(maxPv, target))
   }
 
-  // 全屏时按 Esc 退出（输入法组合键中的 Esc 用于取消候选，不退出全屏）。
+  // 全屏时按 Esc 退出（输入法组合键中的 Esc 用于取消候选，不退出全屏；
+  // 符号选择框开着时 Esc 只关闭选择框）。
   useEffect(() => {
-    if (!fullscreen) return
+    if (!fullscreen || latexPickerOpen) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !e.isComposing) setFullscreen(false)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [fullscreen])
+  }, [fullscreen, latexPickerOpen])
 
   if (protectedExisting && !unlocked) {
     return (
@@ -1167,15 +1175,6 @@ export default function Editor() {
                 <t.icon size={15} />
               </button>
             ))}
-            <button
-              onClick={openSymbolPicker}
-              title="LaTeX 符号选择（Shift + ↑）"
-              aria-label="打开 LaTeX 符号选择框"
-              type="button"
-              className="rounded-md p-1.5 text-ink-500 transition hover:bg-ink-100 hover:text-brand-600 dark:text-ink-400 dark:hover:bg-white/10 dark:hover:text-brand-300"
-            >
-              <Omega size={15} />
-            </button>
             <span className="mx-1 h-4 w-px bg-ink-200 dark:bg-white/10" />
             <button
               onClick={() => fileRef.current?.click()}
@@ -1296,13 +1295,17 @@ export default function Editor() {
               连接 GitHub 以启用发布
             </Link>
           )}
-          <span className="hidden sm:inline">快捷键：⌘S 保存 · ⌘B 粗体 · ⌘I 斜体 · ⌘K 链接 · Shift + ↑ 符号</span>
+          <span className="hidden sm:inline">快捷键：⌘S 保存 · ⌘B 粗体 · ⌘I 斜体 · ⌘K 链接 · Shift + ↑ LaTeX 符号</span>
         </div>
         )}
       </div>
-      <LatexSymbolPicker
-        open={symbolPickerOpen}
-        onClose={closeSymbolPicker}
+      <LatexPicker
+        open={latexPickerOpen}
+        onClose={() => {
+          setLatexPickerOpen(false)
+          // 关闭后把焦点还给编辑区，继续原来的写作位置。
+          requestAnimationFrame(() => textareaRef.current?.focus())
+        }}
         onInsert={insertLatexSymbol}
       />
     </div>

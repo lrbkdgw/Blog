@@ -72,5 +72,20 @@
       "$0"
     ],
     "description": "Markdown 语法拓展：Tuack 风格表格，< 向左合并、^ 向上合并"
+  },
+  "文章字体指令 set-font": {
+    "prefix": ["setfont", "::set-font"],
+    "body": "::set-font[${1:字体名}]",
+    "description": "文章开头：强制本文正文字体（可多次出现，越早优先级越高）"
+  },
+  "文章代码字体指令 set-code-font": {
+    "prefix": ["setcodefont", "::set-code-font"],
+    "body": "::set-code-font[${1:字体名}]",
+    "description": "文章开头：强制本文代码字体（可多次出现，越早优先级越高）"
+  },
+  "文章背景指令 set-background": {
+    "prefix": ["setbackground", "::set-background"],
+    "body": "::set-background[${1|0,1,2,3,4,5|}]",
+    "description": "文章开头：强制阅读本文时的动态背景（0 无 · 1 樱花 · 2 粒子星链 · 3 雪花 · 4 暴雨 · 5 竹林）"
   }
 }

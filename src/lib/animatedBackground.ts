@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useState } from 'react'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 
 /**
@@ -104,18 +104,6 @@ export interface AnimatedBackgroundPreference {
 const STORAGE_NAME = 'animatedBackground'
 const DEFAULT_PREFERENCE: AnimatedBackgroundPreference = { scene: 'none', values: {} }
 
-/**
- * `::set-background[<id>]` 的编号顺序（issue #59）：0 = 无，1 = 樱花，2 = 粒子星链，
- * 3 = 雪花，4 = 暴雨，5 = 竹林。编号一旦发布就不要调整，否则旧文章会换到别的背景。
- */
-export const BACKGROUND_SCENE_IDS: SceneId[] = ['none', 'sakura', 'network', 'snow', 'rain', 'bamboo']
-
-/** 把文章里的背景编号转成场景；越界或非整数返回 null（视为没有该指令）。 */
-export function backgroundSceneFromId(id: number): SceneId | null {
-  if (!Number.isInteger(id) || id < 0 || id >= BACKGROUND_SCENE_IDS.length) return null
-  return BACKGROUND_SCENE_IDS[id]
-}
-
 export function findScene(id: SceneId): SceneSpec | undefined {
   return SCENES.find((scene) => scene.id === id)
 }
@@ -189,34 +177,42 @@ export function resetSceneValues(scene: ActiveSceneId) {
   write({ ...current, values: { ...current.values, [scene]: defaultSceneValues(spec) } })
 }
 
-/**
- * 文章级临时背景覆盖（`::set-background`）。
- *
- * 只影响「当前正在浏览的文章页」，不写入 localStorage、也不改动用户在设置页选定的场景：
- * 离开文章后覆盖被清空，原来的背景立即恢复。因此用模块级的小订阅仓库而不是设置存储。
- */
-let sceneOverride: SceneId | null = null
-const sceneOverrideListeners = new Set<() => void>()
+/* -------------------------------------------------------------------------- */
+/*                 文章级临时覆盖（issue #59 ::set-background）                  */
+/* -------------------------------------------------------------------------- */
 
-function subscribeSceneOverride(listener: () => void): () => void {
-  sceneOverrideListeners.add(listener)
-  return () => sceneOverrideListeners.delete(listener)
+/**
+ * 某些文章可在开头用 `::set-background[<id>]` 强制指定阅读本文时的动态背景。
+ * 这是**只驻留在内存里**的临时覆盖：不写 localStorage、不进待更新队列，
+ * 文章页 / 编辑器挂载时调用 `setAnimatedSceneOverride` 设置、卸载时传 null 清除，
+ * 离开后立即恢复读者自己的场景偏好。`'none'` 是有意义的覆盖值（强制无背景），
+ * null 才表示「没有覆盖」。
+ */
+const SCENE_OVERRIDE_EVENT = 'starlog:animated-scene-override'
+let sceneOverride: SceneId | null = null
+
+export function setAnimatedSceneOverride(scene: SceneId | null): void {
+  if (sceneOverride === scene) return
+  sceneOverride = scene
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(SCENE_OVERRIDE_EVENT))
+  }
 }
 
-function readSceneOverride(): SceneId | null {
+export function getAnimatedSceneOverride(): SceneId | null {
   return sceneOverride
 }
 
-/** 设置/清除临时背景覆盖；传 null 表示恢复用户自己的设置。 */
-export function setSceneOverride(scene: SceneId | null): void {
-  if (sceneOverride === scene) return
-  sceneOverride = scene
-  for (const listener of sceneOverrideListeners) listener()
-}
-
-/** 当前文章的临时背景覆盖；没有时为 null。 */
-export function useSceneOverride(): SceneId | null {
-  return useSyncExternalStore(subscribeSceneOverride, readSceneOverride, () => null)
+/** 订阅文章级场景覆盖（供 Layout 的动态背景层读取生效场景）。 */
+export function useAnimatedSceneOverride(): SceneId | null {
+  const [override, setOverride] = useState<SceneId | null>(sceneOverride)
+  useEffect(() => {
+    const sync = () => setOverride(sceneOverride)
+    sync()
+    window.addEventListener(SCENE_OVERRIDE_EVENT, sync)
+    return () => window.removeEventListener(SCENE_OVERRIDE_EVENT, sync)
+  }, [])
+  return override
 }
 
 /** 订阅动态背景设置（同一页面、其他标签页的修改都会立即生效）。 */

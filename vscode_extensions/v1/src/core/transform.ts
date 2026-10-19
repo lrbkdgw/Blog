@@ -12,6 +12,7 @@ import {
   showValueKey,
   type ShowVariable,
 } from './showBox'
+import { stripArticleDirectives } from './articleDirectives'
 
 export interface TransformOptions {
   /** MPE 兼容模式只渲染默认值，不提供交互脚本。 */
@@ -167,6 +168,9 @@ function mapOutsideFences(markdown: string, mapper: (line: string) => string): s
  */
 export function transformMarkdown(markdown: string, options: TransformOptions = {}): string {
   if (!markdown) return ''
+  // 文首排版指令（::set-font[…] 等）不是正文：MPE 无法执行它们，与博客一致直接移除，
+  // 避免指令原文出现在静态预览里（内置预览则由博客 Markdown 组件完整处理）。
+  markdown = stripArticleDirectives(markdown)
   const prefix = options.prefix || 'starlog'
   const lines = markdown.split('\n')
   const result: string[] = []
