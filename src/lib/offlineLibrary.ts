@@ -70,47 +70,9 @@ export function isSeedPostHidden(slug: string): boolean {
   return hiddenSeedSlugs().includes(slug)
 }
 
-/**
- * 已经提交到仓库的「删除内置文章」记录。
- *
- * 删除一旦提交成功，就把墓碑转成这里的记录：墓碑列表因此不会无限累积，
- * 日后同一 slug 重新发布也不会被旧墓碑误隐藏（见 offlineSync.clearSeedDeletion）。
- */
-function readDeleted(): string[] {
-  const list = readJson<unknown>(STORAGE_KEYS.offlineDeleted, [])
-  return Array.isArray(list) ? list.filter((item): item is string => typeof item === 'string') : []
-}
-
-export function deletedSeedSlugs(): Set<string> {
-  return new Set(readDeleted())
-}
-
-export function recordSeedDeletion(slug: string) {
-  writeJson(STORAGE_KEYS.offlineDeleted, [...new Set([...readDeleted(), slug])])
-}
-
-export function clearSeedDeletion(slug: string) {
-  const next = readDeleted().filter((item) => item !== slug)
-  if (next.length === 0) {
-    try {
-      localStorage.removeItem(STORAGE_KEYS.offlineDeleted)
-    } catch (err) {
-      console.error('[离线文章库] 清除删除记录失败', err)
-    }
-    window.dispatchEvent(new CustomEvent('starlog:posts-changed'))
-    return
-  }
-  writeJson(STORAGE_KEYS.offlineDeleted, next)
-}
-
-/** 清空本机对内置文章的全部删除状态（墓碑 + 已提交记录） */
-export function resetSeedDeletions() {
+/** 清空本机对内置文章的全部隐藏记录（墓碑只在本机生效，离线文件本身不会被改动） */
+export function resetSeedHidden() {
   restoreAllSeedPosts()
-  try {
-    localStorage.removeItem(STORAGE_KEYS.offlineDeleted)
-  } catch (err) {
-    console.error('[离线文章库] 清除删除记录失败', err)
-  }
   window.dispatchEvent(new CustomEvent('starlog:posts-changed'))
 }
 

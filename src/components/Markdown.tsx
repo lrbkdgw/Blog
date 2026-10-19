@@ -18,7 +18,7 @@ import {
   scanArticleDirectives,
   type ArticleDirectives,
 } from '../lib/articleDirectives'
-import {
+import { WifiOff, 
   AlertCircle,
   AlertTriangle,
   Check,
@@ -727,14 +727,25 @@ function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTr
         </a>
       )
     },
-    img: ({ src, alt }: { src?: string; alt?: string }) => (
-      <img
-        src={resolvePendingImageSrc(typeof src === 'string' ? src : '')}
-        alt={alt ?? ''}
-        loading="lazy"
-        decoding="async"
-      />
-    ),
+    img: ({ src, alt }: { src?: string; alt?: string }) => {
+      const raw = typeof src === 'string' ? src : ''
+      const resolved = resolvePendingImageSrc(raw)
+      // 离线版不联网：远程 / 站内图片地址会被解析成空串（见 resolveOfflineImageSrc）。
+      // 这里显示一条明确说明而不是破图，避免看起来像「文章坏了」。
+      if (!resolved) {
+        return (
+          <span className="my-3 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-ink-300/70 bg-ink-50/60 px-3 py-2 text-xs text-ink-500 dark:border-white/12 dark:bg-white/[0.03]">
+            <WifiOff size={13} className="shrink-0" />
+            <span>
+              离线版不加载远程图片{alt ? `「${alt}」` : ''}
+              {raw ? <span className="ml-1 break-all text-ink-400">（{raw}）</span> : null}
+              ：把图片放进离线包（导出文章包时会带上本机暂存图片），或在线上站点查看。
+            </span>
+          </span>
+        )
+      }
+      return <img src={resolved} alt={alt ?? ''} loading="lazy" decoding="async" />
+    },
     table: ({
       node,
       children,

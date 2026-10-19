@@ -449,7 +449,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
             <div className="flex items-center justify-between gap-3 pt-1">
               <span className="text-xs text-ink-400">
                 {OFFLINE
-                  ? '这条内容只保存在这台设备的浏览器里，离线可用；同步到线上时不会提交'
+                  ? '这条内容只保存在这台设备的浏览器里；离线版不联网，任何评论都不会提交到远端'
                   : '评论将公开保存到 GitHub Discussions'}
               </span>
               <button
@@ -471,7 +471,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
             </div>
             <div>
               <p className="text-sm font-semibold text-ink-800 dark:text-ink-100">
-                {OFFLINE ? '连接 GitHub 后可参与公开讨论' : '登录后查看并参与公开讨论'}
+                {OFFLINE ? '离线版不联网：下面的笔记只保存在这台设备上' : '登录后查看并参与公开讨论'}
               </p>
               <p className="mt-1 text-xs text-ink-400">评论由 GitHub Discussions 跨设备保存</p>
             </div>

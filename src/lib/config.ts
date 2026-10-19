@@ -1,6 +1,8 @@
 /**
  * 站点配置 —— 部署前把这里改成你自己的信息即可。
  */
+import { OFFLINE } from './runtime'
+
 export const siteConfig = {
   /** 站点名 */
   title: '个人博客',
@@ -74,8 +76,11 @@ export const commentsConfig = {
 }
 
 export const oauthConfig = {
-  /** OAuth App 的 Client ID */
-  clientId: 'Ov23lid9P8sdNuiKhkzy',
+  /**
+   * OAuth App 的 Client ID。
+   * 离线单文件版**没有在线登录**（产物里也不应出现任何 GitHub 端点），因此构建期直接置空。
+   */
+  clientId: OFFLINE ? '' : 'Ov23lid9P8sdNuiKhkzy',
   /**
    * 申请权限范围：public_repo = 读写公开仓库；
    * 若博客仓库是私有的，需要改成 'repo'。
@@ -92,30 +97,11 @@ export const oauthConfig = {
 /**
  * 离线单文件版（`npm run build:offline`）专属配置。
  *
- * - `importTargets`：「同步到线上」可选的目标站点，站点内 `/import-offline` 页面接收离线文章；
- * - `assetBaseUrl`：离线版把文章里的站内绝对路径（`/uploads/x.png`）改写到此地址；
- *   可在站内「设置 → 离线版」覆盖（保存在本机偏好里）。
+ * 离线版**完全不联网**：这里只保留与「本机文章库」和「与线上站点之间的文件交换」有关的项，
+ * 不再有站点地址、OAuth 中转地址之类的在线配置。
  */
 export const offlineConfig = {
-  /** 「同步到线上」的候选站点（URL 不需要结尾斜杠） */
-  importTargets: [
-    { id: 'cloudflare', label: 'blog-apa.pages.dev', url: 'https://blog-apa.pages.dev' },
-    { id: 'github', label: 'lrbkdgw.github.io/Blog', url: 'https://lrbkdgw.github.io/Blog' },
-  ] as { id: string; label: string; url: string }[],
-  /** 站内资源（上传图片等）的线上基地址 */
-  assetBaseUrl: 'https://lrbkdgw.github.io/Blog',
-  /**
-   * 离线版做 GitHub Device Flow 授权时使用的 OAuth 中转地址。
-   *
-   * 离线文件是 `file://` 打开的，`oauthConfig.relayUrl` 留空代表的「与站点同源」在这里不成立，
-   * 因此必须给一个绝对地址。两种可用来源：
-   *   - Cloudflare Pages 站点（本仓库默认 `https://blog-apa.pages.dev`）：
-   *     需要 `functions/login/[[path]].ts` 返回 CORS 头（本仓库已加），且已部署最新版本；
-   *   - 独立部署的 `oauth-relay/` Worker（自带 CORS 头）。
-   * 可在站内「设置 → 离线版」覆盖。
-   */
-  oauthRelayUrl: 'https://blog-apa.pages.dev',
-  /** 离线导入包的文件名后缀（导出与识别用同一处定义） */
+  /** 离线文章包的文件名后缀（导出与识别用同一处定义） */
   importFileSuffix: 'starlog-import.json',
   /** 离线文章库中每篇文章最多保留的本机历史版本数 */
   maxLocalVersions: 30,
@@ -139,6 +125,4 @@ export const STORAGE_KEYS = {
   offlineHidden: 'starlog:offline-hidden',
   /** 离线版：每篇文章的本机历史版本快照 */
   offlineVersions: 'starlog:offline-versions',
-  /** 离线版：已提交到仓库的「内置文章删除」记录（比墓碑更持久，且不随重建累积） */
-  offlineDeleted: 'starlog:offline-deleted',
 } as const

@@ -1,5 +1,95 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-19 · 离线版改为「完全不联网」：只用本机字体，移除全部在线功能
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+上一版离线文件里仍保留着若干在线能力：GitHub Device Flow 授权、「同步到线上」直推仓库、
+云端字体预热、把站内图片改写成线上站点地址。本次按要求收敛为：
+
+> 本地版本只能使用本地字体，去掉所有在线功能；**完全不联网**，只提供「保存到本地」和
+> 「保存到在线网站的本地文章中」两种落地方式。
+
+于是离线版的定位变成：一个自包含的阅读器 + 编辑器，零网络请求；
+与线上站点之间只通过**文章包文件**交接，不在离线文件里提交仓库。
+
+### 新增
+
+- `hasNetwork()` 在离线构建里恒为 `false`：所有「先判断再请求」的路径（字体、账号偏好、评论、
+  远端历史）直接走本机实现，不会「先试一下再失败」。
+- `github.ts` 增加**唯一请求出口** `net()`：离线构建里抛错说明原因；同时把端点常量改为
+  `OFFLINE ? '' : 'https://api.github.com'`（含 `/graphql`），`oauthConfig.clientId` 与
+  Google Fonts 端点同样在离线构建里置空 —— 压缩器会把它们整段消掉，产物中根本不存在这些字符串。
+- `src/lib/offlineBundle.ts`：`countLocalContent()`（本机文章 / 草稿 / 暂存图片统计）与
+  `exportBundleFile(slugs?)`（导出单篇或全部本机文章的文章包）；`applyImport()` 新增 `alsoQueue`，
+  线上站点导入时可顺带把每篇加入待更新队列（离线版忽略该参数）。
+- 新组件 `src/components/BundleImportDialog.tsx`：拖拽 / 选择文章包 → 逐篇「新增 / 覆盖 / 跳过」计划
+  （三种同名策略：覆盖 / 跳过 / 另存为新文章）→ 确认后写入本地文章列表；解析失败明确报错，不猜格式。
+- 新组件 `src/components/OfflineExportPanel.tsx`（管理页 `?tab=export`，两种构建都可见）：
+  离线版用它勾选并导出，线上站点用它导入；不再显示任何授权入口。
+- 编辑器离线模式提供两个出口：「保存到本机」（写本机文章库）与
+  「保存到在线网站的本地文章」（先写本机文章库并确认落盘，再生成这一篇的文章包文件）。
+- `scripts/verify-offline.mjs` 新增第 8 组硬检查：产物中出现 `api.github.com`、`/graphql`、
+  `login/device/code`、`login/oauth/access_token`、`fonts.googleapis.com`、`fonts.gstatic.com`
+  或 OAuth Client ID 任意一项即构建失败，并在报错里给出两种正确修法。
+
+### 调整
+
+- **删除** `src/lib/offlineSync.ts`、`src/components/OfflineSyncPanel.tsx`、`src/lib/useOnlineStatus.ts`：
+  离线版不再有「同步到线上」这条需要网络的通道。
+- `src/lib/runtime.ts` 重写：移除 `getSiteBaseUrl()` / `getOAuthRelayUrl()`；
+  `resolveOfflineImageSrc()` 改为「远程与站内图片一律解析为空」，由渲染处显示
+  「离线版不加载远程图片」说明（`Markdown.tsx` 的 `img`、`PostCard` / `PostPage` 的封面），
+  不再把图片地址改写到线上站点。
+- 离线版 UI 去掉全部在线入口：页头 `UserMenu`（登录 / 头像 / 退出）在 `OFFLINE` 下不渲染，
+  移动端菜单改为「管理 / 写文章」；`/login` 在离线版显示「离线版没有在线登录」说明页而非授权按钮；
+  设置页的「GitHub 连接」「目标仓库」「外观偏好同步」三块在离线版隐藏，安全说明改为离线口径；
+  管理页页头的「未连接 GitHub，点此连接」改为「内容保存在这台设备的浏览器里」，
+  队列标签在离线版隐藏「更新所选 / 全部更新」按钮并说明图片随文章包导出；
+  页脚在离线版不再输出 GitHub / RSS 外链，署名行改为「离线单文件版（不联网）」。
+- 字体：`requestCloudFont()` 在离线版直接抛错（消息说明「只用本机已安装的字体」），
+  `warmFontFamilies()` 在离线版只为**本机缺失**的字体名打一条 info 日志；
+  设置页字体 / 背景 / 个性化三处说明文案按离线口径改写。
+- 内置文章的「删除」语义简化：删除 `deletedSeedSlugs / recordSeedDeletion / clearSeedDeletion /
+  resetSeedDeletions` 与 `starlog:offline-deleted`（这套状态只为「提交删除到仓库」而存在），
+  只保留本机墓碑 `hideSeedPost` 与新的 `resetSeedHidden()`；`getRepoPosts()` 仅按墓碑过滤。
+  `updateQueue.flushUpdateQueue()` 相应删除离线分支（离线版走不到），
+  `post-publish` 成功后的「本地草稿与仓库一致则清除」恢复为仅线上行为。
+- 措辞与文档：README「📴 离线版」整节重写（支持范围表、文章包三步交接流程图、图片与字体策略、
+  自检端点检查）、`offline/README.md`、`.github/offline-release-notes.md`、
+  站内帮助页「离线版（单文件）」小节、`AI_README.md` 第 3 步补「不得在 `OFFLINE` 分支引入请求，
+  端点检查失败要改代码而不是删检查」（本条即规则修改的登记）。
+
+### 修复
+
+- `PostCard` 的封面离线守卫最初被当成文本插入 JSX 子节点（渲染出字面量且 `OFFLINE` 未被引用），
+  改为在组件内先算 `coverSrc` 再条件渲染整个封面链接；`PostPage` 同类问题用局部变量消除
+  `article.cover` 的可空类型歧义。
+- 离线版管理页与设置页仍残留「同步到线上 / 连接 GitHub」入口与文案（共 6 处），逐一按新语义改写，
+  避免指向已删除的 `?tab=sync` 标签。
+
+### 验证
+
+- `npx tsc --noEmit` 无错误；`npm run build`（线上版）通过。
+- `npm run build:offline` 通过：产物 3.01 MB，内联 CSS 1.49 MB / 内联 JS 1.50 MB / `@font-face` 20 条 /
+  10 篇内置文章齐全；第 8 组端点检查全绿（先失败过一次——`/graphql` 字面量残留，补上 `GRAPHQL` 常量后置空后通过）。
+- 用 jsdom 以 `file://` 加载产物，并把 `fetch` / `WebSocket` / `EventSource` 全部插桩计数：
+  首页 → 文章页 → 管理页 → `?tab=export` → 编辑器 → 登录页 → 设置页全程**出网调用 0 次**；
+  未注入任何云端字体 `<style>`；登录页显示离线说明、设置页三块在线卡片缺席、
+  编辑器出现两个保存出口、导出按钮空列表时给出「本机还没有写过的文章可导出」而非静默。
+- 在 jsdom 里对**离线产物**做了文章包往返实测：预置一篇本机文章 → 「导出全部本机文章」捕获 Blob
+  并解析出 `starlog-offline-bundle v1 / 1 篇`（正文含 `$` 与 `</script>` 等风险字符仍完整）→
+  在「导入离线文章包」对话框里选择同一文件 → 切到「另存为新文章」导入 →
+  本机文章库出现 `roundtrip-demo-imported-20261019`，全程出网调用仍为 0 次。
+- `npm run extension:test`：61 通过 / 0 失败 / 4 跳过（未改插件代码）。
+
+
 ## 2026-10-19 · 离线单文件版：断网可用、写作可用、联网后一键同步回线上站点
 
 | 模型信息 | |

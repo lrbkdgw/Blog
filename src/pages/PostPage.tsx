@@ -543,6 +543,8 @@ export default function PostPage() {
   }
 
   const article = visiblePost!
+  // 离线版不加载远程 / 站内封面图：解析为空就不渲染，避免出现破图占位
+  const coverSrc = article.cover ? resolvePendingImageSrc(article.cover) : ''
   return (
     <>
       <ReadingProgress />
@@ -611,7 +613,7 @@ export default function PostPage() {
               </div>
             </div>
           </header>
-          {article.cover && <img src={resolvePendingImageSrc(article.cover)} alt="" className="mt-8 w-full rounded-2xl object-cover shadow-xl" />}
+          {coverSrc && <img src={coverSrc} alt="" className="mt-8 w-full rounded-2xl object-cover shadow-xl" />}
           <div className="mt-8"><Markdown content={article.content} /></div>
           <div className="no-print mt-16 border-t border-ink-200/60 pt-8 dark:border-white/[0.08]">
             <div className="grid gap-3 sm:grid-cols-2">

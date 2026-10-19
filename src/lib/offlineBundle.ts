@@ -1,13 +1,14 @@
 /**
- * 离线导入包（starlog-offline-bundle）。
+ * 离线文章包（starlog-offline-bundle）—— 离线版与线上站点之间唯一的搬运通道。
  *
- * 用途：把离线单文件版里写好的全部文章，一次性导入到线上站点
- * （blog-apa.pages.dev 或 lrbkdgw.github.io/Blog）的**本地文章列表**。
- * 导入后即可在站点里正常浏览，再用站点原有的「待更新队列 → 统一更新」提交到仓库，
- * 走一次提交、一次部署，文章就出现在线上文章列表里。
+ * 离线单文件版**完全不联网**，所以它不把文章提交到 GitHub：
+ *   1. 在离线文件里「导出文章包」，得到一个自描述的 JSON 文件；
+ *   2. 在线上站点的「管理 → 导入离线文章包」选择它，写入该站点的**本地文章列表**；
+ *   3. 之后由站点自己的「待更新队列 → 统一更新」提交仓库（导入对话框里可以直接代为入队）。
  *
- * 同一份格式既用于「下载导入包文件 / 复制到剪贴板」，也用于跨窗口 postMessage 传输，
- * 因此序列化结果是一个自描述的 JSON 文本，不依赖任何二进制压缩。
+ * 不引入 postMessage、不做同源存储约定：`file://` 的存储与站点来源彼此隔离，
+ * 跨来源「悄悄共享数据」既做不到也不可控；一个可核对、可留存的文件才是诚实的接口。
+ * 加密文章导出的是密文信封，密码不会随包离开本机。
  */
 import { offlineConfig, siteConfig } from './config'
 import { getRepoTarget } from './github'
@@ -20,7 +21,8 @@ import {
   serializePost,
 } from './posts'
 import { readPersonalSettings, writePersonalSetting } from './settingsStore'
-import { listStagedImages, enqueueImageUploadDataUrl } from './updateQueue'
+import { listStagedImages, enqueueImageUploadDataUrl, enqueuePostPublish } from './updateQueue'
+import { OFFLINE } from './runtime'
 
 export const BUNDLE_FORMAT = 'starlog-offline-bundle'
 export const BUNDLE_VERSION = 1
@@ -333,6 +335,11 @@ export function planImport(
 export interface ImportApplyOptions {
   items: ImportPlanItem[]
   /**
+   * 线上站点专用：写入本地文章列表后，顺便把每篇加入「待更新队列」，
+   * 这样导入完就能直接统一更新提交到仓库。离线版里这个参数被忽略（不联网，没有队列可提交）。
+   */
+  alsoQueue?: boolean
+  /**
    * 导入包原文：图片与偏好不会出现在 ImportPlanItem 里，执行时需要完整包。
    * 必须显式传入——以前这里读的是模块内缓存的「最近一次 plan」，
    * 调用顺序一变就静默丢图片、丢偏好，排查成本极高。
@@ -349,6 +356,8 @@ export interface ImportApplyResult {
   overwrote: number
   skipped: number
   images: number
+  /** 线上站点导入时顺带加入待更新队列的篇数 */
+  queued: number
   failed: { slug: string; message: string }[]
 }
 
@@ -357,9 +366,9 @@ export interface ImportApplyResult {
  * 之后由站点原有的「待更新队列 → 统一更新」提交到 GitHub，一次提交一次部署。
  */
 export async function applyImport(options: ImportApplyOptions): Promise<ImportApplyResult> {
-  const { items, bundle, importImages = true, importSettings = false } = options
+  const { items, bundle, importImages = true, importSettings = false, alsoQueue = false } = options
   if (!bundle) throw new Error('applyImport 缺少导入包内容：请先 planImport(bundle, …)，再把同一个 bundle 传给 applyImport')
-  const result: ImportApplyResult = { created: 0, overwrote: 0, skipped: 0, images: 0, failed: [] }
+  const result: ImportApplyResult = { created: 0, overwrote: 0, skipped: 0, images: 0, queued: 0, failed: [] }
   if (items.length === 0) return result
 
   for (const item of items) {
@@ -368,9 +377,22 @@ export async function applyImport(options: ImportApplyOptions): Promise<ImportAp
       continue
     }
     try {
-      saveLocalPostRaw(item.targetSlug, item.markdown)
+      const post = saveLocalPostRaw(item.targetSlug, item.markdown)
       if (item.action === 'overwrite') result.overwrote += 1
       else result.created += 1
+      // 线上站点：导入即入队，用户不用再逐篇点一次「加入待更新队列」。
+      // 离线版本身不联网（没有可提交的队列），所以这条只在非离线构建里生效。
+      if (alsoQueue && !OFFLINE) {
+        try {
+          enqueuePostPublish({ slug: post.slug, title: post.title }, item.markdown)
+          result.queued += 1
+        } catch (err) {
+          result.failed.push({
+            slug: item.slug,
+            message: `已写入本地文章库，但加入待更新队列失败：${err instanceof Error ? err.message : '未知原因'}`,
+          })
+        }
+      }
     } catch (err) {
       result.failed.push({ slug: item.slug, message: err instanceof Error ? err.message : '写入本地文章库失败' })
     }
@@ -398,6 +420,32 @@ export async function applyImport(options: ImportApplyOptions): Promise<ImportAp
 
   window.dispatchEvent(new CustomEvent('starlog:posts-changed'))
   return result
+}
+
+/** 本机内容的统计（离线版页头徽标与导出面板共用；不联网，所以「待同步」这种说法不再适用） */
+export function countLocalContent(): { posts: number; drafts: number; images: number } {
+  const posts = getAllPosts()
+  return {
+    posts: posts.filter((post) => !post.draft).length,
+    drafts: posts.filter((post) => post.draft).length,
+    images: listStagedImages().length,
+  }
+}
+
+/**
+ * 导出文章包文件（浏览器下载）。
+ * `slugs` 留空表示导出本机全部文章（含草稿），否则只导选中的几篇。
+ */
+export function exportBundleFile(slugs?: string[]): { file: string; bytes: number; posts: number } {
+  const bundle = collectBundle({
+    onlySlugs: slugs?.length ? slugs : undefined,
+    includeDrafts: true,
+    includeImages: true,
+    includeSettings: false,
+  })
+  const name = `starlog-${slugs?.length === 1 ? slugs[0] : 'all'}-${new Date().toISOString().slice(0, 10)}.${BUNDLE_FILE_SUFFIX}`
+  downloadBundle(bundle, name)
+  return { file: name, bytes: bundleByteSize(bundle), posts: bundle.posts.length }
 }
 
 export function downloadBundle(bundle: OfflineBundle, filename?: string) {

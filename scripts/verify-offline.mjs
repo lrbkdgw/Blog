@@ -149,12 +149,35 @@ if (markdownFiles.length === 0) {
   }
 }
 
-/* --------------------------- 7) 离线能力的关键标记 ---------------------------- */
+/* --------------------- 8) 离线版必须彻底不联网 ----------------------------- */
 
-for (const marker of ['starlog:drafts', 'starlog:offline-hidden', 'starlog-offline']) {
-  if (!html.includes(marker)) fail(`产物里找不到离线存储标记「${marker}」，离线文章库可能没有被打包`)
+// 这些字符串一旦被打包进来，就说明某处在线能力没被离线开关切断。
+// 做法上依赖两点：`vite.offline.config.ts` 的 define 把 __STARLOG_OFFLINE__ 换成 true，
+// 以及 config / github / font 里「端点常量在 OFFLINE 下取空串」的写法，让压缩器有东西可删。
+const FORBIDDEN = [
+  ['GitHub API 端点', 'api.github.com'],
+  ['GitHub GraphQL', '/graphql'],
+  ['OAuth Device Flow', 'login/device/code'],
+  ['OAuth 令牌交换', 'login/oauth/access_token'],
+  ['云端字体（Google Fonts）', 'fonts.googleapis.com'],
+  ['云端字体资源域名', 'fonts.gstatic.com'],
+  ['OAuth App Client ID', 'Ov23lid9P8sdNuiKhkzy'],
+]
+const found = FORBIDDEN.filter(([, needle]) => html.includes(needle))
+if (found.length > 0) {
+  fail(
+    `离线产物里出现了在线端点：${found.map(([label]) => label).join('、')}。` +
+      '离线版按设计完全不联网——请把对应调用放进 if (OFFLINE) 提前返回之后，' +
+      '或像 config.ts / github.ts 那样把端点常量写成 OFFLINE ? \'\' : \'https://…\'。',
+  )
 }
-if (!/离线版/.test(html)) warn('产物里没有出现「离线版」字样，确认使用的是 vite.offline.config.ts 吗？')
+for (const [label, needle] of [
+  ['离线存储层', 'starlog:drafts'],
+  ['离线文章库', 'starlog:offline-hidden'],
+  ['离线能力标记', '离线版'],
+]) {
+  if (!html.includes(needle)) fail(`产物里找不到「${label}」相关标记（${needle}），离线功能可能没被打包`)
+}
 
 /* --------------------------------- 汇报结果 --------------------------------- */
 

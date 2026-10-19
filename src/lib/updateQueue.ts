@@ -22,8 +22,7 @@ import {
 import { normalizeVersionNames } from './versionNames'
 import { recordPublishTime } from './publishTimes'
 import { removeLocalPostIfSynced } from './posts'
-import { recordSeedDeletion, restoreSeedPost } from './offlineLibrary'
-import { OFFLINE, hasNetwork, resolveOfflineImageSrc } from './runtime'
+import { OFFLINE, OFFLINE_NO_NETWORK_HINT, resolveOfflineImageSrc } from './runtime'
 
 export type QueueItemKind =
   | 'post-publish'
@@ -446,8 +445,11 @@ function bestEffort(fn: () => unknown) {
  * 失败的条目会保留在队列中，成功的条目自动移除。
  */
 export async function flushUpdateQueue(selected?: QueueItem[]): Promise<FlushResult> {
-  if (OFFLINE && !hasNetwork()) {
-    throw new Error('当前处于离线状态：更新线上仓库需要联网。连网后在「内容管理 → 同步到线上」重试即可。')
+  // 离线版按设计不联网：这里的守卫等价于 `if (OFFLINE)`，写清原因而不是留一个看似有条件的判断
+  if (OFFLINE) {
+    throw new Error(
+      `${OFFLINE_NO_NETWORK_HINT}：要把内容带到线上站点，请在「内容管理 → 离线文章包」导出文件，再到线上站点导入`,
+    )
   }
   if (!getToken()) {
     throw new Error('尚未连接 GitHub 账号：请先在「设置 → GitHub 连接」（或登录页）完成 Device Flow 授权，再执行统一更新。')
@@ -551,27 +553,15 @@ export async function flushUpdateQueue(selected?: QueueItem[]): Promise<FlushRes
         if (item.kind === 'post-publish') {
           // 提交已经成功：本地记录失败（如存储空间不足）不能让这次提交被误报为失败
           bestEffort(() => recordPublishTime(item.target, Date.now()))
-          // 线上站点：本地草稿与仓库内容一致时删掉它，免得本地版本一直盖住仓库里的新版本。
-          // 离线版：本地文章库是文章的正式存放处而非「待同步草稿」，内容一致也不能删——
-          // 删了这篇在离线文件里就没了。这里只在被清掉时留一条明确日志，绝不静默改动用户内容。
-          if (item.markdown && !OFFLINE) {
+          // 线上站点：本地草稿与仓库内容一致时删掉它，免得旧草稿一直盖住仓库里的新版本。
+          // （离线版不会走到这里：`flushUpdateQueue` 在离线构建里被上面的网络守卫挡住，
+          // 本机文章库是离线版的正式存放处，内容一致也不该删。）
+          if (item.markdown) {
             bestEffort(() => {
               const removed = removeLocalPostIfSynced(item.target, item.markdown!)
               if (removed) console.info(`[待更新队列] 《${item.title}》的本地草稿与仓库内容一致，已清除本机副本`)
             })
-          } else if (item.markdown) {
-            console.warn(
-              `[待更新队列] 《${item.title}》已提交到仓库；离线版保留本机文章库中的同内容副本（离线阅读需要），未自动删除。`,
-            )
           }
-        }
-        if (item.kind === 'post-delete' && OFFLINE) {
-          // 离线版删除内置文章时先记墓碑；提交成功后把墓碑转成「已提交删除」记录：
-          // 文章继续隐藏，但墓碑不会无限累积，日后同 slug 重新发布也不会被旧记录误隐藏。
-          bestEffort(() => {
-            recordSeedDeletion(item.target)
-            restoreSeedPost(item.target)
-          })
         }
         succeeded.push(item)
       }

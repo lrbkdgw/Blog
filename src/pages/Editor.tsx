@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import {
+import { Archive, 
   AlertCircle,
   Bold,
   Check,
@@ -25,6 +25,7 @@ import {
   Minimize2,
   Pencil,
   Quote,
+  HardDrive,
   Save,
   Sigma,
   SlidersHorizontal,
@@ -62,6 +63,7 @@ import {
   today,
 } from '../lib/posts'
 import { hideSeedPost, pushLocalVersion } from '../lib/offlineLibrary'
+import { exportBundleFile } from '../lib/offlineBundle'
 import { OFFLINE } from '../lib/runtime'
 import { flushStorage } from '../lib/offlineStorage'
 import { siteConfig } from '../lib/config'
@@ -664,10 +666,10 @@ export default function Editor() {
       withSelection((v, s, e) => insertBlock(v, s, e, `![${file.name}](${url})\n`))
       toast(
         OFFLINE
-          ? '图片已保存在本机图片库（预览用本地数据），「同步到线上」时会随文章一起上传'
+          ? '图片已保存在本机图片库（预览用本地数据），导出文章包时会一起带上'
           : '图片已加入待更新队列，统一更新到仓库前站内预览使用本地暂存数据',
         'success',
-        { label: '查看队列', href: OFFLINE ? '/admin?tab=sync' : '/admin?tab=queue' },
+        { label: '查看队列', href: OFFLINE ? '/admin?tab=export' : '/admin?tab=queue' },
       )
     } catch (err) {
       toast(err instanceof Error ? err.message : '暂存图片失败', 'error')
@@ -676,29 +678,37 @@ export default function Editor() {
     }
   }
 
-  /* ------------------------- 离线版：保存到本机文章库 ------------------------- */
-  const publishOffline = async () => {
+  /* ---------------- 离线版：写入本机文章库（发布 = 落盘确认后才算成功） ---------------- */
+  /**
+   * 把编辑区内容写进本机文章库，返回最终 slug；校验不通过或写入失败返回 null。
+   *
+   * 三条硬规则（都是被离线场景逼出来的）：
+   *   - 加密文章没解锁时**不写**，也不让调用方以为写好了；
+   *   - 写完必须 `await flushStorage()` 确认真的落盘（存储被拒 / 配额满要在这里冒出来）；
+   *   - 只有确认之后才谈「已保存」。
+   */
+  const saveToLibrary = async (): Promise<string | null> => {
     // 加密文章必须先解锁：此时编辑区是空白，继续走下去会把空白内容写成文章库条目
     if (protectedExisting && !hydratedRef.current) {
-      toast('请先输入密码解锁文章后再发布', 'warning')
-      return
+      toast('请先输入密码解锁文章后再保存', 'warning')
+      return null
     }
     if (!title.trim()) {
       toast('请先填写标题', 'warning')
       setFullscreen(false)
       setMetaOpen(true)
-      return
+      return null
     }
     if (encryptOnPublish) {
       if (!encryptionPassword) {
         toast('请输入文章加密密码', 'warning')
         setMetaOpen(true)
-        return
+        return null
       }
       if (encryptionPassword !== encryptionConfirm) {
         toast('两次输入的密码不一致', 'warning')
         setMetaOpen(true)
-        return
+        return null
       }
     }
     setPublishing(true)
@@ -706,22 +716,22 @@ export default function Editor() {
       // 先把编辑区内容落盘（含存储确认），失败即抛出，绝不显示「已保存」
       const { post, written, deduped } = await saveAndFlush(true)
       if (deduped) {
-        console.info('[离线发布] 草稿内容与刚刚的自动保存一致，已跳过重复写入，直接继续发布流程')
+        console.info('[离线保存] 草稿内容与刚刚的自动保存一致，已跳过重复写入，直接继续')
       }
       if (!written) {
         // saveAndFlush 里已经抛错，这里是显式双保险：宁可不写，也不留下空白文章
-        throw new Error('本次没有写入本地草稿，已中止发布')
+        throw new Error('本次没有写入本地草稿，已中止保存')
       }
       const markdown = encryptOnPublish
         ? await encryptPostMarkdown(post, encryptionPassword)
         : serializePost(post)
       // 文章库条目直接写入完整 Markdown：加密发布时写入的是密文信封，本机不留明文
       saveLocalPostRaw(post.slug, markdown, routeSlug || undefined)
-      // 改了 slug 且旧名字来自内置文章：本机隐藏旧条目，同步时一并从仓库删除
+      // 改了 slug 且旧名字来自内置文章：本机隐藏旧条目（只影响这台设备上的这个文件）
       if (routeSlug && routeSlug !== post.slug && getPostBySlug(routeSlug, 'repo')) {
         hideSeedPost(routeSlug)
       }
-      pushLocalVersion(post.slug, markdown, `发布 · ${new Date().toLocaleString('zh-CN')}`)
+      pushLocalVersion(post.slug, markdown, `保存 · ${new Date().toLocaleString('zh-CN')}`)
       recordPublishTime(post.slug)
       if (encryptOnPublish) {
         setEncryptionPassword('')
@@ -731,16 +741,46 @@ export default function Editor() {
       await flushStorage()
       setSavedAt(Date.now())
       setDirty(false)
-      toast(
-        `已保存到离线文章库${encryptOnPublish ? '（密文信封）' : ''}。联网并连接 GitHub 后可在「内容管理 → 同步到线上」一次提交`,
-        'success',
-        { label: '同步到线上', href: '/admin?tab=sync' },
-      )
+      return post.slug
     } catch (err) {
       setDirty(true)
-      toast(err instanceof Error ? err.message : '保存到离线文章库失败', 'error')
+      toast(err instanceof Error ? err.message : '保存到文章库失败', 'error')
+      return null
     } finally {
       setPublishing(false)
+    }
+  }
+
+  const publishOffline = async () => {
+    const slug = await saveToLibrary()
+    if (!slug) return
+    toast(
+      `已保存到本机文章库${encryptOnPublish ? '（密文信封）' : ''}`,
+      'success',
+      { label: '带到线上站点', href: '/admin?tab=export' },
+    )
+  }
+
+  /**
+   * 「保存到在线网站的本地文章中」：先写进本机文章库，再生成这一篇的**文章包**文件。
+   *
+   * 离线文件不联网，不能替用户提交仓库；文章包就是唯一的交接物——
+   * 在线上站点的「管理 → 导入离线文章包」里选它，内容就进入该站点的本地文章列表，
+   * 之后由站点自己的待更新队列一次提交、一次部署。
+   */
+  const exportThisPost = async () => {
+    const slug = await saveToLibrary()
+    if (!slug) return
+    try {
+      const result = exportBundleFile([slug])
+      toast(
+        `已生成导入包 ${result.file}（${(result.bytes / 1024).toFixed(0)} KB）。` +
+          '到线上站点的「管理 → 导入离线文章包」里选择它，即可写入该站点的本地文章列表',
+        'success',
+        { label: '查看导出说明', href: '/admin?tab=export' },
+      )
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '文章已保存，但生成导入包失败', 'error')
     }
   }
 
@@ -1107,15 +1147,26 @@ export default function Editor() {
 
             {/* 离线版：写入本机文章库；线上：更改先加入待更新队列，由内容管理统一更新 */}
             {OFFLINE ? (
-              <button
-                onClick={publishOrSubmitPR}
-                disabled={publishing}
-                className="btn-primary h-9"
-                title="保存到本机的离线文章库；联网并连接 GitHub 后可在「内容管理 → 同步到线上」批量提交"
-              >
-                {publishing ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-                <span className="hidden sm:inline">{publishing ? '保存中…' : '保存到文章库'}</span>
-              </button>
+              <>
+                <button
+                  onClick={publishOrSubmitPR}
+                  disabled={publishing}
+                  className="btn-outline h-9"
+                  title="写入这个 HTML 所在浏览器的本机文章库；不联网，也不会改动仓库"
+                >
+                  {publishing ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+                  <span className="hidden sm:inline">{publishing ? '保存中…' : '保存到本机'}</span>
+                </button>
+                <button
+                  onClick={() => void exportThisPost()}
+                  disabled={publishing}
+                  className="btn-primary h-9"
+                  title="保存到本机文章库，并生成这一篇的文章包文件；在线上站点导入后就会出现在该站点的本地文章列表里"
+                >
+                  {publishing ? <Loader2 size={15} className="animate-spin" /> : <Archive size={15} />}
+                  <span className="hidden sm:inline">保存到在线网站的本地文章</span>
+                </button>
+              </>
             ) : canPublish ? (
               <button
                 onClick={publishOrSubmitPR}
@@ -1464,11 +1515,11 @@ export default function Editor() {
           {OFFLINE ? (
             <span className="flex items-center gap-1.5">
               <AlertCircle size={13} />
-              离线版：草稿与已保存文章都在本机文章库里；同步前先加入
-              <Link to="/admin?tab=sync" className="text-brand-600 hover:underline dark:text-brand-300">
-                待更新队列
+              离线版：草稿与文章都存在这个浏览器的本机文章库里，全程不联网。要带到线上，用
+              <Link to="/admin?tab=export" className="text-brand-600 hover:underline dark:text-brand-300">
+                导出文章包
               </Link>
-              ，联网 + 连接 GitHub 后一次提交到仓库。
+              ，再到线上站点导入。
             </span>
           ) : (
           <span className="flex items-center gap-1.5">
@@ -1480,11 +1531,17 @@ export default function Editor() {
             ，统一更新后才会提交到 GitHub。
           </span>
           )}
-          {canPublish ? (
+          {/* 离线版没有账号体系：这里只显示「本机会自动保存」，不出现任何连接 GitHub 的入口 */}
+          {OFFLINE ? (
+            <span className="flex items-center gap-1.5">
+              <HardDrive size={13} />
+              未登录也可写作：内容保存在本机
+            </span>
+          ) : canPublish ? (
             <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
               <Github size={13} />
               已连接 @{ghUser?.login}{' '}
-              {OFFLINE ? '（可直接同步到仓库）' : canDirectPush ? '（仓库管理员）' : '（协作者）'}
+              {canDirectPush ? '（仓库管理员）' : '（协作者）'}
             </span>
           ) : (
             <Link
@@ -1492,7 +1549,7 @@ export default function Editor() {
               className="flex items-center gap-1.5 text-brand-600 hover:underline dark:text-brand-300"
             >
               <Upload size={13} />
-              {OFFLINE ? '连接 GitHub 以启用「同步到线上」' : '连接 GitHub 以启用发布'}
+              连接 GitHub 以启用发布
             </Link>
           )}
           <span className="hidden sm:inline">快捷键：⌘S 保存 · ⌘B 粗体 · ⌘I 斜体 · ⌘K 链接 · Shift + ↑ LaTeX 符号</span>

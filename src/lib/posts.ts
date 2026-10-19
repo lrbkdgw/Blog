@@ -1,7 +1,7 @@
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter'
 import { stripArticleDirectives } from './articleDirectives'
 import { STORAGE_KEYS } from './config'
-import { deletedSeedSlugs, hiddenSeedSlugs } from './offlineLibrary'
+import { hiddenSeedSlugs } from './offlineLibrary'
 import { OFFLINE } from './runtime'
 import type { Post, PostMeta } from './types'
 
@@ -267,7 +267,7 @@ export function saveLocalPostRaw(slug: string, raw: string, prevSlug?: string): 
     console.error('[posts] 离线文章库写入失败', err)
     throw new Error(
       `离线文章库写入失败（${message}）：《${slug}》可能没有保存成功。` +
-        '同时请核对内置文章的删除记录（「内容管理」顶部的隐藏提示与「同步到线上」的计划）——' +
+        '同时请核对内置文章的隐藏记录（「内容管理」顶部的隐藏提示）——' +
         '它们与文章库同库写入，这次可能一起失败了。建议先导出离线档案备份，再清理空间后重试。',
     )
   }
@@ -321,12 +321,11 @@ export function getRepoPosts(): Post[] {
     buildPost(raw, { path: path.replace(/^\//, ''), source: 'repo' }),
   )
   if (!OFFLINE) return posts
-  // 离线版：单文件里的内置文章删不掉，只能记住「本机已删除」（待提交的墓碑，
-  // 或已提交到仓库的删除记录）并把它隐藏。
+  // 离线版：内置文章是写死在 HTML 里的，删不掉，只能记住「本机已隐藏」并把它过滤掉。
+  // 想真的从仓库消失，请到线上站点删除——离线文件不联网，也不会替用户提交任何改动。
   const hidden = hiddenSeedSlugs()
-  const committed = deletedSeedSlugs()
-  if (hidden.length === 0 && committed.size === 0) return posts
-  return posts.filter((post) => !hidden.includes(post.slug) && !committed.has(post.slug))
+  if (hidden.length === 0) return posts
+  return posts.filter((post) => !hidden.includes(post.slug))
 }
 
 /** 指定 slug 对应的仓库加密文章（不存在则返回 undefined）。

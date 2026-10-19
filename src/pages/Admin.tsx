@@ -7,8 +7,10 @@ import {
   Eye,
   FileText,
   GitMerge,
+  FileJson,
   GitPullRequest,
   Github,
+  Archive,
   HardDrive,
   Image as ImageIcon,
   ListTodo,
@@ -52,13 +54,14 @@ import {
 import type { QueueItem, QueueItemKind } from '../lib/updateQueue'
 import { useRepoTarget } from '../lib/useRepoTarget'
 import { QueueDiffDialog } from '../components/QueueDiff'
-import { OfflineSyncPanel } from '../components/OfflineSyncPanel'
-import { hiddenSeedSlugs, hideSeedPost, resetSeedDeletions } from '../lib/offlineLibrary'
-import { planOfflineSync } from '../lib/offlineSync'
+import OfflineExportPanel from '../components/OfflineExportPanel'
+import BundleImportDialog from '../components/BundleImportDialog'
+import { hiddenSeedSlugs, hideSeedPost, resetSeedHidden } from '../lib/offlineLibrary'
+import { countLocalContent } from '../lib/offlineBundle'
 import { OFFLINE } from '../lib/runtime'
 import type { Post } from '../lib/types'
 
-type MainTab = 'posts' | 'prs' | 'queue' | 'sync'
+type MainTab = 'posts' | 'prs' | 'queue' | 'export'
 type Filter = 'all' | 'repo' | 'local' | 'draft'
 
 /** 列表筛选项：离线版里 source=repo 是「打包进 HTML 的内置文章」，source=local 是本机文章库 */
@@ -135,13 +138,13 @@ export default function Admin() {
 
   const target = useRepoTarget()
 
-  const [syncCount, setSyncCount] = useState(() => (OFFLINE ? planOfflineSync().items.length : 0))
+  const [localCount, setLocalCount] = useState(() => (OFFLINE ? countLocalContent().posts + countLocalContent().drafts : 0))
   const [hiddenCount, setHiddenCount] = useState(() => (OFFLINE ? hiddenSeedSlugs().length : 0))
 
   const reloadPosts = () => {
     setPosts(getAllAdminPosts())
     if (OFFLINE) {
-      setSyncCount(planOfflineSync().items.length)
+      setLocalCount(countLocalContent().posts + countLocalContent().drafts)
       setHiddenCount(hiddenSeedSlugs().length)
     }
   }
@@ -196,7 +199,7 @@ export default function Admin() {
   // 支持 /admin?tab=queue 等入口直达指定标签页
   useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab === 'posts' || tab === 'prs' || tab === 'queue' || tab === 'sync') setMainTab(tab)
+    if (tab === 'posts' || tab === 'prs' || tab === 'queue' || tab === 'export') setMainTab(tab)
   }, [searchParams])
 
   // 加载 PR 列表
@@ -350,14 +353,14 @@ export default function Admin() {
       return
     }
     if (OFFLINE) {
-      // 单文件里的内置文章无法真的从文件里删除：本机隐藏（墓碑），同步到线上时再从仓库删除。
-      if (!confirm(`将「${post.title}」从离线版隐藏，并在下次「同步到线上」时从仓库删除？（不会改动这个 HTML 文件本身）`)) return
+      // 单文件里的内置文章无法真的从文件里删除：只能本机隐藏（墓碑），不影响仓库。
+      if (!confirm(`「${post.title}」是打包进这个 HTML 的内置文章，无法真正删除。改为在本机隐藏它？（只影响这台设备上的这个文件）`)) return
       try {
         hideSeedPost(post.slug)
         reloadPosts()
-        toast('已在离线版中隐藏；同步到线上时会一并删除仓库文件', 'success', {
-          label: '去同步',
-          href: '/admin?tab=sync',
+        toast('已在本机隐藏这篇文章', 'success', {
+          label: '查看隐藏记录',
+          href: '/admin?tab=export',
         })
       } catch (err) {
         toast(err instanceof Error ? err.message : '删除失败', 'error')
@@ -433,6 +436,11 @@ export default function Admin() {
                   </span>
                 )}
               </span>
+            ) : OFFLINE ? (
+              <span className="flex items-center gap-1.5 text-ink-500">
+                <HardDrive size={14} />
+                内容保存在这台设备的浏览器里（离线版不联网）
+              </span>
             ) : (
               <Link
                 to="/settings"
@@ -473,12 +481,12 @@ export default function Admin() {
         <div className="card mt-6 flex flex-wrap items-center justify-between gap-3 border-amber-200/70 bg-amber-50/60 p-4 text-sm dark:border-amber-500/20 dark:!bg-amber-500/[0.06]">
           <span className="flex items-center gap-2 text-ink-700 dark:text-ink-200">
             <HardDrive size={17} className="text-amber-600" />
-            有 <strong>{hiddenCount}</strong> 篇内置文章在离线版中被隐藏（删除记录会随「同步到线上」提交到仓库）。
+            有 <strong>{hiddenCount}</strong> 篇内置文章在本机被隐藏。内置内容写死在 HTML 里，这里只能本机隐藏；要真的从仓库删除，请到线上站点操作。
           </span>
           <button
             type="button"
             onClick={() => {
-              resetSeedDeletions()
+              resetSeedHidden()
               reloadPosts()
               toast('已恢复全部被隐藏的内置文章', 'info')
             }}
@@ -525,25 +533,24 @@ export default function Admin() {
             )}
           </button>
         )}
-        {OFFLINE && (
-          <button
-            type="button"
-            onClick={() => setMainTab('sync')}
-            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
-              mainTab === 'sync'
-                ? 'border-brand-500 text-brand-600 dark:text-brand-300'
-                : 'border-transparent text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
-            }`}
-          >
-            <CloudUpload size={16} />
-            同步到线上
-            {syncCount > 0 && (
-              <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
-                {syncCount} 待同步
-              </span>
-            )}
-          </button>
-        )}
+        {/* 「离线文章包」两种构建都显示：离线版用来导出，线上站点用来导入到本地文章列表 */}
+        <button
+          type="button"
+          onClick={() => setMainTab('export')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+            mainTab === 'export'
+              ? 'border-brand-500 text-brand-600 dark:text-brand-300'
+              : 'border-transparent text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
+          }`}
+        >
+          <Archive size={16} />
+          离线文章包
+          {OFFLINE && localCount > 0 && (
+            <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
+              本机 {localCount} 篇
+            </span>
+          )}
+        </button>
         <button
           type="button"
           onClick={() => setMainTab('queue')}
@@ -746,10 +753,19 @@ export default function Admin() {
             当同一文章存在已发布的仓库版本与本地编辑的草稿时，列表中会同时显示为两条记录，方便分别查看与管理。发布与删除等仓库操作会先进入「待更新队列」，统一更新后才会真正提交到 GitHub。
           </p>
         </>
-      ) : mainTab === 'sync' ? (
-        /* ----------------------- 离线版：同步到线上 ----------------------- */
+      ) : mainTab === 'export' ? (
+        /* ------------------- 离线文章包（离线版导出 / 线上站点导入） ------------------- */
         <div className="mt-6 animate-fade-up">
-          <OfflineSyncPanel />
+          {OFFLINE ? (
+            <OfflineExportPanel />
+          ) : (
+            <OnlineBundleImport
+              onImported={() => {
+                reloadPosts()
+                reloadQueue()
+              }}
+            />
+          )}
         </div>
       ) : mainTab === 'prs' ? (
         /* -------------------------- 发表申请 (PR 审批) -------------------------- */
@@ -877,7 +893,9 @@ export default function Admin() {
         <div className="mt-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs text-ink-500">
-              所有需要更新仓库的操作（发布/删除文章、上传图片、发表申请、账号偏好同步）都会先保存在本机，勾选后可一次批量更新，也可以全部更新。
+              {OFFLINE
+                ? '离线版不提交仓库：这里只列出本机暂存的图片等待导出内容，它们会随「导出文章包」一起带走。'
+                : '所有需要更新仓库的操作（发布/删除文章、上传图片、发表申请、账号偏好同步）都会先保存在本机，勾选后可一次批量更新，也可以全部更新。'}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <button
@@ -889,25 +907,29 @@ export default function Admin() {
                 {allSelected ? <Square size={13} /> : <CheckSquare size={13} />}
                 {allSelected ? '取消全选' : '全选'}
               </button>
-              <button
-                type="button"
-                onClick={() => runFlush(queue.filter((item) => selectedIds.has(item.id)))}
-                disabled={flushing || selectedIds.size === 0}
-                className="btn-outline h-8 px-2.5 text-xs"
-                title={selectedIds.size === 0 ? '勾选要更新的更改' : `更新所选 ${selectedIds.size} 项`}
-              >
-                {flushing ? <Loader2 size={12} className="animate-spin" /> : <UploadCloud size={12} />}
-                更新所选{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
-              </button>
-              <button
-                type="button"
-                onClick={() => runFlush(queue)}
-                disabled={flushing || queue.length === 0}
-                className="btn-primary h-8 px-3 text-xs"
-              >
-                {flushing ? <Loader2 size={13} className="animate-spin" /> : <CloudUpload size={13} />}
-                全部更新
-              </button>
+              {!OFFLINE && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => runFlush(queue.filter((item) => selectedIds.has(item.id)))}
+                    disabled={flushing || selectedIds.size === 0}
+                    className="btn-outline h-8 px-2.5 text-xs"
+                    title={selectedIds.size === 0 ? '勾选要更新的更改' : `更新所选 ${selectedIds.size} 项`}
+                  >
+                    {flushing ? <Loader2 size={12} className="animate-spin" /> : <UploadCloud size={12} />}
+                    更新所选{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => runFlush(queue)}
+                    disabled={flushing || queue.length === 0}
+                    className="btn-primary h-8 px-3 text-xs"
+                  >
+                    {flushing ? <Loader2 size={13} className="animate-spin" /> : <CloudUpload size={13} />}
+                    全部更新
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -1030,7 +1052,11 @@ export default function Admin() {
                         diff
                       </button>
                       <button
-                        onClick={() => runFlush([item])}
+                        onClick={() =>
+                          OFFLINE
+                            ? toast('离线版不提交仓库：这项内容会随文章包导出，或到线上站点再统一更新', 'info')
+                            : runFlush([item])
+                        }
                         disabled={flushing}
                         className="btn-ghost h-8 px-2 text-xs text-brand-600 dark:text-brand-300"
                         title="立即更新这一项"
@@ -1068,6 +1094,37 @@ export default function Admin() {
       )}
 
       {diffItem && <QueueDiffDialog item={diffItem} onClose={() => setDiffItem(null)} />}
+    </div>
+  )
+}
+
+/** 线上站点端的「导入离线文章包」入口：写入本站点的本地文章列表，再由待更新队列提交仓库。 */
+function OnlineBundleImport({ onImported }: { onImported: () => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="space-y-4">
+      <section className="card p-5">
+        <h2 className="flex items-center gap-2 font-serif text-lg font-bold">
+          <Archive size={17} />
+          导入离线文章包
+        </h2>
+        <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-ink-500">
+          离线单文件版（那个可以直接带走的 HTML）不会联网，也不能替你提交仓库：它只能导出一个
+          <code className="mx-1 rounded bg-ink-100 px-1 text-[13px] dark:bg-white/10">.starlog-import.json</code>
+          文章包。在这里选择它，文章会写进<strong>本站点的本地文章列表</strong>，
+          然后照常走「待更新队列 → 统一更新」：一次提交、一次部署，线上文章列表里就有了。
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" onClick={() => setOpen(true)} className="btn-primary h-9">
+            <FileJson size={15} />
+            选择文件并导入
+          </button>
+          <Link to="/admin?tab=queue" className="btn-outline h-9">
+            查看待更新队列
+          </Link>
+        </div>
+      </section>
+      <BundleImportDialog open={open} onClose={() => setOpen(false)} onImported={onImported} />
     </div>
   )
 }

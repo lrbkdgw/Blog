@@ -74,6 +74,10 @@
    **涉及 `src/**`、`vite*.config.ts`、`scripts/vite-plugin-single-html.mjs` 或 `content/posts/**` 时**，
    还必须跑 `npm run build:offline` 并通过 `scripts/verify-offline.mjs` 的自检——离线版是单文件产物，
    少字体、漏文章、内联脚本被破坏这类问题只在线上构建里看不出来）。
+   离线版的定位是**完全不联网**：不要在 `OFFLINE` 分支里引入任何请求（GitHub API、云端字体、
+   远程图片都不行）。如果自检报出「产物里出现了在线端点」，说明新代码把在线能力漏进了离线文件，
+   要么把调用放到 `if (OFFLINE)` 之后，要么像 `config.ts` / `github.ts` 那样把端点常量写成
+   `OFFLINE ? '' : 'https://…'`，而不是把自检删掉。
    自检通过后，把 `dist-offline/index.html` 拷到 `offline/index.html` 一并提交（该文件由
    `.github/workflows/offline.yml` 自动维护，**不要手工编辑**，也不要提交 `dist-offline/`）。
 4. **更新 README.md**（按规则 1）与 **ChangeLog.md**（按规则 1、2、3，含模型信息）。
