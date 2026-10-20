@@ -11,6 +11,7 @@ import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeSlug from 'rehype-slug'
 import { ShowBox } from './ShowBox'
+import { CoordinatePlane } from './CoordinatePlane'
 import { resolvePendingImageSrc } from '../lib/updateQueue'
 import {
   EMPTY_ARTICLE_DIRECTIVES,
@@ -63,6 +64,9 @@ const sanitizeSchema: SanitizeOptions = {
       'dataShowTitle',
       'dataShowVars',
       'dataShowContent',
+      // 交互平面直角坐标系（issue #76：::begin_ui-ccs … ::end_ui-ccs）
+      'dataUiCcs',
+      'dataUiCcsSpec',
     ],
     details: [...(defaultSchema.attributes?.details ?? []), 'open'],
   },
@@ -346,6 +350,27 @@ export function preprocessMarkdownDetailed(
       if (end < lines.length) {
         push(
           `<div data-show-box="true" data-show-title="${encodeURIComponent(showMatch[1])}" data-show-vars="${encodeURIComponent(showMatch[2])}" data-show-content="${encodeURIComponent(body.join('\n'))}"></div>`,
+          i,
+        )
+        push('', i)
+        i = end
+        continue
+      }
+    }
+
+    // 交互平面直角坐标系（issue #76）：::begin_ui-ccs … ::end_ui-ccs
+    // 整块编码到 data attribute，交给 CoordinatePlane 组件解析与交互。
+    const ccsMatch = line.match(/^\s*::begin_ui-ccs\s*$/i)
+    if (ccsMatch) {
+      const body: string[] = []
+      let end = i + 1
+      while (end < lines.length && !/^\s*::end_ui-ccs\s*$/i.test(lines[end])) {
+        body.push(lines[end])
+        end += 1
+      }
+      if (end < lines.length) {
+        push(
+          `<div data-ui-ccs="true" data-ui-ccs-spec="${encodeURIComponent(body.join('\n'))}"></div>`,
           i,
         )
         push('', i)
@@ -766,6 +791,8 @@ function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTr
         'data-show-title'?: string
         'data-show-vars'?: string
         'data-show-content'?: string
+        'data-ui-ccs'?: string
+        'data-ui-ccs-spec'?: string
       }
       if (attributes['data-show-box'] === 'true') {
         return (
@@ -775,6 +802,14 @@ function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTr
             body={decodeShowAttribute(attributes['data-show-content'])}
             sourceLine={toSourceLine(node)}
             urlTransform={urlTransform}
+          />
+        )
+      }
+      if (attributes['data-ui-ccs'] === 'true') {
+        return (
+          <CoordinatePlane
+            spec={decodeShowAttribute(attributes['data-ui-ccs-spec'])}
+            sourceLine={toSourceLine(node)}
           />
         )
       }

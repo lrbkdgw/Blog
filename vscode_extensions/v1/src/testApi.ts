@@ -14,4 +14,14 @@ export { transformMarkdown, renderShowBox, convertMergeMarkersForMpe } from './c
 export { convertMarkdownForCopy } from './core/sourceConvert'
 export { evaluateShowFormula, parseShowVariables, renderShowContent } from './core/showBox'
 export { parseArticleDirectives, stripArticleDirectives } from './core/articleDirectives'
+export {
+  parseCoordinatePlane,
+  compilePlaneExpression,
+  planeContentBounds,
+  nicePlaneStep,
+  formatPlaneNumber,
+  parsePlaneColor,
+  DEFAULT_PLANE_COLOR,
+} from './core/coordinatePlane'
 export { LATEX_SYMBOLS, latexSymbolInsert, searchLatexSymbols } from './core/latexSymbols'
+export { stripMarkdown, countWords, excerpt, extractToc } from './core/posts'

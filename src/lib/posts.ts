@@ -52,6 +52,9 @@ export function today(): string {
 /** 去掉 Markdown 标记，用于摘要与字数统计 */
 export function stripMarkdown(md: string): string {
   return md
+    // 交互坐标系（::begin_ui-ccs … ::end_ui-ccs）是纯图形组件，
+    // 指令原文不进摘要 / 字数 / 搜索索引；未闭合的块按普通文本保留。
+    .replace(/^\s*::begin_ui-ccs\s*$[\s\S]*?^\s*::end_ui-ccs\s*$/gim, ' ')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`]*`/g, ' ')
     .replace(/\$\$[\s\S]*?\$\$/g, ' ')
@@ -477,6 +480,16 @@ export function extractToc(md: string): TocItem[] {
     if (showStart) {
       let end = index + 1
       while (end < lines.length && !/^\s*::show_end\s*$/i.test(lines[end])) end += 1
+      if (end < lines.length) {
+        index = end
+        continue
+      }
+    }
+
+    // 交互坐标系块同样不参与目录锚点计数。
+    if (/^\s*::begin_ui-ccs\s*$/i.test(line)) {
+      let end = index + 1
+      while (end < lines.length && !/^\s*::end_ui-ccs\s*$/i.test(lines[end])) end += 1
       if (end < lines.length) {
         index = end
         continue

@@ -209,6 +209,30 @@ export function transformMarkdown(markdown: string, options: TransformOptions = 
       }
     }
 
+    // 交互平面直角坐标系：::begin_ui-ccs … ::end_ui-ccs
+    // MPE 不加载本扩展的 React 脚本，无法提供拖动 / 缩放，降级为说明 + 源码围栏。
+    if (/^\s*::begin_ui-ccs\s*$/i.test(line)) {
+      const body: string[] = []
+      let end = i + 1
+      while (end < lines.length && !/^\s*::end_ui-ccs\s*$/i.test(lines[end])) {
+        body.push(lines[end])
+        end += 1
+      }
+      if (end < lines.length) {
+        result.push('')
+        result.push('<div class="' + prefix + '-ccs">')
+        result.push(
+          '<div class="' + prefix + '-ccs-head"><span aria-hidden="true">📐</span>' +
+            '<span>平面直角坐标系（交互式图表，支持拖动与缩放；MPE 静态预览仅显示源码）</span></div>',
+        )
+        result.push('<pre><code>' + escapeHtml(body.join('\n')) + '</code></pre>')
+        result.push('</div>')
+        result.push('')
+        i = end
+        continue
+      }
+    }
+
     // ::cute-table{tuack} / :::cute-table{tuack}
     const tuackMatch = line.match(/^ *(?::{2,})(?:cute-table)\s*\{([^}]+)\}\s*$/i)
     if (tuackMatch) {

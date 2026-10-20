@@ -1127,7 +1127,9 @@ export function createRain(initialDark: boolean): Renderer {
 
       const wind = (values.wind ?? 25) / 100
       for (const d of drops) {
-        const vy = (340 + (values.speed ?? 65) * 9.2) * (0.24 + d.z * 1.06)
+        // 真实暴雨的雨丝又快又长：基准落速整体上调约 1.5 倍，近层（z→1）
+        // 每秒可跨过约两个视口高度，远层也保持明显的流动感，不再像慢速飘线。
+        const vy = (520 + (values.speed ?? 65) * 12.5) * (0.3 + d.z * 1.12)
         d.y += vy * dt
         d.x += wind * vy * 0.62 * d.drift * dt
         if (d.y > h + 40 || d.x < -w * 0.45 || d.x > w * 1.45) Object.assign(d, spawn(true))
@@ -1229,7 +1231,7 @@ export function createRain(initialDark: boolean): Renderer {
           ctx.beginPath()
           for (const d of drops) {
             if (Math.min(2, Math.floor(d.z * 3)) !== layer) continue
-            const length = (14 + d.z * (22 + speed * 0.5)) * d.len
+            const length = (17 + d.z * (27 + speed * 0.6)) * d.len
             ctx.moveTo(d.x, d.y)
             ctx.lineTo(d.x + slant * length, d.y + length)
           }
@@ -1242,7 +1244,8 @@ export function createRain(initialDark: boolean): Renderer {
           for (const d of drops) {
             if (Math.min(2, Math.floor(d.z * 3)) !== layer) continue
             if ((d.bright > 0.58) !== (bucket === 1)) continue
-            const length = (10 + d.z * (18 + speed * 0.48)) * d.len
+            // 雨丝随落速一起加长：高速下落的雨滴在视觉上是更长的运动拖影。
+            const length = (12 + d.z * (22 + speed * 0.55)) * d.len
             ctx.moveTo(d.x, d.y)
             ctx.lineTo(d.x + slant * length, d.y + length)
           }

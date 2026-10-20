@@ -14,6 +14,7 @@ const corpus = [
   '```markdown\n::show_begin{示例}{a:Z=1[0,2,1]}\n::show_end\n:::info[不执行]\n:::\n```\n\n~~~text\n::cute-table{tuack}\n~~~\n\n::show_begin{未闭合}{a:Z=1}\n正文',
   '<div class="custom"><strong>原始 HTML</strong></div>\n\n![图片](./images/demo.png)\n\n| 转义 | 代码 |\n| - | - |\n| 甲 | 乙 |\n| `^` | &lt; |',
   '::set-font[LXGW WenKai]\n::set-code-font[Fira Code]\n::set-background[1]\n\n## 标题\n\n正文 $a\\pm b$ 与 `code`。\n\n```markdown\n::set-font[围栏内只是示例]\n```',
+  '::begin_ui-ccs\ncreate_point:(2,3);\ncreate_line:(0,0),(4,4),[color=red];\ncreate_line:(7*x^2+6*x+90*x^3);\n::end_ui-ccs',
 ]
 
 for (const [index, source] of corpus.entries()) {

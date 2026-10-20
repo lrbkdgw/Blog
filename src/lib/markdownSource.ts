@@ -72,6 +72,54 @@ export function convertShowBoxesToMarkdown(markdown: string): string {
   return output.join('\n')
 }
 
+/** 交互平面直角坐标系（::begin_ui-ccs）转成通用 Markdown：标题 + 源码围栏。 */
+export function convertCoordinatePlanesToMarkdown(markdown: string): string {
+  const lines = markdown.split('\n')
+  const output: string[] = []
+  let fence: string | null = null
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    const marker = fenceMarker(line)
+    if (marker) {
+      if (!fence) fence = marker
+      else if (fence === marker) fence = null
+      output.push(line)
+      continue
+    }
+    if (fence || !/^\s*::begin_ui-ccs\s*$/i.test(line)) {
+      output.push(line)
+      continue
+    }
+
+    const body: string[] = []
+    let end = index + 1
+    while (end < lines.length && !/^\s*::end_ui-ccs\s*$/i.test(lines[end])) {
+      body.push(lines[end])
+      end += 1
+    }
+    // 未闭合的指令按普通文本保留，与展示框的处理一致。
+    if (end >= lines.length) {
+      output.push(line)
+      continue
+    }
+
+    const source = body.join('\n')
+    // 围栏长度要长过正文里任何一段反引号，避免围栏被正文截断。
+    const longest = source.match(/`+/g)?.reduce((max, run) => Math.max(max, run.length), 0) ?? 0
+    const ticks = '`'.repeat(Math.max(3, longest + 1))
+    output.push('**平面直角坐标系**')
+    output.push('')
+    output.push(`${ticks}text`)
+    output.push(source)
+    output.push(ticks)
+    output.push('')
+    index = end
+  }
+
+  return output.join('\n')
+}
+
 interface ParsedTableRow {
   cells: string[]
 }
@@ -255,7 +303,9 @@ export function convertLuoguExtensionsToMarkdown(markdown: string): string {
  */
 export function convertMarkdownForCopy(markdown: string, target: MarkdownCopyTarget): string {
   if (target === 'direct') return markdown
-  const withoutBlogExtensions = convertShowBoxesToMarkdown(stripArticleDirectives(markdown))
+  const withoutBlogExtensions = convertCoordinatePlanesToMarkdown(
+    convertShowBoxesToMarkdown(stripArticleDirectives(markdown)),
+  )
   if (target === 'luogu') return withoutBlogExtensions
   return convertLuoguExtensionsToMarkdown(expandMergedTableCells(withoutBlogExtensions))
 }
