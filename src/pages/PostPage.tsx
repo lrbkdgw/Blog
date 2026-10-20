@@ -164,7 +164,7 @@ function HistoryDialog({
   void namesVersion
 
   return (
-    <div className="no-print fixed inset-0 z-[90] flex items-center justify-center bg-ink-950/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="文章历史版本">
+    <div className="no-print fixed inset-0 z-[90] flex items-center justify-center bg-ink-950/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="文章历史版本" data-yield-ignore>
       <div className="card flex max-h-[min(40rem,calc(100vh-2rem))] w-full max-w-2xl flex-col overflow-hidden">
         <div className="flex items-center justify-between border-b border-ink-200/70 px-5 py-4 dark:border-white/10">
           <div>
@@ -413,7 +413,7 @@ export default function PostPage() {
 
   if (!post || !snapshot || !historyBase) {
     return (
-      <div className="container-page flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
+      <div className="container-page flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center" data-yield-list>
         <p className="font-mono text-6xl font-bold text-ink-200 dark:text-ink-800">404</p>
         <h1 className="font-serif text-xl font-semibold text-ink-800 dark:text-ink-100">这篇文章不存在</h1>
         <p className="max-w-sm text-sm text-ink-500">它可能已被删除，或者只存在于另一台设备的本地草稿里。</p>
@@ -499,7 +499,7 @@ export default function PostPage() {
     return (
       <>
         <ReadingProgress />
-        <div className="container-page pt-12">
+        <div className="container-page pt-12" data-yield-list>
           <Link to="/" className="no-print group mb-8 inline-flex items-center gap-1.5 text-sm text-ink-400 transition hover:text-brand-600 dark:hover:text-brand-300">
             <ArrowLeft size={14} className="transition-transform group-hover:-translate-x-0.5" /> 返回文章列表
           </Link>

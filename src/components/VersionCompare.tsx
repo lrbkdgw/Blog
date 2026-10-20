@@ -111,6 +111,7 @@ export function VersionCompare({
       role="dialog"
       aria-modal="true"
       aria-label="版本对比"
+      data-yield-ignore
     >
       <div className="card flex max-h-[min(48rem,calc(100vh-2rem))] w-full max-w-5xl flex-col overflow-hidden">
         <div className="flex items-start justify-between gap-3 border-b border-ink-200/70 px-5 py-4 dark:border-white/10">

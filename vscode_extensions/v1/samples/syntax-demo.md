@@ -86,16 +86,18 @@ for (int i = 0; i < *&show(n)*&; ++i) solve(i);
 
 ## 4. 平面直角坐标系
 
-`::begin_ui-ccs` … `::end_ui-ccs` 新建一块可拖动、缩放的平面直角坐标系：`create_point:(x,y);` 画点，`create_line:(x₁,y₁),…,(xₙ,yₙ);` 画折线，`create_line:(表达式);` 画函数 $y=f(x)$，语句末尾可用 `,[color=red]` 指定颜色：
+`::begin_ui-ccs` … `::end_ui-ccs` 新建一块可拖动、缩放的平面直角坐标系：`create_point:(x,y);` 画点（坐标分量可写 `sqrt(2)`、`pi/2` 等常数表达式），`create_line:(x₁,y₁),…,(xₙ,yₙ);` 画折线，`create_line:(表达式);` 画函数 $y=f(x)$（支持 `%`、`min`/`max` 与 `y=…` 前缀），语句末尾可用 `,[color=red]` 指定颜色：
 
 ::begin_ui-ccs
 create_point:(2,3);
+create_point:(-pi/2,sqrt(2));
 create_line:(-3,1),(0,0),(2,2),(4,0),[color=red];
 create_line:(x^2/4-1);
 create_line:(3*sin(x)/2),[color=#7c3aed];
+create_line:y=max(-1,min(1,x/2)),[color=#059669];
 ::end_ui-ccs
 
-在内置预览里拖动画布即可平移，滚轮或双指缩放；换成“复制为洛谷源码”时，坐标系会降级为点、折线与函数式的文字列表。
+在内置预览里拖动画布即可平移，滚轮、双指或键盘缩放；点击图例可定位高亮，工具栏可回原点、适配全部与导出 PNG。换成“复制为洛谷源码”时，坐标系会降级为点、折线与函数式的文字列表。
 
 ## 5. 文章开头排版指令（字体与背景）
 

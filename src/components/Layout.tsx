@@ -315,7 +315,7 @@ function Footer() {
   )
 
   return (
-    <footer className="no-print mt-24 border-t border-ink-200/60 py-10 dark:border-white/[0.08]">
+    <footer className="no-print mt-24 border-t border-ink-200/60 py-10 dark:border-white/[0.08]" data-yield-block>
       <div className="container-page flex flex-col items-center justify-between gap-5 sm:flex-row">
         <div className="text-center sm:text-left">
           <p className="text-xs text-ink-400">

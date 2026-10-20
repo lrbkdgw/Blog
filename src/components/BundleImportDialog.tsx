@@ -168,6 +168,7 @@ export default function BundleImportDialog({
       role="dialog"
       aria-modal="true"
       aria-label="导入离线文章包"
+      data-yield-ignore
       onClick={onClose}
     >
       <div

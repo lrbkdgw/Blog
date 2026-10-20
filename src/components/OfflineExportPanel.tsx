@@ -84,7 +84,7 @@ export default function OfflineExportPanel() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-yield-list>
       <section className="card p-5">
         <h2 className="flex items-center gap-2 font-serif text-lg font-bold">
           <Archive size={17} />
@@ -141,7 +141,7 @@ export default function OfflineExportPanel() {
             </p>
           </div>
         ) : (
-          <ul className="divide-y divide-ink-200/60 dark:divide-white/10">
+          <ul className="divide-y divide-ink-200/60 dark:divide-white/10" data-yield-list>
             {locals.map((post) => (
               <li key={post.slug} className="flex items-start gap-3 px-5 py-3">
                 <input

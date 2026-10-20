@@ -16,3 +16,4 @@ export { evaluateShowFormula, parseShowVariables, renderShowContent } from './co
 export { parseCcsContent, evaluateCcsExpression, compileCcsExpression, describeCcsContent } from './core/coordinateSystem'
 export { parseArticleDirectives, stripArticleDirectives } from './core/articleDirectives'
 export { LATEX_SYMBOLS, latexSymbolInsert, searchLatexSymbols } from './core/latexSymbols'
+export { installHeaderYield } from '../../../src/lib/headerYield'

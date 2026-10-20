@@ -344,9 +344,9 @@
     background-color: transparent;
     box-shadow: none;
   }
-  /* issue #71：正文给页头让路。只给「滚进这一栏」的内容块挂 mask，让文字在进入页头
-     之前渐变透明掉；背景（body 渐变 + 动态背景层）在别的图层，一像素都不动，
-     因此既让了路，也没有违反 #53 / #63 的「页头不许遮挡背景」。
+  /* issue #71 / #78：全部页面的内容块都给页头让路。只给「滚进这一栏」的内容块挂
+     mask，让文字在进入页头之前渐变透明掉；背景（body 渐变 + 动态背景层）在别的
+     图层，一像素都不动，因此既让了路，也没有违反 #53 / #63 的「页头不许遮挡背景」。
      --yield-top = 页头下沿相对块顶部的距离，--yield-fade = 淡出行程，由 headerYield.ts 写入。 */
   [data-yield='on'] {
     -webkit-mask-image: linear-gradient(

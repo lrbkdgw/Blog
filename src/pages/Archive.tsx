@@ -11,7 +11,7 @@ export default function Archive() {
   const groups = useMemo(() => getArchive(searchPosts(posts, query)), [posts, query])
 
   return (
-    <div className="container-page max-w-4xl pt-16">
+    <div className="container-page max-w-4xl pt-16" data-yield-list>
       <header className="animate-fade-up">
         <h1 className="font-serif text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl dark:text-white">归档</h1>
         <p className="mt-2 text-sm text-ink-500">共 {posts.length} 篇文章，按时间倒序排列。</p>

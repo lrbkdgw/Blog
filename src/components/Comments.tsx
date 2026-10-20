@@ -325,7 +325,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
   }
 
   return (
-    <section className="no-print mt-16 border-t border-ink-200/60 pt-10 dark:border-white/[0.08]">
+    <section className="no-print mt-16 border-t border-ink-200/60 pt-10 dark:border-white/[0.08]" data-yield-list>
       <div className="mb-6 flex items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 font-serif text-xl font-bold tracking-tight text-ink-900 dark:text-white">
           <MessageSquare size={20} className="text-brand-500" />
@@ -509,7 +509,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
         </div>
       )}
 
-      <div className="space-y-4">
+      <div className="space-y-4" data-yield-list>
         {isAuthed && remoteLoading && remoteComments.length === 0 ? (
           <div className="flex items-center justify-center gap-2 rounded-2xl border border-dashed border-ink-200/80 p-10 text-sm text-ink-400 dark:border-white/10">
             <Loader2 size={18} className="animate-spin" />

@@ -211,6 +211,31 @@ test('平面直角坐标系（ui-ccs）：解析、求值与博客共用同一�
   // 符号占位坐标不是数字，应给出解析提示而不是画出垃圾图元
   assert.match(core.parseCcsContent('create_point:(x,y);').errors.join(' '), /create_point/)
   assert.match(core.parseCcsContent('create_line:(x_1,y_1),(x_2,y_2);').errors.join(' '), /create_line/)
+
+  // 坐标分量可写与 x 无关的常数表达式；函数也可带 y= / f(x)= 前缀
+  const constantPoint = core.parseCcsContent('create_point:(pi/2,sqrt(2));\ncreate_line:y=max(0,x);')
+  assert.deepEqual(constantPoint.errors, [])
+  assert.equal(constantPoint.items[0].x, Math.PI / 2)
+  assert.equal(constantPoint.items[0].y, Math.SQRT2)
+  assert.equal(constantPoint.items[1].expr, 'max(0,x)')
+  assert.equal(core.evaluateCcsExpression('max(0,x)', -3), 0)
+  assert.equal(core.evaluateCcsExpression('min(2,x)%3', 5), 2)
+  assert.equal(core.evaluateCcsExpression('−2×x', 4), -8)
+  assert.equal(core.evaluateCcsExpression('tau/pi', 0), 2)
+  assert.equal(core.parseCcsContent('create_point:(x*(x-1),0);').items.length, 0)
+  assert.equal(core.parseCcsContent('create_line:(0,0) (1,1),;').items[0].points.length, 2)
+
+  // 超长 / 深嵌套表达式只判无效，不把递归下降解析器撑爆栈
+  assert.equal(core.compileCcsExpression('x+'.repeat(400) + '1'), null)
+  assert.equal(core.compileCcsExpression('('.repeat(200) + 'x' + ')'.repeat(200)), null)
+
+  // 单条折线顶点有上限，静态降级时长折线只写首尾摘要
+  const manyPoints = Array.from({ length: 1005 }, (_, i) => `(${i},${i})`).join(',')
+  const capped = core.parseCcsContent(`create_line:${manyPoints};`)
+  assert.equal(capped.items[0].points.length, 1000)
+  assert.match(capped.errors.join(' '), /顶点过多/)
+  const fifteen = Array.from({ length: 15 }, (_, i) => `(${i},${i})`).join(',')
+  assert.match(core.describeCcsContent(`create_line:${fifteen};`).join('\n'), /共 15 点/)
 })
 
 test('平面直角坐标系渲染出行号、围栏示例不执行、未闭合按文字保留', () => {

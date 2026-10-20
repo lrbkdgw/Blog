@@ -9,9 +9,9 @@
  *   create_line:(7*x^2+6*x+90*x^3);
  *   ::end_ui-ccs
  *
- * - `create_point:(x,y);` 画一个点；
+ * - `create_point:(x,y);` 画一个点（分量可写 `sqrt(2)`、`pi/2` 等常数表达式）；
  * - `create_line:(x1,y1),…,(xn,yn);` 画一条折线；
- * - `create_line:(关于 x 的表达式);` 画函数 y=f(x)；
+ * - `create_line:(关于 x 的表达式);` 画函数 y=f(x)，也可写 `y=表达式`；
  * - 末尾可加 `[color=…]` 指定颜色（颜色名、#rrggbb、rgb()/hsl()），缺省按调色板轮换。
  *
  * 本模块零运行时依赖：博客与 VS Code 插件（MPE 静态兼容、源码降级）共用同一份解析。
@@ -55,19 +55,106 @@ export function isCcsEndLine(line: string): boolean {
 const PALETTE = ['#ef4444', '#2563eb', '#059669', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
 /** 单块最多绘制的元素数，避免异常文章把画布拖死。 */
 const MAX_ITEMS = 200
+/** 单条折线最多保留的顶点数；超过后截断并提示，防止超长坐标串拖死解析与绘制。 */
+const MAX_POINTS_PER_ITEM = 1000
+/** 单块最多扫描的语句数（含写错的语句）。 */
+const MAX_STATEMENTS = 500
 
-const POINT_RE_SOURCE = String.raw`\(\s*([+-]?\d*\.?\d+(?:[eE][+-]?\d+)?)\s*,\s*([+-]?\d*\.?\d+(?:[eE][+-]?\d+)?)\s*\)`
+interface CoordinateListResult {
+  points: [number, number][]
+  truncated: boolean
+}
 
-function extractPoints(str: string): [number, number][] {
-  const re = new RegExp(POINT_RE_SOURCE, 'g')
-  const pts: [number, number][] = []
-  let m: RegExpExecArray | null
-  while ((m = re.exec(str)) !== null) {
-    const x = Number(m[1])
-    const y = Number(m[2])
-    if (Number.isFinite(x) && Number.isFinite(y)) pts.push([x, y])
+/** 坐标里只允许与 x 无关的常数表达式，如 `sqrt(2)`、`pi/2`、`-2^3`。 */
+function constantCoordinateValue(raw: string): number | null {
+  const trimmed = raw.trim()
+  // 绝大多数坐标是纯数字：直读，避免长折线逐个数字都走一遍表达式编译。
+  if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(trimmed)) {
+    const n = Number(trimmed)
+    return Number.isFinite(n) ? n : null
   }
-  return pts
+  // 含独立变量 x 的一律拒绝（只采样两点会被 x(x-1) 这类式子骗过）；exp/max 等函数名里的 x 不算。
+  if (/\bx\b/i.test(trimmed)) return null
+  const fn = compileCcsExpression(trimmed)
+  if (!fn) return null
+  const atZero = fn(0)
+  const atOne = fn(1)
+  if (atZero === null || atOne === null) return null
+  const tolerance = 1e-9 * Math.max(1, Math.abs(atZero), Math.abs(atOne))
+  return Math.abs(atZero - atOne) <= tolerance ? atZero : null
+}
+
+function splitTopLevelComma(raw: string): string[] | null {
+  const parts: string[] = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i]
+    if (ch === '(') depth += 1
+    else if (ch === ')') {
+      depth -= 1
+      if (depth < 0) return null
+    } else if (ch === ',' && depth === 0) {
+      parts.push(raw.slice(start, i))
+      start = i + 1
+    }
+  }
+  if (depth !== 0) return null
+  parts.push(raw.slice(start))
+  return parts
+}
+
+/**
+ * 严格解析一串坐标 `(x,y),(x,y),…`；整串有任何杂质都返回 null，
+ * 这样 `create_line` 才能可靠地在「折线」与「函数表达式」之间二选一。
+ * 坐标分量可写常数表达式（见 constantCoordinateValue）。
+ */
+function parseCoordinateList(rawInput: string): CoordinateListResult | null {
+  const raw = rawInput.trim()
+  if (!raw.startsWith('(')) return null
+  const points: [number, number][] = []
+  let truncated = false
+  let cursor = 0
+
+  while (cursor < raw.length) {
+    while (/\s/.test(raw[cursor] || '')) cursor += 1
+    if (raw[cursor] !== '(') return null
+
+    let depth = 0
+    let end = -1
+    for (let i = cursor; i < raw.length; i += 1) {
+      if (raw[i] === '(') depth += 1
+      else if (raw[i] === ')') {
+        depth -= 1
+        if (depth === 0) {
+          end = i
+          break
+        }
+      }
+    }
+    if (end < 0) return null
+
+    const parts = splitTopLevelComma(raw.slice(cursor + 1, end))
+    if (!parts || parts.length !== 2) return null
+    const x = constantCoordinateValue(parts[0])
+    const y = constantCoordinateValue(parts[1])
+    if (x === null || y === null) return null
+    if (points.length < MAX_POINTS_PER_ITEM) points.push([x, y])
+    else truncated = true
+
+    cursor = end + 1
+    while (/\s/.test(raw[cursor] || '')) cursor += 1
+    if (cursor >= raw.length) break
+    if (raw[cursor] === ',') {
+      cursor += 1
+      while (/\s/.test(raw[cursor] || '')) cursor += 1
+      if (cursor >= raw.length) break // 尾随逗号容忍
+    } else if (raw[cursor] !== '(') {
+      return null
+    }
+  }
+
+  return points.length > 0 ? { points, truncated } : null
 }
 
 /**
@@ -103,34 +190,49 @@ const MATH_FUNCTIONS: Record<string, (v: number) => number | null> = {
   arccos: Math.acos,
   atan: Math.atan,
   arctan: Math.atan,
+  sinh: Math.sinh,
+  cosh: Math.cosh,
+  tanh: Math.tanh,
   sqrt: (v) => (v < 0 ? null : Math.sqrt(v)),
+  cbrt: Math.cbrt,
   abs: Math.abs,
   exp: Math.exp,
   log: (v) => (v <= 0 ? null : Math.log(v)),
   ln: (v) => (v <= 0 ? null : Math.log(v)),
+  log2: (v) => (v <= 0 ? null : Math.log2(v)),
   log10: (v) => (v <= 0 ? null : Math.log10(v)),
   floor: Math.floor,
   ceil: Math.ceil,
   round: Math.round,
+  sign: Math.sign,
 }
 
 /**
  * 把 y=f(x) 表达式编译成可反复调用的函数；语法不合法返回 null。
  *
- * 支持 `+ - * / ^`（^ 右结合）、括号、变量 `x`、常量 `pi`/`e`、隐式乘法
- * （`2x`、`3(x+1)`、`(x-1)(x+1)`）与 sin/cos/tan/sqrt/abs/exp/log/ln 等单参函数。
+ * 支持 `+ - * / % ^`（^ 右结合）、括号、变量 `x`、常量 `pi`/`tau`/`e`、隐式乘法
+ * （`2x`、`3(x+1)`、`(x-1)(x+1)`）与 sin/cos/tan/sqrt/abs/exp/log/ln 等函数
+ * （另含双参 min/max）。表达式最长 512 字符、嵌套最深 64 层，超出直接判无效。
  * 定义域外（除零、负数开方等）返回 null，绘图时在该处断线。逐像素采样时只
  * 解析一次，避免旧实现「每列像素重解析一遍字符串」拖慢拖动。
  */
 export function compileCcsExpression(expr: string): CompiledFn | null {
-  const source = expr.trim()
-  if (!source) return null
+  // 容忍从公式编辑器 / 文档里粘来的全角与排版符号。
+  const source = expr
+    .trim()
+    .replace(/[−–—]/g, '-')
+    .replace(/[×·]/g, '*')
+    .replace(/÷/g, '/')
+    .replace(/π/g, 'pi')
+  if (!source || source.length > 512) return null
   let cursor = 0
+  let depth = 0
+  const MAX_DEPTH = 64
 
   const skip = () => {
     while (/\s/.test(source[cursor] || '')) cursor += 1
   }
-  const combine = (a: CompiledFn, b: CompiledFn, op: '+' | '-' | '*' | '/' | '^'): CompiledFn => (x) => {
+  const combine = (a: CompiledFn, b: CompiledFn, op: '+' | '-' | '*' | '/' | '%' | '^'): CompiledFn => (x) => {
     const av = a(x)
     if (av === null) return null
     const bv = b(x)
@@ -139,6 +241,7 @@ export function compileCcsExpression(expr: string): CompiledFn | null {
     if (op === '-') return finite(av - bv)
     if (op === '*') return finite(av * bv)
     if (op === '/') return bv === 0 ? null : finite(av / bv)
+    if (op === '%') return bv === 0 ? null : finite(av % bv)
     return finite(av ** bv)
   }
 
@@ -163,7 +266,7 @@ export function compileCcsExpression(expr: string): CompiledFn | null {
     for (;;) {
       skip()
       const op = source[cursor]
-      if (op === '*' || op === '/') {
+      if (op === '*' || op === '/' || op === '%') {
         cursor += 1
         const right = parseUnary()
         if (right === null) return null
@@ -186,11 +289,18 @@ export function compileCcsExpression(expr: string): CompiledFn | null {
     skip()
     if (source[cursor] === '+') {
       cursor += 1
-      return parseUnary()
+      if (depth >= MAX_DEPTH) return null
+      depth += 1
+      const inner = parseUnary()
+      depth -= 1
+      return inner
     }
     if (source[cursor] === '-') {
       cursor += 1
+      if (depth >= MAX_DEPTH) return null
+      depth += 1
       const inner = parseUnary()
+      depth -= 1
       if (inner === null) return null
       return (x) => {
         const v = inner(x)
@@ -217,8 +327,11 @@ export function compileCcsExpression(expr: string): CompiledFn | null {
   const parsePrimary = (): CompiledFn | null => {
     skip()
     if (source[cursor] === '(') {
+      if (depth >= MAX_DEPTH) return null
       cursor += 1
+      depth += 1
       const inner = parseExpression()
+      depth -= 1
       skip()
       if (inner === null || source[cursor] !== ')') return null
       cursor += 1
@@ -238,15 +351,40 @@ export function compileCcsExpression(expr: string): CompiledFn | null {
     cursor += idMatch[0].length
     skip()
     if (source[cursor] === '(') {
-      const fn = MATH_FUNCTIONS[id]
-      if (!fn) return null
+      if (depth >= MAX_DEPTH) return null
       cursor += 1
-      const arg = parseExpression()
+      depth += 1
+      const first = parseExpression()
+      if (first === null) {
+        depth -= 1
+        return null
+      }
       skip()
-      if (arg === null || source[cursor] !== ')') return null
+      // min / max 是唯二的双参函数：分段函数里很常用，如 max(0, x)。
+      if (id === 'min' || id === 'max') {
+        if (source[cursor] !== ',') {
+          depth -= 1
+          return null
+        }
+        cursor += 1
+        const second = parseExpression()
+        depth -= 1
+        skip()
+        if (second === null || source[cursor] !== ')') return null
+        cursor += 1
+        const pick = id === 'min' ? Math.min : Math.max
+        return (x) => {
+          const a = first(x)
+          const b = second(x)
+          return a === null || b === null ? null : finite(pick(a, b))
+        }
+      }
+      depth -= 1
+      const fn = MATH_FUNCTIONS[id]
+      if (!fn || source[cursor] !== ')') return null
       cursor += 1
       return (x) => {
-        const v = arg(x)
+        const v = first(x)
         if (v === null) return null
         const r = fn(v)
         return r === null ? null : finite(r)
@@ -254,6 +392,7 @@ export function compileCcsExpression(expr: string): CompiledFn | null {
     }
     if (id === 'x') return (x) => x
     if (id === 'pi') return () => Math.PI
+    if (id === 'tau') return () => Math.PI * 2
     if (id === 'e') return () => Math.E
     return null
   }
@@ -295,7 +434,12 @@ export function parseCcsContent(raw: string): CcsParseResult {
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
 
-  for (const stmt of statements) {
+  for (let statementIndex = 0; statementIndex < statements.length; statementIndex += 1) {
+    const stmt = statements[statementIndex]
+    if (statementIndex >= MAX_STATEMENTS) {
+      errors.push(`语句过多，仅解析前 ${MAX_STATEMENTS} 条`)
+      break
+    }
     if (items.length >= MAX_ITEMS) {
       errors.push(`元素过多，仅绘制前 ${MAX_ITEMS} 个`)
       break
@@ -324,29 +468,30 @@ export function parseCcsContent(raw: string): CcsParseResult {
     const pickColor = () => validColor(colorRaw) ?? PALETTE[autoColorIdx++ % PALETTE.length]
 
     if (cmd === 'create_point') {
-      const pts = extractPoints(args)
-      if (pts.length !== 1) {
-        errors.push(`create_point 需要一个数字坐标点 (x,y)，得到「${args}」`)
+      const parsedPoints = parseCoordinateList(args)
+      if (!parsedPoints || parsedPoints.points.length !== 1) {
+        errors.push(`create_point 需要一个坐标点 (x,y)（分量可写 sqrt(2)、pi/2 等常数表达式），得到「${args}」`)
         continue
       }
-      items.push({ kind: 'point', x: pts[0][0], y: pts[0][1], color: pickColor() })
+      const [[x, y]] = parsedPoints.points
+      items.push({ kind: 'point', x, y, color: pickColor() })
     } else if (cmd === 'create_line') {
-      const pts = extractPoints(args)
-      if (pts.length > 0) {
-        const cleaned = args.replace(new RegExp(POINT_RE_SOURCE, 'g'), '').replace(/,/g, '').trim()
-        if (cleaned === '') {
-          items.push({ kind: 'polyline', points: pts, color: pickColor() })
-          continue
+      const parsedPoints = parseCoordinateList(args)
+      if (parsedPoints) {
+        if (parsedPoints.truncated) {
+          errors.push(`create_line 顶点过多，仅绘制前 ${MAX_POINTS_PER_ITEM} 个`)
         }
+        items.push({ kind: 'polyline', points: parsedPoints.points, color: pickColor() })
+        continue
       }
-      // 形如 (x_1,y_1),(x_2,y_2) 的占位写法的意图是折线，只是坐标不是数字：
+      // 形如 (x_1,y_1),(x_2,y_2) 的占位写法的意图是折线，只是坐标无法求值：
       // 给出针对性的提示，不要落进下面的函数解析里报一个看不懂的错。
       if (/\)\s*,\s*\(/.test(args)) {
-        errors.push(`create_line 的折线坐标必须是数字，得到「${args}」`)
+        errors.push(`create_line 的折线坐标必须是数字或常数表达式（如 sqrt(2)），得到「${args}」`)
         continue
       }
-      // 否则按函数表达式 y=f(x) 处理；最常见的写法是整体再包一层括号。
-      let expr = args.trim()
+      // 否则按函数表达式处理；容忍 y=… / f(x)=… 前缀与整体再包一层括号的写法。
+      let expr = args.trim().replace(/^(?:y|f\s*\(\s*x\s*\))\s*=\s*/i, '')
       if (expr.startsWith('(') && expr.endsWith(')')) {
         let depth = 0
         let outer = true
@@ -365,7 +510,7 @@ export function parseCcsContent(raw: string): CcsParseResult {
         continue
       }
       if (compileCcsExpression(expr) === null) {
-        errors.push(`无法解析函数表达式「${expr}」：仅支持 + - * / ^、括号、变量 x 与 sin/cos/sqrt 等函数`)
+        errors.push(`无法解析函数表达式「${expr}」：仅支持 + - * / % ^、括号、变量 x 与 sin/cos/sqrt/min/max 等函数`)
         continue
       }
       items.push({ kind: 'function', expr, color: pickColor() })
@@ -406,12 +551,19 @@ export function stripCcsBlocks(markdown: string): string {
 export function describeCcsContent(raw: string): string[] {
   const { items, errors } = parseCcsContent(raw)
   const lines: string[] = ['**平面直角坐标系**', '']
+  const formatValue = (value: number) => (Number.isInteger(value) ? String(value) : String(Number(value.toPrecision(10))))
+  const formatPoint = ([x, y]: [number, number]) => `(${formatValue(x)}, ${formatValue(y)})`
   if (items.length === 0) lines.push('- （无可绘制内容）')
   for (const item of items) {
     if (item.kind === 'point') {
-      lines.push(`- 点：(${item.x}, ${item.y})，颜色 ${item.color}`)
+      lines.push(`- 点：${formatPoint([item.x, item.y])}，颜色 ${item.color}`)
     } else if (item.kind === 'polyline') {
-      lines.push(`- 折线：${item.points.map(([x, y]) => `(${x}, ${y})`).join(' → ')}，颜色 ${item.color}`)
+      // 静态源码里把上千个顶点全展开只会淹没正文：长折线写首尾摘要并注明总数。
+      const shown =
+        item.points.length <= 12
+          ? item.points.map(formatPoint).join(' → ')
+          : `${item.points.slice(0, 6).map(formatPoint).join(' → ')} → … → ${item.points.slice(-3).map(formatPoint).join(' → ')}（共 ${item.points.length} 点）`
+      lines.push(`- 折线：${shown}，颜色 ${item.color}`)
     } else {
       lines.push(`- 函数：\`y = ${item.expr.replace(/`/g, "'")}\`，颜色 ${item.color}`)
     }

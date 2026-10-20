@@ -124,6 +124,7 @@ export function QueueDiffDialog({ item, onClose }: { item: QueueItem; onClose: (
       role="dialog"
       aria-modal="true"
       aria-label="待更新内容差异"
+      data-yield-ignore
       onClick={onClose}
     >
       <div

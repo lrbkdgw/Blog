@@ -1074,7 +1074,7 @@ export default function Editor() {
 
   if (protectedExisting && !unlocked) {
     return (
-      <div className="container-page flex min-h-[65vh] items-center justify-center py-10">
+      <div className="container-page flex min-h-[65vh] items-center justify-center py-10" data-yield-list>
         {restoringUnlock ? (
           <div className="card flex w-full max-w-md flex-col items-center p-7 text-center">
             <Loader2 size={24} className="animate-spin text-brand-500" />
@@ -1099,8 +1099,9 @@ export default function Editor() {
           ? 'fixed inset-0 z-[80] flex h-screen flex-col overflow-hidden bg-white dark:bg-ink-950'
           : 'container-page pt-8'
       }
+      {...(fullscreen ? { 'data-yield-ignore': true } : {})}
     >
-      <div className={fullscreen ? 'flex min-h-0 flex-1 flex-col' : 'mx-auto max-w-6xl'}>
+      <div className={fullscreen ? 'flex min-h-0 flex-1 flex-col' : 'mx-auto max-w-6xl'} data-yield-list>
         {/* 顶部栏 */}
         <div
           className={
@@ -1414,6 +1415,7 @@ export default function Editor() {
               ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
               : 'card overflow-hidden'
           }
+          data-yield-ignore
         >
           {/* 工具栏 */}
           <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-ink-200/70 px-2 py-1.5 dark:border-white/10">

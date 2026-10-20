@@ -416,7 +416,7 @@ export default function Admin() {
   const allSelected = queue.length > 0 && selectedIds.size === queue.length
 
   return (
-    <div className="container-page max-w-5xl pt-12">
+    <div className="container-page max-w-5xl pt-12" data-yield-list>
       {/* 头部 */}
       <header className="flex animate-fade-up flex-wrap items-end justify-between gap-4">
         <div>
@@ -611,6 +611,8 @@ export default function Admin() {
           <div
             className="card mt-5 animate-fade-up divide-y divide-ink-200/60 overflow-hidden dark:divide-white/[0.07]"
             style={{ animationDelay: '120ms' }}
+            data-yield-list
+            data-yield-block
           >
             {filtered.length === 0 && (
               <div className="flex flex-col items-center gap-3 px-6 py-20 text-center">
@@ -755,7 +757,7 @@ export default function Admin() {
         </>
       ) : mainTab === 'export' ? (
         /* ------------------- 离线文章包（离线版导出 / 线上站点导入） ------------------- */
-        <div className="mt-6 animate-fade-up">
+        <div className="mt-6 animate-fade-up" data-yield-list>
           {OFFLINE ? (
             <OfflineExportPanel />
           ) : (
@@ -769,7 +771,7 @@ export default function Admin() {
         </div>
       ) : mainTab === 'prs' ? (
         /* -------------------------- 发表申请 (PR 审批) -------------------------- */
-        <div className="mt-6 space-y-4">
+        <div className="mt-6 space-y-4" data-yield-list>
           <div className="flex items-center justify-between">
             <p className="text-xs text-ink-500">
               已登录用户即使无仓库权限也可申请发表文章（自动创建 PR）；仓库管理者可在此一键审核合并或关闭。
@@ -785,7 +787,7 @@ export default function Admin() {
             </button>
           </div>
 
-          <div className="card divide-y divide-ink-200/60 overflow-hidden dark:divide-white/[0.07]">
+          <div className="card divide-y divide-ink-200/60 overflow-hidden dark:divide-white/[0.07]" data-yield-list data-yield-block>
             {prs.length === 0 ? (
               <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
                 <GitPullRequest size={28} className="text-ink-300" />
@@ -890,7 +892,7 @@ export default function Admin() {
         </div>
       ) : (
         /* ---------------------------- 待更新队列 ---------------------------- */
-        <div className="mt-6 space-y-4">
+        <div className="mt-6 space-y-4" data-yield-list>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs text-ink-500">
               {OFFLINE
@@ -954,7 +956,7 @@ export default function Admin() {
             </div>
           )}
 
-          <div className="card divide-y divide-ink-200/60 overflow-hidden dark:divide-white/[0.07]">
+          <div className="card divide-y divide-ink-200/60 overflow-hidden dark:divide-white/[0.07]" data-yield-list data-yield-block>
             {queue.length === 0 ? (
               <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
                 <ListTodo size={28} className="text-ink-300" />
@@ -1102,7 +1104,7 @@ export default function Admin() {
 function OnlineBundleImport({ onImported }: { onImported: () => void }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-yield-list>
       <section className="card p-5">
         <h2 className="flex items-center gap-2 font-serif text-lg font-bold">
           <Archive size={17} />

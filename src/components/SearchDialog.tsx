@@ -50,7 +50,7 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
   }
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-start justify-center px-4 pt-[12vh]" role="dialog" aria-modal>
+    <div className="fixed inset-0 z-[90] flex items-start justify-center px-4 pt-[12vh]" role="dialog" aria-modal data-yield-ignore>
       <div className="absolute inset-0 animate-fade-in bg-ink-950/40 backdrop-blur-sm" onClick={onClose} />
       <div className="card relative w-full max-w-xl animate-scale-in overflow-hidden !bg-white/95 dark:!bg-ink-900/95">
         <div className="flex items-center gap-3 border-b border-ink-200/70 px-4 dark:border-white/10">

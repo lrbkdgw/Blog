@@ -198,14 +198,30 @@ test('平面直角坐标系在内置预览中挂载画布，工具栏可点且�
   const source = '## 图\n\n::begin_ui-ccs\ncreate_point:(2,3);\ncreate_line:(x^2);\n::end_ui-ccs'
   const { dom, document, errors } = await preview(source)
   t.after(() => close(dom))
-  assert.ok(document.querySelector('canvas'))
+  const canvas = document.querySelector('canvas')
+  assert.ok(canvas)
+  assert.equal(canvas.tabIndex, 0, '画布应可聚焦并用键盘平移 / 缩放')
+  assert.match(canvas.getAttribute('aria-label'), /方向键/)
   assert.match(document.body.textContent, /平面直角坐标系/)
   assert.match(document.body.textContent, /y = x\^2/)
-  // 放大 / 重置按钮可点（jsdom 无 2d 上下文时应静默跳过绘制而不是抛错）
+  assert.ok(document.querySelector('button[title="回到原点"]'))
+  assert.ok(document.querySelector('button[title="导出 PNG"]'))
+  // 放大 / 原点 / 重置按钮可点（jsdom 无 2d 上下文时应静默跳过绘制而不是抛错）
   document.querySelector('button[title="放大"]').click()
+  await settle()
+  document.querySelector('button[title="回到原点"]').click()
   await settle()
   document.querySelector('button[title="重置视图"]').click()
   await settle()
+  // 图例可定位高亮，再点一次取消
+  const legend = [...document.querySelectorAll('button[aria-pressed]')][0]
+  assert.ok(legend)
+  legend.click()
+  await settle()
+  assert.equal(legend.getAttribute('aria-pressed'), 'true')
+  legend.click()
+  await settle()
+  assert.equal(legend.getAttribute('aria-pressed'), 'false')
   await update(dom, source.replace('x^2', 'x^3'))
   assert.match(document.body.textContent, /y = x\^3/)
   assert.deepEqual(errors, [])
