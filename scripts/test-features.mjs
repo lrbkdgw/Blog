@@ -340,4 +340,27 @@ test('ui-ccs 解析器、数学运算符优先级、高次曲线裁剪、间断�
   assert.deepEqual(postsMod.extractToc(postSample).map((t) => t.text), ['第一节', '第二节'])
   assert.doesNotMatch(postsMod.excerpt(postSample), /create_point|create_line|ui-ccs/)
   assert.doesNotMatch(mdSourceMod.convertMarkdownForCopy(postSample, 'basic'), /::begin_ui-ccs/)
+
+  // 校验单点、线段端点、曲线定义域端点、线线交点、曲曲相切交点、曲线线段交点及反比例渐近线无伪根
+  const intersectScene = uiCcsMod.parseUiCcs([
+    'create_point:(-3,4);',
+    'create_line:(-2,2),(2,-2);',
+    'create_line:(x^2);',
+    'create_line:(2*x-1);',
+    'create_line:(sqrt(4-x^2));',
+    'create_line:(1/x);',
+  ].join('\n'))
+  const special = uiCcsMod.findUiCcsSpecialPoints(intersectScene.items, {
+    centerX: 0,
+    centerY: 0,
+    unitsPerPx: 14 / 420,
+  })
+  const hasNear = (tx, ty) => special.some((p) => Math.hypot(p.x - tx, p.y - ty) < 1e-2)
+  assert.ok(hasNear(-3, 4), '应识别单点 (-3, 4)')
+  assert.ok(hasNear(-2, 2) && hasNear(2, -2), '应识别线段两端点 (-2, 2) 与 (2, -2)')
+  assert.ok(hasNear(-2, 0) && hasNear(2, 0), '应识别半圆定义域端点 (-2, 0) 与 (2, 0)')
+  assert.ok(hasNear(1, 1), '应识别抛物线 y=x^2 与切线 y=2x-1 的切点 (1, 1)')
+  assert.ok(hasNear(-1, 1), '应识别 y=-x 线段与抛物线 y=x^2 的交点 (-1, 1)')
+  assert.ok(hasNear(1 / 3, -1 / 3), '应识别 y=-x 线段与 y=2x-1 曲线的交点 (1/3, -1/3)')
+  assert.ok(hasNear(-Math.SQRT2, Math.SQRT2), '应识别半圆 y=sqrt(4-x^2) 与线段 y=-x 的交点 (-√2, √2)')
 })

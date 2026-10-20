@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Axis3d, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
 import {
+  UI_CCS_SNAP_RADIUS_PX,
   UI_CCS_VIEW_HEIGHT,
   UI_CCS_VIEW_WIDTH,
   buildFunctionSvgPath,
@@ -8,28 +8,15 @@ import {
   chooseGridStep,
   clampUnitsPerPx,
   computeInitialUiCcsViewport,
+  findNearestUiCcsSpecialPoint,
+  findUiCcsSpecialPoints,
   formatAxisTick,
   formatCoordinateValue,
   parseUiCcs,
   resolveCcsItemColor,
-  type UiCcsItem,
+  type UiCcsSpecialPoint,
   type UiCcsViewport,
 } from '../lib/uiCcs'
-
-function describeItem(item: UiCcsItem): string {
-  if (item.label) return item.label
-  if (item.kind === 'point') {
-    return `(${formatCoordinateValue(item.x)}, ${formatCoordinateValue(item.y)})`
-  }
-  if (item.kind === 'polyline') {
-    const preview = item.points
-      .slice(0, 3)
-      .map((p) => `(${formatCoordinateValue(p.x)},${formatCoordinateValue(p.y)})`)
-      .join(' → ')
-    return item.points.length > 3 ? `${preview} → …` : preview
-  }
-  return `y = ${item.expression}`
-}
 
 export function CoordinatePlane({
   title,
@@ -50,7 +37,7 @@ export function CoordinatePlane({
   const [viewport, setViewport] = useState<UiCcsViewport>(initialViewport)
   const [userAdjusted, setUserAdjusted] = useState(false)
   const [dragging, setDragging] = useState(false)
-  const [hoverWorld, setHoverWorld] = useState<{ x: number; y: number } | null>(null)
+  const [hoveredPoint, setHoveredPoint] = useState<UiCcsSpecialPoint | null>(null)
 
   const svgRef = useRef<SVGSVGElement>(null)
   const pointersRef = useRef(new Map<number, { clientX: number; clientY: number }>())
@@ -62,9 +49,15 @@ export function CoordinatePlane({
     }
   }, [initialViewport, userAdjusted])
 
+  const specialPoints = useMemo(
+    () => findUiCcsSpecialPoints(parsed.items, viewport, UI_CCS_VIEW_WIDTH, UI_CCS_VIEW_HEIGHT),
+    [parsed.items, viewport],
+  )
+
   const resetView = useCallback(() => {
     setUserAdjusted(false)
     setViewport(initialViewport)
+    setHoveredPoint(null)
   }, [initialViewport])
 
   const clientToSvg = useCallback((clientX: number, clientY: number) => {
@@ -84,6 +77,7 @@ export function CoordinatePlane({
 
   const zoomAround = useCallback((factor: number, sx = UI_CCS_VIEW_WIDTH / 2, sy = UI_CCS_VIEW_HEIGHT / 2) => {
     setUserAdjusted(true)
+    setHoveredPoint(null)
     setViewport((prev) => {
       const nextUnits = clampUnitsPerPx(prev.unitsPerPx * factor)
       const anchorWorldX = prev.centerX + (sx - UI_CCS_VIEW_WIDTH / 2) * prev.unitsPerPx
@@ -127,13 +121,12 @@ export function CoordinatePlane({
 
   const onPointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
     const mapped = clientToSvg(event.clientX, event.clientY)
-    setHoverWorld({
-      x: viewport.centerX + (mapped.sx - UI_CCS_VIEW_WIDTH / 2) * viewport.unitsPerPx,
-      y: viewport.centerY - (mapped.sy - UI_CCS_VIEW_HEIGHT / 2) * viewport.unitsPerPx,
-    })
-
     const prevPoint = pointersRef.current.get(event.pointerId)
-    if (!prevPoint) return
+
+    if (!prevPoint) {
+      setHoveredPoint(findNearestUiCcsSpecialPoint(specialPoints, mapped.sx, mapped.sy, UI_CCS_SNAP_RADIUS_PX))
+      return
+    }
 
     if (pointersRef.current.size === 2) {
       pointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY })
@@ -153,6 +146,7 @@ export function CoordinatePlane({
     pointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY })
     if (dxPx === 0 && dyPx === 0) return
 
+    setHoveredPoint(null)
     setUserAdjusted(true)
     setViewport((prev) => ({
       ...prev,
@@ -164,7 +158,11 @@ export function CoordinatePlane({
   const releasePointer = (event: React.PointerEvent<SVGSVGElement>) => {
     pointersRef.current.delete(event.pointerId)
     pinchDistanceRef.current = null
-    if (pointersRef.current.size === 0) setDragging(false)
+    if (pointersRef.current.size === 0) {
+      setDragging(false)
+      const mapped = clientToSvg(event.clientX, event.clientY)
+      setHoveredPoint(findNearestUiCcsSpecialPoint(specialPoints, mapped.sx, mapped.sy, UI_CCS_SNAP_RADIUS_PX))
+    }
   }
 
   const onKeyDown = (event: React.KeyboardEvent<SVGSVGElement>) => {
@@ -253,7 +251,6 @@ export function CoordinatePlane({
   const originSY = toSY(0)
   const xAxisVisible = originSY >= 0 && originSY <= UI_CCS_VIEW_HEIGHT
   const yAxisVisible = originSX >= 0 && originSX <= UI_CCS_VIEW_WIDTH
-  // 坐标轴移出画面时，刻度贴靠视口边缘，保证平移到任意远处仍能读出坐标值。
   const xLabelBaselineY = Math.min(UI_CCS_VIEW_HEIGHT - 8, Math.max(16, originSY + 15))
   const yLabelAnchorX = Math.min(UI_CCS_VIEW_WIDTH - 10, Math.max(38, originSX - 7))
 
@@ -267,10 +264,7 @@ export function CoordinatePlane({
             kind: 'point' as const,
             sx: toSX(item.x),
             sy: toSY(item.y),
-            x: item.x,
-            y: item.y,
             color,
-            label: item.label,
           }
         }
         const path =
@@ -289,250 +283,241 @@ export function CoordinatePlane({
     [parsed.items, viewport],
   )
 
+  const tooltip = useMemo(() => {
+    if (!hoveredPoint) return null
+    const text = `(${formatCoordinateValue(hoveredPoint.x)}, ${formatCoordinateValue(hoveredPoint.y)})`
+    const badgeW = Math.max(54, Math.ceil(text.length * 6.8 + 16))
+    const badgeH = 22
+    const boxX =
+      hoveredPoint.sx + 10 + badgeW > UI_CCS_VIEW_WIDTH - 8
+        ? hoveredPoint.sx - 10 - badgeW
+        : hoveredPoint.sx + 10
+    const boxY =
+      hoveredPoint.sy - 10 - badgeH < 8
+        ? hoveredPoint.sy + 10
+        : hoveredPoint.sy - 10 - badgeH
+    return {
+      text,
+      boxX,
+      boxY,
+      badgeW,
+      badgeH,
+      accent: hoveredPoint.color || 'rgb(var(--brand-500))',
+    }
+  }, [hoveredPoint])
+
   return (
     <section
-      className="ui-ccs-box not-prose my-6 overflow-hidden rounded-xl border border-ink-200 bg-ink-50/70 shadow-sm dark:border-white/10 dark:bg-white/[0.035]"
+      className="ui-ccs-box not-prose my-6 overflow-hidden rounded-xl border border-ink-200 bg-white/95 shadow-sm dark:border-white/10 dark:bg-ink-950/70"
       data-source-line={sourceLine}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-200/80 bg-white/75 px-4 py-2 font-sans text-xs text-ink-700 dark:border-white/10 dark:bg-white/[0.035] dark:text-ink-200">
-        <div className="flex items-center gap-2 font-semibold">
-          <Axis3d size={14} className="text-brand-500" />
-          <span>{title || '直角坐标系'}</span>
-          <span className="hidden font-normal text-ink-400 sm:inline">拖拽平移 · 滚轮缩放</span>
-        </div>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${UI_CCS_VIEW_WIDTH} ${UI_CCS_VIEW_HEIGHT}`}
+        role="application"
+        tabIndex={0}
+        aria-label={title || '可交互直角坐标系'}
+        data-center-x={viewport.centerX.toFixed(4)}
+        data-center-y={viewport.centerY.toFixed(4)}
+        data-units-per-px={viewport.unitsPerPx.toExponential(4)}
+        onDoubleClick={resetView}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={releasePointer}
+        onPointerCancel={releasePointer}
+        onPointerLeave={() => {
+          if (!dragging) setHoveredPoint(null)
+        }}
+        onKeyDown={onKeyDown}
+        className={`block h-auto w-full select-none touch-none outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 ${
+          dragging
+            ? 'cursor-grabbing'
+            : hoveredPoint
+              ? 'cursor-pointer'
+              : 'cursor-grab'
+        }`}
+      >
+        {/* 细分副网格与主网格 */}
+        <path d={minorPath} className="stroke-ink-900/[0.045] dark:stroke-white/[0.05]" strokeWidth={1} fill="none" />
+        <path d={majorPath} className="stroke-ink-900/[0.11] dark:stroke-white/[0.12]" strokeWidth={1} fill="none" />
 
-        <div className="flex items-center gap-1.5">
-          <span className="mr-1 font-mono text-[11px] text-ink-500 dark:text-ink-400" data-ccs-readout>
-            {hoverWorld
-              ? `(${formatCoordinateValue(hoverWorld.x)}, ${formatCoordinateValue(hoverWorld.y)})`
-              : `步长 ${formatAxisTick(major, major)}`}
-          </span>
-          <button
-            type="button"
-            onClick={() => zoomAround(0.75)}
-            aria-label="放大坐标系"
-            title="放大"
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-ink-200/80 bg-white/80 text-ink-600 transition hover:border-brand-400 hover:text-brand-600 dark:border-white/10 dark:bg-white/5 dark:text-ink-300 dark:hover:text-brand-300"
-          >
-            <ZoomIn size={13} />
-          </button>
-          <button
-            type="button"
-            onClick={() => zoomAround(1 / 0.75)}
-            aria-label="缩小坐标系"
-            title="缩小"
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-ink-200/80 bg-white/80 text-ink-600 transition hover:border-brand-400 hover:text-brand-600 dark:border-white/10 dark:bg-white/5 dark:text-ink-300 dark:hover:text-brand-300"
-          >
-            <ZoomOut size={13} />
-          </button>
-          <button
-            type="button"
-            onClick={resetView}
-            aria-label="重置坐标系视角"
-            title="回到初始视野"
-            className="inline-flex h-6 items-center gap-1 rounded-md border border-ink-200/80 bg-white/80 px-2 text-[11px] text-ink-600 transition hover:border-brand-400 hover:text-brand-600 dark:border-white/10 dark:bg-white/5 dark:text-ink-300 dark:hover:text-brand-300"
-          >
-            <RotateCcw size={12} />
-            <span className="hidden sm:inline">重置</span>
-          </button>
-        </div>
-      </div>
-
-      <div className="relative bg-white/90 dark:bg-ink-950/65">
-        <svg
-          ref={svgRef}
-          viewBox={`0 0 ${UI_CCS_VIEW_WIDTH} ${UI_CCS_VIEW_HEIGHT}`}
-          role="application"
-          tabIndex={0}
-          aria-label={title || '可交互直角坐标系'}
-          data-center-x={viewport.centerX.toFixed(4)}
-          data-center-y={viewport.centerY.toFixed(4)}
-          data-units-per-px={viewport.unitsPerPx.toExponential(4)}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={releasePointer}
-          onPointerCancel={releasePointer}
-          onPointerLeave={() => {
-            if (!dragging) setHoverWorld(null)
-          }}
-          onKeyDown={onKeyDown}
-          className={`block h-auto w-full select-none touch-none outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 ${
-            dragging ? 'cursor-grabbing' : 'cursor-grab'
-          }`}
-        >
-          {/* 细分副网格与主网格 */}
-          <path d={minorPath} className="stroke-ink-900/[0.045] dark:stroke-white/[0.05]" strokeWidth={1} fill="none" />
-          <path d={majorPath} className="stroke-ink-900/[0.11] dark:stroke-white/[0.12]" strokeWidth={1} fill="none" />
-
-          {/* X / Y 主坐标轴与正方向箭头 */}
-          {xAxisVisible && (
-            <g className="text-ink-500 dark:text-ink-400">
-              <line
-                x1={0}
-                y1={originSY}
-                x2={UI_CCS_VIEW_WIDTH}
-                y2={originSY}
-                stroke="currentColor"
-                strokeWidth={1.5}
-              />
-              <path
-                d={`M${UI_CCS_VIEW_WIDTH - 9} ${(originSY - 4).toFixed(2)}L${UI_CCS_VIEW_WIDTH - 2} ${originSY.toFixed(2)}L${UI_CCS_VIEW_WIDTH - 9} ${(originSY + 4).toFixed(2)}`}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <text
-                x={UI_CCS_VIEW_WIDTH - 14}
-                y={Math.max(14, originSY - 8)}
-                textAnchor="end"
-                className="fill-ink-600 font-serif text-[12px] italic dark:fill-ink-300"
-              >
-                x
-              </text>
-            </g>
-          )}
-
-          {yAxisVisible && (
-            <g className="text-ink-500 dark:text-ink-400">
-              <line
-                x1={originSX}
-                y1={UI_CCS_VIEW_HEIGHT}
-                x2={originSX}
-                y2={0}
-                stroke="currentColor"
-                strokeWidth={1.5}
-              />
-              <path
-                d={`M${(originSX - 4).toFixed(2)} 9L${originSX.toFixed(2)} 2L${(originSX + 4).toFixed(2)} 9`}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <text
-                x={Math.min(UI_CCS_VIEW_WIDTH - 16, originSX + 9)}
-                y={15}
-                textAnchor="start"
-                className="fill-ink-600 font-serif text-[12px] italic dark:fill-ink-300"
-              >
-                y
-              </text>
-            </g>
-          )}
-
-          {/* 刻度文字与原点标记 */}
-          <g className="pointer-events-none font-mono text-[10px] fill-ink-500 dark:fill-ink-400">
-            {xTicks.map((tick) => (
-              <text key={`tx-${tick.text}-${tick.sx.toFixed(1)}`} x={tick.sx} y={xLabelBaselineY} textAnchor="middle">
-                {tick.text}
-              </text>
-            ))}
-            {yTicks.map((tick) => (
-              <text key={`ty-${tick.text}-${tick.sy.toFixed(1)}`} x={yLabelAnchorX} y={tick.sy + 3.5} textAnchor="end">
-                {tick.text}
-              </text>
-            ))}
-            {xAxisVisible && yAxisVisible && originSX > 18 && originSX < UI_CCS_VIEW_WIDTH - 18 && (
-              <text x={originSX - 7} y={Math.min(UI_CCS_VIEW_HEIGHT - 6, originSY + 14)} textAnchor="end">
-                0
-              </text>
-            )}
+        {/* X / Y 主坐标轴与正方向箭头 */}
+        {xAxisVisible && (
+          <g className="text-ink-500 dark:text-ink-400">
+            <line
+              x1={0}
+              y1={originSY}
+              x2={UI_CCS_VIEW_WIDTH}
+              y2={originSY}
+              stroke="currentColor"
+              strokeWidth={1.5}
+            />
+            <path
+              d={`M${UI_CCS_VIEW_WIDTH - 9} ${(originSY - 4).toFixed(2)}L${UI_CCS_VIEW_WIDTH - 2} ${originSY.toFixed(2)}L${UI_CCS_VIEW_WIDTH - 9} ${(originSY + 4).toFixed(2)}`}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <text
+              x={UI_CCS_VIEW_WIDTH - 14}
+              y={Math.max(14, originSY - 8)}
+              textAnchor="end"
+              className="fill-ink-600 font-serif text-[12px] italic dark:fill-ink-300"
+            >
+              x
+            </text>
           </g>
+        )}
 
-          {/* 图形元素层：折线、函数曲线与坐标点 */}
-          <g data-ccs-shapes>
-            {renderedShapes.map((shape) => {
-              if (shape.kind === 'point') {
-                if (
-                  shape.sx < -24 ||
-                  shape.sx > UI_CCS_VIEW_WIDTH + 24 ||
-                  shape.sy < -24 ||
-                  shape.sy > UI_CCS_VIEW_HEIGHT + 24
-                ) {
-                  return null
-                }
-                return (
-                  <g key={shape.key} data-ccs-kind="point">
-                    <circle
-                      cx={shape.sx}
-                      cy={shape.sy}
-                      r={4.5}
-                      fill={shape.color}
-                      className="stroke-white dark:stroke-ink-950"
-                      strokeWidth={1.6}
-                    />
-                    <text
-                      x={shape.sx + 7}
-                      y={shape.sy - 7}
-                      className="pointer-events-none fill-ink-700 font-mono text-[10.5px] dark:fill-ink-200"
-                    >
-                      {shape.label || `(${formatCoordinateValue(shape.x)}, ${formatCoordinateValue(shape.y)})`}
-                    </text>
-                  </g>
-                )
+        {yAxisVisible && (
+          <g className="text-ink-500 dark:text-ink-400">
+            <line
+              x1={originSX}
+              y1={UI_CCS_VIEW_HEIGHT}
+              x2={originSX}
+              y2={0}
+              stroke="currentColor"
+              strokeWidth={1.5}
+            />
+            <path
+              d={`M${(originSX - 4).toFixed(2)} 9L${originSX.toFixed(2)} 2L${(originSX + 4).toFixed(2)} 9`}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <text
+              x={Math.min(UI_CCS_VIEW_WIDTH - 16, originSX + 9)}
+              y={15}
+              textAnchor="start"
+              className="fill-ink-600 font-serif text-[12px] italic dark:fill-ink-300"
+            >
+              y
+            </text>
+          </g>
+        )}
+
+        {/* 刻度文字与原点标记 */}
+        <g className="pointer-events-none font-mono text-[10px] fill-ink-500 dark:fill-ink-400">
+          {xTicks.map((tick) => (
+            <text key={`tx-${tick.text}-${tick.sx.toFixed(1)}`} x={tick.sx} y={xLabelBaselineY} textAnchor="middle">
+              {tick.text}
+            </text>
+          ))}
+          {yTicks.map((tick) => (
+            <text key={`ty-${tick.text}-${tick.sy.toFixed(1)}`} x={yLabelAnchorX} y={tick.sy + 3.5} textAnchor="end">
+              {tick.text}
+            </text>
+          ))}
+          {xAxisVisible && yAxisVisible && originSX > 18 && originSX < UI_CCS_VIEW_WIDTH - 18 && (
+            <text x={originSX - 7} y={Math.min(UI_CCS_VIEW_HEIGHT - 6, originSY + 14)} textAnchor="end">
+              0
+            </text>
+          )}
+        </g>
+
+        {/* 图形元素层：折线、函数曲线与坐标点（未悬浮时不展示坐标文字） */}
+        <g data-ccs-shapes>
+          {renderedShapes.map((shape) => {
+            if (shape.kind === 'point') {
+              if (
+                shape.sx < -24 ||
+                shape.sx > UI_CCS_VIEW_WIDTH + 24 ||
+                shape.sy < -24 ||
+                shape.sy > UI_CCS_VIEW_HEIGHT + 24
+              ) {
+                return null
               }
-
               return (
-                <g key={shape.key} data-ccs-kind={shape.kind}>
-                  {shape.path && (
-                    <path
-                      d={shape.path}
-                      fill="none"
-                      stroke={shape.color}
-                      strokeWidth={2.25}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  )}
-                  {shape.points?.map((vertex, vIdx) => {
-                    const vx = toSX(vertex.x)
-                    const vy = toSY(vertex.y)
-                    if (vx < -12 || vx > UI_CCS_VIEW_WIDTH + 12 || vy < -12 || vy > UI_CCS_VIEW_HEIGHT + 12) {
-                      return null
-                    }
-                    return (
-                      <circle
-                        key={`${shape.key}-v-${vIdx}`}
-                        cx={vx}
-                        cy={vy}
-                        r={3}
-                        fill={shape.color}
-                        className="stroke-white dark:stroke-ink-950"
-                        strokeWidth={1.2}
-                      />
-                    )
-                  })}
+                <g key={shape.key} data-ccs-kind="point">
+                  <circle
+                    cx={shape.sx}
+                    cy={shape.sy}
+                    r={4.2}
+                    fill={shape.color}
+                    className="stroke-white dark:stroke-ink-950"
+                    strokeWidth={1.5}
+                  />
                 </g>
               )
-            })}
+            }
+
+            return (
+              <g key={shape.key} data-ccs-kind={shape.kind}>
+                {shape.path && (
+                  <path
+                    d={shape.path}
+                    fill="none"
+                    stroke={shape.color}
+                    strokeWidth={2.25}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
+                {shape.points?.map((vertex, vIdx) => {
+                  const vx = toSX(vertex.x)
+                  const vy = toSY(vertex.y)
+                  if (vx < -12 || vx > UI_CCS_VIEW_WIDTH + 12 || vy < -12 || vy > UI_CCS_VIEW_HEIGHT + 12) {
+                    return null
+                  }
+                  return (
+                    <circle
+                      key={`${shape.key}-v-${vIdx}`}
+                      cx={vx}
+                      cy={vy}
+                      r={3}
+                      fill={shape.color}
+                      className="stroke-white dark:stroke-ink-950"
+                      strokeWidth={1.2}
+                    />
+                  )
+                })}
+              </g>
+            )
+          })}
+        </g>
+
+        {/* 悬浮到单点、任意端点或任意交点时高亮并显示精确坐标 */}
+        {hoveredPoint && tooltip && (
+          <g data-ccs-tooltip className="pointer-events-none">
+            <circle
+              cx={hoveredPoint.sx}
+              cy={hoveredPoint.sy}
+              r={8}
+              fill={tooltip.accent}
+              fillOpacity={0.18}
+            />
+            <circle
+              cx={hoveredPoint.sx}
+              cy={hoveredPoint.sy}
+              r={4.6}
+              fill={tooltip.accent}
+              className="stroke-white dark:stroke-ink-950"
+              strokeWidth={1.8}
+            />
+            <rect
+              x={tooltip.boxX}
+              y={tooltip.boxY}
+              width={tooltip.badgeW}
+              height={tooltip.badgeH}
+              rx={6}
+              className="fill-ink-900/90 stroke-white/15 dark:fill-ink-900/95 dark:stroke-white/20"
+              strokeWidth={1}
+            />
+            <text
+              x={tooltip.boxX + tooltip.badgeW / 2}
+              y={tooltip.boxY + 14.5}
+              textAnchor="middle"
+              className="fill-white font-mono text-[11px] font-medium"
+            >
+              {tooltip.text}
+            </text>
           </g>
-
-          {/* 指针十字准星 */}
-          {hoverWorld && !dragging && (
-            <g className="pointer-events-none stroke-ink-500/35 dark:stroke-white/25" strokeDasharray="3 3" strokeWidth={1}>
-              <line x1={toSX(hoverWorld.x)} y1={0} x2={toSX(hoverWorld.x)} y2={UI_CCS_VIEW_HEIGHT} />
-              <line x1={0} y1={toSY(hoverWorld.y)} x2={UI_CCS_VIEW_WIDTH} y2={toSY(hoverWorld.y)} />
-            </g>
-          )}
-        </svg>
-      </div>
-
-      {parsed.items.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-ink-200/80 bg-white/55 px-4 py-2 font-mono text-[11px] text-ink-600 dark:border-white/10 dark:bg-black/15 dark:text-ink-300">
-          {parsed.items.map((item, idx) => (
-            <span key={`legend-${idx}`} className="inline-flex items-center gap-1.5">
-              <span
-                className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: resolveCcsItemColor(item, idx) }}
-              />
-              <span>{describeItem(item)}</span>
-            </span>
-          ))}
-        </div>
-      )}
+        )}
+      </svg>
 
       {parsed.errors.length > 0 && (
         <div className="border-t border-rose-200/70 bg-rose-50/70 px-4 py-2 font-mono text-[11px] text-rose-700 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200">

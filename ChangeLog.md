@@ -27,7 +27,7 @@
 - **交互二维直角坐标系 `ui-ccs`（Issue #76）**（`src/lib/uiCcs.ts`、`src/components/CoordinatePlane.tsx`、`src/components/Markdown.tsx`、`src/pages/Editor.tsx`、`src/lib/markdownSource.ts`、`src/lib/posts.ts`、`content/about.md`、`vscode_extensions/v1`）：
   - 实现 `::begin_ui-ccs … ::end_ui-ccs` 语法解析器与 AST 数学求值器：支持 `create_point:(x,y);`、`create_line:(x_1,y_1),...,(x_n,y_n),[color=red];` 与显式函数曲线 `create_line:(7*x^2+6*x+90*x^3);`，严格遵守幂运算与一目正负号优先级（`-x^2 = -(x^2)`、`2^-x = 2^(-x)`），支持隐式乘法与常用初等函数；
   - 采用高斜率中点递归细分 + 渐近线间断识别 + Cohen–Sutherland 视口裁剪，保证高次多项式在任意缩放比下平滑且无浮点越界；
-  - 交互组件支持鼠标/触控拖拽平移、以光标为锚点的滚轮缩放与双指捏合缩放、键盘方向键/加减号控制、`1–2–5` 自适应主副网格刻度、原点移出画面时的贴边刻度、悬停十字准星坐标读数、一键复位，以及嵌套在 `::show_begin` 展示框内的动态联动；
+  - 界面采用无上下栏的极简纯画布设计：单点与端点在未悬浮时不显示文字标签；当鼠标/触控悬浮至**任意单点、折线端点/折点、函数定义域端点或线线/曲曲/曲折/坐标轴交点（含相切点）**时自动吸附高亮并显示精确坐标；支持拖拽平移、以光标为锚点的滚轮缩放与双指捏合缩放、双击/按 `0` 键复位、方向键/加减号控制、`1–2–5` 自适应主副网格、越界贴边刻度，以及嵌套在 `::show_begin` 展示框内的动态联动；
   - 站内编辑器工具栏新增「直角坐标系」快捷插入按钮；洛谷/基本源码复制、文章摘要与目录提取同步适配；VS Code 插件升级至 `2.2.0` 并重新打包 `starlog-markdown-2.2.0.vsix`；同步重新构建并校验单文件离线版 `offline/index.html`。
 
 ### 验证

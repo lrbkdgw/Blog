@@ -13,6 +13,12 @@ export { readPreviewModel, previewUrlTransform } from './preview/model'
 export { transformMarkdown, renderShowBox, convertMergeMarkersForMpe } from './core/transform'
 export { convertMarkdownForCopy, convertUiCcsToMarkdown } from './core/sourceConvert'
 export { evaluateShowFormula, parseShowVariables, renderShowContent } from './core/showBox'
-export { compileCcsExpression, parseUiCcs, renderStaticUiCcsSvg } from './core/uiCcs'
+export {
+  compileCcsExpression,
+  findNearestUiCcsSpecialPoint,
+  findUiCcsSpecialPoints,
+  parseUiCcs,
+  renderStaticUiCcsSvg,
+} from './core/uiCcs'
 export { parseArticleDirectives, stripArticleDirectives } from './core/articleDirectives'
 export { LATEX_SYMBOLS, latexSymbolInsert, searchLatexSymbols } from './core/latexSymbols'

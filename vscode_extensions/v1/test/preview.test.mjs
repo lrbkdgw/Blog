@@ -209,12 +209,13 @@ test('延迟插入原生预览正文也能挂载；原生模型消失时清理 R
   assert.deepEqual(errors, [])
 })
 
-test('直角坐标系 ui-ccs 支持描点、折线、高次函数曲线、拖拽平移、滚轮缩放与展示框联动', async (t) => {
+test('直角坐标系 ui-ccs 极简无上下栏、未悬浮不显示点坐标、悬浮端点/交点显示坐标并支持拖拽缩放与展示框联动', async (t) => {
   const ccsDoc = [
     '::begin_ui-ccs',
-    'create_point:(1,2);',
-    'create_line:(-2,-1),(0,2),(3,-1),[color=red];',
-    'create_line:(7*x^2+6*x+90*x^3);',
+    'create_point:(1,4);',
+    'create_line:(-3,0),(3,0);',
+    'create_line:(0,-3),(2,3),[color=red];',
+    'create_line:(x^2-1);',
     '::end_ui-ccs',
     '',
     '::show_begin{动态抛物线}{k:Z=1[-3,3,1]}',
@@ -228,40 +229,70 @@ test('直角坐标系 ui-ccs 支持描点、折线、高次函数曲线、拖拽
 
   const boxes = document.querySelectorAll('.ui-ccs-box')
   assert.equal(boxes.length, 2)
+
+  // 1. 删除上下显示框：容器内仅保留中间的纯坐标系 SVG
+  assert.equal(boxes[0].children.length, 1)
+  assert.equal(boxes[0].firstElementChild.tagName.toLowerCase(), 'svg')
+
   const firstSvg = boxes[0].querySelector('svg[role="application"]')
   assert.ok(firstSvg)
-  assert.equal(boxes[0].querySelector('[data-ccs-kind="point"] text').textContent, '(1, 2)')
-  assert.equal(boxes[0].querySelector('[data-ccs-kind="polyline"] path').getAttribute('stroke'), 'red')
-  assert.ok(boxes[0].querySelector('[data-ccs-kind="function"] path').getAttribute('d').length > 20)
+
+  // 2. 单点未悬浮时不显示坐标文字，也不显示悬浮气泡
+  assert.equal(boxes[0].querySelector('[data-ccs-kind="point"] text'), null)
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip]'), null)
 
   const initialCenterX = Number(firstSvg.getAttribute('data-center-x'))
   const initialCenterY = Number(firstSvg.getAttribute('data-center-y'))
   const initialUnits = Number(firstSvg.getAttribute('data-units-per-px'))
-
-  // 指针拖拽平移整个坐标平面
+  const toClientX = (wx) => 340 + (wx - initialCenterX) / initialUnits
+  const toClientY = (wy) => 210 - (wy - initialCenterY) / initialUnits
   const PointerEvt = dom.window.PointerEvent || dom.window.MouseEvent
+
+  // 3. 悬浮到单点 (1, 4) 显示坐标
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(1), clientY: toClientY(4), pointerId: 1 }))
+  await settle()
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip] text')?.textContent, '(1, 4)')
+
+  // 4. 悬浮到线段端点 (2, 3) 显示端点坐标
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(2), clientY: toClientY(3), pointerId: 1 }))
+  await settle()
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip] text')?.textContent, '(2, 3)')
+
+  // 5. 悬浮到两条线段的交点 (1, 0) 显示交点坐标
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(1), clientY: toClientY(0), pointerId: 1 }))
+  await settle()
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip] text')?.textContent, '(1, 0)')
+
+  // 6. 悬浮到红线 y=3x-3 与抛物线 y=x^2-1 的另一个交点 (2, 3) 外的交点，以及抛物线与 Y 轴交点 (0, -1)
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(0), clientY: toClientY(-1), pointerId: 1 }))
+  await settle()
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip] text')?.textContent, '(0, -1)')
+
+  // 7. 移开到空白区域后隐藏坐标气泡
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(-4), clientY: toClientY(4), pointerId: 1 }))
+  await settle()
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip]'), null)
+
+  // 8. 指针拖拽平移、滚轮缩放与双击复位
   firstSvg.dispatchEvent(new PointerEvt('pointerdown', { bubbles: true, button: 0, clientX: 200, clientY: 200, pointerId: 1 }))
   await settle()
   firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: 320, clientY: 140, pointerId: 1 }))
   await settle()
   firstSvg.dispatchEvent(new PointerEvt('pointerup', { bubbles: true, clientX: 320, clientY: 140, pointerId: 1 }))
   await settle()
-
   assert.ok(Number(firstSvg.getAttribute('data-center-x')) < initialCenterX)
   assert.ok(Number(firstSvg.getAttribute('data-center-y')) < initialCenterY)
 
-  // 滚轮缩放预览整个坐标系
   firstSvg.dispatchEvent(new dom.window.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -120, clientX: 340, clientY: 210 }))
   await settle()
   assert.ok(Number(firstSvg.getAttribute('data-units-per-px')) < initialUnits)
 
-  // 一键复位回到初始视野
-  boxes[0].querySelector('button[aria-label="重置坐标系视角"]').click()
+  firstSvg.dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true }))
   await settle()
   assert.equal(Number(firstSvg.getAttribute('data-center-x')), initialCenterX)
   assert.equal(Number(firstSvg.getAttribute('data-units-per-px')), initialUnits)
 
-  // 展示框滑块联动更新嵌套坐标系函数图像
+  // 9. 展示框滑块联动更新嵌套坐标系函数图像
   const beforePath = boxes[1].querySelector('[data-ccs-kind="function"] path').getAttribute('d')
   await setInput(dom, document.querySelector('.show-box input[type="range"]'), '3')
   const afterPath = document.querySelectorAll('.ui-ccs-box')[1].querySelector('[data-ccs-kind="function"] path').getAttribute('d')

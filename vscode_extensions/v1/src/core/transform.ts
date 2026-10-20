@@ -220,11 +220,9 @@ export function transformMarkdown(markdown: string, options: TransformOptions = 
         end += 1
       }
       if (end < lines.length) {
-        const title = (ccsMatch[1] ?? '').trim() || '直角坐标系'
         result.push('')
         result.push(
           '<div class="' + prefix + '-ccs-static">' +
-          '<div class="' + prefix + '-ccs-static-head">' + escapeHtml(title) + '</div>' +
           renderStaticUiCcsSvg(body.join('\n')) +
           '</div>',
         )

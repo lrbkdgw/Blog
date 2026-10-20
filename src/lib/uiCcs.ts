@@ -801,6 +801,442 @@ export function buildFunctionSvgPath(
   return cmds.join(' ')
 }
 
+/* -------------------------------------------------------------------------- */
+/*                    特殊点求解：单点、端点、折点与全部交点                      */
+/* -------------------------------------------------------------------------- */
+
+export type UiCcsSpecialPointKind = 'point' | 'endpoint' | 'intersection'
+
+export interface UiCcsSpecialPoint {
+  kind: UiCcsSpecialPointKind
+  x: number
+  y: number
+  sx: number
+  sy: number
+  color?: string
+  label?: string
+}
+
+export const UI_CCS_SNAP_RADIUS_PX = 16
+
+interface Segment2D {
+  ax: number
+  ay: number
+  bx: number
+  by: number
+}
+
+function normalizeZero(value: number): number {
+  return Math.abs(value) < 1e-10 ? 0 : value
+}
+
+/**
+ * 在一维区间 `[a, b]` 上求解 `diff(x) = f1(x) - f2(x) = 0` 的全部连续根（含横截根与偶重相切根），
+ * 自动过滤反比例函数 / 正切函数等竖直渐近线与阶跃间断点。
+ */
+function solve1DRootsOnInterval(
+  diff: (x: number) => number,
+  evalY: (x: number) => number,
+  a: number,
+  b: number,
+  samplesCount: number,
+  tolY: number,
+  maxJumpY: number,
+): Array<{ x: number; y: number }> {
+  if (!(b > a)) return []
+  const n = Math.max(16, samplesCount)
+  const step = (b - a) / n
+  const xs = new Float64Array(n + 1)
+  const ds = new Float64Array(n + 1)
+  for (let i = 0; i <= n; i += 1) {
+    const x = i === n ? b : a + i * step
+    xs[i] = x
+    ds[i] = diff(x)
+  }
+
+  const roots: Array<{ x: number; y: number }> = []
+  const acceptCandidate = (xStar: number) => {
+    const dVal = diff(xStar)
+    const yVal = evalY(xStar)
+    if (!Number.isFinite(dVal) || !Number.isFinite(yVal)) return
+    const deltaCoarse = Math.max(1e-6, step * 1e-3)
+    const deltaFine = Math.max(1e-10, step * 1e-7)
+    const dCoarseL = diff(Math.max(a, xStar - deltaCoarse))
+    const dCoarseR = diff(Math.min(b, xStar + deltaCoarse))
+    const dFineL = diff(Math.max(a, xStar - deltaFine))
+    const dFineR = diff(Math.min(b, xStar + deltaFine))
+    if (
+      !Number.isFinite(dCoarseL) ||
+      !Number.isFinite(dCoarseR) ||
+      !Number.isFinite(dFineL) ||
+      !Number.isFinite(dFineR)
+    ) {
+      return
+    }
+    const oscCoarse = Math.abs(dCoarseR - dCoarseL)
+    const oscFine = Math.abs(dFineR - dFineL)
+    // 连续函数在区间缩小 10^4 倍后振幅必然收敛趋零；极点渐近线与阶跃间断不会收敛
+    if (oscFine > oscCoarse * 0.25 + 1e-7 || oscFine > maxJumpY) return
+    const slopeAllowance = oscFine * 4
+    if (Math.abs(dVal) > Math.max(tolY, slopeAllowance)) return
+    roots.push({ x: normalizeZero(xStar), y: normalizeZero(yVal) })
+  }
+
+  for (let i = 0; i < n; i += 1) {
+    const x0 = xs[i]
+    const x1 = xs[i + 1]
+    const d0 = ds[i]
+    const d1 = ds[i + 1]
+    if (!Number.isFinite(d0) || !Number.isFinite(d1)) continue
+
+    if (d0 === 0) {
+      acceptCandidate(x0)
+      continue
+    }
+
+    if ((d0 < 0 && d1 > 0) || (d0 > 0 && d1 < 0)) {
+      let lo = x0
+      let hi = x1
+      let fLo = d0
+      for (let iter = 0; iter < 52; iter += 1) {
+        const mid = (lo + hi) * 0.5
+        const fMid = diff(mid)
+        if (!Number.isFinite(fMid)) break
+        if (fMid === 0) {
+          lo = mid
+          hi = mid
+          break
+        }
+        if ((fLo < 0 && fMid > 0) || (fLo > 0 && fMid < 0)) {
+          hi = mid
+        } else {
+          lo = mid
+          fLo = fMid
+        }
+      }
+      acceptCandidate((lo + hi) * 0.5)
+    } else if (i > 0) {
+      // 检测偶重相切根（如 y = (x - 2)^2 与 x 轴切于 (2, 0)，或 y = x^2 与 y = 2x - 1 切于 (1, 1)）
+      const prevAbs = Math.abs(ds[i - 1])
+      const currAbs = Math.abs(d0)
+      const nextAbs = Math.abs(d1)
+      if (Number.isFinite(prevAbs) && currAbs <= prevAbs && currAbs <= nextAbs) {
+        let left = xs[i - 1]
+        let right = x1
+        const invPhi = (Math.sqrt(5) - 1) / 2
+        let c = right - (right - left) * invPhi
+        let d = left + (right - left) * invPhi
+        let fc = Math.abs(diff(c))
+        let fd = Math.abs(diff(d))
+        for (let iter = 0; iter < 48; iter += 1) {
+          if (fc < fd) {
+            right = d
+            d = c
+            fd = fc
+            c = right - (right - left) * invPhi
+            fc = Math.abs(diff(c))
+          } else {
+            left = c
+            c = d
+            fc = fd
+            d = left + (right - left) * invPhi
+            fd = Math.abs(diff(d))
+          }
+        }
+        acceptCandidate((left + right) * 0.5)
+      }
+    }
+  }
+
+  if (Number.isFinite(ds[n]) && ds[n] === 0) {
+    acceptCandidate(b)
+  }
+
+  return roots
+}
+
+function intersectTwoSegments(s1: Segment2D, s2: Segment2D): { x: number; y: number } | null {
+  const rX = s1.bx - s1.ax
+  const rY = s1.by - s1.ay
+  const sX = s2.bx - s2.ax
+  const sY = s2.by - s2.ay
+  const denom = rX * sY - rY * sX
+  if (Math.abs(denom) <= 1e-12) return null
+  const qpX = s2.ax - s1.ax
+  const qpY = s2.ay - s1.ay
+  const t = (qpX * sY - qpY * sX) / denom
+  const u = (qpX * rY - qpY * rX) / denom
+  const eps = 1e-9
+  if (t < -eps || t > 1 + eps || u < -eps || u > 1 + eps) return null
+  return {
+    x: normalizeZero(s1.ax + t * rX),
+    y: normalizeZero(s1.ay + t * rY),
+  }
+}
+
+/**
+ * 提取当前视口内所有可悬停吸附的特殊点：
+ * - 单点（`create_point`）
+ * - 折线 / 线段的全部端点与中间折点、闭定义域函数的定义域端点（如 `sqrt(x)`、`acos(x)`）
+ * - 线段×线段、曲线×曲线、曲线×线段、图形×坐标轴及坐标轴原点 `(0, 0)` 的全部交点
+ */
+export function findUiCcsSpecialPoints(
+  items: UiCcsItem[],
+  viewport: UiCcsViewport,
+  width = UI_CCS_VIEW_WIDTH,
+  height = UI_CCS_VIEW_HEIGHT,
+): UiCcsSpecialPoint[] {
+  const halfW = (width / 2) * viewport.unitsPerPx
+  const halfH = (height / 2) * viewport.unitsPerPx
+  const padX = halfW * 0.08
+  const padY = halfH * 0.08
+  const minX = viewport.centerX - halfW - padX
+  const maxX = viewport.centerX + halfW + padX
+  const minY = viewport.centerY - halfH - padY
+  const maxY = viewport.centerY + halfH + padY
+
+  const toSX = (wx: number) => width / 2 + (wx - viewport.centerX) / viewport.unitsPerPx
+  const toSY = (wy: number) => height / 2 - (wy - viewport.centerY) / viewport.unitsPerPx
+
+  const rawCandidates: Array<UiCcsSpecialPoint & { priority: number }> = []
+  const pushCandidate = (
+    kind: UiCcsSpecialPointKind,
+    x: number,
+    y: number,
+    priority: number,
+    color?: string,
+    label?: string,
+  ) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return
+    if (x < minX || x > maxX || y < minY || y > maxY) return
+    const nx = normalizeZero(x)
+    const ny = normalizeZero(y)
+    rawCandidates.push({
+      kind,
+      x: nx,
+      y: ny,
+      sx: toSX(nx),
+      sy: toSY(ny),
+      color,
+      label,
+      priority,
+    })
+  }
+
+  const allSegments: Array<{ seg: Segment2D; itemIndex: number }> = []
+  const allFunctions: Array<{ item: UiCcsFunctionItem; itemIndex: number }> = []
+
+  // 1. 单点与折线端点/折点
+  items.forEach((item, idx) => {
+    const color = resolveCcsItemColor(item, idx)
+    if (item.kind === 'point') {
+      pushCandidate('point', item.x, item.y, 1, color, item.label)
+    } else if (item.kind === 'polyline') {
+      for (const vertex of item.points) {
+        pushCandidate('endpoint', vertex.x, vertex.y, 2, color, item.label)
+      }
+      for (let i = 0; i < item.points.length - 1; i += 1) {
+        allSegments.push({
+          seg: {
+            ax: item.points[i].x,
+            ay: item.points[i].y,
+            bx: item.points[i + 1].x,
+            by: item.points[i + 1].y,
+          },
+          itemIndex: idx,
+        })
+      }
+    } else {
+      allFunctions.push({ item, itemIndex: idx })
+    }
+  })
+
+  // 2. 闭定义域函数曲线的定义域端点（如 sqrt(x) 在 (0,0)、sqrt(4-x^2) 在 (±2,0)、acos(x) 在 (-1,π)/(1,0)）
+  const domainSamples = 480
+  const dx = (maxX - minX) / domainSamples
+  for (const { item, itemIndex } of allFunctions) {
+    const color = resolveCcsItemColor(item, itemIndex)
+    let prevX = minX
+    let prevY = item.evaluate(minX)
+    for (let i = 1; i <= domainSamples; i += 1) {
+      const currX = i === domainSamples ? maxX : minX + i * dx
+      const currY = item.evaluate(currX)
+      const prevValid = Number.isFinite(prevY)
+      const currValid = Number.isFinite(currY)
+      if (prevValid !== currValid && Number.isNaN(prevValid ? currY : prevY)) {
+        let validX = prevValid ? prevX : currX
+        let invalidX = prevValid ? currX : prevX
+        for (let iter = 0; iter < 48; iter += 1) {
+          const mid = (validX + invalidX) * 0.5
+          if (Number.isFinite(item.evaluate(mid))) validX = mid
+          else invalidX = mid
+        }
+        const snappedX = Math.abs(validX - Math.round(validX)) < 1e-7 ? Math.round(validX) : validX
+        const exactAtSnapped = item.evaluate(snappedX)
+        const edgeX = Number.isFinite(exactAtSnapped) ? snappedX : validX
+        const edgeY = Number.isFinite(exactAtSnapped) ? exactAtSnapped : item.evaluate(validX)
+        const innerProbeX = edgeX + (prevValid ? -1 : 1) * Math.max(1e-6, dx * 1e-4)
+        const innerProbeY = item.evaluate(innerProbeX)
+        if (
+          Number.isFinite(edgeY) &&
+          Number.isFinite(innerProbeY) &&
+          Math.abs(edgeY - innerProbeY) <= 0.05 * (1 + Math.abs(edgeY))
+        ) {
+          pushCandidate('endpoint', edgeX, edgeY, 2, color)
+        }
+      }
+      prevX = currX
+      prevY = currY
+    }
+  }
+
+  // 3. 线段与线段交点 + 线段与坐标轴交点
+  for (let i = 0; i < allSegments.length; i += 1) {
+    const s1 = allSegments[i].seg
+    for (let j = i + 1; j < allSegments.length; j += 1) {
+      // 同一折线相邻两段共享公共顶点已在端点中收录，无需重复求交
+      if (
+        allSegments[i].itemIndex === allSegments[j].itemIndex &&
+        ((s1.bx === allSegments[j].seg.ax && s1.by === allSegments[j].seg.ay) ||
+          (s1.ax === allSegments[j].seg.bx && s1.ay === allSegments[j].seg.by))
+      ) {
+        continue
+      }
+      const hit = intersectTwoSegments(s1, allSegments[j].seg)
+      if (hit) pushCandidate('intersection', hit.x, hit.y, 3)
+    }
+
+    const hitXAxis = intersectTwoSegments(s1, { ax: minX - 1, ay: 0, bx: maxX + 1, by: 0 })
+    if (hitXAxis) pushCandidate('intersection', hitXAxis.x, hitXAxis.y, 4)
+
+    const hitYAxis = intersectTwoSegments(s1, { ax: 0, ay: minY - 1, bx: 0, by: maxY + 1 })
+    if (hitYAxis) pushCandidate('intersection', hitYAxis.x, hitYAxis.y, 4)
+  }
+
+  const tolY = Math.max(1e-5, viewport.unitsPerPx * 0.05)
+  const maxJumpY = Math.max(2, halfH * 0.6)
+
+  // 4. 函数曲线与坐标轴交点、函数曲线与函数曲线交点、函数曲线与线段交点
+  for (let i = 0; i < allFunctions.length; i += 1) {
+    const fnA = allFunctions[i].item.evaluate
+
+    // 与 Y 轴交点 (0, f(0))
+    if (minX <= 0 && maxX >= 0) {
+      const y0 = fnA(0)
+      if (Number.isFinite(y0)) pushCandidate('intersection', 0, y0, 4)
+    }
+
+    // 与 X 轴交点 f(x) = 0
+    for (const root of solve1DRootsOnInterval(fnA, () => 0, minX, maxX, 540, tolY, maxJumpY)) {
+      pushCandidate('intersection', root.x, 0, 4)
+    }
+
+    // 与其他函数曲线交点 fA(x) = fB(x)
+    for (let j = i + 1; j < allFunctions.length; j += 1) {
+      const fnB = allFunctions[j].item.evaluate
+      const roots = solve1DRootsOnInterval(
+        (x) => fnA(x) - fnB(x),
+        fnA,
+        minX,
+        maxX,
+        540,
+        tolY,
+        maxJumpY,
+      )
+      for (const r of roots) {
+        pushCandidate('intersection', r.x, r.y, 3)
+      }
+    }
+
+    // 与折线各线段交点
+    for (const { seg } of allSegments) {
+      if (Math.abs(seg.bx - seg.ax) <= 1e-12) {
+        // 竖直线段 x = c
+        const xConst = seg.ax
+        if (xConst >= minX && xConst <= maxX) {
+          const yVal = fnA(xConst)
+          const segMinY = Math.min(seg.ay, seg.by) - 1e-7
+          const segMaxY = Math.max(seg.ay, seg.by) + 1e-7
+          if (Number.isFinite(yVal) && yVal >= segMinY && yVal <= segMaxY) {
+            pushCandidate('intersection', xConst, yVal, 3)
+          }
+        }
+      } else {
+        const segMinX = Math.max(minX, Math.min(seg.ax, seg.bx))
+        const segMaxX = Math.min(maxX, Math.max(seg.ax, seg.bx))
+        if (segMaxX >= segMinX) {
+          const slope = (seg.by - seg.ay) / (seg.bx - seg.ax)
+          const lineY = (x: number) => seg.ay + slope * (x - seg.ax)
+          if (segMinX === segMaxX) {
+            if (Math.abs(fnA(segMinX) - lineY(segMinX)) <= tolY) {
+              pushCandidate('intersection', segMinX, lineY(segMinX), 3)
+            }
+          } else {
+            const segSamples = Math.max(24, Math.min(360, Math.ceil((segMaxX - segMinX) / dx) * 2))
+            const roots = solve1DRootsOnInterval(
+              (x) => fnA(x) - lineY(x),
+              lineY,
+              segMinX,
+              segMaxX,
+              segSamples,
+              tolY,
+              maxJumpY,
+            )
+            for (const r of roots) {
+              pushCandidate('intersection', r.x, r.y, 3)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 5. X 轴与 Y 轴交点：原点 (0, 0)
+  pushCandidate('intersection', 0, 0, 5)
+
+  // 按优先级排序后去重，合并数值误差范围内重合的同一点
+  rawCandidates.sort((a, b) => a.priority - b.priority)
+  const deduped: UiCcsSpecialPoint[] = []
+  const mergeDistWorld = Math.max(1e-5, viewport.unitsPerPx * 0.75)
+
+  for (const item of rawCandidates) {
+    const exists = deduped.some(
+      (prev) => Math.hypot(prev.x - item.x, prev.y - item.y) <= mergeDistWorld,
+    )
+    if (!exists) {
+      deduped.push({
+        kind: item.kind,
+        x: item.x,
+        y: item.y,
+        sx: item.sx,
+        sy: item.sy,
+        color: item.color,
+        label: item.label,
+      })
+    }
+  }
+
+  return deduped
+}
+
+export function findNearestUiCcsSpecialPoint(
+  specialPoints: UiCcsSpecialPoint[],
+  svgX: number,
+  svgY: number,
+  maxRadiusPx = UI_CCS_SNAP_RADIUS_PX,
+): UiCcsSpecialPoint | null {
+  let best: UiCcsSpecialPoint | null = null
+  let bestDist = maxRadiusPx
+  for (const pt of specialPoints) {
+    const dist = Math.hypot(pt.sx - svgX, pt.sy - svgY)
+    if (dist <= bestDist) {
+      bestDist = dist
+      best = pt
+    }
+  }
+  return best
+}
+
 /** 静态 HTML / SVG 渲染（用于 MPE 静态兼容模式）。 */
 export function renderStaticUiCcsSvg(source: string): string {
   const { items } = parseUiCcs(source)

@@ -2,7 +2,7 @@
 
 ## 2.2.0 — 2026-10-20
 
-- 新增直角坐标系语法 `::begin_ui-ccs … ::end_ui-ccs`（与博客 issue #76 同步）：支持 `create_point:(x,y);`、`create_line:(x_1,y_1),...,(x_n,y_n),[color=...];` 与显式函数曲线 `create_line:(7*x^2+6*x+90*x^3);`，内置预览直接复用博客 `CoordinatePlane` 组件，支持鼠标/触控拖拽平移、滚轮缩放、悬停坐标读数、一键复位及嵌套在 `::show_begin` 内的实时联动。
+- 新增直角坐标系语法 `::begin_ui-ccs … ::end_ui-ccs`（与博客 issue #76 同步）：支持 `create_point:(x,y);`、`create_line:(x_1,y_1),...,(x_n,y_n),[color=...];` 与显式函数曲线 `create_line:(7*x^2+6*x+90*x^3);`，内置预览直接复用博客极简无上下栏 `CoordinatePlane` 组件，支持拖拽平移、滚轮缩放、双击复位、悬浮任意单点/端点/交点显示精确坐标（未悬浮不显示点坐标）及嵌套在 `::show_begin` 内的实时联动。
 - 新增命令 **插入直角坐标系**（`starlog.insertCoordinateSystem`）、`uiccs` / `::begin_ui-ccs` 代码片段、TextMate 语法高亮与 MPE 静态 SVG 兼容渲染；洛谷 / 基本 Markdown 复制自动降级为静态说明文本。
 
 ## 2.1.0 — 2026-10-19

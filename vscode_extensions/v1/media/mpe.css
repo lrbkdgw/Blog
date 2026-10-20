@@ -281,14 +281,6 @@ table td[colspan] {
   background: rgba(127, 127, 127, 0.05);
 }
 
-.starlog-ccs-static-head {
-  padding: 0.5em 0.9em;
-  font-size: 0.82em;
-  font-weight: 600;
-  border-bottom: 1px solid rgba(127, 127, 127, 0.24);
-  background: rgba(127, 127, 127, 0.08);
-}
-
 .starlog-ccs-static svg {
   display: block;
   width: 100%;
