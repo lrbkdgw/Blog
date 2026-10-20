@@ -20,13 +20,13 @@
   - 将落雨速度调优至人眼不拉丝的自然液滴区间（约 `410–920 px/s`，单帧位移 `7–15px`），保持贴图旋转角与位移斜率严格同轴；
   - 深化**中央阅读走廊净空包络**：中央正文列水珠不透明度平滑衰减至两侧山湖烟雨的 `18%`（近景散景水珠衰减至 `8%`），兼顾两侧山湖烟雨意境与中央正文零干扰阅读。
 - **全站顶部防挡消失位置微调上移、8 点 S 曲线柔化与深色模式适配**（`src/lib/headerYield.ts`、`src/styles/index.css`、`src/components/{Layout.tsx,Toc.tsx}`、`src/pages/{Home.tsx,PostPage.tsx,Editor.tsx}` 等）：
-  - 将完全消失线 `yVanish` 精调至页头下沿以下 `VANISH_OFFSET_PX = 4px`（较初版 `14px` 向上回调 `10px`，在 `64px` 页头下位于 `68px`——既比原版显著下移、距导航文字与按钮底边留有 `16–18px` 纯净净空，又不浪费顶部阅读空间），过渡带设为 `FADE_SPAN_PX = 44px`（`yOpaque = 112px`，与全站 `pt-12` 首屏基线 `64 + 48 = 112px` 严丝合缝）；
-  - 升级 `src/styles/index.css` 为 8 控制点平滑 S 曲线（`mask-repeat: no-repeat`），并为 `.dark [data-yield='on']` 单独配置暗视觉三次切入伽马补偿曲线，彻底消除深色模式下纯白大标题在消失线处的银色残影与折角断层；
-  - 优化深色模式下全透明页头导航文字与图标的对比度及微阴影清晰度，并同步对齐 `Toc.tsx` 吸顶位置（`top-28`）、目录点击滚动偏移与正文标题 `scroll-margin-top: 7.25rem`。
+  - 将完全消失线 `yVanish` 精调至 `VANISH_OFFSET_PX = -8px`（在 `64px` 页头下位于 `56px`——导航文字与按钮底边位于 `48–50px`、Logo 底边位于 `52px`，在 `56px` 处彻底归零既保证留有 `4–8px` 纯净防撞净空，又让消隐位置紧贴导航栏下缘不显偏低），过渡带设为 `FADE_SPAN_PX = 40px`（`yOpaque = 96px`）；
+  - 升级 `src/styles/index.css` 为 7 控制点 Hermite S 曲线（`mask-repeat: no-repeat`），并为 `.dark [data-yield='on']` 单独配置感知明度伽马补偿曲线（$\gamma = 1.25$），消除折角断层与深色残影；
+  - 优化深色模式下全透明页头导航文字与图标的对比度及微阴影清晰度，并同步对齐 `Toc.tsx` 吸顶位置（`top-24`）、目录点击滚动偏移与正文标题 `scroll-margin-top: 6.25rem`。
 
 ### 验证
 
-- 更新 `scripts/test-features.mjs`：验证零直线 `lineTo`（含连续推进 30 帧湖面溅水后）、水珠圆润长宽比、散景水珠层、同轴位移斜率、中央阅读净空衰减，以及微调上移后的 `VANISH_OFFSET_PX = 4` / `FADE_SPAN_PX = 44` 坐标与 `.dark` 样式规则。
+- 更新 `scripts/test-features.mjs`：验证零直线 `lineTo`（含连续推进 30 帧湖面溅水后）、水珠圆润长宽比、散景水珠层、同轴位移斜率、中央阅读净空衰减，以及精调上移后的 `VANISH_OFFSET_PX = -8` / `FADE_SPAN_PX = 40` 坐标与 `.dark` 样式规则。
 - `npm test`（根特性测试 + VS Code 插件 67 项测试）、`npm --prefix vscode_extensions/v1 run typecheck`、`npm run build`、`npm run extension:package`、`npm run build:offline` 全部零错误通过。
 
 ## 2026-10-20 · 暴雨背景提速同轴化、全站顶部防冲突让位（#78）与交互直角坐标系 `ui-ccs`（#76）

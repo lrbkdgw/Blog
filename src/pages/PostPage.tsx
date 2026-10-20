@@ -407,7 +407,7 @@ export default function PostPage() {
     const timer = window.setTimeout(() => {
       const element = document.getElementById(id)
       if (element) {
-        const top = element.getBoundingClientRect().top + window.scrollY - 116
+        const top = element.getBoundingClientRect().top + window.scrollY - 100
         window.scrollTo({ top, behavior: 'smooth' })
       }
     }, 120)

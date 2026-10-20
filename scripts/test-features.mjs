@@ -140,8 +140,8 @@ test('暴雨渲染器：60fps 晶莹折射水珠 + 浅景深散景水珠（零�
   try {
     const rain = weatherMod.createRain(true)
     assert.equal(rain.fps, 60)
-    assert.equal(headerYieldMod.VANISH_OFFSET_PX, 4)
-    assert.equal(headerYieldMod.FADE_SPAN_PX, 44)
+    assert.equal(headerYieldMod.VANISH_OFFSET_PX, -8)
+    assert.equal(headerYieldMod.FADE_SPAN_PX, 40)
 
     rain.configure({ count: 65, speed: 65, wind: 42, mist: 55, flash: 0 })
     rain.setup(1280, 720)
@@ -334,30 +334,30 @@ test('headerYield 引擎：精确裁切穿过顶栏的叶级块，跳过模态�
     assert.equal(hero.hasAttribute('data-yield'), false)
     assert.equal(card1.hasAttribute('data-yield'), false)
 
-    // 滚动使 hero 进入微调上移后的顶栏防挡区间（header bottom = 56px -> yVanish = 60px, yOpaque = 104px）：
-    // hero: top=-20, bottom=100 -> 跨越 [60, 104]，--yield-top = 104 - (-20) = 124px，--yield-fade = 44px
+    // 滚动使 hero 进入紧凑上移后的顶栏防挡区间（header bottom = 56px -> yVanish = 48px, yOpaque = 88px）：
+    // hero: top=-20, bottom=100 -> 跨越 [48, 88]，--yield-top = 88 - (-20) = 108px，--yield-fade = 40px
     scrollY = 100
     await flushYield()
     assert.equal(hero.getAttribute('data-yield'), 'on')
-    assert.equal(hero.style.getPropertyValue('--yield-top'), '124px')
-    assert.equal(hero.style.getPropertyValue('--yield-fade'), '44px')
+    assert.equal(hero.style.getPropertyValue('--yield-top'), '108px')
+    assert.equal(hero.style.getPropertyValue('--yield-fade'), '40px')
     assert.equal(pageRoot.hasAttribute('data-yield'), false)
     assert.equal(cardList.hasAttribute('data-yield'), false)
     assert.equal(ignoredP.hasAttribute('data-yield'), false)
     assert.equal(dialogP.hasAttribute('data-yield'), false)
 
-    // 继续滚动：hero 整块越过 yVanish=60px 进入 hidden 态；card-1 进入 [60, 104] 过渡带；card-2 位于 100px 亦同步平滑过渡
-    scrollY = 230 // hero: bottom=-30<=60 -> hidden; card-1: top=-10, bottom=80 -> top=114px; card-2: top=100, bottom=190 -> top=4px
+    // 继续滚动：hero 整块越过 yVanish=48px 进入 hidden 态；card-1 进入 [48, 88] 过渡带；card-2 位于 80px 亦同步平滑过渡
+    scrollY = 250 // hero: bottom=-50<=48 -> hidden; card-1: top=-30, bottom=60 -> top=118px; card-2: top=80, bottom=170 -> top=8px
     await flushYield()
     assert.equal(hero.getAttribute('data-yield'), 'hidden')
     assert.equal(card1.getAttribute('data-yield'), 'on')
-    assert.equal(card1.style.getPropertyValue('--yield-top'), '114px')
-    assert.equal(card1.style.getPropertyValue('--yield-fade'), '44px')
+    assert.equal(card1.style.getPropertyValue('--yield-top'), '118px')
+    assert.equal(card1.style.getPropertyValue('--yield-fade'), '40px')
     assert.equal(card2.getAttribute('data-yield'), 'on')
-    assert.equal(card2.style.getPropertyValue('--yield-top'), '4px')
+    assert.equal(card2.style.getPropertyValue('--yield-top'), '8px')
 
-    // 再回退一点：card-2 完全处于清晰线 yOpaque=104px 下方，不挂任何蒙版
-    scrollY = 220 // card-2: top=110 >= 104 -> unmasked
+    // 再回退一点：card-2 完全处于清晰线 yOpaque=88px 下方，不挂任何蒙版
+    scrollY = 230 // card-2: top=100 >= 88 -> unmasked
     await flushYield()
     assert.equal(card2.hasAttribute('data-yield'), false)
 
