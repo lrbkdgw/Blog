@@ -7,9 +7,9 @@
  * - 但页面内容滚到导航那一栏下面时，字与导航文字叠在一起很难读。
  *
  * 在页头那一层做文章解决不了：页头底下同时压着「背景」和「正文」，任何底色 /
- * 蒙版 / backdrop-filter 都会连背景一起改掉。所以只能**只改内容块本身**——给滚进
- * 这一栏的内容块挂一条随滚动位置计算的 `mask-image`，让内容在进入页头之前渐变
- * 透明掉；背景在另外的图层，一像素都不动。
+ * 蒙版 / backdrop-filter 都会连背景一起改掉。所以只能**只改内容块本身**——在视口空间中
+ * 设定统一的「完全消失线 yVanish（位于页头下沿再向下留出净空）」与「完全显现线 yOpaque」，
+ * 让所有进入该过渡带的叶级内容块沿平滑 S 曲线同步消融；背景在独立图层，一像素都不动。
  *
  * 规则：
  * 1. `.prose > *` 自动覆盖所有 Markdown 渲染块；
@@ -33,9 +33,11 @@ const VAR_FADE = '--yield-fade'
  */
 const BLOCK_SELECTOR = `.prose > *, [${LIST_SCOPE_ATTR}] > *:not(.prose):not([${LIST_SCOPE_ATTR}])`
 
-/** 淡出行程区间：块越薄过渡越短，避免一行标题被抹得太夸张。 */
-const FADE_MIN_PX = 24
-const FADE_MAX_PX = 64
+/** 完全消失线位于 `.site-header` 底边以下的安全净空像素数，确保内容未触及顶栏前已彻底隐去。 */
+export const VANISH_OFFSET_PX = 14
+
+/** 从完全消失线 `yVanish` 向下到 100% 清晰线 `yOpaque` 的柔化过渡带高度。 */
+export const FADE_SPAN_PX = 50
 
 /** 内容变了（换文章、切路由、Markdown 渲染完）就重算一次；此时不一定伴随滚动事件。 */
 export const YIELD_REFRESH_EVENT = 'starlog:content-changed'
@@ -52,6 +54,11 @@ function clearYield(el: HTMLElement): void {
   el.style.removeProperty(VAR_FADE)
 }
 
+function smoothStep(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)))
+  return t * t * (3 - 2 * t)
+}
+
 /**
  * 挂上滚动 / 尺寸 / DOM 变更监听，返回清理函数。
  * 每次都重新查询容器，所以懒加载路由切换、标签切换、内容增减都会自动生效。
@@ -61,34 +68,50 @@ export function installHeaderYield(): () => void {
 
   const apply = (header: HTMLElement) => {
     const bandBottom = header.getBoundingClientRect().bottom
+    const yVanish = bandBottom + VANISH_OFFSET_PX
     const blocks = Array.from(document.querySelectorAll<HTMLElement>(BLOCK_SELECTOR))
     // 先读几何、后写样式：读写交替会把一帧变成好几次重排。
     const inOverlay = blocks.map((el) => Boolean(el.closest('[role="dialog"], .fixed, [data-yield-ignore]')))
     const rects = blocks.map((el, i) => (inOverlay[i] ? null : el.getBoundingClientRect()))
+
+    let minTop = Infinity
+    for (const r of rects) {
+      if (r && r.height > 0 && r.top < minTop) minTop = r.top
+    }
+
+    // 页面刚打开停在最顶部且首块完全处于消失线下方时，不预挂蒙版；一旦开始滚动则平滑展开完整过渡带
+    const scrollY = typeof window !== 'undefined' ? window.scrollY : 0
+    const activeScale = minTop < yVanish ? 1 : smoothStep(0, 28, scrollY)
+    if (activeScale <= 0) {
+      blocks.forEach(clearYield)
+      return
+    }
+
+    const span = Math.max(1, FADE_SPAN_PX * activeScale)
+    const yOpaque = yVanish + span
+
     blocks.forEach((el, i) => {
       const rect = rects[i]
       if (!rect || rect.height <= 0) {
         clearYield(el)
         return
       }
-      // 页头下沿相对这个块顶部的距离：> 块高说明整块都还在栏内，< 行程起点说明还没进栏。
-      const top = bandBottom - rect.top
-      const fade = Math.max(FADE_MIN_PX, Math.min(FADE_MAX_PX, rect.height * 0.6))
-      if (top >= rect.height) {
-        // 整块都压在页头那一栏里：完全淡掉（父块已经淡掉时子块跟着被父块的蒙版处理，
-        // 这里重复写一次也无妨，梯度是同一个基准）。
-        el.setAttribute(STATE_ATTR, 'on')
-        el.style.setProperty(VAR_TOP, `${Math.round(rect.height + fade)}px`)
-        el.style.setProperty(VAR_FADE, `${Math.round(fade)}px`)
-        return
-      }
-      if (top - fade <= 0) {
+      // 1) 整块完全位于清晰线下方：移除蒙版，零合成开销
+      if (rect.top >= yOpaque) {
         clearYield(el)
         return
       }
+      // 2) 整块已滚过完全消失线：直接隐藏并关闭指针命中，杜绝阴影/边框残影与误点
+      if (rect.bottom <= yVanish) {
+        el.setAttribute(STATE_ATTR, 'hidden')
+        el.style.removeProperty(VAR_TOP)
+        el.style.removeProperty(VAR_FADE)
+        return
+      }
+      // 3) 跨越 [yVanish, yOpaque] 过渡带：用统一的视口坐标写入完全显现位置与过渡跨度
       el.setAttribute(STATE_ATTR, 'on')
-      el.style.setProperty(VAR_TOP, `${Math.round(top)}px`)
-      el.style.setProperty(VAR_FADE, `${Math.round(fade)}px`)
+      el.style.setProperty(VAR_TOP, `${Math.round(yOpaque - rect.top)}px`)
+      el.style.setProperty(VAR_FADE, `${Math.round(span)}px`)
     })
   }
 

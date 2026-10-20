@@ -548,7 +548,7 @@ export default function PostPage() {
   return (
     <>
       <ReadingProgress />
-      <div className="container-page grid grid-cols-1 gap-10 pt-10 xl:grid-cols-[minmax(0,1fr)_14rem]">
+      <div className="container-page grid grid-cols-1 gap-10 pt-12 xl:grid-cols-[minmax(0,1fr)_14rem]">
         {/* ::set-font / ::set-code-font 覆盖整个本文区域（含标题与摘要）；正文本体
             还会在 Markdown 组件根节点重复同一组样式，保证其他渲染入口一致。 */}
         <article className="min-w-0 animate-fade-up" style={articleFontStyle(directives)} data-yield-list>

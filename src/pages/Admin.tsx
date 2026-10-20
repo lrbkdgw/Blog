@@ -611,7 +611,6 @@ export default function Admin() {
           <div
             className="card mt-5 animate-fade-up divide-y divide-ink-200/60 overflow-hidden dark:divide-white/[0.07]"
             style={{ animationDelay: '120ms' }}
-            data-yield-list
           >
             {filtered.length === 0 && (
               <div className="flex flex-col items-center gap-3 px-6 py-20 text-center">
@@ -786,7 +785,7 @@ export default function Admin() {
             </button>
           </div>
 
-          <div className="card divide-y divide-ink-200/60 overflow-hidden dark:divide-white/[0.07]" data-yield-list>
+          <div className="card divide-y divide-ink-200/60 overflow-hidden dark:divide-white/[0.07]">
             {prs.length === 0 ? (
               <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
                 <GitPullRequest size={28} className="text-ink-300" />
@@ -955,7 +954,7 @@ export default function Admin() {
             </div>
           )}
 
-          <div className="card divide-y divide-ink-200/60 overflow-hidden dark:divide-white/[0.07]" data-yield-list>
+          <div className="card divide-y divide-ink-200/60 overflow-hidden dark:divide-white/[0.07]">
             {queue.length === 0 ? (
               <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
                 <ListTodo size={28} className="text-ink-300" />

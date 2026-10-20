@@ -1,5 +1,34 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-20 · 暴雨背景自然光学水滴重构（消除直线雨丝与阅读干扰）及全站顶部防挡下移与深色模式优化
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+1. **雨点呈生硬直线且干扰正文阅读**：此前 `createRain()` 使用 `ctx.moveTo / lineTo` 批量描出逾千条长 `33–122px`、首尾等粗且不透明度恒定的直线段（浅色模式为深炭蓝线、深色模式为高亮白线），观感像密集平行铁丝，且高速穿过中央正文列时与汉字笔画同频闪烁，造成明显阅读疲劳。
+2. **全站顶部防挡消失位置偏高且深色过渡生硬**：此前 `headerYield.ts` 以 `bandBottom` 为 `100%` 不透明终点且 `top - fade <= 0` 提前清空蒙版，导致内容实际穿过导航栏（`0..64px`）直至接近视口上沿才突兀截断；两控制点线性渐变在白色卡片与深色背景亮字上存在明显折角（Mach band）与银色残影，且管理页 `.card`、评论区与页脚顶部分割线在深色模式下因外层 `data-yield-list` 跳过了边框与半透明底色遮罩。
+
+### 改动
+
+- **暴雨背景光学水滴贴图与中央阅读走廊降噪**（`src/components/WeatherBackdrops.ts`）：
+  - 彻底移除 `lineTo` 硬边直线描边，改为在 `build()` 预烘焙 `dropSoft` / `dropCrisp` 光学梭形水滴贴图（两端在宽度与透明度上均平滑收尖归零、下部水珠弯月面微亮、横向高斯柔焦羽化），辅以双轴正弦归零羽化的远景柔焦雨幕贴图 `rainVeil` 与二次柔化的湖面水纹；
+  - 将落雨终端速度匹配 60fps 光学快门角（约 `900–2,150 px/s`，单帧位移 `15–35px` 与 `12–34px` 水滴长度 `1:1` 契合），引入自然阵风微摆并通过共享 `currentSlope()` 严格保持贴图旋转角与位移向量同轴；
+  - 新增**中央阅读走廊空间衰减包络**：在中央正文阅读列将雨滴对比度平滑收敛至两侧雨景的 `32%`，彻底消除跨字闪烁干扰（1440×900 实测中央阅读区 WCAG 对比度：深色最低 `8.15` / 平均 `13.50`，浅色最低 `4.58` / 平均 `9.00`）。
+- **全站顶部防挡消失位置下移、S 曲线柔化与深色模式适配**（`src/lib/headerYield.ts`、`src/styles/index.css`、各页面与组件）：
+  - 将完全消失线 `yVanish` 下移至页头下沿以下 `VANISH_OFFSET_PX = 14px`（距导航文字与按钮下沿约 `26px` 净空），并建立统一的 `FADE_SPAN_PX = 50px` 视口过渡带；页面静止在最顶部时保持首屏完全清晰，开始滚动即平滑展开过渡带，完全越过消失线的块自动切入 `data-yield="hidden"`（`opacity: 0; pointer-events: none`）；
+  - 升级 `src/styles/index.css` 为 7 控制点 Hermite 平滑 S 曲线，补充 `mask-repeat: no-repeat` 杜绝阴影与上标越界平铺，并为 `.dark [data-yield='on']` 单独配置感知明度伽马补偿曲线（$\gamma = 1.90$），消除深色背景下的亮白文字残影与断层；
+  - 修复 `Admin.tsx` 三个 `.card divide-y` 列表容器、`Comments.tsx` 顶部分割线及 `Layout.tsx` 页脚分割线在深色模式下未被遮罩包裹的问题；优化透明页头在深色模式下的导航对比度与微投影可读性，并同步对齐 `Toc.tsx` 吸顶偏移与标题锚点 `scroll-margin-top`。
+
+### 验证
+
+- 更新 `scripts/test-features.mjs`：验证零直线 `lineTo` 雨丝、水滴贴图严格同轴、中央阅读列 alpha 显著低于两侧边缘，以及下移后的 `yVanish / yOpaque` 坐标、`hidden` 态与 `.dark` 样式规则。
+- `npm test`（根特性测试 + VS Code 插件 67 项测试）、`npm --prefix vscode_extensions/v1 run typecheck`、`npm run build`、`npm run extension:package`、`npm run build:offline` 全部零错误通过。
+
 ## 2026-10-20 · 暴雨背景提速同轴化、全站顶部防冲突让位（#78）与交互直角坐标系 `ui-ccs`（#76）
 
 | 模型信息 | |

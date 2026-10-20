@@ -34,7 +34,7 @@ export function Toc({ items }: { items: TocItem[] }) {
 
   return (
     <nav className="no-print hidden xl:block">
-      <div className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto pr-2">
+      <div className="sticky top-32 max-h-[calc(100vh-9rem)] overflow-y-auto pr-2">
         <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-400">
           <List size={13} />
           目录
@@ -48,7 +48,7 @@ export function Toc({ items }: { items: TocItem[] }) {
                   e.preventDefault()
                   const el = document.getElementById(item.id)
                   if (el) {
-                    window.scrollTo({ top: el.offsetTop - 90, behavior: 'smooth' })
+                    window.scrollTo({ top: el.offsetTop - 132, behavior: 'smooth' })
                     history.replaceState(null, '', `#${item.id}`)
                   }
                 }}

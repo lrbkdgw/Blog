@@ -31,7 +31,8 @@ const uiCcsMod = await importTsModule('src/lib/uiCcs.ts')
 const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
 
-function makeMock2dContext(strokeSink) {
+function makeMock2dContext(strokeSink, drawSink) {
+  const stack = []
   return {
     canvas: { width: 1280, height: 720 },
     fillStyle: '',
@@ -42,18 +43,51 @@ function makeMock2dContext(strokeSink) {
     globalCompositeOperation: 'source-over',
     imageSmoothingEnabled: true,
     imageSmoothingQuality: 'high',
+    _tx: 0,
+    _ty: 0,
+    _rot: 0,
     createLinearGradient: () => ({ addColorStop() {} }),
     createRadialGradient: () => ({ addColorStop() {} }),
     createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
     putImageData() {},
     clearRect() {},
     fillRect() {},
-    drawImage() {},
-    save() {},
-    restore() {},
-    translate() {},
+    drawImage(img, x, y, w, h) {
+      if (drawSink) {
+        drawSink.push({
+          sw: img?.width ?? 0,
+          sh: img?.height ?? 0,
+          tx: this._tx,
+          ty: this._ty,
+          rot: this._rot,
+          alpha: this.globalAlpha,
+          x,
+          y,
+          w,
+          h,
+        })
+      }
+    },
+    save() {
+      stack.push({ tx: this._tx, ty: this._ty, rot: this._rot, alpha: this.globalAlpha })
+    },
+    restore() {
+      const s = stack.pop()
+      if (s) {
+        this._tx = s.tx
+        this._ty = s.ty
+        this._rot = s.rot
+        this.globalAlpha = s.alpha
+      }
+    },
+    translate(x, y) {
+      this._tx += x
+      this._ty += y
+    },
     scale() {},
-    rotate() {},
+    rotate(rad) {
+      this._rot += rad
+    },
     clip() {},
     rect() {},
     closePath() {},
@@ -83,10 +117,10 @@ function makeMock2dContext(strokeSink) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                     1. 暴雨背景速度、帧率与轨迹同轴验证                       */
+/*                     1. 暴雨背景自然水滴形态、同轴与阅读保护验证                */
 /* -------------------------------------------------------------------------- */
 
-test('暴雨渲染器：60fps 全帧率、真实高速下落且移动方向与雨丝绘制方向严格同轴', () => {
+test('暴雨渲染器：60fps 光学梭形水滴贴图（彻底摒弃直线雨丝）、轨迹严格同轴且中央阅读区自动降噪', () => {
   const prevDocument = globalThis.document
   globalThis.document = {
     createElement() {
@@ -94,7 +128,7 @@ test('暴雨渲染器：60fps 全帧率、真实高速下落且移动方向与�
         width: 1,
         height: 1,
         getContext() {
-          const ctx = makeMock2dContext(null)
+          const ctx = makeMock2dContext(null, null)
           ctx.canvas = c
           return ctx
         },
@@ -111,41 +145,62 @@ test('暴雨渲染器：60fps 全帧率、真实高速下落且移动方向与�
     rain.setup(1280, 720)
 
     const strokes = []
-    const drawCtx = makeMock2dContext(strokes)
+    const draws = []
+    const drawCtx = makeMock2dContext(strokes, draws)
 
     rain.draw(drawCtx)
-    const before = strokes.splice(0)
-    assert.ok(before.length >= 100, `期望雨滴数量充足，实际 ${before.length}`)
+    assert.equal(strokes.length, 0, `不应再使用直线 lineTo 绘制生硬雨丝，实际残留 ${strokes.length} 条`)
+    const beforeDrops = draws.splice(0).filter((d) => d.sw === 16)
+    assert.ok(beforeDrops.length >= 150, `期望光学水滴贴图数量充足，实际 ${beforeDrops.length}`)
 
-    // 推进一帧 1/60s，逐滴核验真实位移速度与雨丝角度同轴度
+    // 推进一帧 1/60s，逐滴核验真实位移速度与水滴旋转角严格同轴
     const dt = 1 / 60
     rain.step(dt)
     rain.draw(drawCtx)
-    const after = strokes.splice(0)
+    const afterDrops = draws.splice(0).filter((d) => d.sw === 16)
 
     const speeds = []
-    for (let i = 0; i < Math.min(before.length, after.length); i += 1) {
-      const b = before[i]
-      const a = after[i]
-      const dy = a.y0 - b.y0
-      const dx = a.x0 - b.x0
+    let centerAlphaSum = 0
+    let centerCount = 0
+    let flankAlphaSum = 0
+    let flankCount = 0
+
+    for (let i = 0; i < Math.min(beforeDrops.length, afterDrops.length); i += 1) {
+      const b = beforeDrops[i]
+      const a = afterDrops[i]
+      if (b.tx >= 420 && b.tx <= 860) {
+        centerAlphaSum += b.alpha
+        centerCount += 1
+      } else if (b.tx <= 240 || b.tx >= 1040) {
+        flankAlphaSum += b.alpha
+        flankCount += 1
+      }
+      const dy = a.ty - b.ty
+      const dx = a.tx - b.tx
       if (dy <= 0) continue // 跳过跨底重生的雨滴
       speeds.push(dy / dt)
       const moveSlope = dx / dy
-      const strokeSlope = (b.x1 - b.x0) / (b.y1 - b.y0)
+      const spriteSlope = -Math.tan(b.rot)
       assert.ok(
-        Math.abs(moveSlope - strokeSlope) < 1e-6,
-        `雨滴移动斜率 ${moveSlope} 与雨丝绘制斜率 ${strokeSlope} 必须严格同轴`,
+        Math.abs(moveSlope - spriteSlope) < 1e-6,
+        `水滴位移斜率 ${moveSlope} 与贴图旋转方向 ${spriteSlope} 必须严格同轴`,
       )
     }
 
-    assert.ok(speeds.length > 50)
+    assert.ok(speeds.length > 80)
     const minVy = Math.min(...speeds)
     const maxVy = Math.max(...speeds)
     const avgVy = speeds.reduce((s, v) => s + v, 0) / speeds.length
-    assert.ok(minVy > 1000, `远景雨滴速度过慢：${minVy} px/s`)
-    assert.ok(avgVy > 1800, `平均雨滴速度不足以呈现真实暴雨感：${avgVy} px/s`)
-    assert.ok(maxVy > 3000, `近景雨滴速度不足：${maxVy} px/s`)
+    assert.ok(minVy > 800, `远景雨滴速度过慢：${minVy} px/s`)
+    assert.ok(avgVy > 1300, `平均雨滴速度应保持自然落雨动势：${avgVy} px/s`)
+    assert.ok(maxVy < 2600, `近景雨滴速度不应过高造成频闪刺眼：${maxVy} px/s`)
+
+    const centerAvgAlpha = centerAlphaSum / Math.max(1, centerCount)
+    const flankAvgAlpha = flankAlphaSum / Math.max(1, flankCount)
+    assert.ok(
+      centerAvgAlpha < flankAvgAlpha * 0.5,
+      `中央阅读区水滴对比度（${centerAvgAlpha.toFixed(3)}）应显著低于两侧边缘（${flankAvgAlpha.toFixed(3)}）以保护阅读体验`,
+    )
 
     const backdropSource = readFileSync(join(root, 'src/components/AnimatedBackdrop.tsx'), 'utf8')
     assert.match(backdropSource, /interval \* 0\.82/)
@@ -262,24 +317,38 @@ test('headerYield 引擎：精确裁切穿过顶栏的叶级块，跳过模态�
     assert.equal(hero.hasAttribute('data-yield'), false)
     assert.equal(card1.hasAttribute('data-yield'), false)
 
-    // 滚动使 hero 深入顶栏（header bottom = 56px）：hero 被精确设置渐变遮罩变量，外层容器不重复遮罩，浮层与忽略容器不遮罩
-    scrollY = 100 // hero: top=-20, height=120 -> top=76px, fade=64px
+    // 滚动使 hero 进入下移后的顶栏防挡区间（header bottom = 56px -> yVanish = 70px, yOpaque = 120px）：
+    // hero: top=-20, bottom=100 -> 跨越 [70, 120]，--yield-top = 120 - (-20) = 140px，--yield-fade = 50px
+    scrollY = 100
     await flushYield()
     assert.equal(hero.getAttribute('data-yield'), 'on')
-    assert.equal(hero.style.getPropertyValue('--yield-top'), '76px')
-    assert.equal(hero.style.getPropertyValue('--yield-fade'), '64px')
+    assert.equal(hero.style.getPropertyValue('--yield-top'), '140px')
+    assert.equal(hero.style.getPropertyValue('--yield-fade'), '50px')
     assert.equal(pageRoot.hasAttribute('data-yield'), false)
     assert.equal(cardList.hasAttribute('data-yield'), false)
     assert.equal(ignoredP.hasAttribute('data-yield'), false)
     assert.equal(dialogP.hasAttribute('data-yield'), false)
 
-    // 继续滚动：card-1 进入顶栏，card-2 仍在顶栏下方保持完整清晰
-    scrollY = 230 // card-1: top=-10, height=90 -> top=66px, fade=54px
+    // 继续滚动：hero 整块越过 yVanish=70px 进入 hidden 态；card-1 进入 [70, 120] 过渡带；card-2 位于 100px 亦同步平滑过渡
+    scrollY = 230 // hero: bottom=-30<=70 -> hidden; card-1: top=-10, bottom=80 -> top=130px; card-2: top=100, bottom=190 -> top=20px
     await flushYield()
+    assert.equal(hero.getAttribute('data-yield'), 'hidden')
     assert.equal(card1.getAttribute('data-yield'), 'on')
-    assert.equal(card1.style.getPropertyValue('--yield-top'), '66px')
-    assert.equal(card1.style.getPropertyValue('--yield-fade'), '54px')
+    assert.equal(card1.style.getPropertyValue('--yield-top'), '130px')
+    assert.equal(card1.style.getPropertyValue('--yield-fade'), '50px')
+    assert.equal(card2.getAttribute('data-yield'), 'on')
+    assert.equal(card2.style.getPropertyValue('--yield-top'), '20px')
+
+    // 再回退一点：card-2 完全处于清晰线 yOpaque=120px 下方，不挂任何蒙版
+    scrollY = 200 // card-2: top=130 >= 120 -> unmasked
+    await flushYield()
     assert.equal(card2.hasAttribute('data-yield'), false)
+
+    // 校验深色模式感知补偿多控制点 S 曲线与防平铺规则均已写入全局样式
+    const cssSource = readFileSync(join(root, 'src/styles/index.css'), 'utf8')
+    assert.match(cssSource, /\.dark \[data-yield='on'\]/)
+    assert.match(cssSource, /mask-repeat:\s*no-repeat/)
+    assert.match(cssSource, /\[data-yield='hidden'\]/)
 
     cleanup()
     assert.equal(card1.hasAttribute('data-yield'), false)
