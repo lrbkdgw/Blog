@@ -3,7 +3,7 @@ import { Home, Search } from 'lucide-react'
 
 export default function NotFound() {
   return (
-    <div className="container-page flex min-h-[70vh] flex-col items-center justify-center gap-5 text-center">
+    <div className="container-page flex min-h-[70vh] flex-col items-center justify-center gap-5 text-center" data-yield-list>
       <p className="animate-fade-up bg-gradient-to-br from-brand-400 to-indigo-600 bg-clip-text font-mono text-7xl font-bold text-transparent sm:text-8xl">
         404
       </p>

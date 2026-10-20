@@ -316,7 +316,7 @@ function Footer() {
 
   return (
     <footer className="no-print mt-24 border-t border-ink-200/60 py-10 dark:border-white/[0.08]">
-      <div className="container-page flex flex-col items-center justify-between gap-5 sm:flex-row">
+      <div className="container-page flex flex-col items-center justify-between gap-5 sm:flex-row" data-yield-list>
         <div className="text-center sm:text-left">
           <p className="text-xs text-ink-400">
             © {new Date().getFullYear()} {siteConfig.author.name}
@@ -394,13 +394,17 @@ function OfflineBadge() {
 
 export function Layout() {
   const [searchOpen, setSearchOpen] = useState(false)
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
-    // 换页之后正文不一定触发滚动事件，主动请重算一次「让路」状态（issue #71）
+    // 换页之后正文不一定触发滚动事件，主动请重算一次「让路」状态（issue #71 / #78）
     requestHeaderYieldRefresh()
   }, [pathname])
+
+  useEffect(() => {
+    requestHeaderYieldRefresh()
+  }, [search])
 
   // issue #71：正文滚到页头这一栏下方时先渐变淡掉（只改正文，不碰背景）
   useEffect(() => installHeaderYield(), [])

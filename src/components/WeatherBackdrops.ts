@@ -294,13 +294,15 @@ export function createRain(initialDark: boolean): Renderer {
   }
 
   const spawn = (top = false): Drop => ({
-    x: rand(-w * 0.3, w * 1.2),
-    y: top ? rand(-h * 0.5, -18) : rand(-60, h),
+    x: rand(-w * 0.65, w * 1.15),
+    y: top ? rand(-h * 0.32, -16) : rand(-80, h),
     z: rand(0.05, 1),
-    len: rand(0.45, 1.75),
-    drift: rand(0.7, 1.35),
+    len: rand(0.55, 1.55),
+    drift: rand(0.78, 1.24),
     bright: rand(0, 1),
   })
+
+  const dropVelocity = (speed: number, z: number) => (920 + speed * 25) * (0.42 + z * 1.08)
 
   const build = () => {
     horizon = Math.round(h * 0.7)
@@ -1089,7 +1091,7 @@ export function createRain(initialDark: boolean): Renderer {
   }
 
   return {
-    fps: 30,
+    fps: 60,
     setup(width, height) {
       w = width
       h = height
@@ -1126,23 +1128,25 @@ export function createRain(initialDark: boolean): Renderer {
       }
 
       const wind = (values.wind ?? 25) / 100
+      const speed = values.speed ?? 65
       for (const d of drops) {
-        const vy = (340 + (values.speed ?? 65) * 9.2) * (0.24 + d.z * 1.06)
+        const vy = dropVelocity(speed, d.z)
+        const slope = wind * 0.65 * d.drift
         d.y += vy * dt
-        d.x += wind * vy * 0.62 * d.drift * dt
-        if (d.y > h + 40 || d.x < -w * 0.45 || d.x > w * 1.45) Object.assign(d, spawn(true))
+        d.x += vy * slope * dt
+        if (d.y > h + 60 || d.x < -w * 0.7 || d.x > w * 1.5) Object.assign(d, spawn(true))
       }
 
-      rippleClock += dt * ((values.count ?? 70) / 100)
-      while (rippleClock > 0.038) {
-        rippleClock -= 0.038
-        if (ripples.length < 44) {
+      rippleClock += dt * ((values.count ?? 70) / 100) * (0.85 + speed / 95)
+      while (rippleClock > 0.032) {
+        rippleClock -= 0.032
+        if (ripples.length < 56) {
           const depth = Math.pow(Math.random(), 0.6)
           ripples.push({
             x: rand(-20, w + 20),
             y: horizon + 8 + depth * (h - horizon - 12),
             age: 0,
-            life: rand(0.55, 1.05),
+            life: rand(0.42, 0.85),
             scale: rand(0.4, 1.2),
             depth,
           })
@@ -1205,9 +1209,8 @@ export function createRain(initialDark: boolean): Renderer {
         ctx.restore()
       }
 
-      /* 雨：三层，越近越长越淡；近层先铺一道柔光，雨丝才有厚度 */
+      /* 雨：三层，越近越快越长；雨丝方向严格对齐实际位移斜率，消除横向漂移假感 */
       const wind = (values.wind ?? 25) / 100
-      const slant = wind * 1.1
       const speed = values.speed ?? 65
       const colors = dark
         ? [
@@ -1229,9 +1232,11 @@ export function createRain(initialDark: boolean): Renderer {
           ctx.beginPath()
           for (const d of drops) {
             if (Math.min(2, Math.floor(d.z * 3)) !== layer) continue
-            const length = (14 + d.z * (22 + speed * 0.5)) * d.len
+            const vy = dropVelocity(speed, d.z)
+            const slope = wind * 0.65 * d.drift
+            const length = (16 + vy * 0.02) * d.len
             ctx.moveTo(d.x, d.y)
-            ctx.lineTo(d.x + slant * length, d.y + length)
+            ctx.lineTo(d.x + slope * length, d.y + length)
           }
           ctx.stroke()
         }
@@ -1242,9 +1247,11 @@ export function createRain(initialDark: boolean): Renderer {
           for (const d of drops) {
             if (Math.min(2, Math.floor(d.z * 3)) !== layer) continue
             if ((d.bright > 0.58) !== (bucket === 1)) continue
-            const length = (10 + d.z * (18 + speed * 0.48)) * d.len
+            const vy = dropVelocity(speed, d.z)
+            const slope = wind * 0.65 * d.drift
+            const length = (12 + vy * 0.0175) * d.len
             ctx.moveTo(d.x, d.y)
-            ctx.lineTo(d.x + slant * length, d.y + length)
+            ctx.lineTo(d.x + slope * length, d.y + length)
           }
           ctx.stroke()
         }

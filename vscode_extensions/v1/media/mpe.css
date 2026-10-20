@@ -272,3 +272,17 @@ table td[rowspan],
 table td[colspan] {
   vertical-align: middle;
 }
+
+.starlog-ccs-static {
+  margin: 1.4em 0;
+  border: 1px solid rgba(127, 127, 127, 0.32);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(127, 127, 127, 0.05);
+}
+
+.starlog-ccs-static svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}

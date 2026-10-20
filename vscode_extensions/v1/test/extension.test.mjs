@@ -14,6 +14,7 @@ const corpus = [
   '```markdown\n::show_begin{示例}{a:Z=1[0,2,1]}\n::show_end\n:::info[不执行]\n:::\n```\n\n~~~text\n::cute-table{tuack}\n~~~\n\n::show_begin{未闭合}{a:Z=1}\n正文',
   '<div class="custom"><strong>原始 HTML</strong></div>\n\n![图片](./images/demo.png)\n\n| 转义 | 代码 |\n| - | - |\n| 甲 | 乙 |\n| `^` | &lt; |',
   '::set-font[LXGW WenKai]\n::set-code-font[Fira Code]\n::set-background[1]\n\n## 标题\n\n正文 $a\\pm b$ 与 `code`。\n\n```markdown\n::set-font[围栏内只是示例]\n```',
+  '::begin_ui-ccs\ncreate_point:(1,2);\ncreate_line:(-3,-2),(0,1),(3,-1),[color=red];\ncreate_line:(7*x^2+6*x+90*x^3);\n::end_ui-ccs\n\n```markdown\n::begin_ui-ccs\ncreate_point:(0,0);\n::end_ui-ccs\n```',
 ]
 
 for (const [index, source] of corpus.entries()) {
@@ -109,11 +110,14 @@ test('MPE 保留为自包含、单表达式的静态兼容模式', async () => {
 })
 
 test('源码降级直接复用博客实现', () => {
-  const source = '::show_begin{标题}{a:Z=2[0,5,1]}\n值 *&show(a)*&\n::show_end\n\n:::info[提示]\n内容\n:::\n\n| A | B |\n| - | - |\n| 甲 | < |'
+  const source = '::show_begin{标题}{a:Z=2[0,5,1]}\n值 *&show(a)*&\n::show_end\n\n::begin_ui-ccs\ncreate_point:(1,2);\ncreate_line:(0,0),(2,3),[color=red];\ncreate_line:(7*x^2+6*x+90*x^3);\n::end_ui-ccs\n\n:::info[提示]\n内容\n:::\n\n| A | B |\n| - | - |\n| 甲 | < |'
   assert.equal(core.convertMarkdownForCopy(source, 'direct'), source)
   const luogu = core.convertMarkdownForCopy(source, 'luogu')
   assert.match(luogu, /\*\*标题\*\*/)
   assert.match(luogu, /值 2/)
+  assert.match(luogu, /\*\*直角坐标系\*\*/)
+  assert.match(luogu, /y = 7\*x\^2\+6\*x\+90\*x\^3/)
+  assert.doesNotMatch(luogu, /::begin_ui-ccs/)
   assert.match(luogu, /:::info\[提示\]/)
   const basic = core.convertMarkdownForCopy(source, 'basic')
   assert.match(basic, /> \*\*提示\*\*/)

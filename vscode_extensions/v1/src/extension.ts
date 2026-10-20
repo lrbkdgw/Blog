@@ -172,6 +172,13 @@ export function activate(context: vscode.ExtensionContext) {
         ),
       ),
     ),
+    vscode.commands.registerCommand('starlog.insertCoordinateSystem', () =>
+      insertSnippet(
+        new vscode.SnippetString(
+          '::begin_ui-ccs\ncreate_point:(${1:0},${2:0});\ncreate_line:(${3:-2},${4:-1}),(${5:2},${6:3}),[color=${7:red}];\ncreate_line:(${8:7*x^2+6*x+90*x^3});\n$0::end_ui-ccs\n',
+        ),
+      ),
+    ),
     vscode.commands.registerCommand('starlog.insertCallout', () => insertCallout()),
     vscode.commands.registerCommand('starlog.insertLatexSymbol', () => insertLatexSymbol()),
     vscode.commands.registerCommand('starlog.insertTuackTable', () =>

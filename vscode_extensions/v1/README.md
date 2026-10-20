@@ -2,14 +2,14 @@
 
 安装后，在 **VS Code 内置 Markdown 预览**中使用与本仓库博客相同的正文渲染：同一份 React 组件、Markdown 插件链、KaTeX、代码高亮、交互展示框和 Tailwind 样式，而不是另写一套近似实现。
 
-当前版本：**2.1.0**。目录 `v1/` 与扩展 ID `lrbkdgw.starlog-markdown` 保留以兼容旧版；插件展示名称、设置标题、命令分类均为 **Markdown 语法拓展**。
+当前版本：**2.2.0**。目录 `v1/` 与扩展 ID `lrbkdgw.starlog-markdown` 保留以兼容旧版；插件展示名称、设置标题、命令分类均为 **Markdown 语法拓展**。
 
 ## 安装与使用
 
 在仓库根目录执行：
 
 ```bash
-code --install-extension vscode_extensions/v1/starlog-markdown-2.1.0.vsix --force
+code --install-extension vscode_extensions/v1/starlog-markdown-2.2.0.vsix --force
 ```
 
 也可以在扩展侧边栏的 `…` 菜单选择 **从 VSIX 安装…**，安装上面的文件。升级后按 VS Code 的提示重新加载窗口，并重新打开预览。
@@ -40,6 +40,7 @@ VS Code **Settings** 中搜索 `@ext:lrbkdgw.starlog-markdown` 或「渐变」�
 | --- | --- |
 | Markdown、GFM、公式、高亮、折叠框、智能表格、代码复制按钮、标题锚点 | `src/components/Markdown.tsx` |
 | 展示框布局、数字框 / 滑动条 / 文本框及实时重渲染 | `src/components/ShowBox.tsx` |
+| 可交互直角坐标系（描点 / 折线 / 函数曲线 / 拖拽缩放） | `src/components/CoordinatePlane.tsx`、`src/lib/uiCcs.ts` |
 | 变量解析、映射、表达式与取整 | `src/lib/showBox.ts` |
 | 复制为洛谷 / 基本 Markdown | `src/lib/markdownSource.ts` |
 | 文首排版指令（`::set-font` / `::set-code-font` / `::set-background`）的解析与字体栈 | `src/lib/articleDirectives.ts`、`src/lib/fontStacks.ts` |
@@ -66,6 +67,7 @@ VS Code **Settings** 中搜索 `@ext:lrbkdgw.starlog-markdown` 或「渐变」�
 | 语法 | 说明 |
 | --- | --- |
 | `::show_begin{标题}{变量定义}` … `::show_end` | 交互展示框 |
+| `::begin_ui-ccs` … `::end_ui-ccs` | 可拖拽平移、滚轮缩放的二维直角坐标系（`create_point` / `create_line`） |
 | `*&show(变量)*&` | 输出当前变量值 |
 | `*&hs(表达式)*&` | 计算只含 `+ - * / ^ ()` 与数值变量的式子 |
 | `&*floor(数值,位数)&*` / `&*ceil(数值,位数)&*` | 按位数向下 / 向上取整，兼容旧写法 `*&floor(…)*&` |

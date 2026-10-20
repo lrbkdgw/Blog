@@ -5,6 +5,7 @@
   "patterns": [
     { "include": "#show-begin" },
     { "include": "#show-end" },
+    { "include": "#ui-ccs" },
     { "include": "#callout-open" },
     { "include": "#callout-close" },
     { "include": "#article-directives" },
@@ -12,6 +13,35 @@
     { "include": "#inline-tokens" }
   ],
   "repository": {
+    "ui-ccs": {
+      "name": "meta.starlog.uiccs.markdown",
+      "begin": "(?i)^\\s*(::begin_ui-ccs)(?:(\\{)([^}]*)(\\}))?\\s*$",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.starlog.markdown" },
+        "2": { "name": "punctuation.definition.starlog.markdown" },
+        "3": { "name": "entity.name.section.starlog.markdown" },
+        "4": { "name": "punctuation.definition.starlog.markdown" }
+      },
+      "end": "(?i)^\\s*(::end_ui-ccs)\\s*$",
+      "endCaptures": {
+        "1": { "name": "keyword.control.starlog.markdown" }
+      },
+      "patterns": [
+        {
+          "match": "(?i)\\b(create_point|create_line)\\b",
+          "name": "support.function.starlog.markdown"
+        },
+        {
+          "match": "\\[([^\\]]*)\\]",
+          "captures": {
+            "1": { "name": "constant.other.color.starlog.markdown" }
+          }
+        },
+        { "match": "-?\\d+(?:\\.\\d+)?", "name": "constant.numeric.starlog.markdown" },
+        { "match": "[+\\-*/^=]", "name": "keyword.operator.starlog.markdown" },
+        { "match": "[,;()]", "name": "punctuation.separator.starlog.markdown" }
+      ]
+    },
     "show-begin": {
       "name": "meta.starlog.showbox.begin.markdown",
       "begin": "(?i)^\\s*(::show_begin)(\\{)([^}]*)(\\})(\\{)",

@@ -11,7 +11,16 @@ export { extendMarkdownIt } from './markdownIt'
 export { renderBlogPreview, addSourceLineMarkers } from './render'
 export { readPreviewModel, previewUrlTransform } from './preview/model'
 export { transformMarkdown, renderShowBox, convertMergeMarkersForMpe } from './core/transform'
-export { convertMarkdownForCopy } from './core/sourceConvert'
+export { convertMarkdownForCopy, convertUiCcsToMarkdown } from './core/sourceConvert'
 export { evaluateShowFormula, parseShowVariables, renderShowContent } from './core/showBox'
+export {
+  compileCcsExpression,
+  findNearestPointOnUiCcsLines,
+  findNearestUiCcsSpecialPoint,
+  findUiCcsSpecialPoints,
+  parseUiCcs,
+  renderStaticUiCcsSvg,
+  resolveUiCcsHoverTarget,
+} from './core/uiCcs'
 export { parseArticleDirectives, stripArticleDirectives } from './core/articleDirectives'
 export { LATEX_SYMBOLS, latexSymbolInsert, searchLatexSymbols } from './core/latexSymbols'

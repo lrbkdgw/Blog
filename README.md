@@ -25,9 +25,10 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 🕓 **历史版本** | 每次发布均保留 Git 提交版本；可浏览、查看、继续编辑、**自定义版本名称**（随待更新队列保存到 GitHub 对应文章下），并对比任意两个版本的**源码差异或较新版本的渲染差异**（新增 / 删除着色） |
 | 🔒 **密码文章** | 标题与标签公开，正文与其他信息由浏览器 Web Crypto 加密；本设备成功解锁一次后可自动恢复 |
 | 🎛️ **交互展示框** | Markdown 中可声明整数、有理数、字符串变量，实时计算并渲染展示内容 |
+| 📐 **直角坐标系** | `::begin_ui-ccs … ::end_ui-ccs` 语法支持描点、多点折线与函数曲线（如 `create_line:(7*x^2+6*x+90*x^3);`），可拖拽平移、滚轮/双指缩放预览整个平面（issue #76） |
 | 📄 **文章排版指令** | 文首 `::set-font` / `::set-code-font` / `::set-background` 强制本文的字体与动态背景，仅在阅读本文时生效 |
 | 📱 **响应式** | 手机 / 平板 / 桌面均已适配，支持打印样式 |
-| 🧭 **全透明页头 + 正文让路** | 页头不铺底色、不加毛玻璃、不描边、不投影，背景原样透出；同时滚进这一栏的**正文自己**按位置挂 `mask-image` 渐变淡出（`src/lib/headerYield.ts`），字不与导航打架、背景一像素不动（issue #53 / #63 / #71） |
+| 🧭 **全透明页头 + 全站防冲突让路** | 页头不铺底色、不加毛玻璃、不描边、不投影，背景原样透出；**全站所有页面**滚进顶栏的内容块均按位置挂 `mask-image` 渐变淡出（`src/lib/headerYield.ts`），字不与导航打架、背景一像素不动（issue #53 / #63 / #71 / #78） |
 | 📴 **离线单文件版** | 整站打包成一个 HTML，**完全不联网**也能阅读与写作（含加密文章、本机版本历史）；要回线上用「文章包」导入（见「📴 离线版」） |
 
 ---
@@ -45,6 +46,7 @@ npm run dev        # http://localhost:5173
 
 ```bash
 npm run build      # 类型检查 + 生产构建到 dist/
+npm test           # 运行全站特性测试与 VS Code 插件回归测试
 npm run preview    # 本地预览构建产物
 ```
 
@@ -280,7 +282,7 @@ Google Fonts，离开文章即恢复，不改动已保存的设置。
 仓库自带可直接安装的 **Markdown 语法拓展**插件。它在 VS Code **内置 Markdown 预览**中直接复用本站的 React 渲染组件、KaTeX / 高亮配置与 Tailwind 样式，展示框中的公式、表格和代码也会随变量实时更新。
 
 ```bash
-code --install-extension vscode_extensions/v1/starlog-markdown-2.1.0.vsix --force
+code --install-extension vscode_extensions/v1/starlog-markdown-2.2.0.vsix --force
 ```
 
 安装后打开 `.md` 并使用 `Ctrl/⌘+K V` 分屏预览；命令 **Markdown 语法拓展: 打开语法示例文档**可用于对照检查。成品内嵌所需脚本、样式与公式字体，无需额外插件或本地博客服务。MPE 保留为可选静态兼容模式，完整同款交互效果请使用内置预览。
@@ -352,7 +354,24 @@ pinned: false    # true 则置顶到首页
 
 以上写法均等价于在源码中把该片段直接替换为对应的值或字符串（不会额外套一层代码框），因此可以用在正文、表格、公式或代码块中。`floor` / `ceil` 的数值参数也可以是包含数值变量的表达式。
 
-文章页的「复制」菜单可以复制文章链接、原始源码、洛谷源码或基本 Markdown 源码。洛谷源码会把 Blog 专属的展示框按变量默认值转换为静态 Markdown，并移除下文的文首排版指令；基本源码还会把单元格合并、折叠框和 Tuack 表格等洛谷扩展转换为普通 Markdown。
+文章页的「复制」菜单可以复制文章链接、原始源码、洛谷源码或基本 Markdown 源码。洛谷源码会把 Blog 专属的展示框与直角坐标系转换为静态 Markdown，并移除下文的文首排版指令；基本源码还会把单元格合并、折叠框和 Tuack 表格等洛谷扩展转换为普通 Markdown。
+
+## 📐 直角坐标系语法（ui-ccs）
+
+使用 `::begin_ui-ccs` 与 `::end_ui-ccs` 包围绘图指令，即可渲染无上下工具栏干扰的极简二维直角坐标系，支持**拖拽平移、滚轮/双指缩放、双击复位，悬浮在线上实时显示距指针最近的点坐标，靠近交点、折点、端点或单点时优先磁吸显示精确坐标**（issue #76）：
+
+```markdown
+::begin_ui-ccs
+create_point:(0,0);
+create_line:(-3,-2),(0,1),(3,-1),[color=red];
+create_line:(7*x^2+6*x+90*x^3);
+::end_ui-ccs
+```
+
+- `create_point:(x,y);`：绘制一个或多个坐标点，末尾可加 `,[color=...]` 指定颜色。
+- `create_line:(x_1,y_1),(x_2,y_2),...,(x_n,y_n),[color=red];`：按顺序连接多个坐标点绘制线段或折线，可选 `[color=...]` 设置颜色。
+- `create_line:(表达式);`：绘制显式函数 $y = f(x)$ 的曲线（支持 `+ - * / ^`、括号、隐式乘法及 `sin`、`cos`、`tan`、`sqrt`、`abs`、`ln`、`exp` 等常见函数，自动自适应细分采样与视口裁剪），可选 `,[color=...]`。
+- 支持嵌套在 `::show_begin … ::show_end` 展示框内，随变量滑块实时更新函数曲线与点线位置。
 
 ## 📄 文章排版指令（字体与背景）
 
@@ -436,9 +455,12 @@ pinned: false    # true 则置顶到首页
 │   ├── components/                # Layout / Markdown / 搜索 / 目录 / Toast / GitHub 授权
 │   │   ├── AnimatedBackdrop.tsx   # 动态背景生命周期、樱花与粒子星链
 │   │   ├── WeatherBackdrops.ts     # 雪花、暴雨与竹林（Canvas）
+│   │   ├── CoordinatePlane.tsx    # 可交互二维直角坐标系（::begin_ui-ccs）
 │   │   ├── LatexPicker.tsx        # LaTeX 符号选择框（Shift + ↑）
 │   │   └── ThemePicker.tsx        # 页头配色主题色卡
 │   ├── lib/                       # 配置、文章解析、认证、GitHub API、待更新队列、主题
+│   │   ├── headerYield.ts         # 全站顶栏防冲突渐变遮罩引擎
+│   │   ├── uiCcs.ts               # 直角坐标系语法解析、数学表达式求值与曲线裁剪
 │   │   ├── themes.ts              # 配色主题元数据（真实色卡在 styles/index.css）
 │   │   ├── articleDirectives.ts   # 文首排版指令 ::set-font / ::set-code-font / ::set-background
 │   │   ├── latexSymbols.ts        # LaTeX 符号目录（别名搜索，编辑器与 VS Code 插件共用）

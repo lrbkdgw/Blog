@@ -208,3 +208,102 @@ test('延迟插入原生预览正文也能挂载；原生模型消失时清理 R
   assert.ok(document.querySelector('input[type="range"]'))
   assert.deepEqual(errors, [])
 })
+
+test('直角坐标系 ui-ccs 极简无上下栏、未悬浮不显示点坐标、悬浮端点/交点显示坐标并支持拖拽缩放与展示框联动', async (t) => {
+  const ccsDoc = [
+    '::begin_ui-ccs',
+    'create_point:(1,4);',
+    'create_line:(-3,0),(3,0);',
+    'create_line:(0,-3),(2,3),[color=red];',
+    'create_line:(x^2-1);',
+    '::end_ui-ccs',
+    '',
+    '::show_begin{动态抛物线}{k:Z=1[-3,3,1]}',
+    '::begin_ui-ccs',
+    'create_line:(*&show(k)*&*x^2);',
+    '::end_ui-ccs',
+    '::show_end',
+  ].join('\n')
+  const { dom, document, errors } = await preview(ccsDoc)
+  t.after(() => close(dom))
+
+  const boxes = document.querySelectorAll('.ui-ccs-box')
+  assert.equal(boxes.length, 2)
+
+  // 1. 删除上下显示框：容器内仅保留中间的纯坐标系 SVG
+  assert.equal(boxes[0].children.length, 1)
+  assert.equal(boxes[0].firstElementChild.tagName.toLowerCase(), 'svg')
+
+  const firstSvg = boxes[0].querySelector('svg[role="application"]')
+  assert.ok(firstSvg)
+
+  // 2. 单点未悬浮时不显示坐标文字，也不显示悬浮气泡
+  assert.equal(boxes[0].querySelector('[data-ccs-kind="point"] text'), null)
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip]'), null)
+
+  const initialCenterX = Number(firstSvg.getAttribute('data-center-x'))
+  const initialCenterY = Number(firstSvg.getAttribute('data-center-y'))
+  const initialUnits = Number(firstSvg.getAttribute('data-units-per-px'))
+  const toClientX = (wx) => 340 + (wx - initialCenterX) / initialUnits
+  const toClientY = (wy) => 210 - (wy - initialCenterY) / initialUnits
+  const PointerEvt = dom.window.PointerEvent || dom.window.MouseEvent
+
+  // 3. 悬浮到单点 (1, 4) 显示坐标
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(1), clientY: toClientY(4), pointerId: 1 }))
+  await settle()
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip] text')?.textContent, '(1, 4)')
+
+  // 4. 悬浮到线段端点 (2, 3) 显示端点坐标
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(2), clientY: toClientY(3), pointerId: 1 }))
+  await settle()
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip] text')?.textContent, '(2, 3)')
+
+  // 5. 悬浮在线上（远离特殊点处，如 (2.4, 0.2) 靠近水平线段 (-3,0)->(3,0)）显示线上最近点 (2.4, 0)
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(2.4), clientY: toClientY(0.2), pointerId: 1 }))
+  await settle()
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip]')?.getAttribute('data-ccs-snap'), 'line')
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip] text')?.textContent, '(2.4, 0)')
+
+  // 6. 即使指针恰好落在直线上（(0.85, 0) 到直线距离为 0px），靠近交点 (1, 0) 时仍优先磁吸至特殊交点 (1, 0)
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(0.85), clientY: toClientY(0), pointerId: 1 }))
+  await settle()
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip]')?.getAttribute('data-ccs-snap'), 'special')
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip] text')?.textContent, '(1, 0)')
+
+  // 7. 悬浮到抛物线 y=x^2-1 与 Y 轴交点 (0, -1) 显示精确交点坐标
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(0), clientY: toClientY(-1), pointerId: 1 }))
+  await settle()
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip] text')?.textContent, '(0, -1)')
+
+  // 8. 移开到远离线条与点的空白区域后隐藏坐标气泡
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(-4), clientY: toClientY(4), pointerId: 1 }))
+  await settle()
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip]'), null)
+
+  // 8. 指针拖拽平移、滚轮缩放与双击复位
+  firstSvg.dispatchEvent(new PointerEvt('pointerdown', { bubbles: true, button: 0, clientX: 200, clientY: 200, pointerId: 1 }))
+  await settle()
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: 320, clientY: 140, pointerId: 1 }))
+  await settle()
+  firstSvg.dispatchEvent(new PointerEvt('pointerup', { bubbles: true, clientX: 320, clientY: 140, pointerId: 1 }))
+  await settle()
+  assert.ok(Number(firstSvg.getAttribute('data-center-x')) < initialCenterX)
+  assert.ok(Number(firstSvg.getAttribute('data-center-y')) < initialCenterY)
+
+  firstSvg.dispatchEvent(new dom.window.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -120, clientX: 340, clientY: 210 }))
+  await settle()
+  assert.ok(Number(firstSvg.getAttribute('data-units-per-px')) < initialUnits)
+
+  firstSvg.dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true }))
+  await settle()
+  assert.equal(Number(firstSvg.getAttribute('data-center-x')), initialCenterX)
+  assert.equal(Number(firstSvg.getAttribute('data-units-per-px')), initialUnits)
+
+  // 9. 展示框滑块联动更新嵌套坐标系函数图像
+  const beforePath = boxes[1].querySelector('[data-ccs-kind="function"] path').getAttribute('d')
+  await setInput(dom, document.querySelector('.show-box input[type="range"]'), '3')
+  const afterPath = document.querySelectorAll('.ui-ccs-box')[1].querySelector('[data-ccs-kind="function"] path').getAttribute('d')
+  assert.notEqual(afterPath, beforePath)
+  assert.deepEqual(errors, [])
+})
+

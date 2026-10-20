@@ -13,6 +13,7 @@ import {
   type ShowVariable,
 } from './showBox'
 import { stripArticleDirectives } from './articleDirectives'
+import { renderStaticUiCcsSvg } from './uiCcs'
 
 export interface TransformOptions {
   /** MPE 兼容模式只渲染默认值，不提供交互脚本。 */
@@ -96,7 +97,7 @@ export function renderShowBox(
   const prefix = options.prefix || 'starlog'
   const variables = parseShowVariables(variableSpec, body)
   const mappings = parseShowMappings(body)
-  const rendered = renderShowContent(body, initialShowValues(variables), mappings)
+  const rendered = transformMarkdown(renderShowContent(body, initialShowValues(variables), mappings), options)
 
   const identifier = hashString(title + '\u0000' + variableSpec + '\u0000' + body)
   const heading =
@@ -204,6 +205,28 @@ export function transformMarkdown(markdown: string, options: TransformOptions = 
       if (end < lines.length) {
         const rendered = renderShowBox(showMatch[1], showMatch[2], body.join('\n'), options)
         for (const outputLine of rendered.lines) result.push(outputLine)
+        i = end
+        continue
+      }
+    }
+
+    // 直角坐标系：::begin_ui-ccs … ::end_ui-ccs（MPE 静态 SVG 兼容渲染）
+    const ccsMatch = line.match(/^\s*::begin_ui-ccs(?:\{([^}]*)\})?\s*$/i)
+    if (ccsMatch) {
+      const body: string[] = []
+      let end = i + 1
+      while (end < lines.length && !/^\s*::end_ui-ccs\s*$/i.test(lines[end])) {
+        body.push(lines[end])
+        end += 1
+      }
+      if (end < lines.length) {
+        result.push('')
+        result.push(
+          '<div class="' + prefix + '-ccs-static">' +
+          renderStaticUiCcsSvg(body.join('\n')) +
+          '</div>',
+        )
+        result.push('')
         i = end
         continue
       }

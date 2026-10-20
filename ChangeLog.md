@@ -1,5 +1,40 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-20 · 暴雨背景提速同轴化、全站顶部防冲突让位（#78）与交互直角坐标系 `ui-ccs`（#76）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+1. **暴雨动态背景速度过慢**：旧版 `createRain()` 锁在 `fps: 30`，雨滴垂向初速仅约 `324–722 px/s`（一屏下落需 1.2–2.8 秒），且 `step(dt)` 的实际位移斜率与 `draw(ctx)` 绘制的雨丝斜率不同轴，观感接近缓慢飘落的细线而非真实暴雨；同时 `AnimatedBackdrop.tsx` 的帧间隔门限 `interval - 1` 在 60Hz 显示器的 VSync 轻微抖动下易偶发漏帧。
+2. **Issue #78（全站页面顶部防冲突机制）**：此前仅文章详情页挂接了 `data-yield` 顶栏让位遮罩，首页、归档、标签、关于、设置、管理后台、编辑器、登录页与 404 页向上滚动穿过全透明 sticky 页头时仍会与导航文字重叠。
+3. **Issue #76（新增 Markdown 语法 `::begin_ui-ccs … ::end_ui-ccs`）**：需要在文章与预览中支持绘制二维平面直角坐标系（描点、多点折线、函数曲线及颜色配置），并支持用户拖拽平移与缩放预览整个坐标平面。
+
+### 改动
+
+- **暴雨背景提速与同轴快门条纹**（`src/components/WeatherBackdrops.ts`、`src/components/AnimatedBackdrop.tsx`）：
+  - `createRain()` 提升至 `fps: 60`，新增深度分层的真实雨滴终端速度模型 `dropVelocity`（默认参数下约 `1,200–3,800+ px/s`，一屏 0.2–0.6 秒疾速掠过）；
+  - 统一 `step(dt)` 位移方向与 `draw(ctx)` 描边方向的同轴斜率 `slope = wind * 0.65 * d.drift`，雨丝长度随实时下落速度自适应拉伸，消除斜向横漂错觉；拓宽迎风侧生成边界并加快水面涟漪频率；
+  - `AnimatedBackdrop.tsx` 帧率节流阈值调整为 `interval * 0.82`，消除 60Hz VSync 抖动导致的跳帧，同时在 120Hz 屏幕上继续稳定限帧于 60fps。
+- **全站顶部防冲突让位机制（Issue #78）**（`src/lib/headerYield.ts`、全站各页面与弹窗组件）：
+  - 升级 `headerYield.ts`：叶级选择器自动定位最内层内容块避免嵌套容器重复遮罩；监听 `MutationObserver` 与页头 `ResizeObserver` 在路由懒加载、搜索过滤、面板展开时即时重算；自动跳过并清理 `[role="dialog"]`、`.fixed` 浮层与编辑器分栏内滚预览框（`[data-yield-ignore]`），避免全屏编辑器、历史对比弹窗及分栏预览被误裁切；
+  - `LatexPicker.tsx`、`BundleImportDialog.tsx` 改为通过 `createPortal(..., document.body)` 挂载，防止祖先 `mask-image` 影响悬浮弹层；
+  - 覆盖全部页面与状态：`Home`、`PostPage`（含正文、上下篇、加密锁屏、404 态）、`Archive`、`TagsPage`、`About`、`SettingsPage`、`Admin`（全部标签页与列表）、`Editor`、`Login`（含离线提示态）、`NotFound`、页脚、评论区与 Suspense 加载态。
+- **交互二维直角坐标系 `ui-ccs`（Issue #76）**（`src/lib/uiCcs.ts`、`src/components/CoordinatePlane.tsx`、`src/components/Markdown.tsx`、`src/pages/Editor.tsx`、`src/lib/markdownSource.ts`、`src/lib/posts.ts`、`content/about.md`、`vscode_extensions/v1`）：
+  - 实现 `::begin_ui-ccs … ::end_ui-ccs` 语法解析器与 AST 数学求值器：支持 `create_point:(x,y);`、`create_line:(x_1,y_1),...,(x_n,y_n),[color=red];` 与显式函数曲线 `create_line:(7*x^2+6*x+90*x^3);`，严格遵守幂运算与一目正负号优先级（`-x^2 = -(x^2)`、`2^-x = 2^(-x)`），支持隐式乘法与常用初等函数；
+  - 采用高斜率中点递归细分 + 渐近线间断识别 + Cohen–Sutherland 视口裁剪，保证高次多项式在任意缩放比下平滑且无浮点越界；
+  - 界面采用无上下栏的极简纯画布设计：单点与端点在未悬浮时不显示文字标签；悬浮在任意折线或函数曲线上时实时求解二维欧氏正交最近点并显示坐标，靠近**交点、折线顶点、端点、函数定义域端点或单点**时优先磁吸至特殊点显示精确坐标；支持拖拽平移、以光标为锚点的滚轮缩放与双指捏合缩放、双击/按 `0` 键复位、方向键/加减号控制、`1–2–5` 自适应主副网格、越界贴边刻度，以及嵌套在 `::show_begin` 展示框内的动态联动；
+  - 站内编辑器工具栏新增「直角坐标系」快捷插入按钮；洛谷/基本源码复制、文章摘要与目录提取同步适配；VS Code 插件升级至 `2.2.0` 并重新打包 `starlog-markdown-2.2.0.vsix`；同步重新构建并校验单文件离线版 `offline/index.html`。
+
+### 验证
+
+- 新增 `scripts/test-features.mjs` 并接入 `npm test`：覆盖暴雨 60fps 速度与同轴斜率校验、全站 14 个页面/组件文件防冲突覆盖与 JSDOM 滚动裁切断言、`ui-ccs` 运算符优先级/高次曲线裁剪/渐近线分段/元数据隔离测试。
+- `npm run build`、`npm --prefix vscode_extensions/v1 run typecheck`、`npm test`、`npm run extension:package`、`npm run build:offline` 全部零错误通过。
+
 ## 2026-10-20 · 暴雨背景打磨：白昼更亮、倒影分带、近景芦苇
 
 | 模型信息 | |

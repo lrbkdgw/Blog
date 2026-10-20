@@ -5,6 +5,7 @@ import {
   parseShowVariables,
   renderShowContent,
 } from './showBox'
+import { formatCoordinateValue, parseUiCcs } from './uiCcs'
 
 export type MarkdownCopyTarget = 'direct' | 'luogu' | 'basic'
 
@@ -249,13 +250,70 @@ export function convertLuoguExtensionsToMarkdown(markdown: string): string {
   return output.join('\n')
 }
 
+/** 将 `::begin_ui-ccs ... ::end_ui-ccs` 降级为不依赖交互 SVG 的标准 Markdown 描述块。 */
+export function convertUiCcsToMarkdown(markdown: string): string {
+  const lines = markdown.split('\n')
+  const output: string[] = []
+  let fence: string | null = null
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    const marker = fenceMarker(line)
+    if (marker) {
+      if (!fence) fence = marker
+      else if (fence === marker) fence = null
+      output.push(line)
+      continue
+    }
+    if (fence) {
+      output.push(line)
+      continue
+    }
+
+    const match = line.match(/^\s*::begin_ui-ccs(?:\{([^}]*)\})?\s*$/i)
+    if (match) {
+      const body: string[] = []
+      let end = i + 1
+      while (end < lines.length && !/^\s*::end_ui-ccs\s*$/i.test(lines[end])) {
+        body.push(lines[end])
+        end += 1
+      }
+      if (end < lines.length) {
+        const title = (match[1] ?? '').trim() || '直角坐标系'
+        const { items } = parseUiCcs(body.join('\n'))
+        output.push(`> **${title}**`)
+        for (const item of items) {
+          if (item.kind === 'point') {
+            output.push(`> - 点：$(${formatCoordinateValue(item.x)}, ${formatCoordinateValue(item.y)})$`)
+          } else if (item.kind === 'polyline') {
+            const pts = item.points
+              .map((p) => `(${formatCoordinateValue(p.x)}, ${formatCoordinateValue(p.y)})`)
+              .join(' \\to ')
+            output.push(`> - 折线：$${pts}$${item.color ? `（\`${item.color}\`）` : ''}`)
+          } else {
+            output.push(`> - 函数：$y = ${item.expression}$${item.color ? `（\`${item.color}\`）` : ''}`)
+          }
+        }
+        i = end
+        continue
+      }
+    }
+
+    output.push(line)
+  }
+
+  return output.join('\n')
+}
+
 /**
- * direct：原样源码；luogu：移除 Blog 专属语法（展示框与文首排版指令 ::set-font 等，
+ * direct：原样源码；luogu：移除 Blog 专属语法（展示框、直角坐标系与文首排版指令 ::set-font 等，
  * 洛谷不认识这些指令，留着只会变成正文杂质）；basic：再移除洛谷扩展。
  */
 export function convertMarkdownForCopy(markdown: string, target: MarkdownCopyTarget): string {
   if (target === 'direct') return markdown
-  const withoutBlogExtensions = convertShowBoxesToMarkdown(stripArticleDirectives(markdown))
+  const withoutBlogExtensions = convertUiCcsToMarkdown(
+    convertShowBoxesToMarkdown(stripArticleDirectives(markdown)),
+  )
   if (target === 'luogu') return withoutBlogExtensions
   return convertLuoguExtensionsToMarkdown(expandMergedTableCells(withoutBlogExtensions))
 }

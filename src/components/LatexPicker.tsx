@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import katex from 'katex'
 import { CornerDownLeft, Search, Sigma } from 'lucide-react'
 import {
@@ -169,7 +170,7 @@ export function LatexPicker({
     ...LATEX_CATEGORIES,
   ]
 
-  return (
+  const dialog = (
     <div className="fixed inset-0 z-[95] flex items-start justify-center px-4 pt-[10vh]" role="dialog" aria-modal aria-label="插入 LaTeX 符号">
       <div className="absolute inset-0 animate-fade-in bg-ink-950/40 backdrop-blur-sm" onClick={onClose} />
       <div className="card relative flex max-h-[78vh] w-full max-w-2xl animate-scale-in flex-col overflow-hidden !bg-white/95 dark:!bg-ink-900/95">
@@ -270,4 +271,5 @@ export function LatexPicker({
       </div>
     </div>
   )
+  return typeof document !== 'undefined' ? createPortal(dialog, document.body) : dialog
 }

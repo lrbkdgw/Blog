@@ -11,7 +11,7 @@ export default function About() {
   const { social } = siteConfig
 
   return (
-    <div className="container-page max-w-4xl pt-16">
+    <div className="container-page max-w-4xl pt-16" data-yield-list>
       {/* 帮助中心 Banner */}
       <header className="card animate-fade-up overflow-hidden p-8 sm:p-10 border-brand-200/80 bg-gradient-to-br from-brand-50/60 via-white/80 to-indigo-50/40 dark:border-brand-500/20 dark:from-brand-500/[0.08] dark:via-white/[0.02] dark:to-indigo-500/[0.05]">
         <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center justify-between">
@@ -65,7 +65,7 @@ export default function About() {
       </header>
 
       {/* 网站介绍与帮助手册正文 */}
-      <div className="mt-10 animate-fade-up" style={{ animationDelay: '80ms' }}>
+      <div className="mt-10 animate-fade-up" style={{ animationDelay: '80ms' }} data-yield-list>
         <Markdown content={content} />
       </div>
     </div>
