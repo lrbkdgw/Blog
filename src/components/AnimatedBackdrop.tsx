@@ -873,7 +873,9 @@ export function AnimatedBackdrop({ scene, values }: { scene: ActiveSceneId; valu
     const tick = (now: number) => {
       frame = requestAnimationFrame(tick)
       const interval = 1000 / renderer.fps
-      if (last && now - last < interval - 1) return
+      // 留出约 18% 的 VSync 抖动余量：60Hz 屏幕不会因 15.5ms 帧间隔偶发丢帧掉到 30fps，
+      // 120Hz 屏幕仍能稳定按隔帧节奏限幅在目标帧率。
+      if (last && now - last < interval * 0.82) return
       const dt = last ? Math.min(0.1, (now - last) / 1000) : 1 / 60
       last = now
       renderer.step(dt)

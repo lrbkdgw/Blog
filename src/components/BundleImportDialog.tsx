@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { CheckCircle2, FileJson, Inbox, Loader2, X } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { OFFLINE } from '../lib/runtime'
@@ -162,7 +163,7 @@ export default function BundleImportDialog({
 
   if (!open) return null
 
-  return (
+  const dialog = (
     <div
       className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto bg-ink-950/45 p-4 pt-[8vh] backdrop-blur-sm"
       role="dialog"
@@ -362,6 +363,7 @@ export default function BundleImportDialog({
       </div>
     </div>
   )
+  return typeof document !== 'undefined' ? createPortal(dialog, document.body) : dialog
 }
 
 /**

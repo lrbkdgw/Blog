@@ -11,6 +11,7 @@ import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeSlug from 'rehype-slug'
 import { ShowBox } from './ShowBox'
+import { CoordinatePlane } from './CoordinatePlane'
 import { resolvePendingImageSrc } from '../lib/updateQueue'
 import {
   EMPTY_ARTICLE_DIRECTIVES,
@@ -56,13 +57,16 @@ const sanitizeSchema: SanitizeOptions = {
     '*': [
       ...(defaultSchema.attributes?.['*'] ?? []),
       'className',
-      // 站内预处理生成的结构属性：折叠框与交互展示框的配置
+      // 站内预处理生成的结构属性：折叠框、交互展示框与直角坐标系的配置
       'dataCallout',
       'dataTitle',
       'dataShowBox',
       'dataShowTitle',
       'dataShowVars',
       'dataShowContent',
+      'dataUiCcs',
+      'dataCcsTitle',
+      'dataCcsContent',
     ],
     details: [...(defaultSchema.attributes?.details ?? []), 'open'],
   },
@@ -346,6 +350,26 @@ export function preprocessMarkdownDetailed(
       if (end < lines.length) {
         push(
           `<div data-show-box="true" data-show-title="${encodeURIComponent(showMatch[1])}" data-show-vars="${encodeURIComponent(showMatch[2])}" data-show-content="${encodeURIComponent(body.join('\n'))}"></div>`,
+          i,
+        )
+        push('', i)
+        i = end
+        continue
+      }
+    }
+
+    // 直角坐标系（issue #76）：::begin_ui-ccs … ::end_ui-ccs（可选 {标题}）
+    const ccsMatch = line.match(/^\s*::begin_ui-ccs(?:\{([^}]*)\})?\s*$/i)
+    if (ccsMatch) {
+      const body: string[] = []
+      let end = i + 1
+      while (end < lines.length && !/^\s*::end_ui-ccs\s*$/i.test(lines[end])) {
+        body.push(lines[end])
+        end += 1
+      }
+      if (end < lines.length) {
+        push(
+          `<div data-ui-ccs="true" data-ccs-title="${encodeURIComponent(ccsMatch[1] ?? '')}" data-ccs-content="${encodeURIComponent(body.join('\n'))}"></div>`,
           i,
         )
         push('', i)
@@ -766,6 +790,9 @@ function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTr
         'data-show-title'?: string
         'data-show-vars'?: string
         'data-show-content'?: string
+        'data-ui-ccs'?: string
+        'data-ccs-title'?: string
+        'data-ccs-content'?: string
       }
       if (attributes['data-show-box'] === 'true') {
         return (
@@ -775,6 +802,15 @@ function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTr
             body={decodeShowAttribute(attributes['data-show-content'])}
             sourceLine={toSourceLine(node)}
             urlTransform={urlTransform}
+          />
+        )
+      }
+      if (attributes['data-ui-ccs'] === 'true') {
+        return (
+          <CoordinatePlane
+            title={decodeShowAttribute(attributes['data-ccs-title'])}
+            body={decodeShowAttribute(attributes['data-ccs-content'])}
+            sourceLine={toSourceLine(node)}
           />
         )
       }

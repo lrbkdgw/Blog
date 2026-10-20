@@ -31,7 +31,7 @@ export default function TagsPage() {
 
   if (decoded) {
     return (
-      <div className="container-page pt-16">
+      <div className="container-page pt-16" data-yield-list>
         <Link
           to="/tags"
           className="group mb-6 inline-flex items-center gap-1.5 text-sm text-ink-400 transition hover:text-brand-600 dark:hover:text-brand-300"
@@ -58,7 +58,7 @@ export default function TagsPage() {
   }
 
   return (
-    <div className="container-page max-w-4xl pt-16">
+    <div className="container-page max-w-4xl pt-16" data-yield-list>
       <header className="animate-fade-up">
         <h1 className="font-serif text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl dark:text-white">
           标签
@@ -68,7 +68,7 @@ export default function TagsPage() {
         </p>
       </header>
 
-      <div className="mt-10 flex flex-wrap gap-3">
+      <div className="mt-10 flex flex-wrap gap-3" data-yield-list>
         {tags.map((t, i) => {
           const scale = 0.85 + (t.count / max) * 0.45
           return (

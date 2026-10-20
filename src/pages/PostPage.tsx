@@ -413,7 +413,7 @@ export default function PostPage() {
 
   if (!post || !snapshot || !historyBase) {
     return (
-      <div className="container-page flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
+      <div className="container-page flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center" data-yield-list>
         <p className="font-mono text-6xl font-bold text-ink-200 dark:text-ink-800">404</p>
         <h1 className="font-serif text-xl font-semibold text-ink-800 dark:text-ink-100">这篇文章不存在</h1>
         <p className="max-w-sm text-sm text-ink-500">它可能已被删除，或者只存在于另一台设备的本地草稿里。</p>
@@ -499,7 +499,7 @@ export default function PostPage() {
     return (
       <>
         <ReadingProgress />
-        <div className="container-page pt-12">
+        <div className="container-page pt-12" data-yield-list>
           <Link to="/" className="no-print group mb-8 inline-flex items-center gap-1.5 text-sm text-ink-400 transition hover:text-brand-600 dark:hover:text-brand-300">
             <ArrowLeft size={14} className="transition-transform group-hover:-translate-x-0.5" /> 返回文章列表
           </Link>
@@ -614,7 +614,7 @@ export default function PostPage() {
             </div>
           </header>
           {coverSrc && <img src={coverSrc} alt="" className="mt-8 w-full rounded-2xl object-cover shadow-xl" />}
-          <div className="mt-8"><Markdown content={article.content} /></div>
+          <div className="mt-8" data-yield-list><Markdown content={article.content} /></div>
           <div className="no-print mt-16 border-t border-ink-200/60 pt-8 dark:border-white/[0.08]">
             <div className="grid gap-3 sm:grid-cols-2">
               {previous ? <Link to={`/posts/${previous.slug}`} className="card group flex flex-col p-4 transition hover:border-brand-300 dark:hover:border-brand-400/30"><span className="text-xs text-ink-400">← 上一篇</span><span className="mt-1 line-clamp-2 text-sm font-medium text-ink-800 group-hover:text-brand-600 dark:text-ink-100 dark:group-hover:text-brand-300">{previous.title}</span></Link> : <span />}

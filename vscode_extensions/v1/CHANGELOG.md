@@ -1,5 +1,10 @@
 # 更新日志
 
+## 2.2.0 — 2026-10-20
+
+- 新增直角坐标系语法 `::begin_ui-ccs … ::end_ui-ccs`（与博客 issue #76 同步）：支持 `create_point:(x,y);`、`create_line:(x_1,y_1),...,(x_n,y_n),[color=...];` 与显式函数曲线 `create_line:(7*x^2+6*x+90*x^3);`，内置预览直接复用博客 `CoordinatePlane` 组件，支持鼠标/触控拖拽平移、滚轮缩放、悬停坐标读数、一键复位及嵌套在 `::show_begin` 内的实时联动。
+- 新增命令 **插入直角坐标系**（`starlog.insertCoordinateSystem`）、`uiccs` / `::begin_ui-ccs` 代码片段、TextMate 语法高亮与 MPE 静态 SVG 兼容渲染；洛谷 / 基本 Markdown 复制自动降级为静态说明文本。
+
 ## 2.1.0 — 2026-10-19
 
 - 新增文章级排版指令（与博客 issue #59 同步）：文章开头可写 `::set-font[字体名]`、`::set-code-font[字体名]`、`::set-background[0–5]`。解析与字体栈与博客共用 `src/lib/articleDirectives.ts`、`src/lib/fontStacks.ts`，禁止另行维护副本。字体指令在内置预览中作用于正文（需本机有该字体，插件不联网下载）；背景指令针对博客网页的动态背景，预览中仅移除指令行。洛谷 / 基本复制与 MPE 静态转换同样会移除这些指令。新增 `setfont` / `setcodefont` / `setbackground` 代码片段，语法示例文档新增对应章节。

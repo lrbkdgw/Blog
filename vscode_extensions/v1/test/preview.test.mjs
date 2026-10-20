@@ -208,3 +208,64 @@ test('延迟插入原生预览正文也能挂载；原生模型消失时清理 R
   assert.ok(document.querySelector('input[type="range"]'))
   assert.deepEqual(errors, [])
 })
+
+test('直角坐标系 ui-ccs 支持描点、折线、高次函数曲线、拖拽平移、滚轮缩放与展示框联动', async (t) => {
+  const ccsDoc = [
+    '::begin_ui-ccs',
+    'create_point:(1,2);',
+    'create_line:(-2,-1),(0,2),(3,-1),[color=red];',
+    'create_line:(7*x^2+6*x+90*x^3);',
+    '::end_ui-ccs',
+    '',
+    '::show_begin{动态抛物线}{k:Z=1[-3,3,1]}',
+    '::begin_ui-ccs',
+    'create_line:(*&show(k)*&*x^2);',
+    '::end_ui-ccs',
+    '::show_end',
+  ].join('\n')
+  const { dom, document, errors } = await preview(ccsDoc)
+  t.after(() => close(dom))
+
+  const boxes = document.querySelectorAll('.ui-ccs-box')
+  assert.equal(boxes.length, 2)
+  const firstSvg = boxes[0].querySelector('svg[role="application"]')
+  assert.ok(firstSvg)
+  assert.equal(boxes[0].querySelector('[data-ccs-kind="point"] text').textContent, '(1, 2)')
+  assert.equal(boxes[0].querySelector('[data-ccs-kind="polyline"] path').getAttribute('stroke'), 'red')
+  assert.ok(boxes[0].querySelector('[data-ccs-kind="function"] path').getAttribute('d').length > 20)
+
+  const initialCenterX = Number(firstSvg.getAttribute('data-center-x'))
+  const initialCenterY = Number(firstSvg.getAttribute('data-center-y'))
+  const initialUnits = Number(firstSvg.getAttribute('data-units-per-px'))
+
+  // 指针拖拽平移整个坐标平面
+  const PointerEvt = dom.window.PointerEvent || dom.window.MouseEvent
+  firstSvg.dispatchEvent(new PointerEvt('pointerdown', { bubbles: true, button: 0, clientX: 200, clientY: 200, pointerId: 1 }))
+  await settle()
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: 320, clientY: 140, pointerId: 1 }))
+  await settle()
+  firstSvg.dispatchEvent(new PointerEvt('pointerup', { bubbles: true, clientX: 320, clientY: 140, pointerId: 1 }))
+  await settle()
+
+  assert.ok(Number(firstSvg.getAttribute('data-center-x')) < initialCenterX)
+  assert.ok(Number(firstSvg.getAttribute('data-center-y')) < initialCenterY)
+
+  // 滚轮缩放预览整个坐标系
+  firstSvg.dispatchEvent(new dom.window.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -120, clientX: 340, clientY: 210 }))
+  await settle()
+  assert.ok(Number(firstSvg.getAttribute('data-units-per-px')) < initialUnits)
+
+  // 一键复位回到初始视野
+  boxes[0].querySelector('button[aria-label="重置坐标系视角"]').click()
+  await settle()
+  assert.equal(Number(firstSvg.getAttribute('data-center-x')), initialCenterX)
+  assert.equal(Number(firstSvg.getAttribute('data-units-per-px')), initialUnits)
+
+  // 展示框滑块联动更新嵌套坐标系函数图像
+  const beforePath = boxes[1].querySelector('[data-ccs-kind="function"] path').getAttribute('d')
+  await setInput(dom, document.querySelector('.show-box input[type="range"]'), '3')
+  const afterPath = document.querySelectorAll('.ui-ccs-box')[1].querySelector('[data-ccs-kind="function"] path').getAttribute('d')
+  assert.notEqual(afterPath, beforePath)
+  assert.deepEqual(errors, [])
+})
+

@@ -9,6 +9,18 @@
     ],
     "description": "Markdown 语法拓展：交互展示框 ::show_begin … ::show_end"
   },
+  "直角坐标系": {
+    "prefix": ["uiccs", "::begin_ui-ccs"],
+    "body": [
+      "::begin_ui-ccs",
+      "create_point:(${1:0},${2:0});",
+      "create_line:(${3:-2},${4:-1}),(${5:2},${6:3}),[color=${7:red}];",
+      "create_line:(${8:7*x^2+6*x+90*x^3});",
+      "$0::end_ui-ccs",
+      ""
+    ],
+    "description": "Markdown 语法拓展：可拖拽缩放的直角坐标系 ::begin_ui-ccs … ::end_ui-ccs"
+  },
   "展示框变量 · 整数": {
     "prefix": "varz",
     "body": "${1:a}:Z=${2:0}[${3:-10},${4:10},${5:1}]",

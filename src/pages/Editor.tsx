@@ -2,6 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Archive, 
   AlertCircle,
+  Axis3d,
   Bold,
   Check,
   ChevronDown,
@@ -39,6 +40,7 @@ import { LatexPicker } from '../components/LatexPicker'
 import { PasswordPrompt } from '../components/PasswordPrompt'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../lib/auth'
+import { requestHeaderYieldRefresh } from '../lib/headerYield'
 import { decryptPost, encryptPostMarkdown, restorePostUnlock } from '../lib/crypto'
 import { checkUserRepoPermissions } from '../lib/github'
 import {
@@ -599,6 +601,19 @@ export default function Editor() {
         ),
     },
     {
+      icon: Axis3d,
+      title: '直角坐标系',
+      run: () =>
+        withSelection((v, s, e) =>
+          insertBlock(
+            v,
+            s,
+            e,
+            '::begin_ui-ccs\ncreate_point:(0,0);\ncreate_line:(-2,-1),(2,3),[color=red];\ncreate_line:(7*x^2+6*x+90*x^3);\n::end_ui-ccs\n',
+          ),
+        ),
+    },
+    {
       icon: Table2,
       title: '表格（支持合并与 Tuack）',
       run: () =>
@@ -1058,9 +1073,13 @@ export default function Editor() {
     return () => window.removeEventListener('keydown', onKey)
   }, [fullscreen, latexPickerOpen])
 
+  useEffect(() => {
+    requestHeaderYieldRefresh()
+  }, [fullscreen])
+
   if (protectedExisting && !unlocked) {
     return (
-      <div className="container-page flex min-h-[65vh] items-center justify-center py-10">
+      <div className="container-page flex min-h-[65vh] items-center justify-center py-10" data-yield-list>
         {restoringUnlock ? (
           <div className="card flex w-full max-w-md flex-col items-center p-7 text-center">
             <Loader2 size={24} className="animate-spin text-brand-500" />
@@ -1086,7 +1105,10 @@ export default function Editor() {
           : 'container-page pt-8'
       }
     >
-      <div className={fullscreen ? 'flex min-h-0 flex-1 flex-col' : 'mx-auto max-w-6xl'}>
+      <div
+        className={fullscreen ? 'flex min-h-0 flex-1 flex-col' : 'mx-auto max-w-6xl'}
+        data-yield-list={fullscreen ? undefined : true}
+      >
         {/* 顶部栏 */}
         <div
           className={
@@ -1491,6 +1513,7 @@ export default function Editor() {
             {view !== 'edit' && (
               <div
                 ref={previewRef}
+                data-yield-ignore
                 className={`h-full overflow-y-auto bg-ink-50/40 p-5 dark:bg-white/[.02] ${
                   view === 'split'
                     ? 'hidden border-l border-ink-200/70 md:block dark:border-white/10'

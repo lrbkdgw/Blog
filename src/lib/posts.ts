@@ -53,6 +53,7 @@ export function today(): string {
 export function stripMarkdown(md: string): string {
   return md
     .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/::begin_ui-ccs[\s\S]*?::end_ui-ccs/gi, ' ')
     .replace(/`[^`]*`/g, ' ')
     .replace(/\$\$[\s\S]*?\$\$/g, ' ')
     .replace(/\$[^$\n]*\$/g, ' ')
@@ -472,11 +473,21 @@ export function extractToc(md: string): TocItem[] {
     }
     if (fence) continue
 
-    // 展示框内容由独立 Markdown 实例渲染，不参与正文标题锚点计数，也不进入目录。
+    // 展示框与直角坐标系内容由独立组件渲染，不参与正文标题锚点计数，也不进入目录。
     const showStart = line.match(/^\s*::show_begin\{([^}]*)\}\{([\s\S]*)\}\s*$/i)
     if (showStart) {
       let end = index + 1
       while (end < lines.length && !/^\s*::show_end\s*$/i.test(lines[end])) end += 1
+      if (end < lines.length) {
+        index = end
+        continue
+      }
+    }
+
+    const ccsStart = line.match(/^\s*::begin_ui-ccs(?:\{[^}]*\})?\s*$/i)
+    if (ccsStart) {
+      let end = index + 1
+      while (end < lines.length && !/^\s*::end_ui-ccs\s*$/i.test(lines[end])) end += 1
       if (end < lines.length) {
         index = end
         continue

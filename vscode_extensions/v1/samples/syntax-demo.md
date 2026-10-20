@@ -103,3 +103,15 @@ for (int i = 0; i < *&show(n)*&; ++i) solve(i);
 ## 5. 插入 LaTeX 符号
 
 在 Markdown 编辑器中按 `Shift + ↑`（或从命令面板执行 **Markdown 语法拓展: 插入 LaTeX 符号…**），可用命令或中文别名搜索符号：搜「正负」或「加减」选到 `±` 对应的命令，搜「异或」能找到圆加符号。选中后符号插入光标处，需要参数的命令（如分数）会把光标放进第一个参数里。博客站内编辑器里是同一份符号目录、同一个快捷键。
+
+## 6. 直角坐标系（ui-ccs）
+
+使用 `::begin_ui-ccs` 与 `::end_ui-ccs` 绘制可拖拽平移、滚轮缩放的二维直角坐标系，支持描点、多点折线与关于 $x$ 的显式函数图像：
+
+::begin_ui-ccs
+create_point:(0,0);
+create_point:(2,3),[color=#10b981];
+create_line:(-3,-2),(0,1),(3,-1),[color=red];
+create_line:(7*x^2+6*x+90*x^3);
+::end_ui-ccs
+

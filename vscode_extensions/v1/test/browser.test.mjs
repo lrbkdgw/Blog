@@ -23,7 +23,8 @@ const source = [
   '::cute-table{tuack}', '', '| A | B |', '| - | - |', '| 甲 | < |', '',
   ':::info[数学 $x^2$]{open}', '内容 **粗体**', ':::', '',
   '::show_begin{展示}{n:Z=3[1,9,1]}', '值 *&show(n)*&', '', '$$',
-  'x_{*&show(n)*&}=*&hs(n^2)*&', '$$', '::show_end',
+  'x_{*&show(n)*&}=*&hs(n^2)*&', '$$', '::show_end', '',
+  '::begin_ui-ccs', 'create_point:(0,0);', 'create_line:(-2,-1),(2,3),[color=red];', 'create_line:(7*x^2+6*x+90*x^3);', '::end_ui-ccs',
 ].join('\n')
 
 const properties = [
@@ -38,7 +39,7 @@ const selectors = [
   '.prose summary', '.prose .callout-content', '.prose .show-box', '.show-box-content .prose',
   '.prose .markdown-table-wrapper', '.prose .table-tuack-wrapper', '.prose .table-tuack-wrapper .markdown-table-wrapper',
   '.prose .table-tuack-wrapper table', '.prose .table-tuack-wrapper th', '.prose .table-tuack-wrapper td',
-  '.show-box input[type=number]', '.show-box input[type=range]', '.katex', '.katex-display',
+  '.show-box input[type=number]', '.show-box input[type=range]', '.prose .ui-ccs-box', '.katex', '.katex-display',
 ]
 
 async function styles(page) {
