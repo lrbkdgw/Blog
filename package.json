@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "extension:build": "npm --prefix vscode_extensions/v1 run build",
     "extension:test": "npm --prefix vscode_extensions/v1 test",
-    "extension:package": "npm --prefix vscode_extensions/v1 run package"
+    "extension:package": "npm --prefix vscode_extensions/v1 run package",
+    "build:offline": "vite build --config vite.offline.config.ts && node scripts/verify-offline.mjs",
+    "preview:offline": "vite preview --config vite.offline.config.ts --port 5180",
+    "verify:offline": "node scripts/verify-offline.mjs"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",

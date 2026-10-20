@@ -27,6 +27,8 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 🎛️ **交互展示框** | Markdown 中可声明整数、有理数、字符串变量，实时计算并渲染展示内容 |
 | 📄 **文章排版指令** | 文首 `::set-font` / `::set-code-font` / `::set-background` 强制本文的字体与动态背景，仅在阅读本文时生效 |
 | 📱 **响应式** | 手机 / 平板 / 桌面均已适配，支持打印样式 |
+| 🧭 **全透明页头 + 正文让路** | 页头不铺底色、不加毛玻璃、不描边、不投影，背景原样透出；同时滚进这一栏的**正文自己**按位置挂 `mask-image` 渐变淡出（`src/lib/headerYield.ts`），字不与导航打架、背景一像素不动（issue #53 / #63 / #71） |
+| 📴 **离线单文件版** | 整站打包成一个 HTML，**完全不联网**也能阅读与写作（含加密文章、本机版本历史）；要回线上用「文章包」导入（见「📴 离线版」） |
 
 ---
 
@@ -396,7 +398,7 @@ pinned: false    # true 则置顶到首页
 | <kbd>⌘</kbd> + <kbd>B</kbd> / <kbd>I</kbd> | 粗体 / 斜体 |
 | <kbd>⌘</kbd> + <kbd>K</kbd> | 插入链接 |
 | <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | 缩进 / 反缩进 |
-| <kbd>Shift</kbd> + <kbd>↑</kbd> | 打开 **LaTeX 符号选择框**：按命令或别名搜索（「正负」→ `\pm`、「异或」→ `\oplus`），方向键选择、Enter 插入到光标处，插入后光标落在第一个空参数内；最近用过的符号会记住（评论输入框同样支持，符号目录 `src/lib/latexSymbols.ts`，与 VS Code 插件共用） |
+| <kbd>Shift</kbd> + <kbd>↑</kbd> | 打开 **LaTeX 符号选择框**：按命令或别名搜索（「正负」→ `\pm`、「异或」→ `\oplus`），方向键选择、Enter 插入到光标处，插入后光标落在第一个空参数内；插入过程不会把页面拽到文末（先恢复光标再以 `preventScroll` 聚焦，见 `src/lib/caret.ts`，issue #70）；最近用过的符号会记住（评论输入框同样支持，符号目录 `src/lib/latexSymbols.ts`，与 VS Code 插件共用） |
 | <kbd>Enter</kbd> | 列表内自动续行（空项自动结束列表） |
 
 全站快捷键：<kbd>⌘</kbd>+<kbd>K</kbd> 或 <kbd>/</kbd> 打开搜索。
@@ -408,6 +410,11 @@ pinned: false    # true 则置顶到首页
 ```
 .
 ├── .github/workflows/deploy.yml   # GitHub Pages 自动部署（路线 B）
+├── .github/workflows/offline.yml  # 离线单文件版构建（自检后提交到 offline/，并发布 Rolling Release）
+├── offline/index.html             # 离线单文件版产物（自动生成，请勿手工编辑，见 offline/README.md）
+├── vite.offline.config.ts         # 离线构建配置（内联一切，`__STARLOG_OFFLINE__ = true`）
+├── scripts/vite-plugin-single-html.mjs  # 单文件内联插件（含构建期硬校验）
+├── scripts/verify-offline.mjs           # 构建后自检：缺字体 / 缺文章 / 残留外链 / 语法破坏 → 失败
 ├── functions/login/[[path]].ts    # OAuth 同源中转（Cloudflare Pages，路线 A）
 ├── oauth-relay/                   # OAuth 极简 CORS 中转（独立 Worker，路线 B 用）
 ├── content/
@@ -437,6 +444,83 @@ pinned: false    # true 则置顶到首页
 ├── tailwind.config.js
 └── vite.config.ts                 # base path + SPA 404 兜底
 ```
+
+---
+
+## 📴 离线版（单文件，完全不联网）
+
+整个博客可以打包成**一个 HTML 文件**：拷进 U 盘、发给自己、双击打开即可阅读与写作。
+离线版按设计**不发起任何网络请求**——没有在线登录，没有云端字体，不加载远程图片，也不直接改仓库。
+
+- 产物由 [`.github/workflows/offline.yml`](.github/workflows/offline.yml) 自动构建，提交在仓库的
+  [`offline/index.html`](offline/index.html)，并挂在 Releases 的滚动 tag `offline`（`starlog-offline-latest.html`）；
+  线上站点也会把它放在 `<站点地址>/offline/index.html` 供直接下载；
+- 本地构建：`npm run build:offline`（= `vite build --config vite.offline.config.ts` + 产物自检），
+  想用浏览器先验证：`npm run preview:offline`；
+- 自检是**硬性**的：多余文件、残留相对引用、KaTeX 字体缺失、某篇文章没进包、内联脚本语法被破坏，
+  以及——`api.github.com` / `/graphql` / `login/device/code` / `fonts.googleapis.com` / OAuth Client ID
+  任一字符串出现在产物里——都会让构建直接失败。也就是说「离线版不联网」不是承诺，是可检查的事实。
+
+### 支持范围
+
+| | |
+| --- | --- |
+| ✅ 阅读 | 构建时打包进文件的全部文章：列表、归档、标签、站内搜索、目录、打印样式 |
+| ✅ 排版 | KaTeX 公式、代码高亮、10 套配色主题、动态背景、字号（80%–130%）——样式与字体全部内联 |
+| ✅ 字体 | **只用本机已安装的字体**：不请求 Google Fonts，也不注入云端 `@font-face`；本机没有的字体名按默认字体栈显示 |
+| ✅ 写作 | 新建 / 编辑 / 自动保存 / 加密文章（浏览器 WebCrypto 本机加解密）/ 本机版本历史与差异对比 |
+| ✅ 评论 | 变成「本机笔记」：只写在这台设备上，任何情况下都不会提交到远端 |
+| 📤 带走 | 编辑器里的「保存到在线网站的本地文章」或「管理 → 离线文章包 → 导出」生成 `*.starlog-import.json`；在线上站点「管理 → 离线文章包 → 导入离线文章包」选它，即写入该站点的本地文章列表 |
+| ❌ 没有 | GitHub 登录与授权、远程仓库读写、在线评论、PR 审批、远端 Git 历史版本、云端字体同步、远程图片加载、待更新队列提交 |
+
+### 怎么把离线写的文章放在线上站点上
+
+```
+离线 HTML ──导出文章包──▶ starlog-xxxx.starlog-import.json ──线上站点「管理 → 离线文章包 → 导入」──▶ 站点本地文章列表
+                                                                          │
+                                                                          └─▶ 待更新队列 → 统一更新 → 一次 commit → Actions 部署
+```
+
+1. 离线文件里点「保存到在线网站的本地文章」（或到「管理 → 离线文章包」批量导出，可勾选）；
+   加密文章导出的是密文信封，密码不会随文件离开本机；
+2. 在联网浏览器里打开线上站点 →「管理 → 离线文章包」→「导入离线文章包」，选择这个文件；
+   对话框会逐篇列出「新增 / 覆盖 / 跳过」计划，确认后才写入；
+3. 内容进入该站点的**本地文章列表**；勾选「同时加入待更新队列」后可直接统一更新，
+   一次提交、一次部署，线上文章列表里就有了。
+
+### 数据存在哪、会不会丢
+
+- 优先写 **IndexedDB**；从 `file://` 直接打开时多数浏览器禁用 IndexedDB，此时自动降级为
+  **localStorage（约 5 MB）**，界面上会写明当前用的哪一个；
+- 两级都不可用（无痕模式、浏览器禁止站点保存数据）时，页面会**直接拦住并给出解决办法**，
+  同时拒绝一切写入——不会出现「提示保存成功、其实没存」；
+- 保存 / 发布 / 导入都会 `await flushStorage()` 确认真正落盘，**确认之后**才提示成功；
+- 「设置 → 离线版」可导出 / 导入**离线档案**（全部本机数据，用于备份或换设备）；
+- 记住一条：清除浏览器数据 = 本机文章一起没了，长文请随手导出档案备份。
+
+### 图片
+
+离线版不加载任何远程图片：文章里指向站点的 `/uploads/x.png` 或外部 `https://…` 地址会显示一条
+「离线版不加载远程图片」的说明，而不是破图。要带图，请在编辑器里插入图片——它会暂存在本机
+（预览用本地数据），并随文章包一起导出，导入线上站点后由站点上传到仓库。
+
+### 体积与性能
+
+以当前仓库内容（`content/posts/` 10 篇）实测：**单文件约 3.0 MB**
+——内联 CSS 1.49 MB（其中 KaTeX 字体 base64 约 1.07 MB）、内联 JS 1.50 MB，无其他文件。
+
+- 首屏只有一次文件读取，网络请求数为 **0**（这正是设计目标）；
+- 代价是首次解析这 3 MB（桌面约 60–150 ms，移动端更慢），之后路由切换是纯本地渲染，
+  阅读体验通常比线上版更快；
+- 体积随内容线性增长：正文与本机暂存图片都会进包。构建对成品有上限保护：
+  超过 48 MB 直接失败，超过 25 MB 会在自检输出里提示（邮件/网盘分发会难受）；
+- 因为不再拉取云端字体，离线版**没有**字体相关的等待与闪动（FOUT），排版完全取决于本机字体。
+
+### 与线上站点共用一套源码
+
+`vite.offline.config.ts` 把 `__STARLOG_OFFLINE__` 置为 `true`，线上构建固定为 `false`，
+所以不会出现「离线版是另一个玩具站」的功能漂移；所有离线分支都收敛在 `src/lib/runtime.ts`
+的 `OFFLINE` / `hasNetwork()` 判断下（离线版里 `hasNetwork()` 恒为 `false`），可逐条审计。
 
 ---
 

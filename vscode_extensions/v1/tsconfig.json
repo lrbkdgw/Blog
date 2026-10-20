@@ -27,6 +27,12 @@
     "jsx": "react-jsx"
   },
   "include": [
-    "src"
+    "src",
+    // 插件顺着 import 复用了博客的 src/lib/runtime.ts，它读取 Vite define 注入的全局
+    // __STARLOG_OFFLINE__（运行时用 typeof 守卫兜底，类型上必须有声明）。
+    // 声明文件在仓库根的 src/ 下，不在本插件的 include 里，CI 的 `npm run typecheck`
+    // 会报 TS2304: Cannot find name '__STARLOG_OFFLINE__'。这里显式把它拉进程序，
+    // 而不是往 runtime.ts 里塞一份局部声明——两份声明迟早会漂移。
+    "../../src/offline-globals.d.ts"
   ]
 }

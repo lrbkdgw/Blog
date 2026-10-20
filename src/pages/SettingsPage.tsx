@@ -59,6 +59,8 @@ import { getLocalPosts, serializePost } from '../lib/posts'
 import { STORAGE_KEYS } from '../lib/config'
 import { clearRememberedPostUnlocks } from '../lib/crypto'
 import { useEditorScrollSync } from '../lib/editorSettings'
+import { OfflineSettingsCard } from '../components/OfflineSettingsCard'
+import { OFFLINE } from '../lib/runtime'
 
 type LocalFontData = { family?: string }
 
@@ -624,7 +626,9 @@ export default function SettingsPage() {
       <header className="mb-8 animate-fade-up">
         <h1 className="font-serif text-3xl font-bold tracking-tight text-ink-900 dark:text-white">设置</h1>
         <p className="mt-1.5 text-sm text-ink-500">
-          个性化设置使用浏览器本地存储与即时更新机制；连接 GitHub 后仍可选择同步偏好至账号。
+          {OFFLINE
+            ? '个性化设置使用浏览器本地存储与即时更新机制。离线版不联网，因此没有账号同步：偏好只保存在这台设备的这个文件里。'
+            : '个性化设置使用浏览器本地存储与即时更新机制；连接 GitHub 后仍可选择同步偏好至账号。'}
           <Link
             to={isAuthed ? '/admin' : '/'}
             className="ml-2 text-brand-600 hover:underline dark:text-brand-300"
@@ -755,7 +759,9 @@ export default function SettingsPage() {
             </div>
           ) : (
             <p className="mt-4 border-t border-ink-200/70 pt-4 text-xs leading-relaxed text-ink-400 dark:border-white/10">
-              访客设置已直接生效并保存在本地。登录 GitHub 账号后还可将字体与字号偏好同步至云端。
+              {OFFLINE
+                ? '离线版只使用本机已安装的字体（不会请求云端字体）；本机没有的字体名会按默认字体栈显示。'
+                : '访客设置已直接生效并保存在本地。登录 GitHub 账号后还可将字体与字号偏好同步至云端。'}
             </p>
           )}
         </Section>
@@ -859,7 +865,8 @@ export default function SettingsPage() {
         </Section>
 
         {/* ------------------------------ 外观偏好同步 ------------------------------ */}
-        <Section
+        {!OFFLINE && (
+          <Section
           title="外观偏好同步"
           desc="把配色主题、明暗模式、背景渐变与动态背景一起保存到 GitHub 账号；在其他设备登录同一账号后会读取并恢复。"
           icon={Cloud}
@@ -887,13 +894,16 @@ export default function SettingsPage() {
             </div>
           ) : (
             <p className="text-xs leading-relaxed text-ink-400">
-              访客设置已直接保存在本地。登录并连接 GitHub 账号后，可在这里把外观偏好同步到云端。
+              {OFFLINE
+                ? '离线版的外观偏好只保存在本机（这个文件不联网，也就没有账号同步）。'
+                : '访客设置已直接保存在本地。登录并连接 GitHub 账号后，可在这里把外观偏好同步到云端。'}
             </p>
           )}
           <p className="mt-3 text-xs leading-relaxed text-ink-400">
             偏好保存在仓库的 <code className="font-mono">.starlog/settings/background-preferences/</code> 下，每个 GitHub 账号一个文件，不会影响文章与站点其他人的设置。
           </p>
         </Section>
+        )}
 
         {/* ------------------------------ 编辑器行为 ----------------------------- */}
         <Section
@@ -935,7 +945,8 @@ export default function SettingsPage() {
         </Section>
 
         {/* ------------------------------ GitHub 连接 ----------------------------- */}
-        <Section
+        {!OFFLINE && (
+          <Section
           title="GitHub 连接"
           desc="连接后即可在线发表/申请文章、参与审核、上传图片，并同步个人偏好。"
           icon={Github}
@@ -988,9 +999,11 @@ export default function SettingsPage() {
             </div>
           )}
         </Section>
+        )}
 
         {/* ------------------------------ 目标仓库设置 ------------------------------- */}
-        <Section title="目标仓库" desc="文章发布与 PR 提交的目标 GitHub 仓库。" icon={Save}>
+        {!OFFLINE && (
+          <Section title="目标仓库" desc="文章发布与 PR 提交的目标 GitHub 仓库。" icon={Save}>
           <div className="grid gap-4 sm:grid-cols-2">
             {(
               [
@@ -1018,6 +1031,10 @@ export default function SettingsPage() {
             保存仓库设置
           </button>
         </Section>
+        )}
+
+        {/* ------------------------------ 离线版专属 ------------------------------ */}
+        {OFFLINE && <OfflineSettingsCard />}
 
         {/* ------------------------------ 本地数据 ------------------------------- */}
         <Section
@@ -1055,9 +1072,18 @@ export default function SettingsPage() {
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-relaxed text-ink-600 dark:text-ink-300">
             <li>所有访客与已登录用户均可自由配置字体、背景与深浅色模式。</li>
-            <li>GitHub 使用 OAuth（Device Flow）授权，站点不接触你的密码。</li>
-            <li>普通登录用户发表文章会自动走 Pull Request 审批流程；仓库管理员可直接审核合并。</li>
-            <li>在公共电脑上使用完毕后，请点击「退出登录」清理本地令牌。</li>
+            {OFFLINE ? (
+              <>
+                <li>离线版不联网：不登录、不请求云端字体、不加载远程图片，也不提交仓库。</li>
+                <li>全部数据只存在这台设备的浏览器里；清除浏览器数据会一并删掉，请在上方「离线版」卡片导出档案备份。</li>
+              </>
+            ) : (
+              <>
+                <li>GitHub 使用 OAuth（Device Flow）授权，站点不接触你的密码。</li>
+                <li>普通登录用户发表文章会自动走 Pull Request 审批流程；仓库管理员可直接审核合并。</li>
+                <li>在公共电脑上使用完毕后，请点击「退出登录」清理本地令牌。</li>
+              </>
+            )}
           </ul>
         </section>
       </div>

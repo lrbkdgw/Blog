@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { STORAGE_KEYS } from './config'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 import { fetchGithubFontPreference, buildFontPreferenceFile, fontSettingsPath } from './github'
+import { OFFLINE, hasNetwork } from './runtime'
 import { enqueueSettingsSync, getUpdateQueue } from './updateQueue'
 import { useAuth } from './auth'
 import { MONO_FALLBACK, SANS_FALLBACK, SERIF_FALLBACK, buildFontStack, quoteFontFamily } from './fontStacks'
@@ -249,7 +250,17 @@ export function localFontLikelyExists(family: string): boolean {
   )
 }
 
+/**
+ * 云端字体（Google Fonts）的 CSS 端点。
+ *
+ * 离线版**只允许使用本机已安装的字体**，所以这个端点在构建期就被替换成空串：
+ * 产物里查不到 `fonts.googleapis.com`，也就无法「顺手」去拉字体。
+ * 字体在离线版里只是外观差异，取不到就按 CSS 里的本机字体栈回退（见 fontStacks.ts）。
+ */
+const CLOUD_FONT_BASE = OFFLINE ? '' : 'https://fonts.googleapis.com/css2'
+
 export async function requestCloudFont(family: string, timeout = CLOUD_TIMEOUT): Promise<void> {
+  if (OFFLINE) throw new Error('离线版只使用本机已安装的字体，不会请求云端字体')
   if (cloudStyles.has(family)) return
 
   const startedAt = Date.now()
@@ -258,10 +269,9 @@ export async function requestCloudFont(family: string, timeout = CLOUD_TIMEOUT):
   let style: HTMLStyleElement | undefined
   try {
     const encodedFamily = encodeURIComponent(family).replace(/%20/g, '+')
-    const response = await fetch(
-      `https://fonts.googleapis.com/css2?family=${encodedFamily}:wght@400;500;600;700&display=swap`,
-      { signal: controller.signal },
-    )
+    const response = await fetch(`${CLOUD_FONT_BASE}?family=${encodedFamily}:wght@400;500;600;700&display=swap`, {
+      signal: controller.signal,
+    })
     if (!response.ok) throw new Error('云端未找到该字体')
 
     const css = await response.text()
@@ -296,6 +306,18 @@ export async function requestCloudFont(family: string, timeout = CLOUD_TIMEOUT):
  * 只应在**可信内容**（自己仓库里的文章）上调用，评论等外部内容不触发网络请求。
  */
 export function warmFontFamilies(families: string[]): void {
+  // 离线版根本不走云端字体（`hasNetwork()` 在离线构建里恒为 false），
+  // 线上版在没有网络时也不去敲 Google Fonts：请求会挂到超时，白等十几秒。
+  // 字体只是外观差异，失败仍按既有约定静默回退到本机字体栈。
+  if (!hasNetwork()) {
+    if (OFFLINE) {
+      const missing = families.filter((family) => family && !localFontLikelyExists(family))
+      if (missing.length > 0) {
+        console.info(`[字体] 离线版只使用本机字体；本机未安装 ${missing.join('、')}，这些位置将按默认字体栈显示`)
+      }
+    }
+    return
+  }
   for (const family of families) {
     if (localFontLikelyExists(family)) continue
     void requestCloudFont(family).catch(() => {})

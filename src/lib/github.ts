@@ -1,5 +1,6 @@
 import { commentsConfig, githubConfig, oauthConfig, STORAGE_KEYS } from './config'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
+import { OFFLINE, OFFLINE_NO_NETWORK_HINT } from './runtime'
 
 export interface RepoTarget {
   owner: string
@@ -15,7 +16,23 @@ export interface GhUser {
   html_url: string
 }
 
-const API = 'https://api.github.com'
+/**
+ * GitHub REST 端点。
+ *
+ * 离线版按设计不联网，所以端点在**构建期**就被替换成空串：产物里根本不存在这个地址
+ * （`scripts/verify-offline.mjs` 会硬检查）。比「运行时再判断一次」可靠——少一处
+ * 「新写的函数忘了判断就打出去」的可能。
+ */
+const API = OFFLINE ? '' : 'https://api.github.com'
+
+/** 所有出网请求的唯一出口：离线版在这里直接失败，绝不静默返回空数据 */
+/** GraphQL 端点（仓库权限查询用）；与 `API` 同理，离线版里必须连路径都不存在 */
+const GRAPHQL = OFFLINE ? '' : '/graphql'
+
+async function net(input: string, init?: RequestInit): Promise<Response> {
+  if (OFFLINE) throw new Error(`${OFFLINE_NO_NETWORK_HINT}（离线版没有 GitHub 访问能力）`)
+  return fetch(input, init)
+}
 
 /* --------------------------------- 配置 ---------------------------------- */
 
@@ -48,7 +65,7 @@ export function setToken(token: string | null) {
 /* ------------------------------- 请求封装 -------------------------------- */
 
 async function gh<T>(path: string, init: RequestInit = {}, token = getToken()): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await net(`${API}${path}`, {
     ...init,
     headers: {
       Accept: 'application/vnd.github+json',
@@ -88,7 +105,7 @@ async function githubGraphql<T>(
   token = getToken(),
 ): Promise<T> {
   if (!token) throw new Error('请先使用 GitHub 登录后再访问评论')
-  const response = await fetch(`${API}/graphql`, {
+  const response = await net(`${API}${GRAPHQL}`, {
     method: 'POST',
     headers: {
       Accept: 'application/vnd.github+json',
@@ -158,6 +175,7 @@ export interface DeviceAuthInfo {
 }
 
 function oauthRelay(path: string): string {
+  // 只有线上站点需要「同源 Pages Function / 独立 Worker」这两种中转形态
   const relay = oauthConfig.relayUrl.trim()
   if (!relay) return path
   return `${relay.replace(/\/+$/, '')}${path}`
@@ -173,12 +191,15 @@ async function readOAuthJson(res: Response): Promise<Record<string, unknown>> {
 }
 
 export async function requestDeviceCode(): Promise<DeviceAuthInfo> {
+  if (OFFLINE) {
+    throw new Error(`${OFFLINE_NO_NETWORK_HINT}：离线版没有在线登录，阅读与写作都在本机完成`)
+  }
   if (!oauthConfig.clientId.trim()) {
     throw new Error('尚未配置 OAuth App Client ID（oauthConfig.clientId），请按 README 设置')
   }
   let res: Response
   try {
-    res = await fetch(oauthRelay('/login/device/code'), {
+    res = await net(oauthRelay('/login/device/code'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -232,7 +253,7 @@ export async function pollDeviceToken(info: DeviceAuthInfo, signal?: AbortSignal
     await sleep(interval * 1000, signal)
     let res: Response
     try {
-      res = await fetch(oauthRelay('/login/oauth/access_token'), {
+      res = await net(oauthRelay('/login/oauth/access_token'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -323,7 +344,7 @@ export async function fetchRemoteFile(
   )
   // 超过 1MB 的文件 contents API 不再内联返回 content，改走 download_url。
   if (!item.content && item.size && item.download_url) {
-    const res = await fetch(item.download_url)
+    const res = await net(item.download_url)
     if (!res.ok) throw new Error(`无法下载文件内容（${res.status} ${res.statusText}）`)
     return { sha: item.sha, text: await res.text() }
   }

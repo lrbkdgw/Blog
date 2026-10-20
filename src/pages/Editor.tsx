@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import {
+import { Archive, 
   AlertCircle,
   Bold,
   Check,
@@ -25,6 +25,7 @@ import {
   Minimize2,
   Pencil,
   Quote,
+  HardDrive,
   Save,
   Sigma,
   SlidersHorizontal,
@@ -52,16 +53,24 @@ import {
   excerpt,
   getEncryptedRepoPost,
   getPostBySlug,
+  localPostExists,
   readingTime,
+  recordPublishTime,
   saveLocalPost,
+  saveLocalPostRaw,
   serializePost,
   slugify,
   today,
 } from '../lib/posts'
+import { hideSeedPost, pushLocalVersion } from '../lib/offlineLibrary'
+import { exportBundleFile } from '../lib/offlineBundle'
+import { OFFLINE } from '../lib/runtime'
+import { flushStorage } from '../lib/offlineStorage'
 import { siteConfig } from '../lib/config'
 import { parseArticleDirectives } from '../lib/articleDirectives'
 import { setAnimatedSceneOverride } from '../lib/animatedBackground'
 import { warmFontFamilies } from '../lib/font'
+import { focusWithoutScroll, restoreCaret } from '../lib/caret'
 import { latexSymbolInsert, type LatexSymbol } from '../lib/latexSymbols'
 import { handleEditorKey, insertBlock, toggleLinePrefix, toggleWrap } from '../lib/editor'
 import type { EditAction } from '../lib/editor'
@@ -102,6 +111,26 @@ const hello = (name: string) => \`你好，\${name}！\`
 折叠框内容支持各类 Markdown 与公式排版。
 ::::
 `
+
+/**
+ * 一次「保存草稿」的结果。
+ *
+ * `written: false` 表示这次按规则**拒绝写入**（例如加密文章还没解锁载入，
+ * 此时编辑区是空白，写进去会覆盖掉真正的内容）。调用方必须据此中止后续动作，
+ * 不能继续提示「已保存」。
+ */
+interface SaveOutcome {
+  post: Post
+  /** 内容是否已经进入本地文章库存储（去重跳过也算 true，因为磁盘上已是同样内容） */
+  written: boolean
+  /** 因「与 50ms 内的上一次写入内容完全一致」而跳过重复写入 */
+  deduped?: boolean
+  /** 未写入的原因（用于提示与日志） */
+  reason?: string
+}
+
+/** 相同内容在这一毫秒窗口内不重复写入本地存储 */
+const WRITE_THROTTLE_MS = 50
 
 export default function Editor() {
   const { slug: routeSlug } = useParams()
@@ -183,7 +212,8 @@ export default function Editor() {
   useEffect(() => {
     if (!ghUser) {
       setCanDirectPush(false)
-      setIsRepoAdmin(false)
+      // 离线版在「未连接 GitHub」时也必须能发布加密文章到本机文章库（此时 isRepoAdmin 不参与判断）
+      setIsRepoAdmin(OFFLINE)
       return
     }
     checkUserRepoPermissions(ghUser.login, target).then((res) => {
@@ -192,6 +222,9 @@ export default function Editor() {
     })
   }, [ghUser, target])
 
+  /** 写入去重：见 save() 中的节流说明 */
+  const lastWriteSignature = useRef('')
+  const lastWriteTime = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -336,44 +369,112 @@ export default function Editor() {
   }
 
   /* ------------------------------- 保存草稿 ------------------------------- */
+  /**
+   * 同步写入本地草稿 / 离线文章库，并返回「到底有没有写」。
+   *
+   * 这里**不弹任何成功提示**：提示统一由 saveAndFlush 在「写入 + 落盘 + 回读校验」
+   * 全部通过之后再发，避免出现「先弹已保存到本地草稿、随后发现其实没写进去」。
+   * 加密文章未解锁时只返回 written: false，由调用方决定怎么告诉用户。
+   */
   const save = useCallback(
-    (silent = false) => {
+    (silent = false): SaveOutcome => {
       const post = buildDraftPost()
       // 加密文章的修改同样保存为本地草稿（明文，仅保存在本浏览器）。
       // 公开页面仍显示仓库中的加密版本（getAllPosts 不会让明文草稿顶替加密文章），
       // 发布时也会重新加密。
       // 防御：加密文章在解锁数据载入编辑器之前，不允许把空白的标题/摘要/正文写成草稿。
       if (protectedExisting && !hydratedRef.current) {
-        if (!silent) toast('文章尚未解锁完成，请稍候再保存', 'warning')
-        return post
+        return { post, written: false, reason: '加密文章尚未解锁载入，未写入本地草稿' }
       }
+      // 去重节流：与上一次写入的内容完全一致、且发生在 50ms 之内时跳过重复写盘。
+      // 自动保存与「发布」几乎同时触发（发布内部也会先 save）时，这里省掉一次
+      // 无意义的序列化 + 存储写入；因为内容一致，跳过并不会丢任何东西。
+      const signature = serializePost(post)
+      const now = Date.now()
+      if (signature === lastWriteSignature.current && now - lastWriteTime.current < WRITE_THROTTLE_MS) {
+        return { post, written: true, deduped: true, reason: '内容与刚刚的写入一致，已跳过重复写入' }
+      }
+      lastWriteSignature.current = signature
+      lastWriteTime.current = now
       saveLocalPost(post, originalSlug.current)
       originalSlug.current = post.slug
       setSavedAt(Date.now())
       setDirty(false)
       if (!silent) {
-        toast(
-          protectedLineage
-            ? '已保存到本地草稿（明文，仅保存在本浏览器）；发布时会重新加密'
-            : '已保存到本地草稿',
-          protectedLineage ? 'info' : 'success',
-        )
         // 指向本地草稿，刷新后能直接继续编辑，而不是回到仓库里的旧版本。
         if (routeSlug !== post.slug || sourceParam === 'repo') {
           navigate(`/admin/edit/${post.slug}?source=local`, { replace: true })
         }
       }
-      return post
+      return { post, written: true }
     },
-    [buildDraftPost, navigate, protectedLineage, protectedExisting, routeSlug, sourceParam, toast],
+    [buildDraftPost, navigate, protectedExisting, routeSlug, sourceParam],
+  )
+
+  /**
+   * 保存 + 落盘确认 + 回读校验。**唯一的保存入口**：
+   * ⌘S、工具栏「保存草稿」、自动保存与发布都走它。
+   *
+   * 顺序固定为：写入 → （离线版）flushStorage 确认落盘 → 按 slug 回读校验 → 才发成功提示；
+   * 任何一步失败都抛出并恢复「未保存」标记，绝不显示「已保存」。
+   */
+  const saveAndFlush = useCallback(
+    async (silent = false): Promise<SaveOutcome> => {
+      const outcome = save(silent)
+      const fail = (message: string) => {
+        setDirty(true)
+        setSavedAt(null)
+        if (!silent) toast(message, 'error')
+        throw new Error(message)
+      }
+      // 离线版即使这次拒绝写入，也要把此前自动保存在途的内容刷盘，
+      // 保证「未解锁」这一路与其他路径的 flush 语义一致。
+      if (OFFLINE) {
+        try {
+          await flushStorage()
+        } catch (err) {
+          fail(`本地存储写入失败：${err instanceof Error ? err.message : '未知错误'}`)
+        }
+      }
+      // 未写入（例如加密文章还没解锁载入）一律中止：线上 / 离线行为一致，
+      // 调用方（发布、加入队列）绝不能在这种情况下继续写文章库或留快照。
+      if (!outcome.written) {
+        const message = outcome.reason || '本次没有写入本地草稿'
+        if (!silent) toast(message, 'warning')
+        throw new Error(message)
+      }
+      // 回读校验：确认写进去的确实是当前编辑中的这条（改名 / 覆盖出问题时能立刻发现）。
+      // 线上版没有异步落盘环节，但同样要校验，避免「提示已保存而存储里没这条」。
+      if (!localPostExists(outcome.post.slug)) {
+        fail(`保存校验失败：本地文章库里找不到「${outcome.post.slug}」这条记录，内容可能未写入`)
+      }
+      if (!silent) {
+        toast(
+          protectedLineage
+            ? OFFLINE
+              ? '已保存到本机（明文草稿，仅保存在这台设备）；发布时会重新加密'
+              : '已保存到本地草稿（明文，仅保存在本浏览器）；发布时会重新加密'
+            : OFFLINE
+              ? '已保存到本机存储，离线也能阅读'
+              : '已保存到本地草稿',
+          protectedLineage ? 'info' : 'success',
+        )
+      }
+      return outcome
+    },
+    [save, toast, protectedLineage],
   )
 
   // 自动保存
   useEffect(() => {
     if (!dirty) return
-    const t = setTimeout(() => save(true), 2500)
+    const t = setTimeout(() => {
+      // 静默保存：失败不额外弹 toast（StorageGuard 的常驻横幅与错误 toast 已负责报出），
+      // 但一定要把「未保存」标记留回来。
+      void saveAndFlush(true).catch(() => undefined)
+    }, 2500)
     return () => clearTimeout(t)
-  }, [dirty, content, title, save])
+  }, [dirty, content, title, saveAndFlush])
 
   // 离开提醒
   useEffect(() => {
@@ -395,10 +496,9 @@ export default function Editor() {
     setContent(action.value)
     markDirty()
     requestAnimationFrame(() => {
-      const ta = textareaRef.current
-      if (!ta) return
-      ta.focus()
-      ta.setSelectionRange(action.selectionStart, action.selectionEnd)
+      // 先放回插入点再抢焦点：直接 focus() 会因为「把光标滚进视野」把整页
+      // 拽到文章末尾（issue #70），细节见 src/lib/caret.ts。
+      restoreCaret(textareaRef.current, action.selectionStart, action.selectionEnd)
     })
   }
 
@@ -530,7 +630,8 @@ export default function Editor() {
     const mod = e.metaKey || e.ctrlKey
     if (mod && e.key.toLowerCase() === 's') {
       e.preventDefault()
-      save()
+      // 保存 + 落盘确认（失败提示在 saveAndFlush 内部）
+      void saveAndFlush().catch(() => undefined)
       return
     }
     if (mod && e.key.toLowerCase() === 'b') {
@@ -554,7 +655,7 @@ export default function Editor() {
 
   /* ------------------------------- 图片上传 ------------------------------- */
   const onPickImage = async (file: File) => {
-    if (!canPublish) {
+    if (!canPublish && !OFFLINE) {
       toast('未登录 GitHub 无法更新远程仓库图片，可直接使用 Markdown 插入外链图片或登录后上传', 'info')
       return
     }
@@ -563,10 +664,13 @@ export default function Editor() {
       // 图片先暂存到本地待更新队列，统一更新时再上传到仓库；链接先按最终地址写入正文。
       const url = await enqueueImageUpload(file)
       withSelection((v, s, e) => insertBlock(v, s, e, `![${file.name}](${url})\n`))
-      toast('图片已加入待更新队列，统一更新到仓库前站内预览使用本地暂存数据', 'success', {
-        label: '查看队列',
-        href: '/admin?tab=queue',
-      })
+      toast(
+        OFFLINE
+          ? '图片已保存在本机图片库（预览用本地数据），导出文章包时会一起带上'
+          : '图片已加入待更新队列，统一更新到仓库前站内预览使用本地暂存数据',
+        'success',
+        { label: '查看队列', href: OFFLINE ? '/admin?tab=export' : '/admin?tab=queue' },
+      )
     } catch (err) {
       toast(err instanceof Error ? err.message : '暂存图片失败', 'error')
     } finally {
@@ -574,8 +678,117 @@ export default function Editor() {
     }
   }
 
+  /* ---------------- 离线版：写入本机文章库（发布 = 落盘确认后才算成功） ---------------- */
+  /**
+   * 把编辑区内容写进本机文章库，返回最终 slug；校验不通过或写入失败返回 null。
+   *
+   * 三条硬规则（都是被离线场景逼出来的）：
+   *   - 加密文章没解锁时**不写**，也不让调用方以为写好了；
+   *   - 写完必须 `await flushStorage()` 确认真的落盘（存储被拒 / 配额满要在这里冒出来）；
+   *   - 只有确认之后才谈「已保存」。
+   */
+  const saveToLibrary = async (): Promise<string | null> => {
+    // 加密文章必须先解锁：此时编辑区是空白，继续走下去会把空白内容写成文章库条目
+    if (protectedExisting && !hydratedRef.current) {
+      toast('请先输入密码解锁文章后再保存', 'warning')
+      return null
+    }
+    if (!title.trim()) {
+      toast('请先填写标题', 'warning')
+      setFullscreen(false)
+      setMetaOpen(true)
+      return null
+    }
+    if (encryptOnPublish) {
+      if (!encryptionPassword) {
+        toast('请输入文章加密密码', 'warning')
+        setMetaOpen(true)
+        return null
+      }
+      if (encryptionPassword !== encryptionConfirm) {
+        toast('两次输入的密码不一致', 'warning')
+        setMetaOpen(true)
+        return null
+      }
+    }
+    setPublishing(true)
+    try {
+      // 先把编辑区内容落盘（含存储确认），失败即抛出，绝不显示「已保存」
+      const { post, written, deduped } = await saveAndFlush(true)
+      if (deduped) {
+        console.info('[离线保存] 草稿内容与刚刚的自动保存一致，已跳过重复写入，直接继续')
+      }
+      if (!written) {
+        // saveAndFlush 里已经抛错，这里是显式双保险：宁可不写，也不留下空白文章
+        throw new Error('本次没有写入本地草稿，已中止保存')
+      }
+      const markdown = encryptOnPublish
+        ? await encryptPostMarkdown(post, encryptionPassword)
+        : serializePost(post)
+      // 文章库条目直接写入完整 Markdown：加密发布时写入的是密文信封，本机不留明文
+      saveLocalPostRaw(post.slug, markdown, routeSlug || undefined)
+      // 改了 slug 且旧名字来自内置文章：本机隐藏旧条目（只影响这台设备上的这个文件）
+      if (routeSlug && routeSlug !== post.slug && getPostBySlug(routeSlug, 'repo')) {
+        hideSeedPost(routeSlug)
+      }
+      pushLocalVersion(post.slug, markdown, `保存 · ${new Date().toLocaleString('zh-CN')}`)
+      recordPublishTime(post.slug)
+      if (encryptOnPublish) {
+        setEncryptionPassword('')
+        setEncryptionConfirm('')
+      }
+      // 最终确认落盘（文章库条目 + 版本快照 + 发布时间），任何失败都在这里冒出来
+      await flushStorage()
+      setSavedAt(Date.now())
+      setDirty(false)
+      return post.slug
+    } catch (err) {
+      setDirty(true)
+      toast(err instanceof Error ? err.message : '保存到文章库失败', 'error')
+      return null
+    } finally {
+      setPublishing(false)
+    }
+  }
+
+  const publishOffline = async () => {
+    const slug = await saveToLibrary()
+    if (!slug) return
+    toast(
+      `已保存到本机文章库${encryptOnPublish ? '（密文信封）' : ''}`,
+      'success',
+      { label: '带到线上站点', href: '/admin?tab=export' },
+    )
+  }
+
+  /**
+   * 「保存到在线网站的本地文章中」：先写进本机文章库，再生成这一篇的**文章包**文件。
+   *
+   * 离线文件不联网，不能替用户提交仓库；文章包就是唯一的交接物——
+   * 在线上站点的「管理 → 导入离线文章包」里选它，内容就进入该站点的本地文章列表，
+   * 之后由站点自己的待更新队列一次提交、一次部署。
+   */
+  const exportThisPost = async () => {
+    const slug = await saveToLibrary()
+    if (!slug) return
+    try {
+      const result = exportBundleFile([slug])
+      toast(
+        `已生成导入包 ${result.file}（${(result.bytes / 1024).toFixed(0)} KB）。` +
+          '到线上站点的「管理 → 导入离线文章包」里选择它，即可写入该站点的本地文章列表',
+        'success',
+        { label: '查看导出说明', href: '/admin?tab=export' },
+      )
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '文章已保存，但生成导入包失败', 'error')
+    }
+  }
+
   /* ---------------------------- 发布或提交 PR ---------------------------- */
   const publishOrSubmitPR = async () => {
+    // 离线版：写本机文章库（不触碰 GitHub）。publishOffline 自己处理错误提示，
+    // 这里返回它的 promise，保证按钮的「处理中…」与实际写入一致。
+    if (OFFLINE) return publishOffline()
     // 全屏时看不到文章信息面板，先退出全屏再提示补充信息。
     const revealMeta = () => {
       setFullscreen(false)
@@ -586,7 +799,12 @@ export default function Editor() {
       revealMeta()
       return
     }
-    const post = save(true)
+    const { post, written, reason } = save(true)
+    if (!written) {
+      // 加密文章尚未解锁载入：此时编辑区是空白，直接中止才不会把空内容写进队列
+      toast(reason || '本次没有写入本地草稿，稍后再试', 'warning')
+      return
+    }
     if (!canPublish) {
       toast('未登录状态仅支持保存到本地草稿。登录 GitHub 账号后可将更改加入待更新队列并统一更新。', 'info', {
         label: '前往登录',
@@ -922,13 +1140,34 @@ export default function Editor() {
             <button onClick={download} className="btn-ghost h-9 w-9 !px-0" title="下载 .md">
               <Download size={16} />
             </button>
-            <button onClick={() => save()} className="btn-outline h-9">
+            <button onClick={() => void saveAndFlush().catch(() => undefined)} className="btn-outline h-9">
               <Save size={15} />
               <span className="hidden sm:inline">保存草稿</span>
             </button>
 
-            {/* 发布/提交 PR 按钮：更改先加入待更新队列，由内容管理统一更新 */}
-            {canPublish ? (
+            {/* 离线版：写入本机文章库；线上：更改先加入待更新队列，由内容管理统一更新 */}
+            {OFFLINE ? (
+              <>
+                <button
+                  onClick={publishOrSubmitPR}
+                  disabled={publishing}
+                  className="btn-outline h-9"
+                  title="写入这个 HTML 所在浏览器的本机文章库；不联网，也不会改动仓库"
+                >
+                  {publishing ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+                  <span className="hidden sm:inline">{publishing ? '保存中…' : '保存到本机'}</span>
+                </button>
+                <button
+                  onClick={() => void exportThisPost()}
+                  disabled={publishing}
+                  className="btn-primary h-9"
+                  title="保存到本机文章库，并生成这一篇的文章包文件；在线上站点导入后就会出现在该站点的本地文章列表里"
+                >
+                  {publishing ? <Loader2 size={15} className="animate-spin" /> : <Archive size={15} />}
+                  <span className="hidden sm:inline">保存到在线网站的本地文章</span>
+                </button>
+              </>
+            ) : canPublish ? (
               <button
                 onClick={publishOrSubmitPR}
                 disabled={publishing}
@@ -1273,6 +1512,16 @@ export default function Editor() {
         {/* 提示栏（全屏时隐藏） */}
         {!fullscreen && (
         <div className="mb-16 mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-400">
+          {OFFLINE ? (
+            <span className="flex items-center gap-1.5">
+              <AlertCircle size={13} />
+              离线版：草稿与文章都存在这个浏览器的本机文章库里，全程不联网。要带到线上，用
+              <Link to="/admin?tab=export" className="text-brand-600 hover:underline dark:text-brand-300">
+                导出文章包
+              </Link>
+              ，再到线上站点导入。
+            </span>
+          ) : (
           <span className="flex items-center gap-1.5">
             <AlertCircle size={13} />
             草稿实时保存在本浏览器；发布与图片上传等仓库操作会先加入
@@ -1281,10 +1530,18 @@ export default function Editor() {
             </Link>
             ，统一更新后才会提交到 GitHub。
           </span>
-          {canPublish ? (
+          )}
+          {/* 离线版没有账号体系：这里只显示「本机会自动保存」，不出现任何连接 GitHub 的入口 */}
+          {OFFLINE ? (
+            <span className="flex items-center gap-1.5">
+              <HardDrive size={13} />
+              未登录也可写作：内容保存在本机
+            </span>
+          ) : canPublish ? (
             <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
               <Github size={13} />
-              已连接 @{ghUser?.login} {canDirectPush ? '（仓库管理员）' : '（协作者）'}
+              已连接 @{ghUser?.login}{' '}
+              {canDirectPush ? '（仓库管理员）' : '（协作者）'}
             </span>
           ) : (
             <Link
@@ -1303,8 +1560,8 @@ export default function Editor() {
         open={latexPickerOpen}
         onClose={() => {
           setLatexPickerOpen(false)
-          // 关闭后把焦点还给编辑区，继续原来的写作位置。
-          requestAnimationFrame(() => textareaRef.current?.focus())
+          // 关闭后把焦点还给编辑区，继续原来的写作位置——但不允许 focus() 顺手滚页。
+          requestAnimationFrame(() => focusWithoutScroll(textareaRef.current))
         }}
         onInsert={insertLatexSymbol}
       />

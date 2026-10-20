@@ -13,6 +13,11 @@ function readAll(): PersonalSettings {
   }
 }
 
+/** 读取完整偏好对象（离线档案导出 / 导入整份偏好时使用） */
+export function readPersonalSettings(): PersonalSettings {
+  return readAll()
+}
+
 /**
  * Personal preferences use a browser-local
  * JSON store and a custom event so every open view can refresh immediately.

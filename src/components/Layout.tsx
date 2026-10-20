@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Github,
+  HardDrive,
   LayoutDashboard,
   LogIn,
   LogOut,
@@ -16,12 +17,15 @@ import {
   X,
 } from 'lucide-react'
 import { siteConfig } from '../lib/config'
+import { installHeaderYield, requestHeaderYieldRefresh } from '../lib/headerYield'
 import { useTheme } from '../lib/theme'
 import { DEFAULT_COLOR_THEME } from '../lib/themes'
 import { useAuth } from '../lib/auth'
 import { AnimatedBackdrop } from './AnimatedBackdrop'
 import { useAnimatedBackground, useAnimatedSceneOverride, getSceneValues } from '../lib/animatedBackground'
 import { SearchDialog } from './SearchDialog'
+import { OFFLINE } from '../lib/runtime'
+import { countLocalContent } from '../lib/offlineBundle'
 import { ThemePicker } from './ThemePicker'
 import logoVenti from '../assets/logo-venti.jpg'
 
@@ -211,6 +215,8 @@ function Header({ onSearch }: { onSearch: () => void }) {
             <Settings size={18} />
           </Link>
 
+          <OfflineBadge />
+
           <ThemePicker />
 
           <ThemeToggle />
@@ -220,7 +226,8 @@ function Header({ onSearch }: { onSearch: () => void }) {
             写文章
           </Link>
 
-          <UserMenu />
+          {/* 离线版没有账号体系：不登录、也不能登录（那需要联网） */}
+          {!OFFLINE && <UserMenu />}
 
           <button
             onClick={() => setMobileOpen((v) => !v)}
@@ -254,7 +261,18 @@ function Header({ onSearch }: { onSearch: () => void }) {
                 <Settings size={15} />
                 设置
               </Link>
-              {isAuthed ? (
+              {OFFLINE ? (
+                <>
+                  <Link to="/admin" className="btn-outline flex-1">
+                    <LayoutDashboard size={15} />
+                    管理
+                  </Link>
+                  <Link to="/admin/new" className="btn-primary flex-1">
+                    <PenLine size={15} />
+                    写文章
+                  </Link>
+                </>
+              ) : isAuthed ? (
                 <>
                   <Link to="/admin" className="btn-outline flex-1">
                     <LayoutDashboard size={15} />
@@ -287,11 +305,14 @@ function Header({ onSearch }: { onSearch: () => void }) {
 
 function Footer() {
   const { social } = siteConfig
-  const links = [
-    social.github && { href: social.github, icon: Github, label: 'GitHub' },
-    social.email && { href: `mailto:${social.email}`, icon: Mail, label: 'Email' },
-    social.rss && { href: social.rss, icon: Rss, label: 'RSS' },
-  ].filter(Boolean) as { href: string; icon: typeof Github; label: string }[]
+  // 离线版不联网：GitHub / RSS 这类外链在这里点了也没用，只保留 mailto（由邮件客户端处理，不是网络请求）
+  const links = (
+    [
+      !OFFLINE && social.github && { href: social.github, icon: Github, label: 'GitHub' },
+      social.email && { href: `mailto:${social.email}`, icon: Mail, label: 'Email' },
+      !OFFLINE && social.rss && { href: social.rss, icon: Rss, label: 'RSS' },
+    ].filter(Boolean) as { href: string; icon: typeof Github; label: string }[]
+  )
 
   return (
     <footer className="no-print mt-24 border-t border-ink-200/60 py-10 dark:border-white/[0.08]">
@@ -299,7 +320,8 @@ function Footer() {
         <div className="text-center sm:text-left">
           <p className="text-xs text-ink-400">
             © {new Date().getFullYear()} {siteConfig.author.name}
-            {siteConfig.footerNote ? ` · ${siteConfig.footerNote}` : ''} · 由 React + Vite 驱动，托管于 GitHub Pages
+            {siteConfig.footerNote ? ` · ${siteConfig.footerNote}` : ''} ·{' '}
+            {OFFLINE ? '离线单文件版（不联网）' : '由 React + Vite 驱动，托管于 GitHub Pages'}
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -331,13 +353,57 @@ function AnimatedBackdropLayer() {
   return <AnimatedBackdrop scene={scene} values={getSceneValues(pref, scene)} />
 }
 
+/**
+ * 离线版页头徽标。
+ *
+ * 只说两件事：这是离线文件（不联网）、本机已经写了多少篇。
+ * 点进去是「离线文章包」面板——导出文件给线上站点，不在这个文件里做任何网络请求。
+ */
+function OfflineBadge() {
+  const [local, setLocal] = useState(() => (OFFLINE ? countLocalContent() : null))
+  useEffect(() => {
+    if (!OFFLINE) return
+    const refresh = () => setLocal(countLocalContent())
+    window.addEventListener('starlog:posts-changed', refresh)
+    window.addEventListener('starlog:queue-changed', refresh)
+    window.addEventListener('storage', refresh)
+    return () => {
+      window.removeEventListener('starlog:posts-changed', refresh)
+      window.removeEventListener('starlog:queue-changed', refresh)
+      window.removeEventListener('storage', refresh)
+    }
+  }, [])
+  if (!OFFLINE) return null
+  const count = (local?.posts ?? 0) + (local?.drafts ?? 0)
+  return (
+    <Link
+      to="/admin?tab=export"
+      title={`离线版：本站不发起任何网络请求。本机已写 ${count} 篇${local && local.images > 0 ? `、暂存 ${local.images} 张图片` : ''}；点这里导出文章包后在线上站点导入`}
+      className="btn-ghost h-9 gap-1.5 !px-2.5 text-xs"
+    >
+      <HardDrive size={15} />
+      <span className="hidden lg:inline">离线版</span>
+      {count > 0 && (
+        <span className="rounded-full bg-ink-500/12 px-1.5 py-0.5 text-[10px] font-bold text-ink-600 dark:text-ink-200">
+          本机 {count} 篇
+        </span>
+      )}
+    </Link>
+  )
+}
+
 export function Layout() {
   const [searchOpen, setSearchOpen] = useState(false)
   const { pathname } = useLocation()
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
+    // 换页之后正文不一定触发滚动事件，主动请重算一次「让路」状态（issue #71）
+    requestHeaderYieldRefresh()
   }, [pathname])
+
+  // issue #71：正文滚到页头这一栏下方时先渐变淡掉（只改正文，不碰背景）
+  useEffect(() => installHeaderYield(), [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

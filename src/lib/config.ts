@@ -1,6 +1,8 @@
 /**
  * 站点配置 —— 部署前把这里改成你自己的信息即可。
  */
+import { OFFLINE } from './runtime'
+
 export const siteConfig = {
   /** 站点名 */
   title: '个人博客',
@@ -74,8 +76,11 @@ export const commentsConfig = {
 }
 
 export const oauthConfig = {
-  /** OAuth App 的 Client ID */
-  clientId: 'Ov23lid9P8sdNuiKhkzy',
+  /**
+   * OAuth App 的 Client ID。
+   * 离线单文件版**没有在线登录**（产物里也不应出现任何 GitHub 端点），因此构建期直接置空。
+   */
+  clientId: OFFLINE ? '' : 'Ov23lid9P8sdNuiKhkzy',
   /**
    * 申请权限范围：public_repo = 读写公开仓库；
    * 若博客仓库是私有的，需要改成 'repo'。
@@ -88,6 +93,19 @@ export const oauthConfig = {
    */
   relayUrl: '',
 }
+
+/**
+ * 离线单文件版（`npm run build:offline`）专属配置。
+ *
+ * 离线版**完全不联网**：这里只保留与「本机文章库」和「与线上站点之间的文件交换」有关的项，
+ * 不再有站点地址、OAuth 中转地址之类的在线配置。
+ */
+export const offlineConfig = {
+  /** 离线文章包的文件名后缀（导出与识别用同一处定义） */
+  importFileSuffix: 'starlog-import.json',
+  /** 离线文章库中每篇文章最多保留的本机历史版本数 */
+  maxLocalVersions: 30,
+} as const
 
 export const STORAGE_KEYS = {
   theme: 'starlog:theme',
@@ -103,4 +121,8 @@ export const STORAGE_KEYS = {
   ghUser: 'starlog:gh-user',
   ghRepo: 'starlog:gh-repo',
   drafts: 'starlog:drafts',
+  /** 离线版：被删除的内置文章 slug 列表（删除只在本机生效，故记录墓碑） */
+  offlineHidden: 'starlog:offline-hidden',
+  /** 离线版：每篇文章的本机历史版本快照 */
+  offlineVersions: 'starlog:offline-versions',
 } as const

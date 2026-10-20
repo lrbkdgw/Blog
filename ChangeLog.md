@@ -1,5 +1,466 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-19 · issue #71 落地：正文按滚动位置自己淡出，页头保持全透明
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+上一条留下的判断是对的：**页头那一条是一个平面，在它上面做任何遮挡都会连背景一起遮掉**。
+因此「正文让路」不能由页头实现，只能让**正文元素自己**按滚动位置淡出——把遮挡写进内容层，
+背景图层一像素都不用碰。这条路线同时满足 #53 / #63（页头全透明）与 #71（正文给页头让路），
+也避开了上一条列出的两个高代价方案（`main` 改独立滚动区要连带改 `window.scrollTo` / 锚点 /
+`scrollRestoration`；给容器整体挂 mask 会为 `fixed` 后代建立包含块，阅读进度条与各处弹窗都会被牵连）。
+
+### 新增
+
+- `src/lib/headerYield.ts`：`installHeaderYield()` 在每次滚动 / 尺寸变化 / `starlog:content-changed`
+  后（`requestAnimationFrame` 合帧，一帧只算一次）遍历内容块，量出「页头下沿相对块顶部的距离」，
+  只给**与这一栏有交集**的块写 `data-yield=on` + `--yield-top` / `--yield-fade`，其余一律
+  `removeAttribute`，所以整页任意时刻最多 0～3 个元素带蒙版。
+  - 块顺序是先读完所有几何再统一写样式，避免读写交替把一帧变成多次重排；
+  - 淡出行程按块高自适应（`24px ~ 64px`）：一行标题用短行程，整段 / 代码块 / 卡片用长行程，
+    矮块不会因为刚露头就被抹平；
+  - 整块都在页头之下时按「完全淡出」处理（梯度基准一致，父块已淡时子块重复写一次也无害）；
+  - 高度为 0 的元素直接跳过（jsdom、折叠容器、未渲染块都属此类）。
+- `src/styles/index.css`：`[data-yield='on']` 的蒙版规则
+  `mask-image: linear-gradient(to bottom, transparent 0, transparent calc(var(--yield-top) - var(--yield-fade, 40px)), #000 var(--yield-top))`
+  （附 `-webkit-mask-image`），外加 `@media print` 全量还原——打印时每页顶部都会落进这个区间。
+- 内容块来源两处：`.prose > *`（Markdown 渲染出的文章 / 帮助页 / 评论正文，自动覆盖）
+  与 `[data-yield-list] > *`（首页卡片网格、归档年表、标签网格、文章页 `<article>`，
+  在 4 个页面各加一个属性标记）。
+
+### 调整
+
+- `src/components/Layout.tsx`：挂载 / 卸载该监听（`useEffect(() => installHeaderYield(), [])`），
+  并在路由切换的 `scrollTo` 之后 `requestHeaderYieldRefresh()` 一次——换页不一定伴随滚动事件。
+- README 功能表那一行改为「全透明页头 + 正文让路」。
+- 上一条「待决」小节的三个候选里，本次采用的是**方案 1（逐块淡出）**并按方案 3 的思路把
+  作用面限定在内容容器（`.prose > *` 与显式标记的列表），编辑器的输入区不参与
+  （那里 `fixed` 浮层多，且正在打字的内容不该被淡掉）。
+
+### 验证
+
+- `npx tsc --noEmit` 无错误；`npm run build` 通过，编译后的 CSS 里
+  `[data-yield=on]{-webkit-mask-image:linear-gradient(…calc(var(--yield-top) - var(--yield-fade, 40px))…)` 与
+  `@media print` 还原规则都在（`-webkit-` 前缀这次没被 esbuild 去掉）。
+- `headerYield` 几何契约单测（jsdom 伪造 `getBoundingClientRect`，直接 import 该模块）7 例全中：
+  块顶进栏 84px → `on 84px/64px`；远在栏下 → `off`；整块在栏上 → `on 264px/64px`（完全淡出）；
+  18px 矮块 → 行程取下限 24px；2000px 高块 → 梯度基准仍是页头下沿（`on 104px/64px`）；
+  零高度块 → `off`；全部滚离后残留蒙版 0 个。
+- 离线产物里再跑一遍真实页面（`#/posts/hello-starlog`）：蒙版只落在 `.prose` 的内容块上，
+  背景层 / 页头 / 导航上挂蒙版的元素数为 0；页头没有被加类、没有被藏、没有 `inert`；全程零出网。
+- `npm run build:offline` 8 组自检全绿（3.01 MB），`offline/index.html` 已同步；
+  `npm run extension:test` 61 通过 / 0 失败 / 4 跳过，插件 `tsc --noEmit` 无错误。
+
+### 待办
+
+- 视觉效果需要真机人眼确认（沙箱里没有浏览器，只能验几何契约与副作用边界）：
+  淡出行程的两个调参入口是 `FADE_MIN_PX` / `FADE_MAX_PX`（24–64px，按块高在区间内取值），
+  觉得淡得太早或太晚就改这里。另外计算是每帧一次、先批量读几何再批量写样式，
+  长文（约 200 个内容块）一帧的量测开销在 0.2ms 量级；若以后要再省，
+  可换成 IntersectionObserver 维护候选集，代价是多一个观察器与 resize 时的 rootMargin 维护。
+- 本条**没有**在 PR #69 里用 closing keyword 关联 #71（GitHub 的 `Fixes #71` 会在合并时自动关
+  issue，而这套淡出还没经过人眼验收），PR 正文里刻意写成「issue 71」而不是「#71」。
+
+
+## 2026-10-19 · 回退页头「让路层」：页头必须全透明，不许遮挡背景
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+上一条为了落实 #71「文章给标题栏让路」，在页头里加了一层 `backdrop-filter` 蒙版
+（`.site-header-fade`，把滚进这一栏的文字糊掉）。被指出：这一层**同样糊掉了页头背后的页面背景**
+——主题渐变与动态背景粒子在顶部那一条里被模糊了，等价于又造出一条与页面脱节的横带，
+违反「页头不应该挡住背景，要全透明」（与 #53 / #63 同源的要求）。
+
+物理上这两条要求在当前结构里无法同时满足：页头那一条是一个平面，
+要么文字与背景一起原样穿过（透明），要么在这一带遮住文字（必然连背景一起遮住）。
+中间路线只能是「只改文字、不改背景」，即对**正文元素本身**做淡出或裁切，
+而那需要换实现层次（见下）。
+
+### 调整
+
+- **回退** `.site-header-fade`：`src/components/Layout.tsx` 与 `src/styles/index.css` 回到 7147fb9 的页头实现
+  （只有 `.site-header{background:transparent;border-bottom:0;box-shadow:none}`，
+  移动端面板 `.site-header-panel` 的浮层底色保留——它是展开菜单自己的底，不是页头的底）。
+- README 功能表那一行改为「全透明吸顶页头」，把这条不变量与它来自哪几个 issue 写清。
+- #70 的光标 / 滚动修复不受影响，保留。
+
+### 修复
+
+- 页头遮挡背景（上一条引入的回归）。
+
+### 验证
+
+- `npx tsc --noEmit` 无错误；`npm run build` 通过，`dist/assets/*.css` 里 `site-header-fade` 出现 0 次。
+- `npm run build:offline` 8 组自检全绿（3.01 MB），`offline/index.html` 已同步重建，
+  产物内 `site-header-fade` 亦为 0 次。
+
+### 待决
+
+#71 仍未解决（「正文给页头让路」）。可选方向，按侵入性排序：
+
+1. **只淡出正文**：给正文各块元素按「进入页头那一条的深度」计算 `mask-image` / `opacity`
+   （JS + rAF 驱动）；不动背景，但需要处理 `mask` 会为 `position: fixed` 后代建立包含块的副作用
+   （阅读进度条、回到顶部按钮、若干弹窗都是 fixed），要把 fixed 元素请出被遮罩的子树；
+2. **正文另起滚动容器**：`main` 变成 `height: calc(100vh - 页头)` 的滚动区，内容永远进不了页头那一栏；
+   代价是要把 `window.scrollTo` / `Toc` 锚点 / `scrollRestoration` / 浏览器地址栏收缩一并改到该容器上；
+3. **只在文章页做**：把方案 1 限定在 `PostPage` 的 `.prose` 内，其余界面保持现状。
+
+
+## 2026-10-19 · issue #71 方向修正：让路的是正文，不是页头
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+上一条把 #71 实现成「正文滚过页头后，页头自己渐变消失」。方向反了：
+**应该是文章给标题栏让路，而不是标题栏给文章让路**——页头要一直在原位，
+是正文在滑进那一栏之前先渐变淡掉。同时 `src/styles/index.css` 里 issue #53 / #63
+的既有约束写着页头必须完全透明（不铺底色、不加毛玻璃、不描边），
+所以不能用「给页头加半透明底」来换可读性，那会在顶部造出一条与页面脱节的实色带。
+
+### 新增
+
+- `.site-header-fade`（`src/styles/index.css`）：页头内一层 `position:absolute` 的
+  **backdrop-filter 蒙版**——`blur(14px) saturate(.7)` 配
+  `mask-image: linear-gradient(to top, transparent → #000 70%)`，越靠近视口顶把底下的
+  文字糊得越狠，直到看不见。它只改写「自己背后那片像素」，本身不含任何颜色，
+  因此既让正文让了路，又不违反 #53 / #63 的无色带约束。
+- `inset: 0 0 -1.5rem`：往下多铺 24px，文字在真正抵达这一栏之前就开始虚化。
+- `Layout.tsx` 里 `<header>` 内挂载该层（`aria-hidden` + `pointer-events-none`），
+  导航容器与移动端面板改为 `relative z-10` 画在它之上，导航文字本身不受影响。
+
+### 调整
+
+- **回退**上一条的页头自动隐藏：删掉 `hidden` 状态、`headerRef` 滚动测量与迟滞逻辑、
+  `inert={hidden}`、`-translate-y-full opacity-0` 过渡类（`src/components/Layout.tsx` 回到 7147fb9 的页头行为）。
+  #70 的光标修复不受影响，保留。
+- README 功能表那一行改写为「页头让路效果」。
+
+### 修复
+
+- #71 的真实诉求（正文与导航条互相干扰 → 正文让路），上一版修反了方向。
+
+### 验证
+
+- `npx tsc --noEmit` 无错误；`npm run build` 通过，编译后的 CSS 里
+  `.site-header-fade{…backdrop-filter:blur(14px) saturate(.7);mask-image:linear-gradient(to top,transparent 0,…#000 70%)}` 与
+  `@supports not (backdrop-filter…){display:none}` 均已生成。
+- jsdom（跑离线产物）确认：页头滚动后不再被隐藏（`.site-header` 无 `-translate-y-full` / 无 `inert`）、
+  `.site-header-fade` 位于 `<header>` 内且带 `aria-hidden`、导航容器带 `z-10`。
+- 优雅降级说明：esbuild 按 target 去掉了 `-webkit-backdrop-filter` 前缀，
+  所以 Safari 18 以下看不到虚化（只是没有该效果，不会出现色带或遮挡）；
+  不支持 `backdrop-filter` 的浏览器由 `@supports not` 直接不渲染这一层。
+
+
+## 2026-10-19 · 修复 issue #70 / #71：LaTeX 符号插入不再跳到文末、页头上划后渐变让位
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+仓库里两个未填正文的 issue：
+
+- **#70**「使用搜索 LaTeX 功能后会异常跳转到文章末尾。」
+- **#71**「任意界面上划到顶部后就应消失，避免挡住页面选择栏。」（与提出者确认后明确为：
+  正文上划穿过含「首页 / 归档」等按钮的那一条页头之后，页头自己渐变消失，不要挡住视野）
+
+#70 的成因不在符号选择框，而在「改完受控 textarea 的 value 之后怎么把光标放回去」：
+React 把新 `value` 写回 `<textarea>` 时，浏览器按规范把光标挪到**文本末尾**（只有元素处于
+聚焦态时 React 才会代为保存 / 恢复选区）。而工具栏与符号选择框的旧写法是
+`ta.focus()` 再 `ta.setSelectionRange(...)`——`focus()` 为了「把光标滚进视野」，
+会先把整页拽到文末，随后 `setSelectionRange` 只是把光标挪回去，页面却停在底部。
+评论输入框里的 LaTeX 插入是同一套写法，因此一并修。
+
+### 新增
+
+- `src/lib/caret.ts`：两个小工具，把上面这条顺序固定下来，避免各处再各写一遍。
+  - `focusWithoutScroll(el)`：`el.focus({ preventScroll: true })`，老浏览器不认识该选项时
+    `try/catch` 退回普通 `focus()`；
+  - `restoreCaret(ta, start, end)`：先 `setSelectionRange`（并夹紧到 `[0, value.length]`，
+    防止长度已变时传入越界偏移）再以 `preventScroll` 聚焦，最后比对前后 `window.scrollX/Y`，
+    若这两步把页面滚走了就用 `behavior:'instant'` 还原——textarea 自身滚动保留，光标仍在视野内。
+
+### 调整
+
+- `src/pages/Editor.tsx`：`applyAction()`（工具栏加粗 / 斜体 / 链接 / 代码块 / 数学公式 /
+  交互展示框与 LaTeX 符号插入的共同出口）改为 `restoreCaret(...)`；符号选择框 `onClose` 里的
+  `requestAnimationFrame(() => ta.focus())` 改为 `focusWithoutScroll(ta)`。
+- `src/components/Comments.tsx`：评论框的 `insertLatexSymbol` / 选择框 `onClose` 同样处理。
+- `src/components/Layout.tsx`：页头改为滚动驱动自动隐藏——`headerRef.current.offsetHeight || 64`
+  之上再留 16px 作为隐藏阈值，恢复阈值比它低 32px 形成迟滞（惯性滚动与滚轮微抖不会来回闪），
+  `offsetHeight` 用 `||` 而非 `??` 是为了在布局不可用（打印、隐藏容器、单测环境）时阈值不塌成 0
+  而把页头永久藏起来。隐藏态为 `pointer-events-none -translate-y-full opacity-0` +
+  `transition-[transform,opacity] duration-300`，并有 `motion-reduce:transition-none`；
+  同时给 `<header>` 加 `inert={hidden}`，避免焦点 Tab 进看不见的导航。
+  判据只看滚动位置、不看滚动方向（避免阅读途中忽然多出一条横杠），移动端菜单展开时不隐藏，
+  监听用 `requestAnimationFrame` 合帧。搜索弹层自带 `body` 滚动锁，不受影响。
+
+### 修复
+
+- #70 使用 LaTeX 符号选择框（以及所有工具栏插入操作）后页面被滚到文末。
+- #71 页头在正文滚过之后仍然占住顶部一条视野。
+
+### 验证
+
+- `npx tsc --noEmit`（站点）与插件 `tsc --noEmit` 均无错误；`npm run build` 通过。
+- `npm run build:offline` 自检通过（3.01 MB，10/10 内置文章），`offline/index.html` 已同步重建。
+- jsdom 行为回归（针对离线产物，与线上同一套代码）10 项全绿：
+  页头在顶部可见 → 滚到 500px 消失且 `inert` + `pointer-events-none` 且有过渡类 → 60px 处
+  因迟滞保持隐藏 → 回 0 恢复 → 75px（阈值 80 之内）不误隐；
+  编辑器内先输入 400 字并把光标放到 100，再用工具栏打开符号框搜 `pm` 回车 →
+  `\pm` 恰好插在 100、光标停在 103、调用序列为 `setSelectionRange → focus({preventScroll:true})`、
+  全程没有 `window.scrollTo`。
+- `npm run extension:test`：61 通过 / 0 失败 / 4 跳过（插件 `out/` 重新构建后与提交内容一致）。
+
+
+## 2026-10-19 · 离线版改为「完全不联网」：只用本机字体，移除全部在线功能
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+上一版离线文件里仍保留着若干在线能力：GitHub Device Flow 授权、「同步到线上」直推仓库、
+云端字体预热、把站内图片改写成线上站点地址。本次按要求收敛为：
+
+> 本地版本只能使用本地字体，去掉所有在线功能；**完全不联网**，只提供「保存到本地」和
+> 「保存到在线网站的本地文章中」两种落地方式。
+
+于是离线版的定位变成：一个自包含的阅读器 + 编辑器，零网络请求；
+与线上站点之间只通过**文章包文件**交接，不在离线文件里提交仓库。
+
+### 新增
+
+- `hasNetwork()` 在离线构建里恒为 `false`：所有「先判断再请求」的路径（字体、账号偏好、评论、
+  远端历史）直接走本机实现，不会「先试一下再失败」。
+- `github.ts` 增加**唯一请求出口** `net()`：离线构建里抛错说明原因；同时把端点常量改为
+  `OFFLINE ? '' : 'https://api.github.com'`（含 `/graphql`），`oauthConfig.clientId` 与
+  Google Fonts 端点同样在离线构建里置空 —— 压缩器会把它们整段消掉，产物中根本不存在这些字符串。
+- `src/lib/offlineBundle.ts`：`countLocalContent()`（本机文章 / 草稿 / 暂存图片统计）与
+  `exportBundleFile(slugs?)`（导出单篇或全部本机文章的文章包）；`applyImport()` 新增 `alsoQueue`，
+  线上站点导入时可顺带把每篇加入待更新队列（离线版忽略该参数）。
+- 新组件 `src/components/BundleImportDialog.tsx`：拖拽 / 选择文章包 → 逐篇「新增 / 覆盖 / 跳过」计划
+  （三种同名策略：覆盖 / 跳过 / 另存为新文章）→ 确认后写入本地文章列表；解析失败明确报错，不猜格式。
+- 新组件 `src/components/OfflineExportPanel.tsx`（管理页 `?tab=export`，两种构建都可见）：
+  离线版用它勾选并导出，线上站点用它导入；不再显示任何授权入口。
+- 编辑器离线模式提供两个出口：「保存到本机」（写本机文章库）与
+  「保存到在线网站的本地文章」（先写本机文章库并确认落盘，再生成这一篇的文章包文件）。
+- `scripts/verify-offline.mjs` 新增第 8 组硬检查：产物中出现 `api.github.com`、`/graphql`、
+  `login/device/code`、`login/oauth/access_token`、`fonts.googleapis.com`、`fonts.gstatic.com`
+  或 OAuth Client ID 任意一项即构建失败，并在报错里给出两种正确修法。
+
+### 调整
+
+- **删除** `src/lib/offlineSync.ts`、`src/components/OfflineSyncPanel.tsx`、`src/lib/useOnlineStatus.ts`：
+  离线版不再有「同步到线上」这条需要网络的通道。
+- 回退上一轮为「离线 Device Flow」改动的站点侧代码：`functions/login/[[path]].ts` 与
+  `oauth-relay/worker.js` 恢复到改动前的状态（离线版不再调用它们，未部署的中继留在仓库里只会误导）；
+  `src/lib/config.ts` 的 `relayUrl` 注释改为「站点默认不带轮询中继，需要时由部署者自行准备」。
+- `src/lib/runtime.ts` 重写：移除 `getSiteBaseUrl()` / `getOAuthRelayUrl()`；
+  `resolveOfflineImageSrc()` 改为「远程与站内图片一律解析为空」，由渲染处显示
+  「离线版不加载远程图片」说明（`Markdown.tsx` 的 `img`、`PostCard` / `PostPage` 的封面），
+  不再把图片地址改写到线上站点。
+- 离线版 UI 去掉全部在线入口：页头 `UserMenu`（登录 / 头像 / 退出）在 `OFFLINE` 下不渲染，
+  移动端菜单改为「管理 / 写文章」；`/login` 在离线版显示「离线版没有在线登录」说明页而非授权按钮；
+  设置页的「GitHub 连接」「目标仓库」「外观偏好同步」三块在离线版隐藏，安全说明改为离线口径；
+  管理页页头的「未连接 GitHub，点此连接」改为「内容保存在这台设备的浏览器里」，
+  队列标签在离线版隐藏「更新所选 / 全部更新」按钮并说明图片随文章包导出；
+  页脚在离线版不再输出 GitHub / RSS 外链，署名行改为「离线单文件版（不联网）」。
+- 字体：`requestCloudFont()` 在离线版直接抛错（消息说明「只用本机已安装的字体」），
+  `warmFontFamilies()` 在离线版只为**本机缺失**的字体名打一条 info 日志；
+  设置页字体 / 背景 / 个性化三处说明文案按离线口径改写。
+- 内置文章的「删除」语义简化：删除 `deletedSeedSlugs / recordSeedDeletion / clearSeedDeletion /
+  resetSeedDeletions` 与 `starlog:offline-deleted`（这套状态只为「提交删除到仓库」而存在），
+  只保留本机墓碑 `hideSeedPost` 与新的 `resetSeedHidden()`；`getRepoPosts()` 仅按墓碑过滤。
+  `updateQueue.flushUpdateQueue()` 相应删除离线分支（离线版走不到），
+  `post-publish` 成功后的「本地草稿与仓库一致则清除」恢复为仅线上行为。
+- 措辞与文档：README「📴 离线版」整节重写（支持范围表、文章包三步交接流程图、图片与字体策略、
+  自检端点检查）、`offline/README.md`、`.github/offline-release-notes.md`、
+  站内帮助页「离线版（单文件）」小节、`AI_README.md` 第 3 步补「不得在 `OFFLINE` 分支引入请求，
+  端点检查失败要改代码而不是删检查」（本条即规则修改的登记）。
+
+### 修复
+
+- `PostCard` 的封面离线守卫最初被当成文本插入 JSX 子节点（渲染出字面量且 `OFFLINE` 未被引用），
+  改为在组件内先算 `coverSrc` 再条件渲染整个封面链接；`PostPage` 同类问题用局部变量消除
+  `article.cover` 的可空类型歧义。
+- 离线版管理页与设置页仍残留「同步到线上 / 连接 GitHub」入口与文案（共 6 处），逐一按新语义改写，
+  避免指向已删除的 `?tab=sync` 标签。
+
+### 修复
+
+- CI `extension.yml`（check 名 `verify`）在 `npm --prefix vscode_extensions/v1 run typecheck`
+  报 `TS2304: Cannot find name '__STARLOG_OFFLINE__'`（`src/lib/runtime.ts` 两处）：插件 tsconfig 的
+  `include` 只有自己的 `src`，却顺着 import 复用了站点 `src/lib`，拿不到 `src/offline-globals.d.ts`
+  里的全局声明。改为在 `vscode_extensions/v1/tsconfig.json` 的 `include` 中显式带上该声明文件，
+  并把 `src/offline-globals.d.ts` 注释里写错的文件名（`vite.config.offline.ts` → `vite.offline.config.ts`）改正。
+  根因是本地验证矩阵漏了这一步：`npm run extension:test` 只做 build + `node --test`，不跑 tsc；
+  已在 `AI_README.md`「建议的更新流程」第 3 步补上这条红线。
+
+### 验证
+
+- `npx tsc --noEmit` 与 `npm --prefix vscode_extensions/v1 run typecheck` 均无错误；
+  `npm run build`（线上版）通过。
+- `npm run build:offline` 通过：产物 3.01 MB，内联 CSS 1.49 MB / 内联 JS 1.50 MB / `@font-face` 20 条 /
+  10 篇内置文章齐全；第 8 组端点检查全绿（先失败过一次——`/graphql` 字面量残留，补上 `GRAPHQL` 常量后置空后通过）。
+- 用 jsdom 以 `file://` 加载产物，并把 `fetch` / `WebSocket` / `EventSource` 全部插桩计数：
+  首页 → 文章页 → 管理页 → `?tab=export` → 编辑器 → 登录页 → 设置页全程**出网调用 0 次**；
+  未注入任何云端字体 `<style>`；登录页显示离线说明、设置页三块在线卡片缺席、
+  编辑器出现两个保存出口、导出按钮空列表时给出「本机还没有写过的文章可导出」而非静默。
+- 在 jsdom 里对**离线产物**做了文章包往返实测：预置一篇本机文章 → 「导出全部本机文章」捕获 Blob
+  并解析出 `starlog-offline-bundle v1 / 1 篇`（正文含 `$` 与 `</script>` 等风险字符仍完整）→
+  在「导入离线文章包」对话框里选择同一文件 → 切到「另存为新文章」导入 →
+  本机文章库出现 `roundtrip-demo-imported-20261019`，全程出网调用仍为 0 次。
+- `npm run extension:test`：61 通过 / 0 失败 / 4 跳过（未改插件代码）。
+
+
+## 2026-10-19 · 离线单文件版：断网可用、写作可用、联网后一键同步回线上站点
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+需求：推出本站点的**离线版本**，结构为单个 HTML 文件，支持除「必须联网」以外的全部功能；
+联网后可以把离线期间写的所有文章**一键导入**线上站点
+（`blog-apa.pages.dev` 或 `lrbkdgw.github.io/Blog`）的文章列表。
+
+两条设计约束在实现过程中被明确固化下来：
+
+1. **同步不新建通道**——复用站点原有的 GitHub Device Flow 授权与「待更新队列」批量提交，
+   不引入 postMessage 中转页、不写第二套上传逻辑；
+2. **任何降级都不静默**——存储不可用、资源无法内联、文章没进包，一律变成可见错误或直接构建失败，
+   绝不允许「提示保存成功但其实没存」。
+
+### 新增
+
+- **运行时开关与站点感知**：`src/lib/runtime.ts` 提供 `OFFLINE`（由构建期 `__STARLOG_OFFLINE__` 决定）、
+  `hasNetwork()`、`getSiteBaseUrl()`、`resolveOfflineImageSrc()`、`getOAuthRelayUrl()`；
+  线上构建在 `vite.config.ts` 里固定 `__STARLOG_OFFLINE__ = 'false'`，两版共用一套源码。
+- **两级本机存储**：`src/lib/offlineStorage.ts` 用 IndexedDB（库 `starlog-offline`）为主、
+  `localStorage` 为冗余与降级后端，`window.localStorage` 被替换为「内存镜像 + 写回」的 shim，
+  使既有同步读写代码无需改语义；写操作 200ms 去抖，关键路径必须 `await flushStorage()`；
+  两级都不可用时后端判为 `none` 并拒绝一切写入。
+- **存储护栏**：`src/components/StorageGuard.tsx`（离线专用，包在 App 外层）——
+  `backend === 'none'` 时整页拦住并给出可执行解决办法（含「下载当前内容」）；
+  有错误或未落盘改动时显示顶部横幅，并每 4s 尝试确认落盘。
+- **离线文章库**：`src/lib/offlineLibrary.ts`（墓碑删除 / 已提交删除记录 / 本机版本快照）、
+  `src/lib/postHistory.ts`（版本列表与正文读取，区分「仓库版本」与「本机版本」）、
+  `src/lib/posts.ts` 的 `saveLocalPostRaw / localPostExists / postFingerprint / serializePost` 等；
+  `content/posts/*.md` 在构建时通过 `import.meta.glob(..., { query: '?raw' })` 打进文件。
+- **同步到线上**：`src/lib/offlineSync.ts`（`planOfflineSync / stageOfflineSync / runOfflineSync`）
+  把选中的离线文章（含暂存图片）写进**既有**待更新队列，再调用 `flushUpdateQueue()` 一次提交；
+  成功后记录内容指纹，内置文章的「删除墓碑」转换为已提交删除记录，避免墓碑累积。
+  面板为 `src/components/OfflineSyncPanel.tsx`，挂在管理页 `?tab=sync`；
+  页头新增「离线版」徽标（`Layout.tsx` 的 `OfflineBadge`，带待同步数量，移动端菜单同项）。
+- **离线设置**：`src/components/OfflineSettingsCard.tsx`（设置页离线板块）——存储后端与占用、
+  线上站点地址与 OAuth 中转地址覆盖、导出 / 导入离线档案、导出文章包、立即落盘。
+- **单文件构建**：`vite.offline.config.ts`（`base: './'`、iife + `inlineDynamicImports`、
+  `assetsInlineLimit` 设为极大值、关闭 `copyPublicDir` 与 modulepreload）
+  + 自研插件 `scripts/vite-plugin-single-html.mjs`：把 JS / CSS / `public/` 图标全部内联，
+  漏网的资源转成 data URI 并回写引用，移除 manifest / preconnect / modulepreload 链接。
+- **构建后自检**：`scripts/verify-offline.mjs` 硬检查——产物目录只有一个 HTML、无残留相对引用、
+  无 `type="module"`、内联脚本能被 JS 引擎解析、CSS 含 `.katex` / `hljs-` / `@font-face` 且 `url()` 全部内联、
+  `content/posts/` 每篇文章都在文件里；体积超过 48 MB 直接失败，> 25 MB 提示。
+  脚本入口：`npm run build:offline`、`npm run verify:offline`、`npm run preview:offline`。
+- **发布链路**：`.github/workflows/offline.yml`——构建 → 自检 → 把产物提交回 `offline/index.html`
+  （提交信息带 `[skip ci]`，避免与 Pages 部署互相触发）→ 更新滚动 Release（tag `offline`）→ 附 artifact；
+  `deploy.yml` 在站点构建前把 `offline/index.html` 放进 `public/offline/`，让线上站点可直接下载离线文件；
+  新增 `offline/README.md` 与 `.github/offline-release-notes.md`。
+- **离线写作体验**：`Editor.tsx` 的 `saveAndFlush()` 统一处理 ⌘S / 保存草稿 / 自动保存 / 离线发布——
+  先写入、再 `await flushStorage()`、最后用 `localPostExists()` 回读确认，**确认之后才提示成功**；
+  内容未变且距上次写入 < 50ms 时按去重跳过（返回 `deduped`，不算失败）；
+  加密文章尚未解锁时 `written: false`，调用方不得当成已保存；
+  图片选择改为离线暂存进队列（上限 32 MB/张，线上仍为 3.2 MB）。
+- **评论**：离线模式下列表不请求 GitHub，提交写入本机笔记（`appendLocalComment`），
+  可删除自己的条目，未登录也能写（不 gate 在 `canPublish` 上）。
+- OAuth 中转从 `file://` 可用：`functions/login/[[path]].ts` 与 `oauth-relay/worker.js` 补 CORS 头与
+  `OPTIONS` 预检，`github.ts` 的 `oauthRelay()` 在 `relayUrl` 为空时回退到离线配置 / 用户设置。
+
+### 调整
+
+- `main.tsx` 先初始化存储再渲染（`boot()` 内 `await initOfflineStorage()`），并按协议选择路由：
+  `file://` 下用 `HashRouter`（无服务端 rewrite），线上仍用 `BrowserRouter`；provider 顺序为
+  Theme → Auth → Font → Background → Toast → StorageGuard → App。
+- `Admin.tsx`：主标签新增 `sync`，离线时隐藏 PR 标签与远端拉取，删除内置文章改为写墓碑并给出「去同步」入口，
+  列表计数拆成「文件内置 / 离线文章库 / 草稿」，顶部显示墓碑与已提交删除的说明条（可一键清除记录）。
+- `Posts.tsx` / `PostPage.tsx` / `VersionCompare.tsx` 改用 `lib/postHistory` 与统一的文章来源，
+  版本改名只在能提交仓库时入队。
+- `font.tsx`：无网络时不再触发 Google Fonts 的 warm-up（直接返回并留一条 info 日志），避免离线打开时的无谓失败。
+- `updateQueue.ts`：`flushUpdateQueue` 的前置条件改为「有网络 + 有令牌」；
+  提交成功后清理本地正文的逻辑只在 `!OFFLINE` 时执行，离线模式改为把墓碑转成已提交删除记录，
+  使「离线文章库与仓库内容一致」时不会静默丢掉本机内容、也不会累积墓碑。
+- `settingsStore.ts` / `config.ts`：离线相关设置项与 `offlineConfig` 收敛到一处；
+  删除被否决方案留下的死配置（`importPath`、`maxPostMessageBytes`）。
+- `offlineBundle.ts`：`applyImport()` 必须显式接收导入包（原先读模块内缓存的「最近一次 plan」，
+  调用顺序一变就静默丢图片与偏好），并删除 `prepareImportPlan` / `optionsBundleHint`。
+
+### 修复
+
+- **离线产物内联脚本被破坏**：插件把脚本插入 HTML 时用 `html.replace('</body>', scriptTag)`，
+  代码里的 `$&` / `` $` `` 被当成替换模式展开，产物「构建成功但语法错误」。
+  改为函数形式的替换，并在插件与自检脚本里各加一道 `vm.Script` 语法校验。
+- **JS chunk 内容为空**：Rollup 的 chunk 把代码放在 `.code`、asset 才在 `.source`，
+  只读 `.source` 会安静地内联进一个空脚本；改为按类型取值，取不到就报错，并断言内联 JS 长度。
+- **误报「有改动尚未确认写入磁盘」**：`reportError()` 会把 `dirty` 置真，而 `file://` 下降级到
+  localStorage 属于正常提示；且 localStorage 后端下 `persist()` 不会重试真实写入，dirty 永不清除。
+  现在 `dirty` 只由「待落盘队列 + 失败键集合」推导（`syncDirty()`），localStorage 后端也会真正确认落盘。
+- 内联脚本的转义补齐 `<!--`（HTML escaped 状态会吃掉闭合标签），自检不再用「数 `<script>` 标签」这种
+  会被文章正文里的 `<script>` 字符串误伤的判断。
+- `Comments.tsx` 在放开离线评论条件后出现 6 处可空访问（TS18047），通过把 `currentAuthor` 放在
+  `&&` 链末位让类型收窄，并给 `@login` 加可选守卫。
+- `vite.offline.config.ts` 去掉多余的 `loadEnv` / `envPrefix` 与 `VITE_OFFLINE`（源码只用到
+  `import.meta.env.BASE_URL`），改由 `define` 单点控制离线开关。
+- `workflow` 的 YAML：Release 资产改为固定名 `starlog-offline-latest.html`（滚动 tag 上用带哈希的
+  文件名会让资产无限堆积）；步骤名中的 `（tag: offline）` 需加引号，否则 YAML 把「: 」当成映射分隔符。
+
+### 验证
+
+- `npx tsc --noEmit` 无错误；`npm run build` 通过（站点版，2287 modules，`index.js` 511.94 kB / gzip 200.34 kB）。
+- `npm run build:offline` 通过，产物 `dist-offline/index.html` 3.03 MB（内联 CSS 1.49 MB、内联 JS 1.52 MB、
+  data URI 1.07 MB / 42 个、`@font-face` 20 条、内置文章 10/10），`node scripts/verify-offline.mjs` 全项通过。
+- 用 jsdom 以 `file:///…/starlog-offline.html` 真实加载产物做冒烟测试：
+  首页列出内置文章、`#/posts/hello-starlog` 渲染出 2 个代码块 / 10 个 `code`、
+  KaTeX 公式 21 个节点、管理页 `?tab=sync` 面板与编辑器页均正常挂载，控制台无错误；
+  在没有 IndexedDB 且 `localStorage` 为不透明来源的环境里，页面按设计**拦住并给出解决办法**（而非静默丢数据），
+  补上 localStorage 后写入正常、误报横幅消失。
+- `npm ci --prefix vscode_extensions/v1` + `npm run extension:test`：65 项中 61 通过、0 失败、4 跳过
+  （需要浏览器环境的用例）；本次未改动插件代码，结果与基线一致。
+- 三份 workflow（`offline.yml` / `deploy.yml` / `extension.yml`）用 `js-yaml` 解析通过，
+  并确认 `deploy.yml` 中「放离线文件」一步排在 `npm run build` **之前**（否则不会进入 `dist/`）。
+- 站内帮助页 `content/about.md` 新增「离线版（单文件）」小节：能做什么、文章存在哪、为什么要导出离线档案、
+  联网后从哪儿同步；`.github/workflows/offline.yml` 的触发路径因此从 `content/posts/**` 放宽到 `content/**`
+  （`about.md` 等站内内容同样会被打进离线文件）。
+- `AI_README.md` 的更新流程补充第 3 步的离线验证要求（本条即按「规则修改需登记」记录）。
+- 已知未处理（按要求暂缓）：自定义字体走 Google Fonts，离线时回退到系统字体；`content/posts/` 中的远程图片在断网时不显示。
+
+
 ## 2026-10-19 · 处理 issue #63 / #64 / #65 / #66：透明页头、队列 diff、渲染差异与外观同步
 
 | 模型信息 | |

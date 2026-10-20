@@ -5,6 +5,8 @@ import { formatDate, hasPublicDate } from '../lib/posts'
 import { resolvePendingImageSrc } from '../lib/updateQueue'
 
 export function PostCard({ post, index = 0 }: { post: Post; index?: number }) {
+  // 离线版：远程 / 站内封面图不加载（解析结果为空）→ 整块封面都不渲染，不留破图
+  const coverSrc = post.cover ? resolvePendingImageSrc(post.cover) : ''
   return (
     <article
       className="card group relative flex animate-fade-up flex-col overflow-hidden p-6 transition-all duration-300 hover:-translate-y-1 hover:border-brand-300/80 hover:shadow-[0_2px_4px_rgba(16,24,40,.04),0_24px_48px_-20px_rgba(53,99,246,.35)] dark:hover:border-brand-400/30"
@@ -12,10 +14,10 @@ export function PostCard({ post, index = 0 }: { post: Post; index?: number }) {
     >
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-400/60 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
-      {post.cover && (
+      {coverSrc && (
         <Link to={`/posts/${post.slug}`} className="-mx-6 -mt-6 mb-5 block overflow-hidden">
           <img
-            src={resolvePendingImageSrc(post.cover)}
+            src={coverSrc}
             alt=""
             loading="lazy"
             className="h-44 w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"

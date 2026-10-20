@@ -35,7 +35,7 @@ export default function Home() {
         </div>
       ) : (
         <>
-          <div className="grid gap-5 sm:grid-cols-2">
+          <div className="grid gap-5 sm:grid-cols-2" data-yield-list>
             {visible.map((post, i) => (
               <PostCard key={post.slug} post={post} index={i} />
             ))}

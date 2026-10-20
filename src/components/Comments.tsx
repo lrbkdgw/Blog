@@ -18,10 +18,12 @@ import {
 import { useAuth } from '../lib/auth'
 import { useToast } from '../components/Toast'
 import { Markdown } from './Markdown'
+import { focusWithoutScroll, restoreCaret } from '../lib/caret'
 import { LatexPicker } from './LatexPicker'
 import { latexSymbolInsert, type LatexSymbol } from '../lib/latexSymbols'
 import { formatDate, relativeTime } from '../lib/posts'
 import { siteConfig } from '../lib/config'
+import { OFFLINE } from '../lib/runtime'
 import {
   addBlogDiscussionComment,
   createBlogDiscussion,
@@ -84,6 +86,21 @@ export function getCommentsForPost(postSlug: string): CommentItem[] {
     .sort((left, right) => left.createdAt - right.createdAt)
 }
 
+/** 离线版：把评论 / 备注写到本机存储（不上传 GitHub Discussions） */
+export function appendLocalComment(postSlug: string, text: string, authorName: string) {
+  const store = readCommentsStore()
+  const list = Array.isArray(store[postSlug]) ? store[postSlug] : []
+  list.push({
+    id: `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    postSlug,
+    content: text,
+    createdAt: Date.now(),
+    author: { name: authorName || '本机', isLocal: true },
+  })
+  store[postSlug] = list
+  writeCommentsStore(store)
+}
+
 function toCommentItem(postSlug: string, comment: BlogDiscussionComment): CommentItem {
   const login = comment.author?.login
   return {
@@ -130,7 +147,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
   }, [postSlug])
 
   const loadRemoteComments = useCallback(async (quiet = false) => {
-    if (!isAuthed) return
+    if (!isAuthed || OFFLINE) return
     const currentRequest = ++requestId.current
     if (!quiet) setRemoteLoading(true)
     setRemoteError('')
@@ -162,6 +179,15 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
   useEffect(() => {
     setContent('')
     setPreview(false)
+    // 离线版：评论走本机存储，不读取 GitHub Discussions
+    if (OFFLINE) {
+      setRemoteComments([])
+      setDiscussion(null)
+      setRepository(null)
+      setRemoteError('')
+      setRemoteLoading(false)
+      return
+    }
     if (authLoading) return
     if (!isAuthed) {
       requestId.current += 1
@@ -181,6 +207,14 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
   }, [isAuthed, ghUser])
 
   const currentAuthor = useMemo(() => {
+    if (OFFLINE) {
+      return {
+        name: siteConfig.author.name || '本机',
+        login: undefined as string | undefined,
+        avatar_url: '',
+        isOwner: true,
+      }
+    }
     if (!isAuthed || !ghUser) return null
     return {
       name: ghUser.name || ghUser.login,
@@ -211,10 +245,8 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
     const { text, selectionStart, selectionEnd } = latexSymbolInsert(symbol)
     setContent(content.slice(0, start) + text + content.slice(end))
     requestAnimationFrame(() => {
-      const ta = composerRef.current
-      if (!ta) return
-      ta.focus()
-      ta.setSelectionRange(start + selectionStart, start + selectionEnd)
+      // 与编辑器同理：先恢复光标再聚焦，避免页面被滚到评论框文本末尾（issue #70）。
+      restoreCaret(composerRef.current, start + selectionStart, start + selectionEnd)
     })
   }
 
@@ -223,6 +255,17 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
     const trimmed = content.trim()
     if (!trimmed) {
       toast('请输入评论内容', 'warning')
+      return
+    }
+    if (OFFLINE) {
+      try {
+        appendLocalComment(postSlug, trimmed, currentAuthor?.name ?? siteConfig.author.name)
+        setContent('')
+        setPreview(false)
+        toast('已保存到本机（离线版评论不会上传 GitHub Discussions）', 'success')
+      } catch (err) {
+        toast(err instanceof Error ? err.message : '保存评论失败：本机存储可能已满', 'error')
+      }
       return
     }
     if (!currentAuthor) {
@@ -289,7 +332,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
           评论 ({comments.length})
         </h2>
         <div className="flex items-center gap-1">
-          {isAuthed && (
+          {isAuthed && !OFFLINE && (
             <button
               type="button"
               onClick={() => void loadRemoteComments()}
@@ -322,7 +365,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
             <Loader2 size={17} className="animate-spin" />
             正在恢复 GitHub 登录状态…
           </div>
-        ) : isAuthed && currentAuthor ? (
+        ) : (OFFLINE || isAuthed) && currentAuthor ? (
           <form onSubmit={handleSubmit} className="space-y-3">
             <div className="flex items-center justify-between border-b border-ink-200/60 pb-3 dark:border-white/10">
               <div className="flex items-center gap-2.5">
@@ -335,7 +378,9 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
                 )}
                 <span className="text-sm font-medium text-ink-900 dark:text-white">
                   {currentAuthor.name}
-                  <span className="ml-1 text-xs text-ink-400">(@{currentAuthor.login})</span>
+                  {currentAuthor.login && (
+                    <span className="ml-1 text-xs text-ink-400">(@{currentAuthor.login})</span>
+                  )}
                 </span>
                 {currentAuthor.isOwner && (
                   <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-[10px] font-semibold text-brand-600 dark:text-brand-300">
@@ -402,11 +447,15 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
 
             <div className="flex items-center justify-between gap-3 pt-1">
               <span className="text-xs text-ink-400">
-                评论将公开保存到 GitHub Discussions
+                {OFFLINE
+                  ? '这条内容只保存在这台设备的浏览器里；离线版不联网，任何评论都不会提交到远端'
+                  : '评论将公开保存到 GitHub Discussions'}
               </span>
               <button
                 type="submit"
-                disabled={submitting || remoteLoading || !repository || !content.trim()}
+                disabled={
+                  submitting || (!OFFLINE && (remoteLoading || !repository)) || !content.trim()
+                }
                 className="btn-primary h-9 px-4 text-xs"
               >
                 {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
@@ -420,7 +469,9 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
               <User size={20} />
             </div>
             <div>
-              <p className="text-sm font-semibold text-ink-800 dark:text-ink-100">登录后查看并参与公开讨论</p>
+              <p className="text-sm font-semibold text-ink-800 dark:text-ink-100">
+                {OFFLINE ? '离线版不联网：下面的笔记只保存在这台设备上' : '登录后查看并参与公开讨论'}
+              </p>
               <p className="mt-1 text-xs text-ink-400">评论由 GitHub Discussions 跨设备保存</p>
             </div>
             <Link to="/login" className="btn-primary mt-2 h-8 px-4 text-xs">
@@ -435,7 +486,9 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
         <div className="mb-4 flex gap-2.5 rounded-xl border border-amber-300/50 bg-amber-50/70 p-3 text-xs leading-relaxed text-amber-800 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200">
           <HardDrive size={15} className="mt-0.5 shrink-0" />
           <p>
-            检测到 {legacyComments.length} 条旧版本机评论。它们会继续在这台设备上显示，但因无法验证原作者，不会自动上传到 GitHub；你可以复制后重新发表，或将其删除。
+            {OFFLINE
+              ? `本机保存了 ${legacyComments.length} 条备注，只在这台设备上可见；离线版不会把它们上传到 GitHub。`
+              : `检测到 ${legacyComments.length} 条旧版本机评论。它们会继续在这台设备上显示，但因无法验证原作者，不会自动上传到 GitHub；你可以复制后重新发表，或将其删除。`}
           </p>
         </div>
       )}
@@ -466,12 +519,18 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
           <div className="rounded-2xl border border-dashed border-ink-200/80 p-10 text-center dark:border-white/10">
             <MessageSquare size={24} className="mx-auto text-ink-300 dark:text-ink-600" />
             <p className="mt-2 text-sm text-ink-500">
-              {isAuthed ? '这篇文章还没有评论，快来发表第一条观点吧！' : '登录后即可加载 GitHub Discussions 中的共享评论。'}
+              {OFFLINE
+                ? '还没有本机备注。离线版的评论只写在这台设备上，方便给自己留观点与待办。'
+                : isAuthed
+                  ? '这篇文章还没有评论，快来发表第一条观点吧！'
+                  : '登录后即可加载 GitHub Discussions 中的共享评论。'}
             </p>
           </div>
         ) : (
           comments.map((comment) => {
-            const canDelete = comment.source === 'github'
+            const canDelete = OFFLINE
+              ? true
+              : comment.source === 'github'
               ? comment.canDelete
               : isAuthed && (isOwner || (
                 !!ghUser && !!comment.author.login
@@ -556,7 +615,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
         open={latexPickerOpen}
         onClose={() => {
           setLatexPickerOpen(false)
-          requestAnimationFrame(() => composerRef.current?.focus())
+          requestAnimationFrame(() => focusWithoutScroll(composerRef.current))
         }}
         onInsert={insertLatexSymbol}
       />

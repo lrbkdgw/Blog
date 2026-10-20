@@ -70,7 +70,22 @@
 
 1. 阅读本文件与当前 [README.md](README.md)、[ChangeLog.md](ChangeLog.md)，了解现状与已记录的历史。
 2. 进行代码 / 内容修改。
-3. 运行验证（常规：`npm run build`；涉及 VS Code 插件时：`npm ci --prefix vscode_extensions/v1` 后 `npm run extension:test`）。
+3. 运行验证（常规：`npm run build`；涉及 VS Code 插件时：`npm ci --prefix vscode_extensions/v1` 后 `npm run extension:test`；
+   **涉及 `src/**`、`vite*.config.ts`、`scripts/vite-plugin-single-html.mjs` 或 `content/posts/**` 时**，
+   还必须跑 `npm run build:offline` 并通过 `scripts/verify-offline.mjs` 的自检——离线版是单文件产物，
+   少字体、漏文章、内联脚本被破坏这类问题只在线上构建里看不出来）。
+   **`npm run extension:test` 不做类型检查**：CI 的 `extension.yml`（check 名 `verify`）还会跑
+   `npm --prefix vscode_extensions/v1 run typecheck`，那是另一条独立红线。插件的 tsconfig 只 include
+   自己的 `src`，代码却顺着 import 复用了站点的 `src/lib/*`，所以站点侧一旦引入 Vite 全局常量
+   （如 `__STARLOG_OFFLINE__`）或新的环境声明，就要同步把声明文件加进
+   `vscode_extensions/v1/tsconfig.json` 的 `include`，并在本地跑一次
+   `npm --prefix vscode_extensions/v1 run typecheck` 再提交（2026-10-19 的 CI 失败就是漏了这步）。
+   离线版的定位是**完全不联网**：不要在 `OFFLINE` 分支里引入任何请求（GitHub API、云端字体、
+   远程图片都不行）。如果自检报出「产物里出现了在线端点」，说明新代码把在线能力漏进了离线文件，
+   要么把调用放到 `if (OFFLINE)` 之后，要么像 `config.ts` / `github.ts` 那样把端点常量写成
+   `OFFLINE ? '' : 'https://…'`，而不是把自检删掉。
+   自检通过后，把 `dist-offline/index.html` 拷到 `offline/index.html` 一并提交（该文件由
+   `.github/workflows/offline.yml` 自动维护，**不要手工编辑**，也不要提交 `dist-offline/`）。
 4. **更新 README.md**（按规则 1）与 **ChangeLog.md**（按规则 1、2、3，含模型信息）。
 5. 将代码与文档一并提交并推送；提交信息写清本次变更。
 
