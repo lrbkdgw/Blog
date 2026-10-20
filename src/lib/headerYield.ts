@@ -23,8 +23,13 @@ const STATE_ATTR = 'data-yield'
 const VAR_TOP = '--yield-top'
 const VAR_FADE = '--yield-fade'
 
-/** 需要参与让路的「内容块」选择器。 */
-const BLOCK_SELECTOR = `.prose > *, [${LIST_SCOPE_ATTR}] > *`
+/**
+ * 需要参与让路的「内容块」选择器。
+ * `.prose` 容器若本身就是某个 yield-list 的直接子节点（如关于页），
+ * 不在列表选择器里重复挂 mask——它自己的子块由 `.prose > *` 逐个处理，
+ * 避免父 / 子两层蒙版叠加导致淡出过陡。
+ */
+const BLOCK_SELECTOR = `.prose > *, [${LIST_SCOPE_ATTR}] > *:not(.prose)`
 
 /** 淡出行程区间：块越薄过渡越短，避免一行标题被抹得太夸张。 */
 const FADE_MIN_PX = 24

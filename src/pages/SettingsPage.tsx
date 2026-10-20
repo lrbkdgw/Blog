@@ -622,7 +622,7 @@ export default function SettingsPage() {
 
 
   return (
-    <div className="container-page max-w-3xl pt-12">
+    <div className="container-page max-w-3xl pt-12" data-yield-list>
       <header className="mb-8 animate-fade-up">
         <h1 className="font-serif text-3xl font-bold tracking-tight text-ink-900 dark:text-white">设置</h1>
         <p className="mt-1.5 text-sm text-ink-500">

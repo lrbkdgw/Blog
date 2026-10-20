@@ -113,23 +113,30 @@ const ccsSource = [
   '::end_ui-ccs',
 ].join('\n')
 
-test('Markdown 渲染出可交互的 SVG 坐标系：点、折线、函数与图例齐全', () => {
+test('Markdown 渲染出简洁的 SVG 坐标系：折线带端点色点与坐标标注', () => {
   const doc = documentOf(core.renderReference(ccsSource))
   const section = doc.querySelector('section.not-prose')
   assert.ok(section)
   // 标题栏里的 lucide 图标也是 svg，用 role=img 定位坐标系本体
   const svg = section.querySelector('svg[role="img"]')
   assert.ok(svg)
-  assert.equal(svg.querySelectorAll('circle').length, 1)
+  // 1 个 create_point 色点 + 折线 2 个端点色点
+  assert.equal(svg.querySelectorAll('circle').length, 3)
   assert.equal(svg.querySelectorAll('polyline').length, 1)
   // 箭头 marker 内含一条 path，外加一条函数图像 path
   assert.equal(svg.querySelectorAll('path').length, 2)
-  assert.match(section.textContent, /平面直角坐标系/)
+  // 函数表达式浮动标签仍在，独立标题栏 / 图例栏已移除
   assert.match(section.textContent, /y = x\^2/)
-  assert.match(section.textContent, /拖动平移/)
+  assert.doesNotMatch(section.textContent, /平面直角坐标系/)
+  assert.match(svg.getAttribute('aria-label'), /可拖动/)
+  // 折线两端标注坐标
+  assert.match(svg.textContent, /\(0, 0\)/)
+  assert.match(svg.textContent, /\(4, 4\)/)
   assert.ok(svg.querySelector('marker'))
   assert.match(svg.textContent, /x/)
   assert.match(svg.textContent, /0/)
+  // 控件是一枚浮动工具条，不再占整行标题栏
+  assert.equal(section.querySelectorAll('button[aria-label]').length, 3)
 })
 
 test('缩放按钮改变函数路径，复位按钮恢复', async () => {

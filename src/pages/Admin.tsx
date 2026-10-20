@@ -416,7 +416,7 @@ export default function Admin() {
   const allSelected = queue.length > 0 && selectedIds.size === queue.length
 
   return (
-    <div className="container-page max-w-5xl pt-12">
+    <div className="container-page max-w-5xl pt-12" data-yield-list>
       {/* 头部 */}
       <header className="flex animate-fade-up flex-wrap items-end justify-between gap-4">
         <div>

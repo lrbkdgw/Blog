@@ -1080,6 +1080,8 @@ export default function Editor() {
 
   return (
     <div
+      // 全屏模式是覆盖在页头之上的独立浮层，不参与页头让路；普通模式才接入顶部防冲突。
+      data-yield-list={fullscreen ? undefined : true}
       className={
         fullscreen
           ? 'fixed inset-0 z-[80] flex h-screen flex-col overflow-hidden bg-white dark:bg-ink-950'

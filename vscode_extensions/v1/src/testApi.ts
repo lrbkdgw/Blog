@@ -25,3 +25,4 @@ export {
 } from './core/coordinatePlane'
 export { LATEX_SYMBOLS, latexSymbolInsert, searchLatexSymbols } from './core/latexSymbols'
 export { stripMarkdown, countWords, excerpt, extractToc } from './core/posts'
+export { installHeaderYield, LIST_SCOPE_ATTR, YIELD_REFRESH_EVENT } from './core/headerYield'

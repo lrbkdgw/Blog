@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Crosshair, Minus, Plus, RotateCcw } from 'lucide-react'
+import { AlertTriangle, Minus, Plus, RotateCcw } from 'lucide-react'
 import { useTheme } from '../lib/theme'
 import {
   compilePlaneExpression,
@@ -13,9 +13,11 @@ import {
 /**
  * 交互平面直角坐标系（issue #76）：
  * 文章里用 `::begin_ui-ccs` … `::end_ui-ccs` 声明点、折线与函数图像，
- * 读者可以拖动平移、滚轮 / 双指捏合缩放，按钮一键复位。
+ * 读者可以拖动平移、滚轮 / 双指捏合缩放。
  *
- * 渲染用 SVG：轴标签、网格与几何图形都是矢量节点，缩放不失真；
+ * 视觉上尽量接近教材插图：只有网格、箭头坐标轴、刻度与图形本身，
+ * 操作控件是浮在右上角的一枚小工具条，不占用独立横栏；
+ * 函数表达式以小标签浮在左上角，折线顶点（含端点）画出色点并在两端标注坐标。
  * 几何内容统一裁在视口矩形内，函数在间断点（如 1/x 的 x=0）自动断线。
  */
 
@@ -139,18 +141,18 @@ function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: numbe
 
   const colors = dark
     ? {
-        grid: 'rgba(255,255,255,0.10)',
-        axis: 'rgba(226,232,240,0.9)',
-        label: 'rgba(203,213,225,0.92)',
-        halo: 'rgba(15,23,42,0.82)',
-        panel: 'text-ink-200',
+        grid: 'rgba(255,255,255,0.09)',
+        axis: 'rgba(226,232,240,0.88)',
+        label: 'rgba(203,213,225,0.9)',
+        halo: 'rgba(15,23,42,0.85)',
+        chip: 'border-white/10 bg-ink-900/80 text-ink-200',
       }
     : {
-        grid: 'rgba(15,23,42,0.09)',
-        axis: 'rgba(30,41,59,0.88)',
+        grid: 'rgba(15,23,42,0.08)',
+        axis: 'rgba(30,41,59,0.85)',
         label: 'rgba(71,85,105,0.95)',
-        halo: 'rgba(255,255,255,0.85)',
-        panel: 'text-ink-600',
+        halo: 'rgba(255,255,255,0.88)',
+        chip: 'border-ink-200/70 bg-white/85 text-ink-600',
       }
 
   const { width: w, height: h } = size
@@ -283,52 +285,28 @@ function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: numbe
   )
 
   const isEmpty = spec.points.length === 0 && spec.polylines.length === 0 && spec.functions.length === 0
+  const buttonClass =
+    'flex h-7 w-7 items-center justify-center rounded-md text-ink-500 transition hover:text-brand-600 dark:text-ink-400 dark:hover:text-brand-300'
 
   return (
     <section
-      className="not-prose my-6 overflow-hidden rounded-xl border border-ink-200 bg-ink-50/70 shadow-sm dark:border-white/10 dark:bg-white/[0.035]"
+      className="not-prose my-6 overflow-hidden rounded-xl border border-ink-200 bg-ink-50/60 shadow-sm dark:border-white/10 dark:bg-white/[0.03]"
       data-source-line={sourceLine}
     >
-      <div className="flex items-center gap-2 border-b border-ink-200/80 bg-white/75 px-4 py-2.5 font-sans text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/[0.035] dark:text-ink-200">
-        <Crosshair size={14} className="text-brand-500" />
-        <span className="flex-1">平面直角坐标系</span>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            aria-label="缩小"
-            onClick={() => zoomCenter(1 / 1.25)}
-            className="rounded-md border border-ink-200/70 bg-white/85 p-1.5 text-ink-500 shadow-sm transition hover:text-brand-600 dark:border-white/10 dark:bg-ink-900/80 dark:text-ink-400 dark:hover:text-brand-300"
-          >
-            <Minus size={13} />
-          </button>
-          <button
-            type="button"
-            aria-label="复位视角"
-            onClick={() => setView(fitView(spec, w, h))}
-            className="rounded-md border border-ink-200/70 bg-white/85 p-1.5 text-ink-500 shadow-sm transition hover:text-brand-600 dark:border-white/10 dark:bg-ink-900/80 dark:text-ink-400 dark:hover:text-brand-300"
-          >
-            <RotateCcw size={13} />
-          </button>
-          <button
-            type="button"
-            aria-label="放大"
-            onClick={() => zoomCenter(1.25)}
-            className="rounded-md border border-ink-200/70 bg-white/85 p-1.5 text-ink-500 shadow-sm transition hover:text-brand-600 dark:border-white/10 dark:bg-ink-900/80 dark:text-ink-400 dark:hover:text-brand-300"
-          >
-            <Plus size={13} />
-          </button>
-        </div>
-      </div>
-
       <div
         ref={wrapRef}
-        className="relative h-[360px] w-full cursor-grab touch-none select-none sm:h-[420px] active:cursor-grabbing"
+        className="relative h-[340px] w-full cursor-grab touch-none select-none sm:h-[400px] active:cursor-grabbing"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endPointer}
         onPointerCancel={endPointer}
       >
-        <svg viewBox={`0 0 ${w} ${h}`} className="h-full w-full" role="img" aria-label="可拖动缩放的平面直角坐标系">
+        <svg
+          viewBox={`0 0 ${w} ${h}`}
+          className="h-full w-full"
+          role="img"
+          aria-label="可拖动、滚轮或双指缩放的平面直角坐标系"
+        >
           <defs>
             <clipPath id={`plane-clip-${clipId}`}>
               <rect x={0} y={0} width={w} height={h} />
@@ -357,7 +335,7 @@ function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: numbe
           </g>
 
           {/* 坐标轴：正方向带箭头，零轴在视口外时贴边绘制 */}
-          <g stroke={colors.axis} strokeWidth={1.6} fill="none">
+          <g stroke={colors.axis} strokeWidth={1.5} fill="none">
             <line x1={0} y1={axisY} x2={w - 4} y2={axisY} markerEnd={`url(#plane-arrow-${clipId})`} />
             <line x1={axisX} y1={h} x2={axisX} y2={4} markerEnd={`url(#plane-arrow-${clipId})`} />
           </g>
@@ -390,18 +368,55 @@ function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: numbe
           </g>
 
           <g clipPath={`url(#plane-clip-${clipId})`}>
-            {/* 折线 */}
+            {/* 折线：连线之外，每个顶点画色点，首尾两个端点再标注坐标 */}
             {spec.polylines.map((line, index) => (
-              <polyline
-                key={`line-${index}`}
-                points={line.points.map((p) => `${toScreenX(p.x)},${toScreenY(p.y)}`).join(' ')}
-                fill="none"
-                stroke={line.color}
-                strokeWidth={2.5}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                style={{ paintOrder: 'stroke' }}
-              />
+              <g key={`line-${index}`}>
+                <polyline
+                  points={line.points.map((p) => `${toScreenX(p.x)},${toScreenY(p.y)}`).join(' ')}
+                  fill="none"
+                  stroke={line.color}
+                  strokeWidth={2.25}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+                {line.points.map((p, pointIndex) => {
+                  const isEndpoint = pointIndex === 0 || pointIndex === line.points.length - 1
+                  return (
+                    <circle
+                      key={`line-${index}-pt-${pointIndex}`}
+                      cx={toScreenX(p.x)}
+                      cy={toScreenY(p.y)}
+                      r={isEndpoint ? 4.5 : 3}
+                      fill={line.color}
+                      stroke={colors.halo}
+                      strokeWidth={1.6}
+                    />
+                  )
+                })}
+                {line.points.map((p, pointIndex) => {
+                  const isEndpoint = pointIndex === 0 || pointIndex === line.points.length - 1
+                  if (!isEndpoint || line.points.length < 2) return null
+                  // 单点折线不会进入这里（解析层要求至少两个点）；两端坐标相同只标一次。
+                  if (pointIndex === line.points.length - 1 && p.x === line.points[0].x && p.y === line.points[0].y) {
+                    return null
+                  }
+                  return (
+                    <text
+                      key={`line-${index}-label-${pointIndex}`}
+                      x={toScreenX(p.x) + 7}
+                      y={toScreenY(p.y) - 7}
+                      fontSize={10.5}
+                      fontWeight={600}
+                      fill={line.color}
+                      stroke={colors.halo}
+                      strokeWidth={3}
+                      style={{ paintOrder: 'stroke' }}
+                    >
+                      ({formatPlaneNumber(p.x)}, {formatPlaneNumber(p.y)})
+                    </text>
+                  )
+                })}
+              </g>
             ))}
 
             {/* 函数图像：按可见区间采样，间断点自动断线 */}
@@ -411,16 +426,23 @@ function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: numbe
                 d={sampleFunctionPath(item.fn!, view, w, h)}
                 fill="none"
                 stroke={item.color}
-                strokeWidth={2.5}
+                strokeWidth={2.25}
                 strokeLinejoin="round"
                 strokeLinecap="round"
               />
             ))}
 
-            {/* 点：颜色填充 + 底色描边的光晕，深底上的深色点也不会消失 */}
+            {/* create_point 声明的点：更大的色点 + 原始坐标标注 */}
             {spec.points.map((point, index) => (
               <g key={`pt-${index}`}>
-                <circle cx={toScreenX(point.x)} cy={toScreenY(point.y)} r={5} fill={point.color} stroke={colors.halo} strokeWidth={2} />
+                <circle
+                  cx={toScreenX(point.x)}
+                  cy={toScreenY(point.y)}
+                  r={5}
+                  fill={point.color}
+                  stroke={colors.halo}
+                  strokeWidth={2}
+                />
                 <text
                   x={toScreenX(point.x) + 8}
                   y={toScreenY(point.y) - 8}
@@ -438,51 +460,61 @@ function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: numbe
           </g>
         </svg>
 
+        {/* 函数表达式：左上角小标签，替代占整行的图例 */}
+        {compiledFunctions.length > 0 && (
+          <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1">
+            {compiledFunctions.map((item, index) => (
+              <span
+                key={`fn-label-${index}`}
+                className={`inline-flex w-fit items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-[11px] shadow-sm backdrop-blur-sm ${colors.chip}`}
+              >
+                <span className="h-0.5 w-3 rounded-full" style={{ backgroundColor: item.color }} />
+                y = {item.expression}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* 浮动工具条：缩小 / 复位 / 放大 */}
+        <div
+          className={`absolute right-3 top-3 flex items-center gap-0.5 rounded-lg border p-0.5 shadow-sm backdrop-blur-md ${colors.chip}`}
+        >
+          <button type="button" aria-label="缩小" className={buttonClass} onClick={() => zoomCenter(1 / 1.25)}>
+            <Minus size={14} />
+          </button>
+          <button
+            type="button"
+            aria-label="复位视角"
+            className={buttonClass}
+            onClick={() => setView(fitView(spec, w, h))}
+            title="复位视角"
+          >
+            <RotateCcw size={13} />
+          </button>
+          <button type="button" aria-label="放大" className={buttonClass} onClick={() => zoomCenter(1.25)}>
+            <Plus size={14} />
+          </button>
+        </div>
+
         {isEmpty && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-xs text-ink-400 dark:text-ink-500">
             用 create_point / create_line 声明点、折线或关于 x 的函数图像
           </div>
         )}
-      </div>
 
-      {(spec.polylines.length > 0 || spec.functions.length > 0 || spec.points.length > 0) && (
-        <div className="max-h-28 overflow-y-auto border-t border-ink-200/80 bg-white/50 px-4 py-2.5 font-mono text-[11px] leading-5 dark:border-white/10 dark:bg-black/10">
-          {spec.functions.map((item, index) => (
-            <div key={`legend-fn-${index}`} className="flex items-center gap-2 truncate">
-              <span className="h-0.5 w-4 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
-              <span className={`truncate ${colors.panel}`}>y = {item.expression}</span>
-            </div>
-          ))}
-          {spec.polylines.map((item, index) => (
-            <div key={`legend-line-${index}`} className="flex items-center gap-2 truncate">
-              <span className="h-0.5 w-4 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
-              <span className={`truncate ${colors.panel}`}>{item.source}</span>
-            </div>
-          ))}
-          {spec.points.map((item, index) => (
-            <div key={`legend-pt-${index}`} className="flex items-center gap-2 truncate">
-              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
-              <span className={`truncate ${colors.panel}`}>{item.label}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {spec.errors.length > 0 && (
-        <div className="space-y-1 border-t border-amber-300/60 bg-amber-50/80 px-4 py-2.5 text-[11px] leading-5 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300">
-          {spec.errors.map((error, index) => (
-            <div key={index} className="flex items-start gap-1.5">
-              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-              <span>
-                第 {error.statement} 条语句：{error.message}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="border-t border-ink-200/80 bg-white/50 px-4 py-2 text-[11px] text-ink-400 dark:border-white/10 dark:bg-black/10 dark:text-ink-500">
-        拖动平移 · 滚轮 / 双指捏合缩放
+        {/* 语法错误：浮在左下角的小警示条，不挤占正文版面 */}
+        {spec.errors.length > 0 && (
+          <div className="absolute bottom-3 left-3 max-w-[85%] space-y-1 rounded-lg border border-amber-300/60 bg-amber-50/90 px-3 py-2 text-[11px] leading-5 text-amber-700 shadow-sm backdrop-blur-sm dark:border-amber-400/20 dark:bg-amber-400/15 dark:text-amber-300">
+            {spec.errors.map((error, index) => (
+              <div key={index} className="flex items-start gap-1.5">
+                <AlertTriangle size={13} className="mt-1 shrink-0" />
+                <span>
+                  第 {error.statement} 条语句：{error.message}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   )

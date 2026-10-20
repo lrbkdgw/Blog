@@ -18,7 +18,10 @@ export default function Login() {
   if (isAuthed) return <Navigate to={location.state?.from || '/admin'} replace />
 
   return (
-    <div className="container-page flex min-h-[calc(100vh-4rem)] items-center justify-center py-12">
+    <div
+      className="container-page flex min-h-[calc(100vh-4rem)] items-center justify-center py-12"
+      data-yield-list
+    >
       <div className="w-full max-w-md animate-fade-up">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-400 via-brand-600 to-indigo-700 text-2xl text-white shadow-xl shadow-brand-600/30">
@@ -75,7 +78,10 @@ export default function Login() {
 /** 离线版的登录页：说明「为什么这里没有登录」以及写作该怎么做 */
 function OfflineLoginNotice() {
   return (
-    <div className="container-page flex min-h-[calc(100vh-4rem)] items-center justify-center py-12">
+    <div
+      className="container-page flex min-h-[calc(100vh-4rem)] items-center justify-center py-12"
+      data-yield-list
+    >
       <div className="card w-full max-w-lg animate-fade-up p-7">
         <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-ink-500/10 text-ink-500">
           <WifiOff size={19} />
