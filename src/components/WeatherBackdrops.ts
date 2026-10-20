@@ -93,94 +93,1211 @@ export function createSnow(initialDark: boolean): Renderer {
   }
 }
 
-/** 密集斜雨、远处雨幕与近处积水。闪电为可选，默认关闭。 */
+/**
+ * 暴雨用的雨雾贴图缓存。
+ *
+ * 雾团与窗口尺寸无关（绘制时再拉伸），所以只依赖明暗：切换主题 / 重建里
+ * 直接复用，不必每次重新烤 200 多个柔光团（实测这一步占了 setup 的一大半）。
+ */
+const rainMistCache = new Map<boolean, HTMLCanvasElement>()
+const rainGlowCache = new Map<string, HTMLCanvasElement>()
+const rainCloudCache = new Map<boolean, HTMLCanvasElement>()
+
+/**
+ * 暴雨：雨夜 / 阴雨白昼的山湖。
+ *
+ * 视觉目标是一张「安静但有层次」的风景，而不是特效堆砌：
+ *   · 天空用低频噪声云场画出被雨压低的层云，云隙里透出月光 / 天光；
+ *   · 三层山脊各自长着一整片混合林（针叶 + 阔叶），远层被雨雾洗淡，
+ *     岸边长着芦苇，湖岸线不再是一条硬直线；
+ *   · 湖面反射山林，分带错位；月光 / 天光在水面拉出一条抖动的碎光柱；
+ *   · 雨丝分三层，亮度与长度各不相同；近景左右各有一丛虚焦芦苇，拉开景深。
+ *
+ * 所有静态部分在 setup() / setTone() 时烘焙进离屏 canvas，逐帧只做少量
+ * drawImage 与批量描边；山形、树林与云场用固定种子，缩放窗口不会换一张脸。
+ */
 export function createRain(initialDark: boolean): Renderer {
-  interface Drop { x: number; y: number; z: number }
-  interface Ripple { x: number; y: number; age: number; life: number; scale: number }
-  let w = 1, h = 1, dark = initialDark, time = 0, flash = 0, nextFlash = 8
-  let values: SceneValues = {}, drops: Drop[] = [], ripples: Ripple[] = []
-  let background: HTMLCanvasElement, mist: HTMLCanvasElement
-  const spawn = (top = false): Drop => ({ x: rand(-w * .3, w * 1.3), y: top ? rand(-100, -10) : rand(-50, h), z: rand(.15, 1) })
-  const build = () => {
-    background = paint(w, h, ctx => {
-      sky(ctx, w, h, dark ? ['#07111d', '#152b3b', '#10202b'] : ['#c5d4df', '#e0e8ed', '#b6cad5'])
-      // 雾中树影与低矮地平线，避免雨丝像贴在纯色纸上。
-      ctx.fillStyle = dark ? '#0b1d29' : '#9fb6c1'
-      for (let i = 0; i < 32; i++) {
-        const x = (i / 31) * w, top = h * (.52 + .09 * Math.sin(i * 2.3))
-        const spread = w / 38
-        ctx.beginPath(); ctx.moveTo(x, top)
-        for (let branch = 1; branch <= 12; branch++) {
-          const y = top + (h * .8 - top) * branch / 12
-          const radius = spread * branch / 12
-          ctx.lineTo(x + radius, y); ctx.lineTo(x + radius * .4, y - 3)
-        }
-        ctx.lineTo(x - spread, h * .8)
-        for (let branch = 12; branch >= 1; branch--) {
-          const y = top + (h * .8 - top) * branch / 12
-          const radius = spread * branch / 12
-          ctx.lineTo(x - radius, y); ctx.lineTo(x - radius * .4, y - 3)
-        }
-        ctx.closePath(); ctx.fill()
-      }
-      const ground = ctx.createLinearGradient(0, h * .7, 0, h)
-      ground.addColorStop(0, dark ? '#173443' : '#b9d0db'); ground.addColorStop(1, dark ? '#091722' : '#8eaab9')
-      ctx.fillStyle = ground; ctx.fillRect(0, h * .76, w, h * .24)
-      const light = ctx.createRadialGradient(w * .65, h * .7, 0, w * .65, h * .7, w * .6)
-      light.addColorStop(0, dark ? 'rgba(158,199,219,.1)' : 'rgba(255,255,255,.3)'); light.addColorStop(1, 'rgba(180,220,240,0)')
-      ctx.fillStyle = light; ctx.fillRect(0, 0, w, h)
+  interface Drop { x: number; y: number; z: number; len: number; drift: number; bright: number }
+  interface Ripple { x: number; y: number; age: number; life: number; scale: number; depth: number }
+  interface NoiseGrid { data: Float32Array; size: number }
+
+  let w = 1, h = 1, dark = initialDark, time = 0, flash = 0, second = 0, nextFlash = 9
+  let horizon = 0, moonX = 0, moonY = 0
+  let values: SceneValues = {}
+  let drops: Drop[] = []
+  let ripples: Ripple[] = []
+  let rippleClock = 0
+  let background: HTMLCanvasElement
+  let mirror: HTMLCanvasElement
+  let water: HTMLCanvasElement
+  let mistTex: HTMLCanvasElement
+  let flashTex: HTMLCanvasElement
+  let shimmer: HTMLCanvasElement
+  let grade: HTMLCanvasElement
+  let foreground: HTMLCanvasElement
+
+  const seeded = (seed: number) => {
+    let value = (seed * 2654435761) >>> 0
+    return () => {
+      value = (value * 1664525 + 1013904223) >>> 0
+      return value / 4294967296
+    }
+  }
+
+  /** 缩小再放大 = 廉价柔焦，把光斑、雾团的边缘磨软 */
+  const soften = (source: HTMLCanvasElement, factor: number) => {
+    const small = paint(Math.max(1, Math.round(source.width / factor)), Math.max(1, Math.round(source.height / factor)), (ctx) => {
+      ctx.imageSmoothingEnabled = true
+      ctx.drawImage(source, 0, 0, source.width / factor, source.height / factor)
     })
-    mist = paint(256, 128, ctx => {
-      const g = ctx.createRadialGradient(128, 64, 0, 128, 64, 128)
-      g.addColorStop(0, dark ? 'rgba(165,198,217,.22)' : 'rgba(244,250,255,.65)'); g.addColorStop(1, 'rgba(200,225,245,0)')
-      ctx.fillStyle = g; ctx.fillRect(0, 0, 256, 128)
+    return paint(source.width, source.height, (ctx) => {
+      ctx.imageSmoothingEnabled = true
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(small, 0, 0, source.width, source.height)
     })
   }
+
+  /**
+   * 椭圆柔光。
+   *
+   * 之前直接在 ctx.scale(rx, ry) 之后画极小的 radialGradient，缩放比动辄几百倍，
+   * Skia 在这种极端变换下采样精度不足，会在大面积柔光里留下竖直的色阶接缝
+   * （实测在 1440 宽时 x≈660 / x≈1010 各有一条，放大对比度就看得到）。
+   * 现在改成「先把 256×256 的圆形柔光烤成贴图，再用 drawImage 拉伸成椭圆」：
+   * 渐变永远在 1:1 的空间里生成，缩放交给 drawImage 的双线性插值，接缝消失。
+   */
+  const glowSprite = (stops: Array<[number, string]>) => {
+    const key = stops.map(([offset, color]) => `${offset}|${color}`).join(';')
+    const cached = rainGlowCache.get(key)
+    if (cached) return cached
+    const size = 256
+    const sprite = paint(size, size, (ctx) => {
+      const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+      for (const [offset, color] of stops) g.addColorStop(offset, color)
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, size, size)
+    })
+    rainGlowCache.set(key, sprite)
+    return sprite
+  }
+  const blob = (
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    rx: number,
+    ry: number,
+    stops: Array<[number, string]>,
+  ) => {
+    const radiusX = Math.max(0.5, rx)
+    const radiusY = Math.max(0.5, ry)
+    const sprite = glowSprite(stops)
+    ctx.save()
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(sprite, cx - radiusX, cy - radiusY, radiusX * 2, radiusY * 2)
+    ctx.restore()
+  }
+
+  /* ---------------------- 低频值噪声：云场 ---------------------- */
+  const makeNoise = (seed: number): NoiseGrid => {
+    const r = seeded(seed)
+    const size = 64
+    const data = new Float32Array(size * size)
+    for (let i = 0; i < data.length; i += 1) data[i] = r()
+    return { data, size }
+  }
+  const sampleNoise = (grid: NoiseGrid, x: number, y: number) => {
+    const { data, size } = grid
+    const fx = ((x % size) + size) % size
+    const fy = ((y % size) + size) % size
+    const x0 = Math.floor(fx), y0 = Math.floor(fy)
+    const x1 = (x0 + 1) % size, y1 = (y0 + 1) % size
+    const tx = fx - x0, ty = fy - y0
+    const sx = tx * tx * (3 - 2 * tx)
+    const sy = ty * ty * (3 - 2 * ty)
+    const top = data[y0 * size + x0] + (data[y0 * size + x1] - data[y0 * size + x0]) * sx
+    const bottom = data[y1 * size + x0] + (data[y1 * size + x1] - data[y1 * size + x0]) * sx
+    return top + (bottom - top) * sy
+  }
+  const smooth01 = (edge0: number, edge1: number, x: number) => {
+    const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)))
+    return t * t * (3 - 2 * t)
+  }
+  const raySprite = paint(128, 256, (c) => {
+    const gx = c.createLinearGradient(0, 0, 128, 0)
+    gx.addColorStop(0, 'rgba(255,246,226,0)')
+    gx.addColorStop(0.5, 'rgba(255,246,226,0.55)')
+    gx.addColorStop(1, 'rgba(255,246,226,0)')
+    c.fillStyle = gx
+    c.fillRect(0, 0, 128, 256)
+    c.globalCompositeOperation = 'destination-in'
+    const gy = c.createLinearGradient(0, 0, 0, 256)
+    gy.addColorStop(0, 'rgba(0,0,0,0.9)')
+    gy.addColorStop(0.55, 'rgba(0,0,0,0.35)')
+    gy.addColorStop(1, 'rgba(0,0,0,0)')
+    c.fillStyle = gy
+    c.fillRect(0, 0, 128, 256)
+  })
+  const cloudNoise = [makeNoise(23), makeNoise(71), makeNoise(137)]
+  /** 横向拉伸的分形噪声：雨天的层云是横着铺开的 */
+  const fbm = (u: number, v: number) => {
+    let sum = 0, amplitude = 0.56, norm = 0
+    for (let octave = 0; octave < 5; octave += 1) {
+      const freq = 2.8 * Math.pow(2, octave)
+      sum += sampleNoise(cloudNoise[octave % 3], (u * freq) / 2.3, v * freq) * amplitude
+      norm += amplitude
+      amplitude *= 0.55
+    }
+    return sum / norm
+  }
+
+  /**
+   * 云场贴图只跟明暗有关，按色调缓存。
+   * 640×280 的低分辨率噪声放大到整个天空，既省烘焙时间，又自带柔边。
+   */
+  const cloudTexture = () => {
+    const cached = rainCloudCache.get(dark)
+    if (cached) return cached
+    const cw = 512, ch = 224
+    const maxCloud = dark ? 0.76 : 0.7
+    const base = dark ? [5, 9, 16] : [86, 104, 120]
+    const lit = dark ? [96, 126, 152] : [238, 245, 249]
+    const lightU = dark ? 0.84 : 0.76
+    const lightV = dark ? 0.236 : 0.74
+    const aspect = cw / ch
+    const texture = paint(cw, ch, (ctx) => {
+      const image = ctx.createImageData(cw, ch)
+      const data = image.data
+      for (let y = 0; y < ch; y += 1) {
+        const v = y / (ch - 1)
+        const vertical = 1 - smooth01(0.56, 1, v) * 0.58
+        for (let x = 0; x < cw; x += 1) {
+          const u = x / (cw - 1)
+          const dens = smooth01(0.4, 0.68, fbm(u, v))
+          const dx = (u - lightU) * aspect
+          const dy = v - lightV
+          const d2 = dx * dx + dy * dy
+          const glow = Math.exp(-d2 * 6.2)
+          const clear = Math.exp(-d2 * 16)
+          const highlight = Math.min(1, glow * (0.22 + dens * 0.7) * (dark ? 0.86 : 0.62))
+          const index = (y * cw + x) * 4
+          data[index] = base[0] + (lit[0] - base[0]) * highlight
+          data[index + 1] = base[1] + (lit[1] - base[1]) * highlight
+          data[index + 2] = base[2] + (lit[2] - base[2]) * highlight
+          data[index + 3] = dens * vertical * (1 - clear * (dark ? 0.5 : 0.58)) * maxCloud * 255
+        }
+      }
+      ctx.putImageData(image, 0, 0)
+    })
+    rainCloudCache.set(dark, texture)
+    return texture
+  }
+
+  const spawn = (top = false): Drop => ({
+    x: rand(-w * 0.3, w * 1.2),
+    y: top ? rand(-h * 0.5, -18) : rand(-60, h),
+    z: rand(0.05, 1),
+    len: rand(0.45, 1.75),
+    drift: rand(0.7, 1.35),
+    bright: rand(0, 1),
+  })
+
+  const build = () => {
+    horizon = Math.round(h * 0.7)
+    const landH = Math.round(h * 0.19)
+    const scale = Math.max(0.72, Math.min(1.55, w / 1440))
+    moonX = w * 0.84
+    moonY = h * 0.165
+    const lampX = w * 0.865
+    const lampY = horizon - h * 0.028
+    const moonR = Math.max(12, Math.min(36, Math.min(w, h) * 0.03))
+    const waterH = h - horizon
+
+    /* -------- 配色：浅色是阴雨白昼，深色是冷调雨夜 -------- */
+    const tone = dark
+      ? {
+          skyTop: '#04070d',
+          skyMid: '#091520',
+          skyLow: '#13232f',
+          skyBase: '#263842',
+          haze: '36,56,70',
+          waterTop: '#1b303c',
+          waterMid: '#0b161d',
+          waterLow: '#04090d',
+          ridge: ['#334854', '#263a45', '#1a2b34'],
+          forest: ['#2a3e49', '#1f323c', '#14222b'],
+          forestDeep: '#070f14',
+          reed: '#0a1319',
+          shore: '#0c1a21',
+        }
+      : {
+          skyTop: '#879caa',
+          skyMid: '#a3b5c0',
+          skyLow: '#c4cfd6',
+          skyBase: '#dee5e9',
+          haze: '236,242,246',
+          waterTop: '#c5d4db',
+          waterMid: '#b4c7d1',
+          waterLow: '#a2b9c4',
+          ridge: ['#c1ced6', '#b1c2cb', '#a4b7c1'],
+          forest: ['#aec0c7', '#9bb0b4', '#88a6a9'],
+          forestDeep: '#73908f',
+          reed: '#648084',
+          shore: '#5c7a7e',
+        }
+
+    /* ---------------------------- 山脊 ---------------------------- */
+    const makeRidge = (seed: number, peak: number, baseY: number) => {
+      const cols = Math.max(14, Math.round(w / 110))
+      const step = (w + 240) / cols
+      const r = seeded(seed)
+      const raw: number[] = []
+      let level = 0.45
+      for (let i = 0; i <= cols; i += 1) {
+        level = Math.max(0.08, Math.min(0.95, level + (r() - 0.5) * 0.26))
+        raw.push(level)
+      }
+      // 三次邻值平滑：山脊像缓坡，而不是随机折线
+      let smoothed = raw
+      for (let pass = 0; pass < 3; pass += 1) {
+        smoothed = smoothed.map((v, i) => (smoothed[i - 1] ?? v) * 0.3 + v * 0.4 + (smoothed[i + 1] ?? v) * 0.3)
+      }
+      const min = Math.min(...smoothed)
+      const max = Math.max(...smoothed)
+      const points = smoothed.map((v, i) => ({
+        x: -120 + i * step,
+        y: baseY - peak * (0.12 + ((v - min) / Math.max(0.0001, max - min)) * 0.88),
+      }))
+      return { points, baseY }
+    }
+
+    const heightAt = (ridge: ReturnType<typeof makeRidge>, x: number) => {
+      const { points } = ridge
+      for (let i = 1; i < points.length; i += 1) {
+        if (points[i].x >= x) {
+          const t = (x - points[i - 1].x) / Math.max(1, points[i].x - points[i - 1].x)
+          return points[i - 1].y + (points[i].y - points[i - 1].y) * t
+        }
+      }
+      return points[points.length - 1].y
+    }
+
+    const fillRidge = (ctx: CanvasRenderingContext2D, ridge: ReturnType<typeof makeRidge>, fill: string) => {
+      const { points, baseY } = ridge
+      ctx.beginPath()
+      ctx.moveTo(points[0].x, baseY + 10)
+      for (const p of points) ctx.lineTo(p.x, p.y)
+      ctx.lineTo(points[points.length - 1].x, baseY + 10)
+      ctx.closePath()
+      ctx.fillStyle = fill
+      ctx.fill()
+    }
+
+    const hash = (n: number) => {
+      const v = Math.sin(n * 12.9898) * 43758.5453
+      return v - Math.floor(v)
+    }
+
+    /**
+     * 一棵针叶树：细长的塔形，5 层枝梢向外垂，树尖留一段没有分枝的尖顶。
+     * 高度不足 6.5px 时退化成三角形，远景里不需要细节。
+     */
+    const conifer = (ctx: CanvasRenderingContext2D, x: number, base: number, hh: number, hw: number, seed = 0) => {
+      if (hh < 6.5) {
+        ctx.moveTo(x - hw, base)
+        ctx.lineTo(x, base - hh)
+        ctx.lineTo(x + hw, base)
+        ctx.closePath()
+        return
+      }
+      const tiers = 5
+      ctx.moveTo(x, base - hh)
+      for (let i = 1; i <= tiers; i += 1) {
+        const t = i / tiers
+        const y = base - hh * (0.04 + t * 0.88)
+        const out = hw * (0.1 + t * 0.9) * (0.88 + 0.12 * Math.sin(i * 2.1 + seed * 3.7))
+        ctx.lineTo(x + out, y + hh * 0.012)
+        if (i < tiers) ctx.lineTo(x + out * 0.4, y + hh * 0.06)
+      }
+      ctx.lineTo(x + hw * 0.1, base)
+      ctx.lineTo(x - hw * 0.1, base)
+      for (let i = tiers; i >= 1; i -= 1) {
+        const t = i / tiers
+        const y = base - hh * (0.04 + t * 0.88)
+        const out = hw * (0.1 + t * 0.9) * (0.88 + 0.12 * Math.sin(i * 2.1 + seed * 3.7))
+        if (i < tiers) ctx.lineTo(x - out * 0.4, y + hh * 0.06)
+        ctx.lineTo(x - out, y + hh * 0.012)
+      }
+      ctx.closePath()
+    }
+
+    /**
+     * 一棵阔叶树：树干 + 十团大小不一的树冠。
+     * 树冠不是一个大圆，而是一串高低错落的小圆，远看才有绒毛似的边。
+     */
+    const broadleaf = (ctx: CanvasRenderingContext2D, x: number, base: number, hh: number, hw: number, seed = 0) => {
+      const trunkTop = base - hh * 0.44
+      ctx.moveTo(x - hw * 0.09, base)
+      ctx.lineTo(x - hw * 0.055, trunkTop)
+      ctx.lineTo(x + hw * 0.055, trunkTop)
+      ctx.lineTo(x + hw * 0.09, base)
+      ctx.closePath()
+      const cy = base - hh * 0.63
+      const lobes: Array<[number, number, number]> = [
+        [-0.62, 0.16, 0.23], [-0.44, -0.06, 0.28], [-0.18, -0.24, 0.27],
+        [0.1, -0.3, 0.25], [0.38, -0.12, 0.29], [0.62, 0.14, 0.22],
+        [-0.34, 0.28, 0.25], [0.0, 0.3, 0.24], [0.34, 0.27, 0.23],
+        [0.0, 0.04, 0.3], [-0.2, 0.02, 0.26], [0.22, 0.13, 0.24],
+      ]
+      for (const [ox, oy, rr] of lobes) {
+        const jitter = 0.82 + hash(seed * 5.3 + ox * 17.3 + oy * 9.1) * 0.4
+        const radius = Math.max(1, hw * rr * jitter)
+        const cx = x + ox * hw
+        const yy = cy + oy * hh
+        ctx.moveTo(cx + radius, yy)
+        ctx.arc(cx, yy, radius, 0, TAU)
+      }
+    }
+
+    /**
+     * 沿山脊种一片混合林。
+     *   · 树高用 1.35 次幂做分布：大部分是矮树，少数冒尖的，林冠顶才有起伏；
+     *   · 树种按低频噪声分片，一段针叶、一段阔叶，不会一棵圆一棵尖地交替；
+     *   · baseOffset 把前面一排树种到坡面下方几像素，树根不再排成一条直线。
+     */
+    const forest = (
+      ctx: CanvasRenderingContext2D,
+      ridge: ReturnType<typeof makeRidge>,
+      cfg: { seed: number; spacing: number; height: number; conifer: number; color: string; baseOffset?: number },
+    ) => {
+      const r = seeded(cfg.seed)
+      let x = -80
+      let trees = 0
+      ctx.beginPath()
+      while (x < w + 80) {
+        const clump =
+          (0.5 + 0.5 * Math.sin(x * 0.0045 + cfg.seed * 0.37)) * 0.6 +
+          (0.5 + 0.5 * Math.sin(x * 0.0016 + cfg.seed * 1.7)) * 0.4
+        const env = 0.45 + clump * 0.72
+        const species = 0.5 + 0.5 * Math.sin(x * 0.0055 + cfg.seed * 0.9) * 0.65 + 0.35 * Math.sin(x * 0.014 + cfg.seed * 2.3)
+        const isConifer = r() < cfg.conifer * (0.3 + species * 0.95)
+        const size = 0.55 + Math.pow(r(), 0.9) * 0.6
+        const emergent = r() < 0.1 ? 1.55 + r() * 0.75 : 1
+        const hh = (isConifer
+          ? cfg.height * size * env
+          : cfg.height * size * 0.92 * env) * emergent * treeF
+        const hw = isConifer ? hh * (0.2 + r() * 0.07) : hh * (0.34 + r() * 0.12)
+        const base = heightAt(ridge, x) + 2 + (cfg.baseOffset ?? 0) * (0.35 + r() * 0.9)
+        if (isConifer) conifer(ctx, x, base, hh, hw, cfg.seed)
+        else broadleaf(ctx, x, base, hh, hw, cfg.seed)
+        trees += 1
+        if (trees % 70 === 0) {
+          ctx.fillStyle = cfg.color
+          ctx.fill()
+          ctx.beginPath()
+        }
+        x += cfg.spacing * (0.5 + r() * 0.95)
+      }
+    }
+
+    /**
+     * 岸边的低矮灌木：一串半圆贴着水面，把「山脚」和「水」之间的
+     * 那条笔直的分界线盖住，也压暗树冠下面的浅色坡面。
+     */
+    const undergrowth = (ctx: CanvasRenderingContext2D, seed: number, count: number, height: number, color: string) => {
+      const r = seeded(seed)
+      ctx.fillStyle = color
+      ctx.beginPath()
+      for (let i = 0; i < count; i += 1) {
+        const x = r() * w
+        const hh = height * (0.35 + r() * 1)
+        const ww = hh * (0.9 + r() * 1.7)
+        const cy = landH - hh * 0.2
+        ctx.moveTo(x + ww, cy)
+        ctx.ellipse(x, cy, ww, hh * 0.78, 0, 0, TAU)
+      }
+      ctx.fill()
+    }
+
+    /**
+     * 远看一片森林，先要有一整块「林冠」：
+     * 这条曲线由四个不同尺度的正弦叠成，粗的起伏是山坳，细的起伏是树冠，
+     * 一次填到山脚，树与树之间就不会露出天空或坡面。
+     */
+    const canopyMass = (
+      ctx: CanvasRenderingContext2D,
+      ridge: ReturnType<typeof makeRidge>,
+      cfg: { seed: number; height: number; color: string },
+    ) => {
+      const r = seeded(cfg.seed)
+      const step = Math.max(1.2, w / 900)
+      ctx.beginPath()
+      ctx.moveTo(-40, heightAt(ridge, -40) - cfg.height * 0.6)
+      for (let x = -40; x <= w + 40; x += step) {
+        const broad =
+          0.5 +
+          0.22 * Math.sin(x * 0.0038 + cfg.seed * 1.3) +
+          0.16 * Math.sin(x * 0.011 + cfg.seed * 2.1) +
+          0.1 * Math.sin(x * 0.031 + cfg.seed * 3.7) +
+          0.07 * Math.sin(x * 0.077 + cfg.seed * 0.9)
+        const jitter = 0.94 + r() * 0.12
+        const height = cfg.height * Math.max(0.18, Math.min(1.05, broad + 0.18)) * jitter * treeF
+        ctx.lineTo(x, heightAt(ridge, x) - height)
+      }
+      ctx.lineTo(w + 40, landH + 20)
+      ctx.lineTo(-40, landH + 20)
+      ctx.closePath()
+      ctx.fillStyle = cfg.color
+      ctx.fill()
+    }
+
+    /* ---------------------------- 陆地 ---------------------------- */
+    // 窄屏上树按宽度收一档，避免几棵巨树占满整个林带
+    const treeF = Math.max(0.62, Math.min(1.2, Math.pow(w / 1440, 0.35)))
+    const ridgeFar = makeRidge(2.3, h * 0.12, landH)
+    const ridgeMid = makeRidge(5.7, h * 0.09, landH + 3)
+    const ridgeNear = makeRidge(11.4, h * 0.055, landH + 7)
+
+    const land = paint(w, landH, (ctx) => {
+      // 远山：几乎融进天色，只留一道薄剪影与细密树梢
+      fillRidge(ctx, ridgeFar, tone.ridge[0])
+      canopyMass(ctx, ridgeFar, { seed: 13, height: landH * 0.1, color: tone.forest[0] })
+      forest(ctx, ridgeFar, { seed: 21, spacing: (w / 150) * scale, height: landH * 0.18, conifer: 0.9, color: tone.forest[0] })
+
+      // 远山与中山之间的一条极薄的雨雾（两端渐隐，不会成为白带）
+      const haze1 = ctx.createLinearGradient(0, landH - h * 0.06, 0, landH)
+      haze1.addColorStop(0, `rgba(${tone.haze},0)`)
+      haze1.addColorStop(0.55, `rgba(${tone.haze},${dark ? 0.24 : 0.26})`)
+      haze1.addColorStop(1, `rgba(${tone.haze},${dark ? 0.08 : 0.12})`)
+      ctx.fillStyle = haze1
+      ctx.fillRect(0, landH - h * 0.06, w, h * 0.06)
+
+      // 中山：坡面本身就是暗色的林地，再叠两排树；前排种低一点，露出前后层次
+      fillRidge(ctx, ridgeMid, tone.forest[1])
+      canopyMass(ctx, ridgeMid, { seed: 41, height: landH * 0.13, color: tone.forest[1] })
+      forest(ctx, ridgeMid, { seed: 53, spacing: (w / 150) * scale, height: landH * 0.26, conifer: 0.55, color: tone.forest[1] })
+      forest(ctx, ridgeMid, { seed: 67, spacing: (w / 110) * scale, height: landH * 0.28, conifer: 0.45, color: tone.forest[1], baseOffset: landH * 0.02 })
+
+      const haze2 = ctx.createLinearGradient(0, landH - h * 0.035, 0, landH)
+      haze2.addColorStop(0, `rgba(${tone.haze},0)`)
+      haze2.addColorStop(0.6, `rgba(${tone.haze},${dark ? 0.16 : 0.18})`)
+      haze2.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = haze2
+      ctx.fillRect(0, landH - h * 0.035, w, h * 0.035)
+
+      // 近山：整片暗林地 + 两排更深的树，最后用灌木把水岸压暗
+      fillRidge(ctx, ridgeNear, tone.forestDeep)
+      canopyMass(ctx, ridgeNear, { seed: 89, height: landH * 0.16, color: tone.forest[2] })
+      forest(ctx, ridgeNear, { seed: 97, spacing: (w / 180) * scale, height: landH * 0.34, conifer: 0.34, color: tone.forest[2] })
+      canopyMass(ctx, ridgeNear, { seed: 113, height: landH * 0.08, color: tone.forestDeep })
+      forest(ctx, ridgeNear, { seed: 131, spacing: (w / 140) * scale, height: landH * 0.38, conifer: 0.48, color: tone.forestDeep, baseOffset: landH * 0.02 })
+      undergrowth(ctx, 191, Math.round(w / 2.6), h * 0.016, tone.shore)
+      undergrowth(ctx, 211, Math.round(w / 4), h * 0.024, tone.forestDeep)
+
+      // 岸线：两排高低不一的芦苇，把笔直的水岸线打碎
+      const reeds = (seed: number, count: number, height: number, width: number) => {
+        const r = seeded(seed)
+        ctx.strokeStyle = tone.reed
+        ctx.lineCap = 'round'
+        for (let i = 0; i < count; i += 1) {
+          const x = r() * w
+          const hh = 2 + r() * height
+          const lean = (r() - 0.5) * hh * 0.9
+          ctx.lineWidth = width * (0.5 + r() * 0.8)
+          ctx.beginPath()
+          ctx.moveTo(x, landH + 1)
+          ctx.quadraticCurveTo(x + lean * 0.35, landH - hh * 0.58, x + lean, landH - hh)
+          ctx.stroke()
+        }
+      }
+      reeds(151, Math.round(w / 5), h * 0.006 + 2, 0.9)
+      reeds(173, Math.round(w / 10), h * 0.011 + 3, 1.2)
+
+      // 岸线底部压暗并略微渐隐，接水面时不会出现一条硬边
+      const foot = ctx.createLinearGradient(0, landH - h * 0.014, 0, landH)
+      foot.addColorStop(0, 'rgba(0,0,0,0)')
+      foot.addColorStop(1, dark ? 'rgba(5,12,16,0.62)' : 'rgba(70,94,99,0.34)')
+      ctx.fillStyle = foot
+      ctx.fillRect(0, landH - h * 0.014, w, h * 0.014)
+
+      // 光从右侧来：给整片陆地压一层极淡的方向光
+      ctx.save()
+      ctx.globalCompositeOperation = 'source-atop'
+      const tint = ctx.createLinearGradient(w * 0.35, 0, w, 0)
+      tint.addColorStop(0, 'rgba(0,0,0,0)')
+      tint.addColorStop(1, dark ? 'rgba(150,190,220,0.12)' : 'rgba(255,248,235,0.16)')
+      ctx.fillStyle = tint
+      ctx.fillRect(0, 0, w, landH)
+
+      // 林冠顶受光、林下压暗：一条很轻的垂直明暗，给树冠一点体积
+      const volume = ctx.createLinearGradient(0, 0, 0, landH)
+      volume.addColorStop(0, dark ? 'rgba(150,190,220,0.12)' : 'rgba(255,255,255,0.14)')
+      volume.addColorStop(0.42, 'rgba(255,255,255,0)')
+      volume.addColorStop(1, dark ? 'rgba(0,0,0,0.34)' : 'rgba(24,40,46,0.2)')
+      ctx.fillStyle = volume
+      ctx.fillRect(0, 0, w, landH)
+      ctx.restore()
+    })
+
+    /* ---------------------------- 天空 + 陆地 + 水面 ---------------------------- */
+    background = paint(w, h, (ctx) => {
+      const sky = ctx.createLinearGradient(w * 0.12, 0, w * 0.42, horizon)
+      sky.addColorStop(0, tone.skyTop)
+      sky.addColorStop(0.34, tone.skyMid)
+      sky.addColorStop(0.66, tone.skyLow)
+      sky.addColorStop(1, tone.skyBase)
+      ctx.fillStyle = sky
+      ctx.fillRect(0, 0, w, horizon + 2)
+
+      if (dark) {
+        // 月晕在云层后面
+        blob(ctx, moonX, moonY, moonR * 7.5, moonR * 7.5, [
+          [0, 'rgba(168,202,234,0.15)'],
+          [0.3, 'rgba(138,176,212,0.07)'],
+          [0.66, 'rgba(110,150,190,0.022)'],
+          [1, 'rgba(0,0,0,0)'],
+        ])
+        // 月盘：外面一圈柔光，里面才是有边缘的圆盘
+        blob(ctx, moonX, moonY, moonR * 1.5, moonR * 1.5, [
+          [0, 'rgba(216,234,250,0.55)'],
+          [0.5, 'rgba(198,220,242,0.3)'],
+          [0.78, 'rgba(180,206,232,0.1)'],
+          [1, 'rgba(0,0,0,0)'],
+        ])
+        ctx.save()
+        ctx.beginPath()
+        ctx.arc(moonX, moonY, moonR, 0, TAU)
+        ctx.clip()
+        const disc = ctx.createRadialGradient(moonX - moonR * 0.28, moonY - moonR * 0.32, moonR * 0.08, moonX, moonY, moonR)
+        disc.addColorStop(0, 'rgba(248,251,255,0.98)')
+        disc.addColorStop(0.62, 'rgba(226,238,251,0.96)')
+        disc.addColorStop(1, 'rgba(184,206,227,0.9)')
+        ctx.fillStyle = disc
+        ctx.fillRect(moonX - moonR, moonY - moonR, moonR * 2, moonR * 2)
+        ctx.fillStyle = 'rgba(148,174,200,0.16)'
+        for (const [ox, oy, rr] of [[-0.3, -0.14, 0.32], [0.2, 0.24, 0.2], [-0.02, 0.42, 0.14]] as Array<[number, number, number]>) {
+          ctx.beginPath()
+          ctx.ellipse(moonX + ox * moonR, moonY + oy * moonR, rr * moonR, rr * moonR * 0.82, 0.5, 0, TAU)
+          ctx.fill()
+        }
+        ctx.restore()
+      } else {
+        // 云后的太阳：只露一个很淡的圆盘，云场会把它遮掉大半
+        const sunX = w * 0.765
+        const sunY = horizon - h * 0.06
+        const sunR = Math.max(7, w * 0.012)
+        ctx.save()
+        ctx.beginPath()
+        ctx.arc(sunX, sunY, sunR, 0, TAU)
+        ctx.clip()
+        const sunDisc = ctx.createRadialGradient(sunX - sunR * 0.2, sunY - sunR * 0.25, sunR * 0.05, sunX, sunY, sunR)
+        sunDisc.addColorStop(0, 'rgba(255,253,246,0.98)')
+        sunDisc.addColorStop(0.7, 'rgba(255,248,232,0.85)')
+        sunDisc.addColorStop(1, 'rgba(255,241,214,0.6)')
+        ctx.fillStyle = sunDisc
+        ctx.fillRect(sunX - sunR, sunY - sunR, sunR * 2, sunR * 2)
+        ctx.restore()
+
+        // 云隙天光：地平线右上方的一小片冷光，形状是横着的，不是光柱
+        blob(ctx, w * 0.76, horizon - h * 0.04, w * 0.3, h * 0.11, [
+          [0, 'rgba(255,253,246,0.44)'],
+          [0.32, 'rgba(250,248,240,0.2)'],
+          [1, 'rgba(255,255,255,0)'],
+        ])
+        blob(ctx, w * 0.79, horizon - h * 0.02, w * 0.18, h * 0.06, [
+          [0, 'rgba(255,244,224,0.18)'],
+          [1, 'rgba(255,255,255,0)'],
+        ])
+        blob(ctx, w * 0.8, horizon - h * 0.01, w * 0.5, h * 0.07, [
+          [0, 'rgba(255,236,206,0.16)'],
+          [0.55, 'rgba(255,240,216,0.06)'],
+          [1, 'rgba(255,255,255,0)'],
+        ])
+      }
+
+      // 云场：横向层云，越靠近地平线越薄
+      ctx.drawImage(cloudTexture(), 0, 0, w, horizon)
+
+      // 云层之上再补一点光，让月光 / 天光真的「透」出来
+      ctx.save()
+      if (dark) {
+        ctx.globalCompositeOperation = 'lighter'
+        blob(ctx, moonX, moonY, moonR * 6, moonR * 6, [
+          [0, 'rgba(178,208,238,0.1)'],
+          [0.45, 'rgba(142,178,214,0.04)'],
+          [1, 'rgba(0,0,0,0)'],
+        ])
+      } else {
+        ctx.globalCompositeOperation = 'lighter'
+        blob(ctx, w * 0.76, horizon - h * 0.04, w * 0.18, h * 0.055, [
+          [0, 'rgba(255,252,242,0.16)'],
+          [1, 'rgba(255,255,255,0)'],
+        ])
+        // 云缝里最亮的一小团暖光：给阴雨天一个视觉落点
+        blob(ctx, w * 0.765, horizon - h * 0.055, w * 0.085, h * 0.032, [
+          [0, 'rgba(255,247,229,0.35)'],
+          [0.5, 'rgba(255,244,224,0.12)'],
+          [1, 'rgba(255,255,255,0)'],
+        ])
+        blob(ctx, w * 0.765, horizon - h * 0.06, w * 0.026, h * 0.018, [
+          [0, 'rgba(255,251,240,0.4)'],
+          [0.55, 'rgba(255,246,226,0.16)'],
+          [1, 'rgba(255,255,255,0)'],
+        ])
+      }
+      ctx.restore()
+
+      // 云隙光：几束很淡的暖光斜着落向水面，只在浅色白昼出现
+      if (!dark) {
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        const originX = w * 0.765
+        const originY = horizon - h * 0.15
+        const rays: Array<[number, number, number, number]> = [
+          [-0.24, 0.075, 0.32, 0.1],
+          [-0.1, 0.09, 0.4, 0.12],
+          [0.04, 0.11, 0.46, 0.13],
+          [0.18, 0.08, 0.34, 0.1],
+        ]
+        for (const [angle, width, length, alpha] of rays) {
+          ctx.save()
+          ctx.translate(originX, originY)
+          ctx.rotate(angle)
+          ctx.globalAlpha = alpha
+          ctx.drawImage(raySprite, -w * width * 0.5, 0, w * width, h * length)
+          ctx.restore()
+        }
+        ctx.restore()
+      }
+
+      // 地平线一带的雨雾：远处的东西被空气洗淡
+      const haze = ctx.createLinearGradient(0, horizon - h * 0.22, 0, horizon)
+      haze.addColorStop(0, `rgba(${tone.haze},0)`)
+      haze.addColorStop(0.7, `rgba(${tone.haze},${dark ? 0.09 : 0.2})`)
+      haze.addColorStop(1, `rgba(${tone.haze},${dark ? 0.2 : 0.44})`)
+      ctx.fillStyle = haze
+      ctx.fillRect(0, horizon - h * 0.22, w, h * 0.22)
+
+      // 陆地：平滑缩放，避免整数高度差在岸线处留下一行重复像素
+      ctx.save()
+      ctx.imageSmoothingEnabled = true
+      ctx.drawImage(land, 0, horizon - landH, w, landH)
+      ctx.restore()
+
+      // 水面底色
+      const sea = ctx.createLinearGradient(0, horizon, 0, h)
+      sea.addColorStop(0, tone.waterTop)
+      sea.addColorStop(0.18, tone.waterMid)
+      sea.addColorStop(1, tone.waterLow)
+      ctx.fillStyle = sea
+      ctx.fillRect(0, horizon, w, waterH + 1)
+
+      // 远处林间的一点暖光：雨夜里的窗，给冷色画面一个落点
+      blob(ctx, lampX, lampY, 26, 26, [
+        [0, dark ? 'rgba(255,186,120,0.4)' : 'rgba(236,176,116,0.16)'],
+        [0.4, dark ? 'rgba(255,170,96,0.16)' : 'rgba(236,176,116,0.06)'],
+        [1, 'rgba(255,170,96,0)'],
+      ])
+      ctx.save()
+      ctx.fillStyle = dark ? 'rgba(255,210,150,0.95)' : 'rgba(230,170,110,0.6)'
+      ctx.fillRect(lampX - 1.6, lampY - 1, 3.2, 2)
+      ctx.restore()
+
+      // 水岸线：只留一线很淡的反光，避免刀切感
+      const shoreLight = ctx.createLinearGradient(0, horizon - 1, 0, horizon + 3)
+      shoreLight.addColorStop(0, 'rgba(255,255,255,0)')
+      shoreLight.addColorStop(0.5, dark ? 'rgba(190,220,240,0.1)' : 'rgba(255,255,255,0.1)')
+      shoreLight.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = shoreLight
+      ctx.fillRect(0, horizon - 1, w, 4)
+      ctx.fillStyle = dark ? 'rgba(2,6,9,0.55)' : 'rgba(58,84,88,0.4)'
+      ctx.fillRect(0, horizon, w, Math.max(1, h * 0.0016))
+    })
+
+    /* ---------------------------- 水面覆盖层 ---------------------------- */
+    mirror = soften(paint(w, landH, (c) => {
+      c.save()
+      c.translate(0, landH)
+      c.scale(1, -1)
+      c.drawImage(land, 0, 0)
+      c.restore()
+      c.globalCompositeOperation = 'source-atop'
+      c.fillStyle = dark ? 'rgba(6,14,20,0.34)' : 'rgba(146,168,180,0.18)'
+      c.fillRect(0, 0, w, landH)
+    }), 2)
+
+    water = paint(w, waterH, (ctx) => {
+      // 倒影顶端（紧贴岸线）压一层水色：镜像会把陆地上的雾带一起翻下来，
+      // 不压的话岸线下方会出现一条亮带。真实湖面在掠射角下也偏向水色。
+      const shoreLine = ctx.createLinearGradient(0, 0, 0, Math.max(8, waterH * 0.07))
+      shoreLine.addColorStop(0, dark ? 'rgba(17,31,39,0.7)' : 'rgba(146,166,178,0.32)')
+      shoreLine.addColorStop(0.55, dark ? 'rgba(17,31,39,0.32)' : 'rgba(146,166,178,0.14)')
+      shoreLine.addColorStop(1, 'rgba(17,31,39,0)')
+      ctx.fillStyle = shoreLine
+      ctx.fillRect(0, 0, w, waterH * 0.07)
+
+      const wet = ctx.createLinearGradient(0, 0, 0, waterH)
+      if (dark) {
+        wet.addColorStop(0, 'rgba(12,23,30,0.12)')
+        wet.addColorStop(0.18, 'rgba(7,14,19,0.4)')
+        wet.addColorStop(0.55, 'rgba(4,9,12,0.68)')
+        wet.addColorStop(1, 'rgba(2,5,7,0.86)')
+      } else {
+        wet.addColorStop(0, 'rgba(176,193,203,0.06)')
+        wet.addColorStop(0.18, 'rgba(158,175,185,0.18)')
+        wet.addColorStop(0.55, 'rgba(140,157,168,0.3)')
+        wet.addColorStop(1, 'rgba(128,145,157,0.42)')
+      }
+      ctx.fillStyle = wet
+      ctx.fillRect(0, 0, w, waterH)
+
+      // 月光 / 天光在水面拉出的一条碎光柱
+      const columnX = dark ? moonX : w * 0.76
+      const columnW = Math.max(24, w * 0.052)
+      blob(ctx, columnX, 0, columnW * 1.6, waterH * 0.95, [
+        [0, dark ? 'rgba(198,226,246,0.46)' : 'rgba(255,240,212,0.46)'],
+        [0.28, dark ? 'rgba(170,206,234,0.16)' : 'rgba(255,236,204,0.18)'],
+        [1, 'rgba(255,255,255,0)'],
+      ])
+
+      const glint = seeded(73)
+      for (let i = 0; i < 110; i += 1) {
+        const t = Math.pow(glint(), 1.25)
+        const y = 2 + t * (waterH - 6)
+        const spread = columnW * (0.35 + t * 2.4)
+        const x = columnX + (glint() - 0.5) * spread
+        const len = (3 + glint() * 22) * (0.45 + t)
+        ctx.strokeStyle = dark
+          ? `rgba(214,236,250,${(0.04 + glint() * 0.14).toFixed(3)})`
+          : `rgba(255,246,226,${(0.08 + glint() * 0.2).toFixed(3)})`
+        ctx.lineWidth = 0.6 + glint() * 1.1
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+        ctx.lineTo(x + len, y)
+        ctx.stroke()
+      }
+
+      // 横向水纹：短、碎、疏密不均；长线只留极淡的几笔当风痕
+      const r = seeded(211)
+      for (let i = 0; i < 780; i += 1) {
+        const t = Math.pow(r(), 1.25)
+        const y = 2 + t * (waterH - 5)
+        const len = (5 + r() * 38) * (0.6 + t * 1.2)
+        const x = r() * w - len * 0.3
+        ctx.strokeStyle = dark
+          ? `rgba(184,214,232,${(0.024 + r() * 0.06 + t * 0.02).toFixed(3)})`
+          : `rgba(255,255,255,${(0.07 + r() * 0.15 + t * 0.04).toFixed(3)})`
+        ctx.lineWidth = 0.55 + r() * 1.2
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+        ctx.quadraticCurveTo(x + len * 0.5, y + (r() - 0.5) * 1.6, x + len, y + (r() - 0.5) * 0.6)
+        ctx.stroke()
+      }
+      // 林间暖光在水面的一小段倒影
+      const lampGlint = seeded(83)
+      for (let i = 0; i < 9; i += 1) {
+        const y = 3 + i * (waterH * 0.012)
+        const x = lampX + (lampGlint() - 0.5) * 6 - i * 0.4
+        const len = (6 - i * 0.45) * (0.8 + lampGlint() * 0.5)
+        ctx.strokeStyle = dark
+          ? `rgba(255,194,128,${(0.1 - i * 0.008).toFixed(3)})`
+          : `rgba(230,170,110,${(0.05 - i * 0.004).toFixed(3)})`
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(x - len * 0.5, y)
+        ctx.lineTo(x + len * 0.5, y)
+        ctx.stroke()
+      }
+
+      // 长风痕：几条很淡的横向亮带，给水面一点大尺度的结构
+      for (let i = 0; i < 7; i += 1) {
+        const y = waterH * (0.16 + i * 0.12) + (r() - 0.5) * 12
+        blob(ctx, w * (0.1 + r() * 0.8), y, w * (0.16 + r() * 0.16), 3 + r() * 6, [
+          [0, dark ? 'rgba(150,190,216,0.035)' : 'rgba(255,255,255,0.09)'],
+          [1, 'rgba(255,255,255,0)'],
+        ])
+      }
+    })
+
+    /* ------------------------------ 雾团 ------------------------------ */
+    const cachedMist = rainMistCache.get(dark)
+    if (cachedMist) {
+      mistTex = cachedMist
+    } else {
+      const mistRaw = paint(320, 160, (c) => {
+        const r = seeded(97)
+        // 每个雾团在 x、x±320 各画一次：贴图左右无缝，横向拉伸时不会露出竖边
+        for (let i = 0; i < 70; i += 1) {
+          const cx = r() * 320
+          const cy = r() * 160
+          const radius = 16 + r() * 58
+          const a = 0.04 + r() * 0.08
+          for (const ox of [-320, 0, 320]) {
+            blob(c, cx + ox, cy, radius, radius * 0.7, [
+              [0, dark ? `rgba(174,208,226,${a})` : `rgba(255,255,255,${a * 1.5})`],
+              [1, 'rgba(255,255,255,0)'],
+            ])
+          }
+        }
+      })
+      const mistSoft = soften(mistRaw, 4)
+      // 边缘羽化：贴图四周的 alpha 收到 0，这样 drawImage 拉伸后不会在屏幕里
+      // 留下两条竖直的硬边（screen 混合下尤其明显）。
+      mistTex = paint(mistSoft.width, mistSoft.height, (c) => {
+        c.drawImage(mistSoft, 0, 0)
+        c.globalCompositeOperation = 'destination-in'
+        const edgeX = c.createLinearGradient(0, 0, mistSoft.width, 0)
+        edgeX.addColorStop(0, 'rgba(0,0,0,0)')
+        edgeX.addColorStop(0.16, 'rgba(0,0,0,1)')
+        edgeX.addColorStop(0.84, 'rgba(0,0,0,1)')
+        edgeX.addColorStop(1, 'rgba(0,0,0,0)')
+        c.fillStyle = edgeX
+        c.fillRect(0, 0, mistSoft.width, mistSoft.height)
+        const edgeY = c.createLinearGradient(0, 0, 0, mistSoft.height)
+        edgeY.addColorStop(0, 'rgba(0,0,0,0)')
+        edgeY.addColorStop(0.2, 'rgba(0,0,0,1)')
+        edgeY.addColorStop(0.8, 'rgba(0,0,0,1)')
+        edgeY.addColorStop(1, 'rgba(0,0,0,0)')
+        c.fillStyle = edgeY
+        c.fillRect(0, 0, mistSoft.width, mistSoft.height)
+      })
+      rainMistCache.set(dark, mistTex)
+    }
+
+    /* ------------------------------ 雷光 ------------------------------ */
+    flashTex = paint(w, h, (ctx) => {
+      blob(ctx, w * 0.68, h * 0.13, Math.max(w, h) * 0.72, Math.max(w, h) * 0.6, [
+        [0, dark ? 'rgba(198,224,244,0.72)' : 'rgba(255,255,255,0.8)'],
+        [0.16, dark ? 'rgba(160,198,226,0.3)' : 'rgba(255,255,255,0.34)'],
+        [0.5, dark ? 'rgba(126,166,198,0.08)' : 'rgba(255,255,255,0.08)'],
+        [1, 'rgba(255,255,255,0)'],
+      ])
+      // 闪电：一条主枝 + 两条分叉，带柔光
+      const bolt = (fromX: number, fromY: number, toX: number, toY: number, steps: number, seed: number, alpha: number, width: number) => {
+        const r = seeded(seed)
+        ctx.save()
+        ctx.strokeStyle = `rgba(238,248,255,${alpha})`
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        ctx.lineWidth = width
+        ctx.beginPath()
+        ctx.moveTo(fromX, fromY)
+        for (let i = 1; i <= steps; i += 1) {
+          const t = i / steps
+          ctx.lineTo(fromX + (toX - fromX) * t + (r() - 0.5) * w * 0.02, fromY + (toY - fromY) * t)
+        }
+        ctx.stroke()
+        ctx.restore()
+      }
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      ctx.shadowColor = 'rgba(198,228,250,0.85)'
+      ctx.shadowBlur = 24
+      bolt(w * 0.72, h * 0.07, w * 0.65, horizon * 0.78, 10, 5, dark ? 0.8 : 0.55, Math.max(1.3, 1.7 * scale))
+      bolt(w * 0.69, h * 0.03, w * 0.65, h * 0.24, 6, 13, dark ? 0.4 : 0.28, Math.max(0.9, 1 * scale))
+      bolt(w * 0.89, h * 0.11, w * 0.93, horizon * 0.55, 6, 21, dark ? 0.28 : 0.2, Math.max(0.8, 0.85 * scale))
+      ctx.restore()
+      // 水面反光
+      const wg = ctx.createLinearGradient(0, horizon, 0, h)
+      wg.addColorStop(0, dark ? 'rgba(166,200,226,0.26)' : 'rgba(255,255,255,0.22)')
+      wg.addColorStop(0.45, dark ? 'rgba(120,158,192,0.05)' : 'rgba(255,255,255,0.04)')
+      wg.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = wg
+      ctx.fillRect(0, horizon, w, waterH)
+    })
+
+    /* -------------------------- 水面碎光（动画） -------------------------- */
+    shimmer = paint(w, waterH, (ctx) => {
+      const r = seeded(307)
+      const columnX = dark ? moonX : w * 0.76
+      const columnW = Math.max(24, w * 0.052)
+      for (let i = 0; i < 64; i += 1) {
+        const t = Math.pow(r(), 1.35)
+        const y = 2 + t * (waterH - 6)
+        const spread = columnW * (0.4 + t * 2.2)
+        const x = columnX + (r() - 0.5) * spread
+        const len = (3 + r() * 24) * (0.4 + t)
+        ctx.strokeStyle = dark
+          ? `rgba(222,242,255,${(0.1 + r() * 0.24).toFixed(3)})`
+          : `rgba(255,246,226,${(0.1 + r() * 0.24).toFixed(3)})`
+        ctx.lineWidth = 0.6 + r() * 1.2
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+        ctx.lineTo(x + len, y)
+        ctx.stroke()
+      }
+    })
+
+    /* ---------------------------- 调色层 ---------------------------- */
+    grade = paint(w, h, (ctx) => {
+      const sides = ctx.createLinearGradient(0, 0, w, 0)
+      sides.addColorStop(0, dark ? 'rgba(1,3,5,0.34)' : 'rgba(74,94,106,0.12)')
+      sides.addColorStop(0.26, 'rgba(0,0,0,0)')
+      sides.addColorStop(0.74, 'rgba(0,0,0,0)')
+      sides.addColorStop(1, dark ? 'rgba(1,3,5,0.34)' : 'rgba(74,94,106,0.12)')
+      ctx.fillStyle = sides
+      ctx.fillRect(0, 0, w, h)
+
+      const vg = ctx.createRadialGradient(w * 0.5, h * 0.42, Math.min(w, h) * 0.24, w * 0.5, h * 0.52, Math.hypot(w, h) * 0.66)
+      vg.addColorStop(0, 'rgba(0,0,0,0)')
+      vg.addColorStop(1, `rgba(0,0,0,${dark ? 0.48 : 0.06})`)
+      ctx.fillStyle = vg
+      ctx.fillRect(0, 0, w, h)
+
+      // 光的来向：右侧一丝极淡的暖色，让整片灰蓝不至于发闷
+      if (!dark) {
+        ctx.fillStyle = 'rgba(238,243,246,0.15)'
+        ctx.fillRect(0, 0, w, h)
+      }
+
+      const warm = ctx.createLinearGradient(w * 0.45, 0, w, 0)
+      warm.addColorStop(0, 'rgba(0,0,0,0)')
+      warm.addColorStop(1, dark ? 'rgba(140,180,214,0.035)' : 'rgba(255,226,180,0.05)')
+      ctx.fillStyle = warm
+      ctx.fillRect(0, 0, w, h)
+
+      // 极细颗粒，压掉大面积渐变的色带
+      const grain = seeded(5)
+      for (let i = 0; i < Math.round((w * h) / 900); i += 1) {
+        ctx.fillStyle = dark ? 'rgba(255,255,255,0.035)' : 'rgba(24,32,40,0.03)'
+        ctx.fillRect(grain() * w, grain() * h, 1, 1)
+      }
+    })
+
+    /* ------------------------ 近景虚焦芦苇（景深） ------------------------ */
+    foreground = soften(paint(w, h, (ctx) => {
+      const r = seeded(401)
+      ctx.lineCap = 'round'
+      const blade = (origin: number, dir: number) => {
+        for (let i = 0; i < 18; i += 1) {
+          const x = origin + dir * r() * w * 0.12
+          const hh = h * (0.07 + r() * 0.17)
+          const lean = dir * w * (0.01 + r() * 0.06)
+          ctx.lineWidth = 1.4 + r() * 4.6
+          ctx.strokeStyle = dark
+            ? `rgba(3,8,11,${(0.36 + r() * 0.36).toFixed(3)})`
+            : `rgba(52,72,82,${(0.2 + r() * 0.24).toFixed(3)})`
+          ctx.beginPath()
+          ctx.moveTo(x, h + 20)
+          ctx.quadraticCurveTo(x + lean * 0.2, h - hh * 0.55, x + lean, h - hh)
+          ctx.stroke()
+        }
+      }
+      blade(-w * 0.04, 1)
+      blade(w * 1.04, -1)
+    }), 4)
+  }
+
   return {
     fps: 30,
-    setup(width, height) { w = width; h = height; build(); drops = []; ripples = []; resize(drops, Math.round((values.count ?? 70) * 14 * area(w, h)), spawn) },
-    configure(next) { values = next; resize(drops, Math.round((values.count ?? 70) * 14 * area(w, h)), spawn); if (!(values.lightning ?? 0)) flash = 0 },
-    setTone(next) { if (next !== dark) { dark = next; build() } },
+    setup(width, height) {
+      w = width
+      h = height
+      build()
+      drops = []
+      ripples = []
+      resize(drops, Math.round((values.count ?? 70) * 15 * area(w, h)), spawn)
+    },
+    configure(next) {
+      values = next
+      resize(drops, Math.round((values.count ?? 70) * 15 * area(w, h)), spawn)
+      if (!(values.lightning ?? 0)) {
+        flash = 0
+        second = 0
+      }
+    },
+    setTone(next) {
+      if (next !== dark) {
+        dark = next
+        build()
+      }
+    },
     step(dt) {
-      time += dt; flash = Math.max(0, flash - dt * 2.8)
+      time += dt
+      flash = Math.max(0, flash - dt * 3.4)
+      if (second > 0) {
+        second -= dt
+        if (second <= 0) flash = Math.max(flash, 0.45)
+      }
+      if ((values.lightning ?? 0) > 0 && time > nextFlash) {
+        flash = 0.5 + (values.lightning ?? 0) * 0.0045
+        second = 0.14
+        nextFlash = time + rand(8, 18)
+      }
+
       const wind = (values.wind ?? 25) / 100
       for (const d of drops) {
-        const vy = (350 + (values.speed ?? 65) * 8) * (.35 + d.z)
-        d.y += vy * dt; d.x += wind * vy * .55 * dt
-        if (d.y > h + 60 || d.x < -w * .35 || d.x > w * 1.35) {
-          if (d.y > h && d.z > .7 && ripples.length < 75) ripples.push({ x: Math.min(w, Math.max(0, d.x)), y: rand(h * .79, h), age: 0, life: rand(.45, .9), scale: rand(.5, 1.5) })
-          Object.assign(d, spawn(true))
+        const vy = (340 + (values.speed ?? 65) * 9.2) * (0.24 + d.z * 1.06)
+        d.y += vy * dt
+        d.x += wind * vy * 0.62 * d.drift * dt
+        if (d.y > h + 40 || d.x < -w * 0.45 || d.x > w * 1.45) Object.assign(d, spawn(true))
+      }
+
+      rippleClock += dt * ((values.count ?? 70) / 100)
+      while (rippleClock > 0.038) {
+        rippleClock -= 0.038
+        if (ripples.length < 44) {
+          const depth = Math.pow(Math.random(), 0.6)
+          ripples.push({
+            x: rand(-20, w + 20),
+            y: horizon + 8 + depth * (h - horizon - 12),
+            age: 0,
+            life: rand(0.55, 1.05),
+            scale: rand(0.4, 1.2),
+            depth,
+          })
         }
       }
       for (const r of ripples) r.age += dt
-      ripples = ripples.filter(r => r.age < r.life)
-      if ((values.lightning ?? 0) > 0 && time > nextFlash) { flash = .15 + (values.lightning ?? 0) * .003; nextFlash = time + rand(8, 18) }
+      ripples = ripples.filter((r) => r.age < r.life)
     },
     draw(ctx) {
       ctx.drawImage(background, 0, 0, w, h)
-      ctx.save(); ctx.lineCap = 'round'
-      for (let layer = 0; layer < 3; layer++) {
-        ctx.strokeStyle = dark ? ['rgba(157,190,217,.13)', 'rgba(190,219,239,.27)', 'rgba(222,240,253,.48)'][layer] : ['rgba(61,94,118,.12)', 'rgba(69,104,129,.22)', 'rgba(233,247,255,.65)'][layer]
-        ctx.lineWidth = [.6, 1, 1.5][layer]; ctx.beginPath()
-        for (const d of drops) {
-          if (Math.min(2, Math.floor(d.z * 3)) !== layer) continue
-          const length = 6 + d.z * (16 + (values.speed ?? 65) * .3)
-          ctx.moveTo(d.x, d.y); ctx.lineTo(d.x + (values.wind ?? 25) / 100 * length * .55, d.y + length)
+
+      /* 倒影：分带贴回，每带横向偏移随时间轻微变化，水面就有了「晃动」 */
+      const bands = 7
+      const bandH = mirror.height / bands
+      const stretch = 0.86
+      ctx.save()
+      ctx.globalAlpha = dark ? 0.62 : 0.54
+      for (let i = 0; i < bands; i += 1) {
+        const drift = Math.sin(time * 0.45 + i * 0.85) * (1.1 + i * 1.15) + Math.sin(time * 0.19 + i * 2.2) * 1.8
+        const fade = [0.62, 0.84, 0.97, 1, 0.98, 0.9, 0.74][i] ?? 0.8
+        ctx.globalAlpha = (dark ? 0.62 : 0.54) * fade
+        ctx.drawImage(mirror, 0, i * bandH, mirror.width, bandH, drift, horizon + i * bandH * stretch, w, bandH * stretch + 1)
+      }
+      ctx.restore()
+
+      /* 水面覆盖层 */
+      ctx.drawImage(water, 0, horizon, w, h - horizon)
+
+      /* 碎光柱：亮度随水面呼吸，横向轻微漂移 */
+      const breathe = 0.4 + 0.22 * Math.sin(time * 0.9) + 0.08 * Math.sin(time * 2.3)
+      ctx.save()
+      ctx.globalAlpha = dark ? breathe : breathe * 0.7
+      ctx.drawImage(shimmer, Math.sin(time * 0.5) * 3, horizon, w, h - horizon)
+      ctx.restore()
+
+      /* 雨雾：贴着山脚与湖面缓慢横移 */
+      const mist = (values.mist ?? 40) / 100
+      if (mist > 0.02) {
+        ctx.save()
+        ctx.globalCompositeOperation = dark ? 'screen' : 'source-over'
+        for (let i = 0; i < 4; i += 1) {
+          const span = w * 1.6
+          const drift = ((time * (0.005 + i * 0.004) + i * 0.29) % 1) * span - w * 0.3
+          const y = horizon - h * (0.075 + i * 0.028) + Math.sin(time * 0.07 + i * 1.6) * 5
+          ctx.globalAlpha = mist * [0.4, 0.28, 0.2, 0.14][i]
+          ctx.drawImage(mistTex, drift, y, w * (0.75 + i * 0.1), h * (0.09 + i * 0.026))
         }
-        ctx.stroke()
+        ctx.restore()
       }
-      ctx.lineWidth = .8
+      // 贴着水面的低雾：把岸线与倒影的硬边再柔化一层
+      if (mist > 0.02) {
+        ctx.save()
+        ctx.globalCompositeOperation = dark ? 'screen' : 'source-over'
+        ctx.globalAlpha = mist * (dark ? 0.28 : 0.42)
+        const driftLow = ((time * 0.006) % 1) * w * 1.2 - w * 0.1
+        ctx.drawImage(mistTex, driftLow, horizon - h * 0.055, w * 1.1, h * 0.1)
+        ctx.globalAlpha = mist * (dark ? 0.1 : 0.14)
+        const driftLow2 = ((time * 0.004 + 0.4) % 1) * w * 1.2 - w * 0.1
+        ctx.drawImage(mistTex, driftLow2, horizon - h * 0.008, w * 1.06, h * 0.05)
+        ctx.restore()
+      }
+
+      /* 雨：三层，越近越长越淡；近层先铺一道柔光，雨丝才有厚度 */
+      const wind = (values.wind ?? 25) / 100
+      const slant = wind * 1.1
+      const speed = values.speed ?? 65
+      const colors = dark
+        ? [
+            ['rgba(148,184,208,0.10)', 'rgba(190,218,238,0.19)'],
+            ['rgba(178,210,232,0.15)', 'rgba(216,238,250,0.27)'],
+            ['rgba(222,240,252,0.22)', 'rgba(246,251,255,0.34)'],
+          ]
+        : [
+            ['rgba(54,78,94,0.12)', 'rgba(40,64,82,0.18)'],
+            ['rgba(44,68,86,0.17)', 'rgba(32,56,74,0.25)'],
+            ['rgba(30,52,70,0.24)', 'rgba(22,44,62,0.34)'],
+          ]
+      ctx.save()
+      ctx.lineCap = 'round'
+      for (let layer = 0; layer < 3; layer += 1) {
+        if (layer === 2) {
+          ctx.strokeStyle = dark ? 'rgba(214,238,252,0.055)' : 'rgba(255,255,255,0.13)'
+          ctx.lineWidth = 2.8
+          ctx.beginPath()
+          for (const d of drops) {
+            if (Math.min(2, Math.floor(d.z * 3)) !== layer) continue
+            const length = (14 + d.z * (22 + speed * 0.5)) * d.len
+            ctx.moveTo(d.x, d.y)
+            ctx.lineTo(d.x + slant * length, d.y + length)
+          }
+          ctx.stroke()
+        }
+        for (let bucket = 0; bucket < 2; bucket += 1) {
+          ctx.strokeStyle = colors[layer][bucket]
+          ctx.lineWidth = [0.5, 0.7, 1.1][layer] * (bucket ? 1.15 : 0.9)
+          ctx.beginPath()
+          for (const d of drops) {
+            if (Math.min(2, Math.floor(d.z * 3)) !== layer) continue
+            if ((d.bright > 0.58) !== (bucket === 1)) continue
+            const length = (10 + d.z * (18 + speed * 0.48)) * d.len
+            ctx.moveTo(d.x, d.y)
+            ctx.lineTo(d.x + slant * length, d.y + length)
+          }
+          ctx.stroke()
+        }
+      }
+      ctx.restore()
+
+      /* 涟漪：外圈 + 内圈 + 落下瞬间的一根小水柱 */
+      ctx.save()
+      ctx.lineCap = 'round'
       for (const r of ripples) {
-        const t = r.age / r.life, radius = (2 + t * 20) * r.scale
-        ctx.strokeStyle = dark ? 'rgba(184,220,240,' + ((1 - t) * .25) + ')' : 'rgba(40,80,105,' + ((1 - t) * .24) + ')'
-        ctx.beginPath(); ctx.ellipse(r.x, r.y, radius, radius * .2, 0, 0, TAU); ctx.stroke()
+        const t = r.age / r.life
+        const radius = (3.5 + t * 17) * r.scale * (0.55 + r.depth * 1.1)
+        ctx.strokeStyle = dark
+          ? `rgba(190,222,240,${((1 - t) * (0.14 + r.depth * 0.18)).toFixed(3)})`
+          : `rgba(255,255,255,${((1 - t) * (0.26 + r.depth * 0.3)).toFixed(3)})`
+        ctx.lineWidth = 0.8
+        ctx.beginPath()
+        ctx.ellipse(r.x, r.y, radius, radius * (0.13 + r.depth * 0.1), 0, 0, TAU)
+        ctx.stroke()
+        if (t < 0.56) {
+          ctx.globalAlpha = (1 - t) * 0.4
+          ctx.beginPath()
+          ctx.ellipse(r.x, r.y, radius * 0.46, radius * (0.07 + r.depth * 0.05), 0, 0, TAU)
+          ctx.stroke()
+          ctx.globalAlpha = 1
+        }
+        if (t < 0.12) {
+          ctx.strokeStyle = dark ? 'rgba(235,248,255,0.4)' : 'rgba(255,255,255,0.62)'
+          const hh = (2 + r.depth * 4) * (1 - t / 0.12)
+          ctx.beginPath()
+          ctx.moveTo(r.x, r.y - hh)
+          ctx.lineTo(r.x, r.y)
+          ctx.stroke()
+        }
       }
-      ctx.globalAlpha = (values.mist ?? 40) / 100
-      for (let i = 0; i < 3; i++) {
-        const x = (Math.sin(time * .04 + i * 2) * .4 + .5) * w
-        ctx.drawImage(mist, x - w * .6, h * (.35 + i * .18), w * 1.2, h * .4)
+      ctx.restore()
+
+      /* 统一调色：两侧压暗 + 暗角 + 细颗粒 */
+      ctx.drawImage(grade, 0, 0, w, h)
+
+      /* 雷光：只提亮云层与水面 */
+      if (flash > 0.004) {
+        ctx.save()
+        ctx.globalCompositeOperation = 'lighter'
+        ctx.globalAlpha = Math.min(1, flash) * (dark ? 0.72 : 0.36)
+        ctx.drawImage(flashTex, 0, 0, w, h)
+        ctx.restore()
       }
-      if (flash > 0) { ctx.globalAlpha = flash; ctx.fillStyle = dark ? '#c9e4ff' : '#f4faff'; ctx.fillRect(0, 0, w, h) }
+
+      /* 近景芦苇：虚焦、压在最前面，给画面一个近处参照 */
+      ctx.save()
+      ctx.globalAlpha = dark ? 0.82 : 0.6
+      ctx.drawImage(foreground, 0, 0, w, h)
       ctx.restore()
     },
   }
