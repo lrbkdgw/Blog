@@ -1,7 +1,7 @@
 ---
 title: "OI 十月计划"
 date: "2026-10-19"
-updated: "2026-10-19"
+updated: "2026-10-20"
 summary: "-"
 tags: ["OI"]
 ---
@@ -34,3 +34,8 @@ WQS 二分还没写完，明天补
 - 模拟赛。
 - DP 优化【斜率优化】和【WQS 二分】部分。
 - 还有时间就补之前模拟赛的题。
+
+**成果**
+
+- https://blog-apa.pages.dev/posts/oi-dp-skill-1
+
