@@ -3,10 +3,12 @@ import { AlertTriangle, Minus, Plus, RotateCcw } from 'lucide-react'
 import { useTheme } from '../lib/theme'
 import {
   compilePlaneExpression,
+  findPlaneIntersections,
   formatPlaneNumber,
   nicePlaneStep,
   parseCoordinatePlane,
   planeContentBounds,
+  type PlanePoint,
   type PlaneSpec,
 } from '../lib/coordinatePlane'
 
@@ -17,7 +19,8 @@ import {
  *
  * 视觉上尽量接近教材插图：只有网格、箭头坐标轴、刻度与图形本身，
  * 操作控件是浮在右上角的一枚小工具条，不占用独立横栏；
- * 函数表达式以小标签浮在左上角，折线顶点（含端点）画出色点并在两端标注坐标。
+ * 函数表达式以小标签浮在左上角，折线顶点（含端点）与声明点画出色点，
+ * 元素之间的交点以描边圆环标出；所有点默认不带坐标文字，悬浮（触屏点按）时才弹出坐标气泡。
  * 几何内容统一裁在视口矩形内，函数在间断点（如 1/x 的 x=0）自动断线。
  */
 
@@ -105,6 +108,79 @@ export function CoordinatePlane({ spec: rawSpec, sourceLine }: { spec: string; s
   return <PlaneCanvas key={rawSpec.trim()} spec={spec} sourceLine={sourceLine} />
 }
 
+interface HoverTarget {
+  id: string
+  point: PlanePoint
+  text: string
+}
+
+const coordinateLabel = (point: PlanePoint) =>
+  `(${formatPlaneNumber(point.x)}, ${formatPlaneNumber(point.y)})`
+
+/**
+ * 可悬浮的点：可见色点之外再铺一个透明的大命中圆（r≈12），
+ * 鼠标 / 触屏进入时由父级显示坐标气泡；未悬浮时不显示任何坐标文字。
+ */
+function InteractiveDot({
+  id,
+  sx,
+  sy,
+  r,
+  fill,
+  halo,
+  point,
+  ring = false,
+  active,
+  onHover,
+  onLeave,
+}: {
+  id: string
+  sx: number
+  sy: number
+  r: number
+  fill: string
+  halo: string
+  point: PlanePoint
+  /** ring=true 表示交点：描边圆环而不是实心点。 */
+  ring?: boolean
+  active: boolean
+  onHover: (target: HoverTarget) => void
+  onLeave: () => void
+}) {
+  const emit = () => onHover({ id, point, text: coordinateLabel(point) })
+  return (
+    <g>
+      {ring ? (
+        <circle cx={sx} cy={sy} r={r} fill={halo} stroke={fill} strokeWidth={1.6} pointerEvents="none" />
+      ) : (
+        <circle cx={sx} cy={sy} r={r} fill={fill} stroke={halo} strokeWidth={1.6} pointerEvents="none" />
+      )}
+      {active && (
+        <circle
+          cx={sx}
+          cy={sy}
+          r={r + 3.5}
+          fill="none"
+          stroke={fill}
+          strokeWidth={1.4}
+          strokeDasharray="3 3"
+          pointerEvents="none"
+        />
+      )}
+      <circle
+        cx={sx}
+        cy={sy}
+        r={Math.max(12, r + 7)}
+        fill="transparent"
+        style={{ cursor: 'crosshair' }}
+        onPointerEnter={emit}
+        onPointerDown={emit}
+        onPointerLeave={onLeave}
+      />
+    </g>
+  )
+}
+
 function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: number }) {
   const { theme } = useTheme()
   const dark = theme === 'dark'
@@ -158,6 +234,9 @@ function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: numbe
   const { width: w, height: h } = size
   const toScreenX = (wx: number) => (wx - view.cx) * view.scale + w / 2
   const toScreenY = (wy: number) => h / 2 - (wy - view.cy) * view.scale
+
+  /* 当前悬浮的点（端点 / 顶点 / 声明点 / 交点），未悬浮时不显示任何坐标。 */
+  const [hovered, setHovered] = useState<HoverTarget | null>(null)
 
   const zoomAt = (px: number, py: number, factor: number) => {
     setView((current) => {
@@ -254,6 +333,8 @@ function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: numbe
 
   const endPointer = (event: React.PointerEvent<HTMLDivElement>) => {
     pointers.current.delete(event.pointerId)
+    // 触屏没有 hover 态：抬手后收起坐标气泡，避免气泡一直挂在画布上。
+    if (event.pointerType === 'touch') setHovered(null)
     if (pointers.current.size === 0) {
       gesture.current = null
     } else {
@@ -284,6 +365,34 @@ function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: numbe
     [spec],
   )
 
+  /* 交点只依赖当前可见区间；把区间按刻度取整，拖动过程中不会逐像素重算。 */
+  const visibleRange = useMemo(() => {
+    const gridStep = nicePlaneStep(72 / view.scale)
+    return {
+      xMin: Math.floor((view.cx - w / 2 / view.scale) / gridStep) * gridStep,
+      xMax: Math.ceil((view.cx + w / 2 / view.scale) / gridStep) * gridStep,
+      tolerance: 9 / view.scale,
+      gridStep,
+    }
+  }, [view, w])
+
+  const intersections = useMemo(() => {
+    const found = findPlaneIntersections(
+      {
+        functions: compiledFunctions.map((item) => ({ fn: item.fn! })),
+        polylines: spec.polylines.map((line) => line.points),
+        xMin: visibleRange.xMin,
+        xMax: visibleRange.xMax,
+      },
+      visibleRange.tolerance,
+    )
+    // 与已声明点 / 折线顶点重合的交点不重复画圆环（顶点本身已可悬浮）。
+    const known: PlanePoint[] = [...spec.points, ...spec.polylines.flatMap((line) => line.points)]
+    return found.filter(
+      (point) => !known.some((other) => Math.hypot(other.x - point.x, other.y - point.y) <= visibleRange.tolerance),
+    )
+  }, [compiledFunctions, spec.points, spec.polylines, visibleRange])
+
   const isEmpty = spec.points.length === 0 && spec.polylines.length === 0 && spec.functions.length === 0
   const buttonClass =
     'flex h-7 w-7 items-center justify-center rounded-md text-ink-500 transition hover:text-brand-600 dark:text-ink-400 dark:hover:text-brand-300'
@@ -305,7 +414,7 @@ function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: numbe
           viewBox={`0 0 ${w} ${h}`}
           className="h-full w-full"
           role="img"
-          aria-label="可拖动、滚轮或双指缩放的平面直角坐标系"
+          aria-label="可拖动、滚轮或双指缩放的平面直角坐标系，悬浮在点或交点上可查看坐标"
         >
           <defs>
             <clipPath id={`plane-clip-${clipId}`}>
@@ -368,7 +477,7 @@ function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: numbe
           </g>
 
           <g clipPath={`url(#plane-clip-${clipId})`}>
-            {/* 折线：连线之外，每个顶点画色点，首尾两个端点再标注坐标 */}
+            {/* 折线：连线之外，每个顶点都是可悬浮色点（端点略大），坐标仅在悬浮时显示 */}
             {spec.polylines.map((line, index) => (
               <g key={`line-${index}`}>
                 <polyline
@@ -381,39 +490,21 @@ function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: numbe
                 />
                 {line.points.map((p, pointIndex) => {
                   const isEndpoint = pointIndex === 0 || pointIndex === line.points.length - 1
+                  const id = `line-${index}-pt-${pointIndex}`
                   return (
-                    <circle
-                      key={`line-${index}-pt-${pointIndex}`}
-                      cx={toScreenX(p.x)}
-                      cy={toScreenY(p.y)}
+                    <InteractiveDot
+                      key={id}
+                      id={id}
+                      sx={toScreenX(p.x)}
+                      sy={toScreenY(p.y)}
                       r={isEndpoint ? 4.5 : 3}
                       fill={line.color}
-                      stroke={colors.halo}
-                      strokeWidth={1.6}
+                      halo={colors.halo}
+                      point={p}
+                      active={hovered?.id === id}
+                      onHover={setHovered}
+                      onLeave={() => setHovered(null)}
                     />
-                  )
-                })}
-                {line.points.map((p, pointIndex) => {
-                  const isEndpoint = pointIndex === 0 || pointIndex === line.points.length - 1
-                  if (!isEndpoint || line.points.length < 2) return null
-                  // 单点折线不会进入这里（解析层要求至少两个点）；两端坐标相同只标一次。
-                  if (pointIndex === line.points.length - 1 && p.x === line.points[0].x && p.y === line.points[0].y) {
-                    return null
-                  }
-                  return (
-                    <text
-                      key={`line-${index}-label-${pointIndex}`}
-                      x={toScreenX(p.x) + 7}
-                      y={toScreenY(p.y) - 7}
-                      fontSize={10.5}
-                      fontWeight={600}
-                      fill={line.color}
-                      stroke={colors.halo}
-                      strokeWidth={3}
-                      style={{ paintOrder: 'stroke' }}
-                    >
-                      ({formatPlaneNumber(p.x)}, {formatPlaneNumber(p.y)})
-                    </text>
                   )
                 })}
               </g>
@@ -432,31 +523,46 @@ function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: numbe
               />
             ))}
 
-            {/* create_point 声明的点：更大的色点 + 原始坐标标注 */}
-            {spec.points.map((point, index) => (
-              <g key={`pt-${index}`}>
-                <circle
-                  cx={toScreenX(point.x)}
-                  cy={toScreenY(point.y)}
+            {/* 交点：描边圆环，悬浮显示坐标 */}
+            {intersections.map((p, index) => {
+              const id = `intersection-${index}`
+              return (
+                <InteractiveDot
+                  key={id}
+                  id={id}
+                  sx={toScreenX(p.x)}
+                  sy={toScreenY(p.y)}
+                  r={3.5}
+                  fill={colors.axis}
+                  halo={colors.halo}
+                  point={p}
+                  ring
+                  active={hovered?.id === id}
+                  onHover={setHovered}
+                  onLeave={() => setHovered(null)}
+                />
+              )
+            })}
+
+            {/* create_point 声明的点：更大的色点，未悬浮时不显示坐标 */}
+            {spec.points.map((point, index) => {
+              const id = `point-${index}`
+              return (
+                <InteractiveDot
+                  key={id}
+                  id={id}
+                  sx={toScreenX(point.x)}
+                  sy={toScreenY(point.y)}
                   r={5}
                   fill={point.color}
-                  stroke={colors.halo}
-                  strokeWidth={2}
+                  halo={colors.halo}
+                  point={{ x: point.x, y: point.y }}
+                  active={hovered?.id === id}
+                  onHover={setHovered}
+                  onLeave={() => setHovered(null)}
                 />
-                <text
-                  x={toScreenX(point.x) + 8}
-                  y={toScreenY(point.y) - 8}
-                  fontSize={11}
-                  fontWeight={600}
-                  fill={point.color}
-                  stroke={colors.halo}
-                  strokeWidth={3}
-                  style={{ paintOrder: 'stroke' }}
-                >
-                  {point.label}
-                </text>
-              </g>
-            ))}
+              )
+            })}
           </g>
         </svg>
 
@@ -499,6 +605,19 @@ function PlaneCanvas({ spec, sourceLine }: { spec: PlaneSpec; sourceLine?: numbe
         {isEmpty && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-xs text-ink-400 dark:text-ink-500">
             用 create_point / create_line 声明点、折线或关于 x 的函数图像
+          </div>
+        )}
+
+        {/* 悬浮坐标气泡：只在指针进入某个点 / 端点 / 交点时出现 */}
+        {hovered && (
+          <div
+            className="plane-tooltip pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full rounded-md border border-ink-200/70 bg-white/92 px-2 py-1 font-mono text-[11px] font-semibold text-ink-700 shadow-md backdrop-blur-sm dark:border-white/12 dark:bg-ink-900/90 dark:text-ink-100"
+            style={{
+              left: clamp(toScreenX(hovered.point.x), 48, w - 48),
+              top: clamp(toScreenY(hovered.point.y) - 14, 26, h - 8),
+            }}
+          >
+            {hovered.text}
           </div>
         )}
 

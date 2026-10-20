@@ -101,6 +101,95 @@ test('planeContentBounds 只统计点与折线，忽略函数图像', () => {
   assert.equal(core.planeContentBounds(core.parseCoordinatePlane('create_line:(x^2);')), null)
 })
 
+test('findPlaneIntersections：函数之间的交点（含两个根）', () => {
+  const fns = [(x) => x, (x) => -x].map((fn) => ({ fn }))
+  const one = core.findPlaneIntersections({ functions: fns, polylines: [], xMin: -5, xMax: 5 }, 0.01)
+  assert.equal(one.length, 1)
+  assert.ok(Math.abs(one[0].x) < 1e-8 && Math.abs(one[0].y) < 1e-8)
+
+  const square = [{ fn: core.compilePlaneExpression('x^2') }, { fn: () => 1 }]
+  const roots = core.findPlaneIntersections({ functions: square, polylines: [], xMin: -5, xMax: 5 }, 0.01)
+  const xs = roots.map((p) => p.x).sort((a, b) => a - b)
+  assert.equal(xs.length, 2)
+  assert.ok(Math.abs(xs[0] + 1) < 1e-6 && Math.abs(xs[1] - 1) < 1e-6)
+  assert.ok(roots.every((p) => Math.abs(p.y - 1) < 1e-6))
+})
+
+test('findPlaneIntersections：折线之间、函数与折线（含竖直线段）相交', () => {
+  // 两条折线 (0,0)-(2,2) 与 (0,2)-(2,0) 交于 (1,1)
+  const crossing = core.findPlaneIntersections(
+    {
+      functions: [],
+      polylines: [[{ x: 0, y: 0 }, { x: 2, y: 2 }], [{ x: 0, y: 2 }, { x: 2, y: 0 }]],
+      xMin: -5,
+      xMax: 5,
+    },
+    0.01,
+  )
+  assert.equal(crossing.length, 1)
+  assert.ok(Math.abs(crossing[0].x - 1) < 1e-9 && Math.abs(crossing[0].y - 1) < 1e-9)
+
+  // 函数 y=0 与斜线段 (-2,2)-(2,-2)（即 y=-x）交于 (0,0)
+  const fnLine = core.findPlaneIntersections(
+    {
+      functions: [{ fn: () => 0 }],
+      polylines: [[{ x: -2, y: 2 }, { x: 2, y: -2 }]],
+      xMin: -5,
+      xMax: 5,
+    },
+    0.01,
+  )
+  assert.equal(fnLine.length, 1)
+  assert.ok(Math.abs(fnLine[0].x) < 1e-8 && Math.abs(fnLine[0].y) < 1e-8)
+
+  // 竖直线段 x=1（y 从 0 到 3）与函数 y=2x 交于 (1,2)
+  const vertical = core.findPlaneIntersections(
+    {
+      functions: [{ fn: core.compilePlaneExpression('2*x') }],
+      polylines: [[{ x: 1, y: 0 }, { x: 1, y: 3 }]],
+      xMin: -5,
+      xMax: 5,
+    },
+    0.01,
+  )
+  assert.equal(vertical.length, 1)
+  assert.ok(Math.abs(vertical[0].x - 1) < 1e-8 && Math.abs(vertical[0].y - 2) < 1e-8)
+})
+
+test('findPlaneIntersections：容差内去重，间断函数不在无定义处造交点', () => {
+  // 同一交点 (0,0) 被函数对与两组函数-折线对同时命中时，按容差合并为一个
+  const merged = core.findPlaneIntersections(
+    {
+      functions: [{ fn: (x) => 2 * x }, { fn: (x) => -2 * x }],
+      polylines: [[{ x: -1, y: -1 }, { x: 1, y: 1 }]],
+      xMin: -5,
+      xMax: 5,
+    },
+    0.05,
+  )
+  assert.equal(merged.length, 1)
+  assert.ok(Math.abs(merged[0].x) < 1e-8 && Math.abs(merged[0].y) < 1e-8)
+
+  // 函数与折线完全重合时，浮点噪声不得制造大量伪交点
+  const coincident = core.findPlaneIntersections(
+    {
+      functions: [{ fn: (x) => x }],
+      polylines: [[{ x: -1, y: -1 }, { x: 1, y: 1 }]],
+      xMin: -5,
+      xMax: 5,
+    },
+    0.05,
+  )
+  assert.ok(coincident.length <= 2, `重合曲线产生了 ${coincident.length} 个伪交点`)
+
+  // 1/x 在 x=0 无定义：与 y=0 不应产生交点
+  const reciprocal = core.findPlaneIntersections(
+    { functions: [{ fn: core.compilePlaneExpression('1/x') }, { fn: () => 0 }], polylines: [], xMin: -5, xMax: 5 },
+    0.01,
+  )
+  assert.equal(reciprocal.length, 0)
+})
+
 /* --------------------------- 博客 / 插件同款渲染 --------------------------- */
 
 const ccsSource = [
@@ -113,30 +202,75 @@ const ccsSource = [
   '::end_ui-ccs',
 ].join('\n')
 
-test('Markdown 渲染出简洁的 SVG 坐标系：折线带端点色点与坐标标注', () => {
+test('Markdown 渲染出简洁的 SVG 坐标系：未悬浮时不显示任何点坐标', () => {
   const doc = documentOf(core.renderReference(ccsSource))
   const section = doc.querySelector('section.not-prose')
   assert.ok(section)
   // 标题栏里的 lucide 图标也是 svg，用 role=img 定位坐标系本体
   const svg = section.querySelector('svg[role="img"]')
   assert.ok(svg)
-  // 1 个 create_point 色点 + 折线 2 个端点色点
-  assert.equal(svg.querySelectorAll('circle').length, 3)
+  // 可见色点：1 个 create_point + 折线 2 个端点 + 1 个函数与折线交点 (1,1)
+  const visibleDots = [...svg.querySelectorAll('circle')].filter((c) => c.getAttribute('fill') !== 'transparent')
+  assert.equal(visibleDots.length, 4)
+  // 每个交互点都有一个透明的大命中圆
+  assert.ok(svg.querySelectorAll('circle[fill="transparent"]').length >= 4)
   assert.equal(svg.querySelectorAll('polyline').length, 1)
   // 箭头 marker 内含一条 path，外加一条函数图像 path
   assert.equal(svg.querySelectorAll('path').length, 2)
   // 函数表达式浮动标签仍在，独立标题栏 / 图例栏已移除
   assert.match(section.textContent, /y = x\^2/)
   assert.doesNotMatch(section.textContent, /平面直角坐标系/)
-  assert.match(svg.getAttribute('aria-label'), /可拖动/)
-  // 折线两端标注坐标
-  assert.match(svg.textContent, /\(0, 0\)/)
-  assert.match(svg.textContent, /\(4, 4\)/)
+  assert.match(svg.getAttribute('aria-label'), /悬浮/)
+  // 未悬浮：SVG 内不出现任何坐标文字
+  assert.doesNotMatch(svg.textContent, /\(/)
+  // 默认也没有坐标气泡
+  assert.equal(section.querySelector('.plane-tooltip'), null)
   assert.ok(svg.querySelector('marker'))
   assert.match(svg.textContent, /x/)
   assert.match(svg.textContent, /0/)
   // 控件是一枚浮动工具条，不再占整行标题栏
   assert.equal(section.querySelectorAll('button[aria-label]').length, 3)
+})
+
+test('悬浮到声明点 / 交点时显示坐标气泡，移开后消失', async () => {
+  const { dom, document } = await preview(ccsSource)
+  const section = document.querySelector('section.not-prose')
+  const svg = section.querySelector('svg[role="img"]')
+  // 示例中的声明点 (2,3)：取最右侧的透明命中圆不便于定位，直接按可见点邻近查找
+  const hitCircles = [...svg.querySelectorAll('circle[fill="transparent"]')]
+  assert.ok(hitCircles.length >= 4)
+
+  // React 的 onPointerEnter / onPointerLeave 由原生 pointerover / pointerout 合成
+  const hover = (circle) => {
+    circle.dispatchEvent(new dom.window.PointerEvent('pointerover', { bubbles: true, pointerId: 1 }))
+  }
+  const leave = (circle) => {
+    circle.dispatchEvent(new dom.window.PointerEvent('pointerout', { bubbles: true, pointerId: 1 }))
+  }
+
+  // 悬浮声明点：它的可见色点 r=5，命中圆是其兄弟节点中的透明圆
+  const declared = [...svg.querySelectorAll('circle')].find(
+    (c) => c.getAttribute('fill') !== 'transparent' && c.getAttribute('r') === '5',
+  )
+  const declaredHit = declared.parentElement.querySelector('circle[fill="transparent"]')
+  hover(declaredHit)
+  await settle()
+  let tip = section.querySelector('.plane-tooltip')
+  assert.ok(tip)
+  assert.match(tip.textContent, /\(2, 3\)/)
+  leave(declaredHit)
+  await settle()
+  assert.equal(section.querySelector('.plane-tooltip'), null)
+
+  // 悬浮交点：y=x² 与折线 y=x 在 (1,1) 相交，渲染为描边圆环
+  const rings = [...svg.querySelectorAll('circle')].filter((c) => c.getAttribute('fill') !== 'transparent' && c.getAttribute('stroke') && c.getAttribute('r') === '3.5')
+  assert.equal(rings.length, 1)
+  const intersectionHit = rings[0].parentElement.querySelector('circle[fill="transparent"]')
+  hover(intersectionHit)
+  await settle()
+  tip = section.querySelector('.plane-tooltip')
+  assert.ok(tip)
+  assert.match(tip.textContent, /\(1, 1\)/)
 })
 
 test('缩放按钮改变函数路径，复位按钮恢复', async () => {
@@ -192,7 +326,10 @@ test('语法错误在渲染结果里给出逐条提示，且坐标系仍然画�
   assert.ok(section.querySelector('svg[role="img"]'))
   assert.match(section.textContent, /第 1 条语句/)
   assert.match(section.textContent, /无法识别/)
-  assert.equal(section.querySelectorAll('svg[role="img"] circle').length, 1)
+  const visible = [...section.querySelectorAll('svg[role="img"] circle')].filter(
+    (c) => c.getAttribute('fill') !== 'transparent',
+  )
+  assert.equal(visible.length, 1)
 })
 
 test('代码围栏里的指令只展示源码，不会被执行成坐标系', () => {
@@ -221,7 +358,10 @@ test('一篇文章里多个坐标系各自渲染且 clip id 不冲突，展示�
   ].join('\n')
   const doc2 = documentOf(core.renderReference(nested))
   assert.ok(doc2.querySelector('.show-box svg[role="img"]'))
-  assert.equal(doc2.querySelectorAll('.show-box svg[role="img"] circle').length, 1)
+  const nestedDots = [...doc2.querySelectorAll('.show-box svg[role="img"] circle')].filter(
+    (c) => c.getAttribute('fill') !== 'transparent',
+  )
+  assert.equal(nestedDots.length, 1)
 })
 
 test('空指令块仍画出坐标轴与提示；净化规则放行 data 属性但剥离事件属性', () => {

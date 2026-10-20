@@ -21,6 +21,8 @@ export {
   nicePlaneStep,
   formatPlaneNumber,
   parsePlaneColor,
+  findPlaneIntersections,
+  mergePlanePoints,
   DEFAULT_PLANE_COLOR,
 } from './core/coordinatePlane'
 export { LATEX_SYMBOLS, latexSymbolInsert, searchLatexSymbols } from './core/latexSymbols'

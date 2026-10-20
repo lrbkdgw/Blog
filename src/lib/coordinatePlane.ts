@@ -436,3 +436,187 @@ export function formatPlaneNumber(value: number): string {
   const rounded = Number(value.toPrecision(8))
   return String(rounded)
 }
+
+/* ------------------------------ 交点计算 ------------------------------ */
+
+const INTERSECTION_SAMPLES = 480
+const BISECTION_ITERATIONS = 44
+/** 交点数量上限，避免病态输入（高频函数 / 超长折线）拖垮渲染。 */
+const MAX_INTERSECTIONS = 200
+
+/** 在 [lo, hi] 上对 fn 做二分求根；区间内存在间断（null）或无根时返回 null。 */
+function bisectRoot(fn: (x: number) => number | null, lo: number, hi: number): number | null {
+  let left = lo
+  let right = hi
+  let fLeft = fn(left)
+  const fRight = fn(right)
+  if (fLeft === null || fRight === null) return null
+  if (fLeft === 0) return left
+  if (fRight === 0) return right
+  if (fLeft * fRight > 0) return null
+  for (let i = 0; i < BISECTION_ITERATIONS; i += 1) {
+    const mid = (left + right) / 2
+    const fMid = fn(mid)
+    if (fMid === null) return null
+    if (fMid === 0 || right - left < 1e-10) return mid
+    if (fLeft * fMid <= 0) {
+      right = mid
+    } else {
+      left = mid
+      fLeft = fMid
+    }
+  }
+  return (left + right) / 2
+}
+
+/**
+ * 均匀采样 + 变号二分，求 fn 在可见区间内的全部实根（相切无根差时检不出，属预期限制）。
+ * 连续零值（含重合曲线的浮点噪声）只在零游程起点记一个根，避免伪交点刷屏。
+ */
+function sampleRoots(fn: (x: number) => number | null, xMin: number, xMax: number): number[] {
+  if (!(xMax > xMin)) return []
+  const roots: number[] = []
+  const dx = (xMax - xMin) / INTERSECTION_SAMPLES
+  let prevX = xMin
+  let prevY = fn(xMin)
+  let maxMagnitude = 1
+  let inZeroRun = false
+  for (let i = 1; i <= INTERSECTION_SAMPLES; i += 1) {
+    const x = xMin + i * dx
+    const y = fn(x)
+    if (prevY !== null && y !== null) {
+      maxMagnitude = Math.max(maxMagnitude, Math.abs(prevY), Math.abs(y))
+      const noise = 1e-9 * maxMagnitude
+      const prevZero = Math.abs(prevY) <= noise
+      const zero = Math.abs(y) <= noise
+      if (prevZero && !inZeroRun) {
+        roots.push(prevX)
+        inZeroRun = true
+      }
+      if (!prevZero && !zero && prevY * y < 0) {
+        const root = bisectRoot(fn, prevX, x)
+        if (root !== null) roots.push(root)
+      }
+      if (!zero) inZeroRun = false
+    } else {
+      inZeroRun = false
+    }
+    prevX = x
+    prevY = y
+  }
+  return roots
+}
+
+/** 两条线段的交点；平行 / 共线 / 不相交返回 null。 */
+function segmentIntersection(a1: PlanePoint, a2: PlanePoint, b1: PlanePoint, b2: PlanePoint): PlanePoint | null {
+  const dx1 = a2.x - a1.x
+  const dy1 = a2.y - a1.y
+  const dx2 = b2.x - b1.x
+  const dy2 = b2.y - b1.y
+  const denom = dx1 * dy2 - dy1 * dx2
+  if (Math.abs(denom) < 1e-12) return null
+  const t = ((b1.x - a1.x) * dy2 - (b1.y - a1.y) * dx2) / denom
+  const u = ((b1.x - a1.x) * dy1 - (b1.y - a1.y) * dx1) / denom
+  if (t < 0 || t > 1 || u < 0 || u > 1) return null
+  return { x: a1.x + t * dx1, y: a1.y + t * dy1 }
+}
+
+/** 合并距离小于容差（世界单位）的重复交点。 */
+export function mergePlanePoints(points: PlanePoint[], tolerance: number): PlanePoint[] {
+  const merged: PlanePoint[] = []
+  for (const point of points) {
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) continue
+    if (!merged.some((other) => Math.hypot(other.x - point.x, other.y - point.y) <= tolerance)) {
+      merged.push(point)
+    }
+  }
+  return merged
+}
+
+export interface PlaneIntersectionInput {
+  functions: Array<{ fn: (x: number) => number | null }>
+  polylines: PlanePoint[][]
+  xMin: number
+  xMax: number
+}
+
+/**
+ * 计算可见区间内三类交点：函数图像之间、函数与折线之间、折线与折线之间（含自身交叉）。
+ * 折线相邻段共享的顶点不算交点——它本身就是可悬浮的顶点。
+ * 结果按屏幕距离容差去重，上限 MAX_INTERSECTIONS 个。
+ */
+export function findPlaneIntersections(input: PlaneIntersectionInput, mergeTolerance: number): PlanePoint[] {
+  const { functions, polylines, xMin, xMax } = input
+  const found: PlanePoint[] = []
+
+  // 函数图像两两相交：解 f(x) - g(x) = 0
+  for (let i = 0; i < functions.length; i += 1) {
+    for (let j = i + 1; j < functions.length; j += 1) {
+      const roots = sampleRoots((x) => {
+        const a = functions[i].fn(x)
+        const b = functions[j].fn(x)
+        return a === null || b === null ? null : a - b
+      }, xMin, xMax)
+      for (const x of roots) {
+        const y = functions[i].fn(x)
+        if (y !== null) found.push({ x, y })
+      }
+    }
+  }
+
+  // 函数与每条折线段相交：解 f(x) = 线段线性插值
+  for (const { fn } of functions) {
+    for (const line of polylines) {
+      for (let k = 0; k + 1 < line.length; k += 1) {
+        const a = line[k]
+        const b = line[k + 1]
+        const lo = Math.min(a.x, b.x)
+        const hi = Math.max(a.x, b.x)
+        if (hi === lo) {
+          // 竖直线段：只比对单个 x 处的函数值是否落在线段 y 区间内
+          const y = fn(a.x)
+          if (y !== null && y >= Math.min(a.y, b.y) && y <= Math.max(a.y, b.y)) {
+            found.push({ x: a.x, y })
+          }
+          continue
+        }
+        const slope = (b.y - a.y) / (b.x - a.x)
+        const lineY = (x: number) => a.y + slope * (x - a.x)
+        const roots = sampleRoots(
+          (x) => {
+            const value = fn(x)
+            return value === null ? null : value - lineY(x)
+          },
+          Math.max(xMin, lo),
+          Math.min(xMax, hi),
+        )
+        for (const x of roots) found.push({ x, y: lineY(x) })
+      }
+    }
+  }
+
+  // 折线与折线相交（含同一折线的非相邻段自交）
+  interface Segment {
+    a: PlanePoint
+    b: PlanePoint
+    line: number
+    index: number
+  }
+  const segments: Segment[] = []
+  polylines.forEach((line, lineIndex) => {
+    line.forEach((point, index) => {
+      if (index + 1 < line.length) segments.push({ a: point, b: line[index + 1], line: lineIndex, index })
+    })
+  })
+  for (let i = 0; i < segments.length; i += 1) {
+    for (let j = i + 1; j < segments.length; j += 1) {
+      const s1 = segments[i]
+      const s2 = segments[j]
+      if (s1.line === s2.line && Math.abs(s1.index - s2.index) <= 1) continue
+      const point = segmentIntersection(s1.a, s1.b, s2.a, s2.b)
+      if (point) found.push(point)
+    }
+  }
+
+  return mergePlanePoints(found, mergeTolerance).slice(0, MAX_INTERSECTIONS)
+}
