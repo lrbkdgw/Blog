@@ -806,6 +806,7 @@ export function buildFunctionSvgPath(
 /* -------------------------------------------------------------------------- */
 
 export type UiCcsSpecialPointKind = 'point' | 'endpoint' | 'intersection'
+export type UiCcsHoverKind = UiCcsSpecialPointKind | 'line'
 
 export interface UiCcsSpecialPoint {
   kind: UiCcsSpecialPointKind
@@ -817,7 +818,20 @@ export interface UiCcsSpecialPoint {
   label?: string
 }
 
+export interface UiCcsHoverTarget {
+  kind: UiCcsHoverKind
+  x: number
+  y: number
+  sx: number
+  sy: number
+  distancePx: number
+  color?: string
+  label?: string
+}
+
 export const UI_CCS_SNAP_RADIUS_PX = 16
+export const UI_CCS_SNAP_CORE_RADIUS_PX = 11
+export const UI_CCS_LINE_HOVER_RADIUS_PX = 14
 
 interface Segment2D {
   ax: number
@@ -1224,17 +1238,198 @@ export function findNearestUiCcsSpecialPoint(
   svgX: number,
   svgY: number,
   maxRadiusPx = UI_CCS_SNAP_RADIUS_PX,
-): UiCcsSpecialPoint | null {
-  let best: UiCcsSpecialPoint | null = null
+): UiCcsHoverTarget | null {
+  let best: UiCcsHoverTarget | null = null
   let bestDist = maxRadiusPx
   for (const pt of specialPoints) {
     const dist = Math.hypot(pt.sx - svgX, pt.sy - svgY)
     if (dist <= bestDist) {
       bestDist = dist
-      best = pt
+      best = { ...pt, distancePx: dist }
     }
   }
   return best
+}
+
+/**
+ * 计算指针到所有折线 / 线段与函数曲线的二维欧氏最近点（精确正交投影，兼容高斜率陡峭曲线）。
+ */
+export function findNearestPointOnUiCcsLines(
+  items: UiCcsItem[],
+  viewport: UiCcsViewport,
+  svgX: number,
+  svgY: number,
+  maxRadiusPx = UI_CCS_LINE_HOVER_RADIUS_PX,
+  width = UI_CCS_VIEW_WIDTH,
+  height = UI_CCS_VIEW_HEIGHT,
+): UiCcsHoverTarget | null {
+  const units = viewport.unitsPerPx
+  const mx = viewport.centerX + (svgX - width / 2) * units
+  const my = viewport.centerY - (svgY - height / 2) * units
+  const maxWorldDist = maxRadiusPx * units
+  const maxWorldDistSq = maxWorldDist * maxWorldDist
+
+  const toSX = (wx: number) => width / 2 + (wx - viewport.centerX) / units
+  const toSY = (wy: number) => height / 2 - (wy - viewport.centerY) / units
+
+  let bestWorldDistSq = maxWorldDistSq
+  let bestTarget: UiCcsHoverTarget | null = null
+
+  const consider = (wx: number, wy: number, color: string, label?: string) => {
+    if (!Number.isFinite(wx) || !Number.isFinite(wy)) return
+    const dx = wx - mx
+    const dy = wy - my
+    const d2 = dx * dx + dy * dy
+    if (d2 <= bestWorldDistSq) {
+      bestWorldDistSq = d2
+      const nx = normalizeZero(wx)
+      const ny = normalizeZero(wy)
+      bestTarget = {
+        kind: 'line',
+        x: nx,
+        y: ny,
+        sx: toSX(nx),
+        sy: toSY(ny),
+        distancePx: Math.sqrt(d2) / units,
+        color,
+        label,
+      }
+    }
+  }
+
+  const invPhi = (Math.sqrt(5) - 1) / 2
+
+  items.forEach((item, idx) => {
+    const color = resolveCcsItemColor(item, idx)
+    if (item.kind === 'polyline') {
+      for (let i = 0; i < item.points.length - 1; i += 1) {
+        const ax = item.points[i].x
+        const ay = item.points[i].y
+        const bx = item.points[i + 1].x
+        const by = item.points[i + 1].y
+        const vx = bx - ax
+        const vy = by - ay
+        const lenSq = vx * vx + vy * vy
+        let t = lenSq > 1e-24 ? ((mx - ax) * vx + (my - ay) * vy) / lenSq : 0
+        if (t < 0) t = 0
+        else if (t > 1) t = 1
+        consider(ax + t * vx, ay + t * vy, color, item.label)
+      }
+    } else if (item.kind === 'function') {
+      // 距离鼠标不超过 maxWorldDist 的曲线点必然满足 |x - mx| <= maxWorldDist
+      const xStart = mx - maxWorldDist
+      const xEnd = mx + maxWorldDist
+      const n = 96
+      const step = (xEnd - xStart) / n
+      const xs = new Float64Array(n + 1)
+      const ys = new Float64Array(n + 1)
+      const d2s = new Float64Array(n + 1)
+
+      const evalDistSq = (x: number) => {
+        const y = item.evaluate(x)
+        if (!Number.isFinite(y)) return Number.POSITIVE_INFINITY
+        const dx = x - mx
+        const dy = y - my
+        return dx * dx + dy * dy
+      }
+
+      for (let i = 0; i <= n; i += 1) {
+        const x = i === n ? xEnd : xStart + i * step
+        const y = item.evaluate(x)
+        xs[i] = x
+        ys[i] = y
+        d2s[i] = Number.isFinite(y) ? (x - mx) * (x - mx) + (y - my) * (y - my) : Number.POSITIVE_INFINITY
+        if (Number.isFinite(y)) {
+          consider(x, y, color, item.label)
+        }
+      }
+
+      const refineBracket = (leftInit: number, rightInit: number) => {
+        let left = leftInit
+        let right = rightInit
+        let c = right - (right - left) * invPhi
+        let d = left + (right - left) * invPhi
+        let fc = evalDistSq(c)
+        let fd = evalDistSq(d)
+        for (let iter = 0; iter < 36; iter += 1) {
+          if (fc <= fd) {
+            right = d
+            d = c
+            fd = fc
+            c = right - (right - left) * invPhi
+            fc = evalDistSq(c)
+          } else {
+            left = c
+            c = d
+            fc = fd
+            d = left + (right - left) * invPhi
+            fd = evalDistSq(d)
+          }
+        }
+        const xStar = (left + right) * 0.5
+        const yStar = item.evaluate(xStar)
+        if (!Number.isFinite(yStar)) return
+        // 排除竖直渐近线 / 跳变间断伪点
+        const eps = Math.max(1e-9, step * 1e-5)
+        const yL = item.evaluate(xStar - eps)
+        const yR = item.evaluate(xStar + eps)
+        if (Number.isFinite(yL) && Number.isFinite(yR) && Math.abs(yR - yL) > Math.max(2, maxWorldDist * 8)) {
+          return
+        }
+        consider(xStar, yStar, color, item.label)
+      }
+
+      for (let i = 0; i < n; i += 1) {
+        const y0 = ys[i]
+        const y1 = ys[i + 1]
+        // 情况 A：高斜率函数在相邻采样点间跨过鼠标纵坐标 my
+        if (Number.isFinite(y0) && Number.isFinite(y1) && ((y0 <= my && y1 >= my) || (y0 >= my && y1 <= my))) {
+          refineBracket(xs[i], xs[i + 1])
+        } else if (i > 0 && d2s[i] <= d2s[i - 1] && d2s[i] <= d2s[i + 1] && Number.isFinite(d2s[i])) {
+          // 情况 B：局部欧氏距离极小值区间精细收敛
+          refineBracket(xs[i - 1], xs[i + 1])
+        }
+      }
+    }
+  })
+
+  return bestTarget
+}
+
+/**
+ * 综合悬停解析：
+ * - 当指针进入特殊点磁吸核心半径（默认 11px）或比任何线条更接近特殊点时，优先吸附至特殊点（交点 / 折线顶点 / 端点 / 单点）；
+ * - 否则当指针靠近任意折线或函数曲线（默认 14px 内）时，平滑跟随显示线上距指针最近的精确点坐标。
+ */
+export function resolveUiCcsHoverTarget(
+  items: UiCcsItem[],
+  specialPoints: UiCcsSpecialPoint[],
+  viewport: UiCcsViewport,
+  svgX: number,
+  svgY: number,
+  width = UI_CCS_VIEW_WIDTH,
+  height = UI_CCS_VIEW_HEIGHT,
+): UiCcsHoverTarget | null {
+  const nearestSpecial = findNearestUiCcsSpecialPoint(specialPoints, svgX, svgY, UI_CCS_SNAP_RADIUS_PX)
+  if (nearestSpecial && nearestSpecial.distancePx <= UI_CCS_SNAP_CORE_RADIUS_PX) {
+    return nearestSpecial
+  }
+
+  const nearestOnLine = findNearestPointOnUiCcsLines(
+    items,
+    viewport,
+    svgX,
+    svgY,
+    UI_CCS_LINE_HOVER_RADIUS_PX,
+    width,
+    height,
+  )
+
+  if (nearestSpecial && (!nearestOnLine || nearestSpecial.distancePx <= nearestOnLine.distancePx)) {
+    return nearestSpecial
+  }
+
+  return nearestOnLine
 }
 
 /** 静态 HTML / SVG 渲染（用于 MPE 静态兼容模式）。 */

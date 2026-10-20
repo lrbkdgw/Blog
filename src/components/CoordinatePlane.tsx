@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  UI_CCS_SNAP_RADIUS_PX,
   UI_CCS_VIEW_HEIGHT,
   UI_CCS_VIEW_WIDTH,
   buildFunctionSvgPath,
@@ -8,13 +7,13 @@ import {
   chooseGridStep,
   clampUnitsPerPx,
   computeInitialUiCcsViewport,
-  findNearestUiCcsSpecialPoint,
   findUiCcsSpecialPoints,
   formatAxisTick,
   formatCoordinateValue,
   parseUiCcs,
   resolveCcsItemColor,
-  type UiCcsSpecialPoint,
+  resolveUiCcsHoverTarget,
+  type UiCcsHoverTarget,
   type UiCcsViewport,
 } from '../lib/uiCcs'
 
@@ -37,7 +36,7 @@ export function CoordinatePlane({
   const [viewport, setViewport] = useState<UiCcsViewport>(initialViewport)
   const [userAdjusted, setUserAdjusted] = useState(false)
   const [dragging, setDragging] = useState(false)
-  const [hoveredPoint, setHoveredPoint] = useState<UiCcsSpecialPoint | null>(null)
+  const [hoveredPoint, setHoveredPoint] = useState<UiCcsHoverTarget | null>(null)
 
   const svgRef = useRef<SVGSVGElement>(null)
   const pointersRef = useRef(new Map<number, { clientX: number; clientY: number }>())
@@ -124,7 +123,7 @@ export function CoordinatePlane({
     const prevPoint = pointersRef.current.get(event.pointerId)
 
     if (!prevPoint) {
-      setHoveredPoint(findNearestUiCcsSpecialPoint(specialPoints, mapped.sx, mapped.sy, UI_CCS_SNAP_RADIUS_PX))
+      setHoveredPoint(resolveUiCcsHoverTarget(parsed.items, specialPoints, viewport, mapped.sx, mapped.sy))
       return
     }
 
@@ -161,7 +160,7 @@ export function CoordinatePlane({
     if (pointersRef.current.size === 0) {
       setDragging(false)
       const mapped = clientToSvg(event.clientX, event.clientY)
-      setHoveredPoint(findNearestUiCcsSpecialPoint(specialPoints, mapped.sx, mapped.sy, UI_CCS_SNAP_RADIUS_PX))
+      setHoveredPoint(resolveUiCcsHoverTarget(parsed.items, specialPoints, viewport, mapped.sx, mapped.sy))
     }
   }
 
@@ -480,20 +479,24 @@ export function CoordinatePlane({
           })}
         </g>
 
-        {/* 悬浮到单点、任意端点或任意交点时高亮并显示精确坐标 */}
+        {/* 悬浮在线上时跟随显示最近点坐标，靠近单点/端点/折点/交点时优先磁吸至特殊点 */}
         {hoveredPoint && tooltip && (
-          <g data-ccs-tooltip className="pointer-events-none">
+          <g
+            data-ccs-tooltip
+            data-ccs-snap={hoveredPoint.kind === 'line' ? 'line' : 'special'}
+            className="pointer-events-none"
+          >
             <circle
               cx={hoveredPoint.sx}
               cy={hoveredPoint.sy}
-              r={8}
+              r={hoveredPoint.kind === 'line' ? 6.5 : 8.5}
               fill={tooltip.accent}
-              fillOpacity={0.18}
+              fillOpacity={hoveredPoint.kind === 'line' ? 0.14 : 0.22}
             />
             <circle
               cx={hoveredPoint.sx}
               cy={hoveredPoint.sy}
-              r={4.6}
+              r={hoveredPoint.kind === 'line' ? 4 : 4.8}
               fill={tooltip.accent}
               className="stroke-white dark:stroke-ink-950"
               strokeWidth={1.8}

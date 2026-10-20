@@ -258,17 +258,24 @@ test('直角坐标系 ui-ccs 极简无上下栏、未悬浮不显示点坐标、
   await settle()
   assert.equal(boxes[0].querySelector('[data-ccs-tooltip] text')?.textContent, '(2, 3)')
 
-  // 5. 悬浮到两条线段的交点 (1, 0) 显示交点坐标
-  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(1), clientY: toClientY(0), pointerId: 1 }))
+  // 5. 悬浮在线上（远离特殊点处，如 (2.4, 0.2) 靠近水平线段 (-3,0)->(3,0)）显示线上最近点 (2.4, 0)
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(2.4), clientY: toClientY(0.2), pointerId: 1 }))
   await settle()
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip]')?.getAttribute('data-ccs-snap'), 'line')
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip] text')?.textContent, '(2.4, 0)')
+
+  // 6. 即使指针恰好落在直线上（(0.85, 0) 到直线距离为 0px），靠近交点 (1, 0) 时仍优先磁吸至特殊交点 (1, 0)
+  firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(0.85), clientY: toClientY(0), pointerId: 1 }))
+  await settle()
+  assert.equal(boxes[0].querySelector('[data-ccs-tooltip]')?.getAttribute('data-ccs-snap'), 'special')
   assert.equal(boxes[0].querySelector('[data-ccs-tooltip] text')?.textContent, '(1, 0)')
 
-  // 6. 悬浮到红线 y=3x-3 与抛物线 y=x^2-1 的另一个交点 (2, 3) 外的交点，以及抛物线与 Y 轴交点 (0, -1)
+  // 7. 悬浮到抛物线 y=x^2-1 与 Y 轴交点 (0, -1) 显示精确交点坐标
   firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(0), clientY: toClientY(-1), pointerId: 1 }))
   await settle()
   assert.equal(boxes[0].querySelector('[data-ccs-tooltip] text')?.textContent, '(0, -1)')
 
-  // 7. 移开到空白区域后隐藏坐标气泡
+  // 8. 移开到远离线条与点的空白区域后隐藏坐标气泡
   firstSvg.dispatchEvent(new PointerEvt('pointermove', { bubbles: true, clientX: toClientX(-4), clientY: toClientY(4), pointerId: 1 }))
   await settle()
   assert.equal(boxes[0].querySelector('[data-ccs-tooltip]'), null)

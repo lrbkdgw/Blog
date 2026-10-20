@@ -15,10 +15,12 @@ export { convertMarkdownForCopy, convertUiCcsToMarkdown } from './core/sourceCon
 export { evaluateShowFormula, parseShowVariables, renderShowContent } from './core/showBox'
 export {
   compileCcsExpression,
+  findNearestPointOnUiCcsLines,
   findNearestUiCcsSpecialPoint,
   findUiCcsSpecialPoints,
   parseUiCcs,
   renderStaticUiCcsSvg,
+  resolveUiCcsHoverTarget,
 } from './core/uiCcs'
 export { parseArticleDirectives, stripArticleDirectives } from './core/articleDirectives'
 export { LATEX_SYMBOLS, latexSymbolInsert, searchLatexSymbols } from './core/latexSymbols'

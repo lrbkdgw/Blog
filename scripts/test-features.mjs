@@ -363,4 +363,17 @@ test('ui-ccs 解析器、数学运算符优先级、高次曲线裁剪、间断�
   assert.ok(hasNear(-1, 1), '应识别 y=-x 线段与抛物线 y=x^2 的交点 (-1, 1)')
   assert.ok(hasNear(1 / 3, -1 / 3), '应识别 y=-x 线段与 y=2x-1 曲线的交点 (1/3, -1/3)')
   assert.ok(hasNear(-Math.SQRT2, Math.SQRT2), '应识别半圆 y=sqrt(4-x^2) 与线段 y=-x 的交点 (-√2, √2)')
+
+  // 校验高斜率三次曲线 y=90*x^3+7*x^2+6*x 上的 2D 欧氏正交最近点投影（而非朴素竖直求值）
+  const steepScene = uiCcsMod.parseUiCcs('create_line:(7*x^2+6*x+90*x^3);')
+  const steepVp = { centerX: 0, centerY: 0, unitsPerPx: 14 / 420 }
+  const steepSpecial = uiCcsMod.findUiCcsSpecialPoints(steepScene.items, steepVp)
+  // 在 x=0.35 处 y ≈ 5.8169，斜率 ≈ 39.97；在右侧横向偏移 3px 处悬停仍能精确找到曲线最近点
+  const yAt035 = 7 * 0.35 ** 2 + 6 * 0.35 + 90 * 0.35 ** 3
+  const sxNearSteep = 340 + 0.35 / steepVp.unitsPerPx + 3
+  const syNearSteep = 210 - yAt035 / steepVp.unitsPerPx
+  const steepHit = uiCcsMod.resolveUiCcsHoverTarget(steepScene.items, steepSpecial, steepVp, sxNearSteep, syNearSteep)
+  assert.ok(steepHit && steepHit.kind === 'line', '高斜率曲线旁 3px 悬停应命中曲线最近点')
+  assert.ok(steepHit.distancePx < 3.2, `高斜率正交投影距离应 <= 3.2px，实际 ${steepHit.distancePx}`)
+  assert.ok(Math.abs(steepHit.y - yAt035) < 0.05)
 })
