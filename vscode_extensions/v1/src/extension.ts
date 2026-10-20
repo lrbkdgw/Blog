@@ -181,6 +181,13 @@ export function activate(context: vscode.ExtensionContext) {
         ),
       ),
     ),
+    vscode.commands.registerCommand('starlog.insertCoordinateSystem', () =>
+      insertSnippet(
+        new vscode.SnippetString(
+          '::begin_ui-ccs\ncreate_point:(${1:2},${2:3});\ncreate_line:(0,0),(1,2),(3,1),[color=red];\ncreate_line:(${3:x^2});\n::end_ui-ccs\n$0\n',
+        ),
+      ),
+    ),
     vscode.commands.registerCommand('starlog.openCheatsheet', async () => {
       const uri = vscode.Uri.joinPath(context.extensionUri, 'samples', 'syntax-demo.md')
       const document = await vscode.workspace.openTextDocument(uri)

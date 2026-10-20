@@ -280,7 +280,7 @@ Google Fonts，离开文章即恢复，不改动已保存的设置。
 仓库自带可直接安装的 **Markdown 语法拓展**插件。它在 VS Code **内置 Markdown 预览**中直接复用本站的 React 渲染组件、KaTeX / 高亮配置与 Tailwind 样式，展示框中的公式、表格和代码也会随变量实时更新。
 
 ```bash
-code --install-extension vscode_extensions/v1/starlog-markdown-2.1.0.vsix --force
+code --install-extension vscode_extensions/v1/starlog-markdown-2.2.0.vsix --force
 ```
 
 安装后打开 `.md` 并使用 `Ctrl/⌘+K V` 分屏预览；命令 **Markdown 语法拓展: 打开语法示例文档**可用于对照检查。成品内嵌所需脚本、样式与公式字体，无需额外插件或本地博客服务。MPE 保留为可选静态兼容模式，完整同款交互效果请使用内置预览。
@@ -353,6 +353,26 @@ pinned: false    # true 则置顶到首页
 以上写法均等价于在源码中把该片段直接替换为对应的值或字符串（不会额外套一层代码框），因此可以用在正文、表格、公式或代码块中。`floor` / `ceil` 的数值参数也可以是包含数值变量的表达式。
 
 文章页的「复制」菜单可以复制文章链接、原始源码、洛谷源码或基本 Markdown 源码。洛谷源码会把 Blog 专属的展示框按变量默认值转换为静态 Markdown，并移除下文的文首排版指令；基本源码还会把单元格合并、折叠框和 Tuack 表格等洛谷扩展转换为普通 Markdown。
+
+## 📐 平面直角坐标系语法（ui-ccs）
+
+用 `::begin_ui-ccs` / `::end_ui-ccs` 包住绘图语句（issue #76），会渲染出一块可交互的平面直角坐标系画布：读者可以**拖动平移、滚轮 / 双指缩放**预览整个坐标系，工具栏可一键重置视图，鼠标位置会实时显示坐标。点或折线在画外时，初始视图会按它们的包围盒自动适配。
+
+```markdown
+::begin_ui-ccs
+create_point:(2,3);
+create_line:(0,0),(1,2),(3,1),[color=red];
+create_line:(7*x^2+6*x+90*x^3);
+::end_ui-ccs
+```
+
+- `create_point:(x,y);` 画一个带坐标标签的点；
+- `create_line:(x_1,y_1),(x_2,y_2),…,(x_n,y_n);` 把若干数字坐标依次连成折线；
+- `create_line:(表达式);` 画函数 $y=f(x)$。表达式支持 `+ - * / ^`（`^` 右结合）、括号、隐式乘法（如 `2x`）、变量 `x`、常量 `pi`/`e` 与 `sin`/`cos`/`tan`/`sqrt`/`abs`/`exp`/`log`/`ln` 等单参函数；增删改函数时用的是自研的安全求值器（先编译再逐像素采样），定义域外自动断线，不执行任意代码；
+- 每条语句末尾可加 `,[color=…]` 指定颜色（颜色名、`#rrggbb`、`rgb()`/`hsl()`），缺省按调色板轮换；语句以分号分隔，整行 `#` / `//` 注释会被忽略；写错的语句会在坐标系下方给出解析提示，不会导致整篇文章打不开。
+- 与其它扩展语法相同：代码围栏里的示例不会执行，未闭合的块按普通文字显示。站内编辑器工具栏有「平面直角坐标系」按钮可插入模板；VS Code 插件内置预览里是同一块画布，MPE 静态模式与「复制为洛谷 / 基本源码」会降级成点、折线与函数式的文字列表，不丢信息。坐标系绘图语句不计入字数、摘要与目录。
+
+实现：解析与求值在 `src/lib/coordinateSystem.ts`（博客与插件共用），Canvas 渲染与拖动 / 缩放在 `src/components/CoordinateSystem.tsx`，渲染管线在 `src/components/Markdown.tsx` 的预处理里整体接管该块（行号映射照常对齐）。
 
 ## 📄 文章排版指令（字体与背景）
 

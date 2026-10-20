@@ -1,5 +1,10 @@
 # 更新日志
 
+## 2.2.0 — 2026-10-20
+
+- 新增平面直角坐标系语法（与博客 issue #76 同步）：`::begin_ui-ccs` … `::end_ui-ccs` 内用 `create_point:(x,y);` 画点、`create_line:(x1,y1),…,[color=red];` 画折线、`create_line:(表达式);` 画函数 y=f(x)。解析、表达式求值与静态降级与博客共用 `src/lib/coordinateSystem.ts`，画布直接复用博客 `CoordinateSystem` 组件，禁止另行维护副本。内置预览中可拖动平移、滚轮 / 双指缩放；MPE 静态模式与洛谷 / 基本复制降级为点、折线与函数式的文字列表。新增命令 **插入平面直角坐标系**（`starlog.insertCoordinateSystem`）与 `ccs` 代码片段，注入语法为坐标系块着色，语法示例文档新增对应章节。
+- 回归测试新增：坐标系解析 / 求值（隐式乘法、幂的右结合、定义域、占位坐标报错）、同款 DOM 对照与源行号、围栏示例不执行、复制与 MPE 降级、内置预览挂载与工具栏交互。
+
 ## 2.1.0 — 2026-10-19
 
 - 新增文章级排版指令（与博客 issue #59 同步）：文章开头可写 `::set-font[字体名]`、`::set-code-font[字体名]`、`::set-background[0–5]`。解析与字体栈与博客共用 `src/lib/articleDirectives.ts`、`src/lib/fontStacks.ts`，禁止另行维护副本。字体指令在内置预览中作用于正文（需本机有该字体，插件不联网下载）；背景指令针对博客网页的动态背景，预览中仅移除指令行。洛谷 / 基本复制与 MPE 静态转换同样会移除这些指令。新增 `setfont` / `setcodefont` / `setbackground` 代码片段，语法示例文档新增对应章节。

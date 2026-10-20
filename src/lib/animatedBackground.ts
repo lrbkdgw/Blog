@@ -72,8 +72,8 @@ export const SCENES: SceneSpec[] = [
     name: '暴雨',
     desc: '远近三层雨丝斜落，水面泛起涟漪，薄雾缓慢流动；浅色是阴雨白昼，深色是冷调雨夜，闪电默认关闭。',
     params: [
-      { key: 'count', label: '雨量', hint: '雨丝密度，较低的值更省电', min: 0, max: 100, step: 1, default: 70 },
-      { key: 'speed', label: '落雨速度', hint: '雨滴速度与雨丝长度', min: 0, max: 100, step: 1, default: 65 },
+      { key: 'count', label: '雨量', hint: '雨丝密度，较低的值更省电', min: 0, max: 100, step: 1, default: 80 },
+      { key: 'speed', label: '落雨速度', hint: '雨滴速度与雨丝长度', min: 0, max: 100, step: 1, default: 80 },
       { key: 'wind', label: '风向风力', hint: '负数向左，正数向右', min: -100, max: 100, step: 1, default: 25 },
       { key: 'mist', label: '雨雾强度', hint: '远处低空雨雾的浓度', min: 0, max: 100, step: 1, default: 40 },
       { key: 'lightning', label: '闪电亮度', hint: '0 关闭，开启后每隔 8–18 秒柔和闪亮一次', min: 0, max: 100, step: 1, default: 0 },

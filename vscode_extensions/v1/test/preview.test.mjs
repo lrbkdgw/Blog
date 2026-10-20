@@ -194,6 +194,23 @@ test('预览模型的渐变默认关闭，参数开关实时应用且不重置�
   assert.deepEqual(errors, [])
 })
 
+test('平面直角坐标系在内置预览中挂载画布，工具栏可点且更新不串扰', async (t) => {
+  const source = '## 图\n\n::begin_ui-ccs\ncreate_point:(2,3);\ncreate_line:(x^2);\n::end_ui-ccs'
+  const { dom, document, errors } = await preview(source)
+  t.after(() => close(dom))
+  assert.ok(document.querySelector('canvas'))
+  assert.match(document.body.textContent, /平面直角坐标系/)
+  assert.match(document.body.textContent, /y = x\^2/)
+  // 放大 / 重置按钮可点（jsdom 无 2d 上下文时应静默跳过绘制而不是抛错）
+  document.querySelector('button[title="放大"]').click()
+  await settle()
+  document.querySelector('button[title="重置视图"]').click()
+  await settle()
+  await update(dom, source.replace('x^2', 'x^3'))
+  assert.match(document.body.textContent, /y = x\^3/)
+  assert.deepEqual(errors, [])
+})
+
 test('延迟插入原生预览正文也能挂载；原生模型消失时清理 React 容器并恢复回退内容', async (t) => {
   const { dom, document, errors } = await preview('开始')
   t.after(() => close(dom))

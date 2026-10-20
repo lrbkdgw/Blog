@@ -1,5 +1,6 @@
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter'
 import { stripArticleDirectives } from './articleDirectives'
+import { isCcsBeginLine, isCcsEndLine, stripCcsBlocks } from './coordinateSystem'
 import { STORAGE_KEYS } from './config'
 import { hiddenSeedSlugs } from './offlineLibrary'
 import { OFFLINE } from './runtime'
@@ -68,8 +69,8 @@ export function stripMarkdown(md: string): string {
 }
 
 export function countWords(md: string): number {
-  // 文首排版指令（::set-font[…] 等）不是正文，不计入字数与阅读时长。
-  const text = stripMarkdown(stripArticleDirectives(md))
+  // 文首排版指令（::set-font[…] 等）与坐标系图元语句不是正文文字，不计入字数与阅读时长。
+  const text = stripMarkdown(stripCcsBlocks(stripArticleDirectives(md)))
   const cjk = (text.match(/[\u4e00-\u9fa5\u3040-\u30ff]/g) || []).length
   const words = (
     text.replace(/[\u4e00-\u9fa5\u3040-\u30ff]/g, ' ').match(/[A-Za-z0-9'’-]+/g) || []
@@ -82,8 +83,8 @@ export function readingTime(md: string): number {
 }
 
 export function excerpt(md: string, len = 120): string {
-  // 自动摘要不要把文首的排版指令原文截进卡片里。
-  const text = stripMarkdown(stripArticleDirectives(md))
+  // 自动摘要不要把文首的排版指令或坐标系绘图语句原样截进卡片里。
+  const text = stripMarkdown(stripCcsBlocks(stripArticleDirectives(md)))
   return text.length > len ? `${text.slice(0, len)}…` : text
 }
 
@@ -471,6 +472,16 @@ export function extractToc(md: string): TocItem[] {
       continue
     }
     if (fence) continue
+
+    // 平面直角坐标系块里只有绘图语句，不参与标题锚点计数，也不进入目录。
+    if (isCcsBeginLine(line)) {
+      let end = index + 1
+      while (end < lines.length && !isCcsEndLine(lines[end])) end += 1
+      if (end < lines.length) {
+        index = end
+        continue
+      }
+    }
 
     // 展示框内容由独立 Markdown 实例渲染，不参与正文标题锚点计数，也不进入目录。
     const showStart = line.match(/^\s*::show_begin\{([^}]*)\}\{([\s\S]*)\}\s*$/i)

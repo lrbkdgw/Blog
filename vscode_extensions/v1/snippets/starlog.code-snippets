@@ -73,6 +73,18 @@
     ],
     "description": "Markdown 语法拓展：Tuack 风格表格，< 向左合并、^ 向上合并"
   },
+  "平面直角坐标系 ui-ccs": {
+    "prefix": ["ccs", "::begin_ui-ccs"],
+    "body": [
+      "::begin_ui-ccs",
+      "create_point:(${1:2},${2:3});",
+      "create_line:(0,0),(1,2),(3,1),[color=red];",
+      "create_line:(${3:x^2});",
+      "::end_ui-ccs",
+      ""
+    ],
+    "description": "Markdown 语法拓展：可拖动 / 缩放的平面直角坐标系 ::begin_ui-ccs … ::end_ui-ccs"
+  },
   "文章字体指令 set-font": {
     "prefix": ["setfont", "::set-font"],
     "body": "::set-font[${1:字体名}]",

@@ -11,7 +11,9 @@ import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeSlug from 'rehype-slug'
 import { ShowBox } from './ShowBox'
+import { CoordinateSystem } from './CoordinateSystem'
 import { resolvePendingImageSrc } from '../lib/updateQueue'
+import { isCcsBeginLine, isCcsEndLine } from '../lib/coordinateSystem'
 import {
   EMPTY_ARTICLE_DIRECTIVES,
   articleFontStyle,
@@ -63,6 +65,9 @@ const sanitizeSchema: SanitizeOptions = {
       'dataShowTitle',
       'dataShowVars',
       'dataShowContent',
+      // 平面直角坐标系（ui-ccs，issue #76）
+      'dataCcsBox',
+      'dataCcsContent',
     ],
     details: [...(defaultSchema.attributes?.details ?? []), 'open'],
   },
@@ -346,6 +351,27 @@ export function preprocessMarkdownDetailed(
       if (end < lines.length) {
         push(
           `<div data-show-box="true" data-show-title="${encodeURIComponent(showMatch[1])}" data-show-vars="${encodeURIComponent(showMatch[2])}" data-show-content="${encodeURIComponent(body.join('\n'))}"></div>`,
+          i,
+        )
+        push('', i)
+        i = end
+        continue
+      }
+    }
+
+    // 平面直角坐标系（issue #76）：::begin_ui-ccs … ::end_ui-ccs
+    // 与展示框一样编码到 data attribute 再由 React 组件接管成可拖动 / 缩放的画布；
+    // 未闭合的块按普通文字保留，代码围栏里的示例在上面的围栏分支里已经原样放行。
+    if (isCcsBeginLine(line)) {
+      const body: string[] = []
+      let end = i + 1
+      while (end < lines.length && !isCcsEndLine(lines[end])) {
+        body.push(lines[end])
+        end += 1
+      }
+      if (end < lines.length) {
+        push(
+          `<div data-ccs-box="true" data-ccs-content="${encodeURIComponent(body.join('\n'))}"></div>`,
           i,
         )
         push('', i)
@@ -766,6 +792,16 @@ function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTr
         'data-show-title'?: string
         'data-show-vars'?: string
         'data-show-content'?: string
+        'data-ccs-box'?: string
+        'data-ccs-content'?: string
+      }
+      if (attributes['data-ccs-box'] === 'true') {
+        return (
+          <CoordinateSystem
+            content={decodeShowAttribute(attributes['data-ccs-content'])}
+            sourceLine={toSourceLine(node)}
+          />
+        )
       }
       if (attributes['data-show-box'] === 'true') {
         return (

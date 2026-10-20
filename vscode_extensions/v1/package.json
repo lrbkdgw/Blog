@@ -1,8 +1,8 @@
 {
   "name": "starlog-markdown",
   "displayName": "Markdown 语法拓展",
-  "description": "直接复用博客的 Markdown 渲染组件与样式：交互展示框、折叠框、合并表格、KaTeX 公式与代码高亮，在 VS Code 内置预览中获得同款效果。",
-  "version": "2.1.0",
+  "description": "直接复用博客的 Markdown 渲染组件与样式：交互展示框、平面直角坐标系、折叠框、合并表格、KaTeX 公式与代码高亮，在 VS Code 内置预览中获得同款效果。",
+  "version": "2.2.0",
   "publisher": "lrbkdgw",
   "license": "MIT",
   "engines": {
@@ -89,6 +89,11 @@
         "category": "Markdown 语法拓展"
       },
       {
+        "command": "starlog.insertCoordinateSystem",
+        "title": "插入平面直角坐标系",
+        "category": "Markdown 语法拓展"
+      },
+      {
         "command": "starlog.insertLatexSymbol",
         "title": "插入 LaTeX 符号…",
         "category": "Markdown 语法拓展"
@@ -121,6 +126,10 @@
         },
         {
           "command": "starlog.insertTuackTable",
+          "when": "editorLangId == markdown"
+        },
+        {
+          "command": "starlog.insertCoordinateSystem",
           "when": "editorLangId == markdown"
         },
         {

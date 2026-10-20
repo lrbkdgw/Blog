@@ -13,6 +13,7 @@ import {
   type ShowVariable,
 } from './showBox'
 import { stripArticleDirectives } from './articleDirectives'
+import { describeCcsContent, isCcsBeginLine, isCcsEndLine } from './coordinateSystem'
 
 export interface TransformOptions {
   /** MPE 兼容模式只渲染默认值，不提供交互脚本。 */
@@ -204,6 +205,23 @@ export function transformMarkdown(markdown: string, options: TransformOptions = 
       if (end < lines.length) {
         const rendered = renderShowBox(showMatch[1], showMatch[2], body.join('\n'), options)
         for (const outputLine of rendered.lines) result.push(outputLine)
+        i = end
+        continue
+      }
+    }
+
+    // 平面直角坐标系（issue #76）：::begin_ui-ccs … ::end_ui-ccs
+    // MPE 没有博客的画布组件，降级为与博客「复制源码」相同的静态文字列表。
+    if (isCcsBeginLine(line)) {
+      const body: string[] = []
+      let end = i + 1
+      while (end < lines.length && !isCcsEndLine(lines[end])) {
+        body.push(lines[end])
+        end += 1
+      }
+      if (end < lines.length) {
+        for (const outputLine of describeCcsContent(body.join('\n'))) result.push(outputLine)
+        result.push('')
         i = end
         continue
       }

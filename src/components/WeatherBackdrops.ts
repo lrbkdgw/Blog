@@ -1089,18 +1089,20 @@ export function createRain(initialDark: boolean): Renderer {
   }
 
   return {
-    fps: 30,
+    // 暴雨的下落速度快，30 FPS 下近层雨滴每帧跳几十像素会发「顿」；提到 60 后位移连续，
+    // 才接近真实暴雨的观感。逐帧仍是贴图 + 批量描边，开销远低于一帧预算。
+    fps: 60,
     setup(width, height) {
       w = width
       h = height
       build()
       drops = []
       ripples = []
-      resize(drops, Math.round((values.count ?? 70) * 15 * area(w, h)), spawn)
+      resize(drops, Math.round((values.count ?? 80) * 15 * area(w, h)), spawn)
     },
     configure(next) {
       values = next
-      resize(drops, Math.round((values.count ?? 70) * 15 * area(w, h)), spawn)
+      resize(drops, Math.round((values.count ?? 80) * 15 * area(w, h)), spawn)
       if (!(values.lightning ?? 0)) {
         flash = 0
         second = 0
@@ -1127,13 +1129,14 @@ export function createRain(initialDark: boolean): Renderer {
 
       const wind = (values.wind ?? 25) / 100
       for (const d of drops) {
-        const vy = (340 + (values.speed ?? 65) * 9.2) * (0.24 + d.z * 1.06)
+        // 暴雨真实下落速度：大幅提升基础速度与深度带来的层次感，接近肉眼对暴雨的观感（默认约 2 倍提速）
+        const vy = (500 + (values.speed ?? 80) * 14) * (0.30 + d.z * 1.18)
         d.y += vy * dt
         d.x += wind * vy * 0.62 * d.drift * dt
         if (d.y > h + 40 || d.x < -w * 0.45 || d.x > w * 1.45) Object.assign(d, spawn(true))
       }
 
-      rippleClock += dt * ((values.count ?? 70) / 100)
+      rippleClock += dt * ((values.count ?? 80) / 100)
       while (rippleClock > 0.038) {
         rippleClock -= 0.038
         if (ripples.length < 44) {
@@ -1207,8 +1210,8 @@ export function createRain(initialDark: boolean): Renderer {
 
       /* 雨：三层，越近越长越淡；近层先铺一道柔光，雨丝才有厚度 */
       const wind = (values.wind ?? 25) / 100
-      const slant = wind * 1.1
-      const speed = values.speed ?? 65
+      const slant = wind * 1.15
+      const speed = values.speed ?? 80
       const colors = dark
         ? [
             ['rgba(148,184,208,0.10)', 'rgba(190,218,238,0.19)'],
@@ -1229,7 +1232,7 @@ export function createRain(initialDark: boolean): Renderer {
           ctx.beginPath()
           for (const d of drops) {
             if (Math.min(2, Math.floor(d.z * 3)) !== layer) continue
-            const length = (14 + d.z * (22 + speed * 0.5)) * d.len
+            const length = (18 + d.z * (26 + speed * 0.62)) * d.len
             ctx.moveTo(d.x, d.y)
             ctx.lineTo(d.x + slant * length, d.y + length)
           }
@@ -1242,7 +1245,7 @@ export function createRain(initialDark: boolean): Renderer {
           for (const d of drops) {
             if (Math.min(2, Math.floor(d.z * 3)) !== layer) continue
             if ((d.bright > 0.58) !== (bucket === 1)) continue
-            const length = (10 + d.z * (18 + speed * 0.48)) * d.len
+            const length = (12 + d.z * (20 + speed * 0.60)) * d.len
             ctx.moveTo(d.x, d.y)
             ctx.lineTo(d.x + slant * length, d.y + length)
           }

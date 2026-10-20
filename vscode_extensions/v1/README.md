@@ -2,14 +2,14 @@
 
 安装后，在 **VS Code 内置 Markdown 预览**中使用与本仓库博客相同的正文渲染：同一份 React 组件、Markdown 插件链、KaTeX、代码高亮、交互展示框和 Tailwind 样式，而不是另写一套近似实现。
 
-当前版本：**2.1.0**。目录 `v1/` 与扩展 ID `lrbkdgw.starlog-markdown` 保留以兼容旧版；插件展示名称、设置标题、命令分类均为 **Markdown 语法拓展**。
+当前版本：**2.2.0**。目录 `v1/` 与扩展 ID `lrbkdgw.starlog-markdown` 保留以兼容旧版；插件展示名称、设置标题、命令分类均为 **Markdown 语法拓展**。
 
 ## 安装与使用
 
 在仓库根目录执行：
 
 ```bash
-code --install-extension vscode_extensions/v1/starlog-markdown-2.1.0.vsix --force
+code --install-extension vscode_extensions/v1/starlog-markdown-2.2.0.vsix --force
 ```
 
 也可以在扩展侧边栏的 `…` 菜单选择 **从 VSIX 安装…**，安装上面的文件。升级后按 VS Code 的提示重新加载窗口，并重新打开预览。
@@ -41,6 +41,7 @@ VS Code **Settings** 中搜索 `@ext:lrbkdgw.starlog-markdown` 或「渐变」�
 | Markdown、GFM、公式、高亮、折叠框、智能表格、代码复制按钮、标题锚点 | `src/components/Markdown.tsx` |
 | 展示框布局、数字框 / 滑动条 / 文本框及实时重渲染 | `src/components/ShowBox.tsx` |
 | 变量解析、映射、表达式与取整 | `src/lib/showBox.ts` |
+| 平面直角坐标系画布（拖动 / 缩放）与解析、表达式求值、静态降级 | `src/components/CoordinateSystem.tsx`、`src/lib/coordinateSystem.ts` |
 | 复制为洛谷 / 基本 Markdown | `src/lib/markdownSource.ts` |
 | 文首排版指令（`::set-font` / `::set-code-font` / `::set-background`）的解析与字体栈 | `src/lib/articleDirectives.ts`、`src/lib/fontStacks.ts` |
 | LaTeX 符号目录（命令、别名、插入光标） | `src/lib/latexSymbols.ts` |
@@ -71,6 +72,7 @@ VS Code **Settings** 中搜索 `@ext:lrbkdgw.starlog-markdown` 或「渐变」�
 | `&*floor(数值,位数)&*` / `&*ceil(数值,位数)&*` | 按位数向下 / 向上取整，兼容旧写法 `*&floor(…)*&` |
 | `*&变量:{键,内容;…}*&` | 变量到 Markdown 内容的映射，未声明的变量自动生成控件 |
 | `:::info[标题]{open}` … `:::` | 折叠框，支持 `info/note/tip/success/warning/error/danger` 与多层嵌套 |
+| `::begin_ui-ccs` … `::end_ui-ccs` | 可拖动 / 缩放的平面直角坐标系：`create_point:(x,y);` 画点、`create_line:(x1,y1),…,[color=red];` 画折线、`create_line:(表达式);` 画函数 y=f(x) |
 | `::cute-table{tuack}` | Tuack 表格 |
 | 表格内的 `<` / `^` | 向左 / 向上合并单元格 |
 | `$…$`、`$$` 块、`math` 围栏 | 与博客相同的 KaTeX 公式 |
@@ -94,11 +96,21 @@ int a = *&show(a)*&;
 ::show_end
 ````
 
+平面直角坐标系（内置预览中可拖动平移、滚轮 / 双指缩放；MPE 静态模式与复制降级为文字列表）：
+
+```markdown
+::begin_ui-ccs
+create_point:(2,3);
+create_line:(0,0),(1,2),(3,1),[color=red];
+create_line:(7*x^2+6*x+90*x^3);
+::end_ui-ccs
+```
+
 ## 命令与片段
 
 命令面板中的分类统一为 **Markdown 语法拓展**：
 
-- 插入交互展示框 / 折叠框 / Tuack 表格。
+- 插入交互展示框 / 折叠框 / Tuack 表格 / 平面直角坐标系。
 - 插入 LaTeX 符号…：按 `Shift + ↑`（仅 Markdown 编辑器聚焦时）或从命令面板打开，可搜命令或别名（「正负」→ `\pm`、「异或」→ `\oplus`），选中插入光标处；符号目录与博客站内编辑器共用 `src/lib/latexSymbols.ts`。`Shift + ↑` 在 Markdown 里被本扩展接管，如需恢复选区上扩，可在键盘快捷方式里改绑 `starlog.insertLatexSymbol`。
 - 复制为洛谷源码 / 基本 Markdown 源码（有选区时只转换选区）。
 - 打开语法示例文档。
@@ -106,7 +118,7 @@ int a = *&show(a)*&;
 
 旧的 `starlog.*` 命令 ID 和设置键保留，原有快捷键无需修改。
 
-代码片段包括 `show`、`varz`、`varq`、`vars`、`show(`、`hs(`、`floor(`、`ceil(`、`map`、`callout`、`tuack`、`setfont`、`setcodefont`、`setbackground`。
+代码片段包括 `show`、`varz`、`varq`、`vars`、`show(`、`hs(`、`floor(`、`ceil(`、`map`、`callout`、`tuack`、`ccs`、`setfont`、`setcodefont`、`setbackground`。
 
 ## Markdown Preview Enhanced（可选，静态兼容）
 
@@ -127,7 +139,7 @@ npm ci --prefix vscode_extensions/v1
 npm run build                              # 博客类型检查与生产构建
 npm --prefix vscode_extensions/v1 run typecheck
 npm run extension:test                     # 构建 + DOM / CSS / jsdom / 主进程 / MPE 回归
-npm run extension:package                  # 构建并生成 starlog-markdown-2.1.0.vsix
+npm run extension:package                  # 构建并生成 starlog-markdown-2.2.0.vsix
 npm --prefix vscode_extensions/v1 run watch # 监听共享源码、样式、Tailwind 配置与 MPE 源码
 ```
 

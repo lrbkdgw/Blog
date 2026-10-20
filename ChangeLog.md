@@ -1,5 +1,46 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-20 · 暴雨提速、新增平面直角坐标系语法（ui-ccs，issue #76）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+暴雨背景的构图已经成立，但雨点落得太慢，更像毛毛雨，不像真实暴雨；同时处理当时唯一的 open issue #76：
+新增 `::begin_ui-ccs … ::end_ui-ccs` Markdown 语法，新建一个可拖动、缩放预览的平面直角坐标系。
+
+### 改动
+
+- **暴雨提速**（`WeatherBackdrops.ts`、`animatedBackground.ts`）：下落速度公式由
+  `(340 + speed×9.2) × (0.24 + z×1.06)` 改为 `(500 + speed×14) × (0.30 + z×1.18)`，
+  默认落雨速度 65 → 80、默认雨量 70 → 80，近/中层雨丝同步拉长一档；
+  暴雨场景帧率上限 30 → 60 FPS，避免高速雨滴每帧跳几十像素发「顿」。
+  已保存过暴雨参数的读者保留自己的滑块值，但基础速度公式的提升对所有人立即生效（约 1.7 倍）。
+- **平面直角坐标系**（issue #76）：`create_point:(x,y);` 画点、`create_line:(x1,y1),…,[color=red];`
+  画折线、`create_line:(表达式);` 画函数 y=f(x)，表达式支持 `+ - * / ^`、隐式乘法、`pi`/`e`
+  与 sin/cos/sqrt/log 等函数，先编译再逐像素采样，定义域外断线。
+  画布支持拖动平移、滚轮 / 双指捏合缩放（以指针为锚）、悬停坐标、重置适配包围盒；
+  写错的语句只在块下方提示，不拖垮整篇文章。解析在 `src/lib/coordinateSystem.ts`，
+  渲染在 `src/components/CoordinateSystem.tsx`，与展示框一样经 `Markdown.tsx` 预处理接管（行号对齐、
+  围栏示例不执行、未闭合按文字保留）。
+- **旁路同步**：站内编辑器新增「平面直角坐标系」插入按钮；坐标系语句不进字数、摘要与目录；
+  复制为洛谷 / 基本源码降级为文字列表。帮助页（`content/about.md`）新增一节并放了一个可直接拖动的示例。
+- **VS Code 插件升 2.2.0 并重新打包 VSIX**：内置预览直接得到同一块画布，MPE 静态模式降级为文字列表；
+  新增「插入平面直角坐标系」命令、`ccs` 片段与坐标系块语法着色，示例文档新增对应章节。
+
+### 验证
+
+- `npm run build`（tsc + vite）通过；`npm run build:offline` 单文件自检通过（3.06 MB）。
+- VS Code 插件：`typecheck` 通过；`npm run extension:test` 70 项中 66 项通过、
+  4 项真实 Chromium 测试因未设置 `BROWSER_EXECUTABLE_PATH` 跳过
+  （新增的坐标系解析 / 求值、同款 DOM 与行号、复制与 MPE 降级、预览挂载断言均在通过之列）；
+  `npm run extension:package` 生成 `starlog-markdown-2.2.0.vsix`。
+- 开发服务器下相关模块（坐标系组件 / 解析 / Markdown 管线 / 暴雨背景 / 编辑器）均可正常加载转换。
+
 ## 2026-10-20 · 暴雨背景打磨：白昼更亮、倒影分带、近景芦苇
 
 | 模型信息 | |

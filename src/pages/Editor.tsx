@@ -2,6 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Archive, 
   AlertCircle,
+  Axis3d,
   Bold,
   Check,
   ChevronDown,
@@ -595,6 +596,19 @@ export default function Editor() {
             s,
             e,
             '::show_begin{二次函数展示}{a:Z=1[-5,5,1]; b:Q=0[-10,10,0.5]{faster_set}}\n当 *&show(a)*&、*&show(b)*& 时，$a^2+b$ = *&hs(a^2+b)*&。\n向下保留两位：&*floor(a^2+b,2)&*；向上保留两位：&*ceil(a^2+b,2)&*。\n*&a:{-1,负一;0,零;1,正一}*&\n::show_end\n',
+          ),
+        ),
+    },
+    {
+      icon: Axis3d,
+      title: '平面直角坐标系',
+      run: () =>
+        withSelection((v, s, e) =>
+          insertBlock(
+            v,
+            s,
+            e,
+            '::begin_ui-ccs\ncreate_point:(2,3);\ncreate_line:(0,0),(1,2),(3,1),[color=red];\ncreate_line:(7*x^2+6*x+90*x^3);\n::end_ui-ccs\n',
           ),
         ),
     },

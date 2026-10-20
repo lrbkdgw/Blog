@@ -14,6 +14,7 @@ const corpus = [
   '```markdown\n::show_begin{示例}{a:Z=1[0,2,1]}\n::show_end\n:::info[不执行]\n:::\n```\n\n~~~text\n::cute-table{tuack}\n~~~\n\n::show_begin{未闭合}{a:Z=1}\n正文',
   '<div class="custom"><strong>原始 HTML</strong></div>\n\n![图片](./images/demo.png)\n\n| 转义 | 代码 |\n| - | - |\n| 甲 | 乙 |\n| `^` | &lt; |',
   '::set-font[LXGW WenKai]\n::set-code-font[Fira Code]\n::set-background[1]\n\n## 标题\n\n正文 $a\\pm b$ 与 `code`。\n\n```markdown\n::set-font[围栏内只是示例]\n```',
+  '## 坐标系\n\n::begin_ui-ccs\ncreate_point:(2,3);\ncreate_line:(0,0),(1,2),(3,1),[color=red];\ncreate_line:(7*x^2+6*x+90*x^3);\n::end_ui-ccs\n\n## 结尾',
 ]
 
 for (const [index, source] of corpus.entries()) {
@@ -187,6 +188,62 @@ test('洛谷 / 基本复制与 MPE 静态转换会移除文首排版指令', () 
   assert.doesNotMatch(core.convertMarkdownForCopy(source, 'luogu'), /::set-/)
   assert.doesNotMatch(core.convertMarkdownForCopy(source, 'basic'), /::set-/)
   assert.doesNotMatch(core.transformMarkdown(source), /::set-/)
+})
+
+test('平面直角坐标系（ui-ccs）：解析、求值与博客共用同一份实现', () => {
+  const parsed = core.parseCcsContent('create_point:(2,3);\ncreate_line:(0,0),(1,2),(3,1),[color=red];\ncreate_line:(7*x^2+6*x+90*x^3);')
+  assert.deepEqual(parsed.errors, [])
+  assert.equal(parsed.items.length, 3)
+  assert.deepEqual(parsed.items[0], { kind: 'point', x: 2, y: 3, color: '#ef4444' })
+  assert.equal(parsed.items[1].kind, 'polyline')
+  assert.equal(parsed.items[1].color, 'red')
+  assert.equal(parsed.items[2].kind, 'function')
+  // issue 示例里的函数式：7x²+6x+90x³ 在 x=1 处为 103
+  assert.equal(core.evaluateCcsExpression('7*x^2+6*x+90*x^3', 1), 103)
+  // 隐式乘法、右结合幂、定义域与未知标识符
+  assert.equal(core.evaluateCcsExpression('2x+1', 3), 7)
+  assert.equal(core.evaluateCcsExpression('2^3^2', 0), 512)
+  assert.equal(core.evaluateCcsExpression('-x^2', 3), -9)
+  assert.equal(core.evaluateCcsExpression('sqrt(x)', -1), null)
+  assert.equal(core.evaluateCcsExpression('1/x', 0), null)
+  assert.equal(core.evaluateCcsExpression('foo(x)', 1), null)
+  assert.equal(core.compileCcsExpression('(x_1,y_1)'), null)
+  // 符号占位坐标不是数字，应给出解析提示而不是画出垃圾图元
+  assert.match(core.parseCcsContent('create_point:(x,y);').errors.join(' '), /create_point/)
+  assert.match(core.parseCcsContent('create_line:(x_1,y_1),(x_2,y_2);').errors.join(' '), /create_line/)
+})
+
+test('平面直角坐标系渲染出行号、围栏示例不执行、未闭合按文字保留', () => {
+  const source = ['## 开始', '', '::begin_ui-ccs', 'create_point:(2,3);', 'create_line:(x^2);', '::end_ui-ccs', '', '## 结尾'].join('\n')
+  const doc = documentOf(render(source))
+  const canvas = doc.querySelector('canvas')
+  assert.ok(canvas, '坐标系应渲染为画布')
+  assert.match(doc.body.textContent, /平面直角坐标系/)
+  assert.match(doc.body.textContent, /点 \(2, 3\)/)
+  assert.match(doc.body.textContent, /y = x\^2/)
+  assert.equal(doc.querySelector('#结尾').getAttribute('data-line'), '7')
+
+  const fenced = documentOf(render('```markdown\n::begin_ui-ccs\ncreate_point:(1,1);\n::end_ui-ccs\n```'))
+  assert.equal(fenced.querySelector('canvas'), null)
+  assert.match(fenced.body.textContent, /::begin_ui-ccs/)
+
+  const unclosed = documentOf(render('::begin_ui-ccs\ncreate_point:(1,1);'))
+  assert.equal(unclosed.querySelector('canvas'), null)
+  assert.match(unclosed.body.textContent, /::begin_ui-ccs/)
+})
+
+test('坐标系在洛谷 / 基本复制与 MPE 静态转换中降级为文字列表', () => {
+  const source = '::begin_ui-ccs\ncreate_point:(2,3);\ncreate_line:(x^2);\n::end_ui-ccs'
+  assert.equal(core.convertMarkdownForCopy(source, 'direct'), source)
+  for (const target of ['luogu', 'basic']) {
+    const converted = core.convertMarkdownForCopy(source, target)
+    assert.doesNotMatch(converted, /::begin_ui-ccs|::end_ui-ccs/)
+    assert.match(converted, /点：\(2, 3\)/)
+    assert.match(converted, /y = x\^2/)
+  }
+  const mpe = core.transformMarkdown(source)
+  assert.doesNotMatch(mpe, /::begin_ui-ccs|::end_ui-ccs/)
+  assert.match(mpe, /点：\(2, 3\)/)
 })
 
 test('LaTeX 符号可按别名搜索，插入光标落在第一个空参数内', () => {

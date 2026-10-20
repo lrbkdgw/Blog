@@ -1,4 +1,5 @@
 import { stripArticleDirectives } from './articleDirectives'
+import { describeCcsContent, isCcsBeginLine, isCcsEndLine } from './coordinateSystem'
 import {
   initialShowValues,
   parseShowMappings,
@@ -65,6 +66,50 @@ export function convertShowBoxesToMarkdown(markdown: string): string {
     output.push(`**${escapePlainMarkdown(title)}**`)
     output.push('')
     output.push(rendered)
+    output.push('')
+    index = end
+  }
+
+  return output.join('\n')
+}
+
+/**
+ * 将 Blog 专属的平面直角坐标系（::begin_ui-ccs … ::end_ui-ccs，issue #76）
+ * 转成静态文字列表：目标平台没有画布，但点、折线与函数式不能丢。
+ */
+export function convertCcsBlocksToMarkdown(markdown: string): string {
+  const lines = markdown.split('\n')
+  const output: string[] = []
+  let fence: string | null = null
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    const marker = fenceMarker(line)
+    if (marker) {
+      if (!fence) fence = marker
+      else if (fence === marker) fence = null
+      output.push(line)
+      continue
+    }
+    if (fence) {
+      output.push(line)
+      continue
+    }
+    if (!isCcsBeginLine(line)) {
+      output.push(line)
+      continue
+    }
+    const body: string[] = []
+    let end = index + 1
+    while (end < lines.length && !isCcsEndLine(lines[end])) {
+      body.push(lines[end])
+      end += 1
+    }
+    if (end >= lines.length) {
+      output.push(line)
+      continue
+    }
+    output.push(...describeCcsContent(body.join('\n')))
     output.push('')
     index = end
   }
@@ -250,12 +295,14 @@ export function convertLuoguExtensionsToMarkdown(markdown: string): string {
 }
 
 /**
- * direct：原样源码；luogu：移除 Blog 专属语法（展示框与文首排版指令 ::set-font 等，
+ * direct：原样源码；luogu：移除 Blog 专属语法（展示框、平面直角坐标系与文首排版指令 ::set-font 等，
  * 洛谷不认识这些指令，留着只会变成正文杂质）；basic：再移除洛谷扩展。
  */
 export function convertMarkdownForCopy(markdown: string, target: MarkdownCopyTarget): string {
   if (target === 'direct') return markdown
-  const withoutBlogExtensions = convertShowBoxesToMarkdown(stripArticleDirectives(markdown))
+  const withoutBlogExtensions = convertCcsBlocksToMarkdown(
+    convertShowBoxesToMarkdown(stripArticleDirectives(markdown)),
+  )
   if (target === 'luogu') return withoutBlogExtensions
   return convertLuoguExtensionsToMarkdown(expandMergedTableCells(withoutBlogExtensions))
 }
