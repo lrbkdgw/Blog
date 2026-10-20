@@ -33,11 +33,11 @@ const VAR_FADE = '--yield-fade'
  */
 const BLOCK_SELECTOR = `.prose > *, [${LIST_SCOPE_ATTR}] > *:not(.prose):not([${LIST_SCOPE_ATTR}])`
 
-/** 完全消失线位于 `.site-header` 底边以下的安全净空像素数，确保内容未触及顶栏前已彻底隐去。 */
-export const VANISH_OFFSET_PX = 14
+/** 完全消失线位于 `.site-header` 底边以下的安全净空像素数：较先前 14px 略微上移至 4px（68px 处彻底隐去，距导航文字底边仍留有 18px 净空）。 */
+export const VANISH_OFFSET_PX = 4
 
-/** 从完全消失线 `yVanish` 向下到 100% 清晰线 `yOpaque` 的柔化过渡带高度。 */
-export const FADE_SPAN_PX = 50
+/** 从完全消失线 `yVanish` 向下到 100% 清晰线 `yOpaque` 的柔化过渡带高度（68px → 112px，与全站 `pt-12` 首屏基线严丝合缝）。 */
+export const FADE_SPAN_PX = 44
 
 /** 内容变了（换文章、切路由、Markdown 渲染完）就重算一次；此时不一定伴随滚动事件。 */
 export const YIELD_REFRESH_EVENT = 'starlog:content-changed'
@@ -79,9 +79,9 @@ export function installHeaderYield(): () => void {
       if (r && r.height > 0 && r.top < minTop) minTop = r.top
     }
 
-    // 页面刚打开停在最顶部且首块完全处于消失线下方时，不预挂蒙版；一旦开始滚动则平滑展开完整过渡带
+    // 页面刚打开停在最顶部且首块完全处于消失线下方时，不预挂蒙版；一旦开始滚动则在 22px 内平滑展开完整过渡带
     const scrollY = typeof window !== 'undefined' ? window.scrollY : 0
-    const activeScale = minTop < yVanish ? 1 : smoothStep(0, 28, scrollY)
+    const activeScale = minTop < yVanish ? 1 : smoothStep(0, 22, scrollY)
     if (activeScale <= 0) {
       blocks.forEach(clearYield)
       return

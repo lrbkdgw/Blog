@@ -1102,7 +1102,7 @@ export default function Editor() {
       className={
         fullscreen
           ? 'fixed inset-0 z-[80] flex h-screen flex-col overflow-hidden bg-white dark:bg-ink-950'
-          : 'container-page pt-10'
+          : 'container-page pt-12'
       }
     >
       <div

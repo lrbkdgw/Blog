@@ -74,7 +74,7 @@ function Logo() {
         width={40}
         height={40}
         fetchPriority="high"
-        className="h-10 w-10 rounded-xl object-cover shadow-md shadow-brand-600/20 ring-1 ring-black/5 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105 dark:ring-white/10"
+        className="h-10 w-10 rounded-xl object-cover shadow-md shadow-brand-600/20 ring-1 ring-black/5 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105 dark:ring-white/15 dark:shadow-black/50"
       />
     </Link>
   )
@@ -178,8 +178,8 @@ function Header({ onSearch }: { onSearch: () => void }) {
               className={({ isActive }) =>
                 `relative rounded-lg px-3 py-1.5 text-sm font-medium transition ${
                   isActive
-                    ? 'text-brand-600 dark:text-brand-300 dark:[text-shadow:0_1px_10px_rgba(0,0,0,0.45)]'
-                    : 'text-ink-500 hover:text-ink-900 dark:text-ink-300 dark:hover:text-white dark:[text-shadow:0_1px_10px_rgba(0,0,0,0.45)]'
+                    ? 'text-brand-600 dark:text-brand-300 dark:[text-shadow:0_1px_12px_rgba(0,0,0,0.65)]'
+                    : 'text-ink-500 hover:text-ink-900 dark:text-ink-200/95 dark:hover:text-white dark:[text-shadow:0_1px_12px_rgba(0,0,0,0.65)]'
                 }`
               }
             >
@@ -211,7 +211,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
             <Search size={17} />
           </button>
 
-          <Link to="/settings" className="btn-ghost h-9 w-9 !px-0 text-ink-500 hover:text-brand-600 dark:text-ink-400 dark:hover:text-brand-300" title="设置" aria-label="设置">
+          <Link to="/settings" className="btn-ghost h-9 w-9 !px-0 text-ink-500 hover:text-brand-600 dark:text-ink-300 dark:hover:text-brand-300" title="设置" aria-label="设置">
             <Settings size={18} />
           </Link>
 

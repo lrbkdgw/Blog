@@ -146,6 +146,7 @@ export function createRain(initialDark: boolean): Renderer {
   let foreground: HTMLCanvasElement
   let dropSoft: HTMLCanvasElement
   let dropCrisp: HTMLCanvasElement
+  let dropBokeh: HTMLCanvasElement
   let rainVeil: HTMLCanvasElement
 
   const seeded = (seed: number) => {
@@ -305,68 +306,110 @@ export function createRain(initialDark: boolean): Renderer {
     return texture
   }
 
-  const spawn = (top = false): Drop => ({
-    x: rand(-w * 0.55, w * 1.15),
-    y: top ? rand(-h * 0.35, -20) : rand(-80, h),
-    z: Math.pow(Math.random(), 1.35),
-    size: rand(0.75, 1.3),
-    drift: rand(0.84, 1.18),
-    bright: rand(0, 1),
-    phase: rand(0, TAU),
-    bokeh: false,
-  })
-
-  /**
-   * 契合 60fps 光学快门角的真实雨滴速度（约 900–2,150 px/s，单帧位移 15–35px）：
-   * 与 12–34px 的细柔梭形水滴长度 1:1 匹配，既有真实落雨动势，又绝不拉成百像素铁丝线。
-   */
-  const dropVelocity = (speed: number, z: number) => (760 + speed * 13.5) * (0.52 + z * 0.8)
-
-  const currentSlope = (d: Drop, atTime = time) => {
-    const windBase = (values.wind ?? 25) / 100
-    const gust = 1 + 0.14 * Math.sin(atTime * 0.37) + 0.07 * Math.sin(atTime * 0.91 + 1.4)
-    return windBase * gust * 0.48 * d.drift + Math.sin(atTime * 1.35 + d.phase) * 0.012
+  const spawn = (top = false): Drop => {
+    const z = Math.pow(Math.random(), 1.35)
+    return {
+      x: rand(-w * 0.45, w * 1.15),
+      y: top ? rand(-h * 0.3, -18) : rand(-80, h),
+      z,
+      size: rand(0.8, 1.28),
+      drift: rand(0.85, 1.16),
+      bright: rand(0, 1),
+      phase: rand(0, TAU),
+      bokeh: z > 0.72 && Math.random() < 0.26,
+    }
   }
 
   /**
-   * 预烘焙光学梭形雨滴贴图：
-   * 两端在宽度与透明度上均平滑收尖归零（上端柔和拖尾渐入、下三分之一水珠弯月面微亮、尖端柔化收尾），
-   * 横向呈高斯羽化柔焦，彻底消除直线描边的「硬头硬尾等粗铁丝感」，同时保持真雨而非雪点的修长水滴感。
+   * 契合人眼视觉暂留（~45ms）与 60fps 的舒缓自然雨滴速度（约 410–920 px/s，单帧位移 7–15px）：
+   * 彻底低于人眼把运动颗粒拖成细直线的融合阈值，使每一滴水珠都呈现出清晰温润的液滴下落质感。
+   */
+  const dropVelocity = (speed: number, z: number) => (370 + speed * 5.6) * (0.56 + z * 0.68)
+
+  const currentSlope = (d: Drop, atTime = time) => {
+    const windBase = (values.wind ?? 25) / 100
+    const gust = 1 + 0.14 * Math.sin(atTime * 0.37) + 0.07 * Math.sin(time * 0 + atTime * 0.91 + 1.4)
+    return windBase * gust * 0.44 * d.drift + Math.sin(atTime * 1.35 + d.phase) * 0.015
+  }
+
+  /**
+   * 预烘焙中空折射水滴贴图（40×84 / 40×92）：
+   * 下部为圆润半球形液滴弯月面，上部收束为轻柔水汽短尾；内部通透半透明（透出背后山林与页面底色），
+   * 边缘具菲涅尔微反光，底端带焦散月牙高光——呈现真正的液态水珠而非粉笔白线或雪点。
    */
   const makeWaterDropSprite = (
     sw: number,
     sh: number,
-    rgbWake: [number, number, number],
-    rgbTip: [number, number, number],
-    softness: number,
+    rgbBody: [number, number, number],
+    rgbRim: [number, number, number],
+    sharpness: number,
   ) =>
     paint(sw, sh, (ctx) => {
       const image = ctx.createImageData(sw, sh)
       const data = image.data
       const cx = (sw - 1) * 0.5
-      const peakV = 0.78
+      const bellyV = 0.72
       for (let py = 0; py < sh; py += 1) {
         const v = py / (sh - 1)
-        const rise = Math.pow(smooth01(0.0, peakV, v), 1.45)
-        const tipFade = 1 - smooth01(peakV, 1.0, v)
-        const axial = rise * Math.pow(tipFade, 0.72)
-        const halfW =
-          (0.3 +
-            0.7 *
-              Math.pow(smooth01(0.0, peakV + 0.06, v), 0.65) *
-              Math.pow(1 - smooth01(0.82, 1.0, v), 0.55)) *
-          (sw * 0.42)
+        const profile =
+          v <= bellyV
+            ? 0.14 + 0.86 * Math.pow(smooth01(0.02, bellyV, v), 0.78)
+            : Math.sqrt(Math.max(0, 1 - Math.pow((v - bellyV) / 0.265, 2)))
+        const halfW = profile * (sw * 0.44)
+        if (halfW <= 0.25) continue
+        const axial =
+          Math.pow(smooth01(0.02, 0.46, v), sharpness) * (1 - smooth01(0.92, 0.995, v))
         for (let px = 0; px < sw; px += 1) {
-          const u = (px - cx) / Math.max(0.65, halfW)
+          const u = (px - cx) / halfW
           const r2 = u * u
           if (r2 >= 1) continue
-          const radial = Math.pow(1 - r2, softness)
-          const tipGlow = smooth01(0.45, peakV + 0.05, v)
-          const alpha = Math.min(1, axial * radial)
+          const r = Math.sqrt(r2)
+          const edgeFeather = 1 - smooth01(0.78, 1.0, r)
+          const body = 0.34 * Math.pow(1 - r2, 0.85)
+          const fresnelRim =
+            0.44 * Math.exp(-Math.pow((r - 0.74) / 0.18, 2)) * smooth01(0.26, bellyV, v)
+          const meniscusGlint =
+            0.58 *
+            Math.exp(-(Math.pow((u + 0.16) / 0.48, 2) + Math.pow((v - 0.8) / 0.115, 2)))
+          const alpha = Math.min(1, (body + fresnelRim + meniscusGlint) * axial * edgeFeather)
+          if (alpha <= 0.002) continue
+          const specMix = Math.min(1, (fresnelRim * 0.8 + meniscusGlint * 1.25) / 0.65)
           const idx = (py * sw + px) * 4
-          data[idx] = rgbWake[0] + (rgbTip[0] - rgbWake[0]) * tipGlow
-          data[idx + 1] = rgbWake[1] + (rgbTip[1] - rgbWake[1]) * tipGlow
-          data[idx + 2] = rgbWake[2] + (rgbTip[2] - rgbWake[2]) * tipGlow
+          data[idx] = rgbBody[0] + (rgbRim[0] - rgbBody[0]) * specMix
+          data[idx + 1] = rgbBody[1] + (rgbRim[1] - rgbBody[1]) * specMix
+          data[idx + 2] = rgbBody[2] + (rgbRim[2] - rgbBody[2]) * specMix
+          data[idx + 3] = Math.round(alpha * 255)
+        }
+      }
+      ctx.putImageData(image, 0, 0)
+    })
+
+  /** 预烘焙近景浅景深散景水珠贴图（64×64）：中心通透、外缘柔焦菲涅尔光晕。 */
+  const makeBokehDropSprite = (
+    size: number,
+    rgbBody: [number, number, number],
+    rgbRim: [number, number, number],
+  ) =>
+    paint(size, size, (ctx) => {
+      const image = ctx.createImageData(size, size)
+      const data = image.data
+      const c = (size - 1) * 0.5
+      for (let py = 0; py < size; py += 1) {
+        for (let px = 0; px < size; px += 1) {
+          const ux = (px - c) / (size * 0.47)
+          const uy = (py - c) / (size * 0.47)
+          const r2 = ux * ux + uy * uy
+          if (r2 >= 1) continue
+          const r = Math.sqrt(r2)
+          const body = 0.2 * Math.pow(1 - r2, 0.65)
+          const ring = 0.36 * Math.exp(-Math.pow((r - 0.76) / 0.15, 2))
+          const feather = 1 - smooth01(0.84, 1.0, r)
+          const alpha = Math.min(1, (body + ring) * feather)
+          const mix = Math.min(1, ring / 0.36)
+          const idx = (py * size + px) * 4
+          data[idx] = rgbBody[0] + (rgbRim[0] - rgbBody[0]) * mix
+          data[idx + 1] = rgbBody[1] + (rgbRim[1] - rgbBody[1]) * mix
+          data[idx + 2] = rgbBody[2] + (rgbRim[2] - rgbBody[2]) * mix
           data[idx + 3] = Math.round(alpha * 255)
         }
       }
@@ -1160,18 +1203,23 @@ export function createRain(initialDark: boolean): Renderer {
 
     /* -------------------- 光学水滴贴图与远景斜向雨幕 -------------------- */
     dropSoft = makeWaterDropSprite(
-      16,
-      96,
-      dark ? [138, 176, 206] : [126, 152, 172],
-      dark ? [208, 234, 250] : [246, 251, 255],
-      1.55,
+      40,
+      84,
+      dark ? [136, 178, 210] : [132, 158, 178],
+      dark ? [216, 240, 255] : [250, 253, 255],
+      1.35,
     )
     dropCrisp = makeWaterDropSprite(
-      16,
-      112,
-      dark ? [164, 202, 230] : [114, 142, 164],
-      dark ? [240, 250, 255] : [255, 255, 255],
-      1.2,
+      40,
+      92,
+      dark ? [158, 198, 228] : [120, 148, 170],
+      dark ? [242, 251, 255] : [255, 255, 255],
+      1.1,
+    )
+    dropBokeh = makeBokehDropSprite(
+      64,
+      dark ? [142, 184, 214] : [168, 192, 208],
+      dark ? [224, 244, 255] : [252, 254, 255],
     )
     rainVeil = soften(
       paint(256, 256, (ctx) => {
@@ -1208,11 +1256,11 @@ export function createRain(initialDark: boolean): Renderer {
       build()
       drops = []
       ripples = []
-      resize(drops, Math.round((values.count ?? 70) * 6.8 * area(w, h)), spawn)
+      resize(drops, Math.round((values.count ?? 70) * 3.8 * area(w, h)), spawn)
     },
     configure(next) {
       values = next
-      resize(drops, Math.round((values.count ?? 70) * 6.8 * area(w, h)), spawn)
+      resize(drops, Math.round((values.count ?? 70) * 3.8 * area(w, h)), spawn)
       if (!(values.lightning ?? 0)) {
         flash = 0
         second = 0
@@ -1332,27 +1380,35 @@ export function createRain(initialDark: boolean): Renderer {
       }
       ctx.restore()
 
-      /* 自然光学雨滴：圆润水珠 + 渐隐短水雾尾迹 + 中央阅读区柔化退让 */
+      /* 自然光学液滴：通透梨形水珠 + 浅景深散景水珠 + 中央阅读净空区 */
       const halfW = Math.max(1, w * 0.5)
-      // 中央正文列（约 820px 宽）平滑降噪，两侧天空与山湖保留完整雨景层次
-      const readingEdgeInner = Math.min(0.42, 340 / halfW)
-      const readingEdgeOuter = Math.min(0.84, 560 / halfW)
+      // 中央正文列（约 820px 宽）深度降噪，两侧天空与山湖保留完整烟雨层次
+      const readingEdgeInner = Math.min(0.42, 350 / halfW)
+      const readingEdgeOuter = Math.min(0.84, 575 / halfW)
       ctx.save()
       ctx.imageSmoothingEnabled = true
       for (const d of drops) {
         const slope = currentSlope(d, time)
         const normX = Math.abs(d.x - halfW) / halfW
         const outsideReading = smooth01(readingEdgeInner, readingEdgeOuter, normX)
-        // 纤细柔焦梭形水滴（宽 1.5–3.1px，长 12–34px）：首尾双端平滑渐隐，既有真雨丝雾感又绝非生硬直线或雪点
-        const vy = dropVelocity(speed, d.z)
-        const dropW = (1.55 + d.z * 1.45) * d.size
-        const dropH = (10 + vy * 0.0095) * d.size
         const baseAlpha = dark
-          ? (0.14 + d.z * 0.20) * (0.62 + d.bright * 0.5)
-          : (0.16 + d.z * 0.22) * (0.62 + d.bright * 0.48)
-        // 阅读区平滑衰减至 32%，两侧山湖烟雨濛濛而中央正文清澈宁静
-        ctx.globalAlpha = baseAlpha * (0.32 + 0.68 * outsideReading)
-        const sprite = d.z > 0.56 && d.bright > 0.45 ? dropCrisp : dropSoft
+          ? (0.15 + d.z * 0.22) * (0.62 + d.bright * 0.48)
+          : (0.17 + d.z * 0.24) * (0.62 + d.bright * 0.46)
+        let sprite: HTMLCanvasElement
+        let dropW: number
+        let dropH: number
+        if (d.bokeh) {
+          sprite = dropBokeh
+          dropW = (6.8 + d.z * 5.8) * d.size
+          dropH = dropW * 1.18
+          ctx.globalAlpha = baseAlpha * 0.3 * (0.08 + 0.92 * outsideReading)
+        } else {
+          // 真实水珠长宽比仅 1:2.1–1:3.1（宽 2.6–6.2px，长 6.2–18px），圆润晶莹，绝不拉成细硬直线
+          sprite = d.z > 0.56 && d.bright > 0.45 ? dropCrisp : dropSoft
+          dropW = (3.0 + d.z * 2.5) * d.size
+          dropH = dropW * (2.05 + d.z * 1.05) + dropVelocity(speed, d.z) * 0.0022
+          ctx.globalAlpha = baseAlpha * (0.18 + 0.82 * outsideReading)
+        }
         ctx.save()
         ctx.translate(d.x, d.y)
         ctx.rotate(-Math.atan(slope))
@@ -1361,7 +1417,7 @@ export function createRain(initialDark: boolean): Renderer {
       }
       ctx.restore()
 
-      /* 涟漪：外圈 + 内圈 + 落下瞬间的一根小水柱 */
+      /* 涟漪：外圈 + 内圈 + 落下瞬间溅起的晶莹小水珠 */
       ctx.save()
       ctx.lineCap = 'round'
       for (const r of ripples) {
@@ -1381,13 +1437,13 @@ export function createRain(initialDark: boolean): Renderer {
           ctx.stroke()
           ctx.globalAlpha = 1
         }
-        if (t < 0.12) {
-          ctx.strokeStyle = dark ? 'rgba(235,248,255,0.4)' : 'rgba(255,255,255,0.62)'
-          const hh = (2 + r.depth * 4) * (1 - t / 0.12)
-          ctx.beginPath()
-          ctx.moveTo(r.x, r.y - hh)
-          ctx.lineTo(r.x, r.y)
-          ctx.stroke()
+        if (t < 0.16) {
+          const crown = 1 - t / 0.16
+          const beadR = (1.6 + r.depth * 1.9) * crown
+          const lift = (1.8 + r.depth * 3.8) * Math.sin(Math.PI * (1 - crown * 0.65))
+          ctx.globalAlpha = crown * (dark ? 0.42 : 0.58)
+          ctx.drawImage(dropBokeh, r.x - beadR, r.y - lift - beadR, beadR * 2, beadR * 2)
+          ctx.globalAlpha = 1
         }
       }
       ctx.restore()

@@ -355,23 +355,25 @@
     -webkit-mask-image: linear-gradient(
       to bottom,
       rgba(0, 0, 0, 0) 0,
-      rgba(0, 0, 0, 0) calc(var(--yield-top) - var(--yield-fade, 50px)),
-      rgba(0, 0, 0, 0.041) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.84),
-      rgba(0, 0, 0, 0.164) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.68),
-      rgba(0, 0, 0, 0.42) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.5),
-      rgba(0, 0, 0, 0.718) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.32),
-      rgba(0, 0, 0, 0.916) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.16),
+      rgba(0, 0, 0, 0) calc(var(--yield-top) - var(--yield-fade, 44px)),
+      rgba(0, 0, 0, 0.036) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.86),
+      rgba(0, 0, 0, 0.145) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.72),
+      rgba(0, 0, 0, 0.352) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.56),
+      rgba(0, 0, 0, 0.618) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.4),
+      rgba(0, 0, 0, 0.842) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.24),
+      rgba(0, 0, 0, 0.962) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.1),
       #000 var(--yield-top)
     );
     mask-image: linear-gradient(
       to bottom,
       rgba(0, 0, 0, 0) 0,
-      rgba(0, 0, 0, 0) calc(var(--yield-top) - var(--yield-fade, 50px)),
-      rgba(0, 0, 0, 0.041) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.84),
-      rgba(0, 0, 0, 0.164) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.68),
-      rgba(0, 0, 0, 0.42) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.5),
-      rgba(0, 0, 0, 0.718) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.32),
-      rgba(0, 0, 0, 0.916) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.16),
+      rgba(0, 0, 0, 0) calc(var(--yield-top) - var(--yield-fade, 44px)),
+      rgba(0, 0, 0, 0.036) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.86),
+      rgba(0, 0, 0, 0.145) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.72),
+      rgba(0, 0, 0, 0.352) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.56),
+      rgba(0, 0, 0, 0.618) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.4),
+      rgba(0, 0, 0, 0.842) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.24),
+      rgba(0, 0, 0, 0.962) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.1),
       #000 var(--yield-top)
     );
   }
@@ -379,23 +381,25 @@
     -webkit-mask-image: linear-gradient(
       to bottom,
       rgba(0, 0, 0, 0) 0,
-      rgba(0, 0, 0, 0) calc(var(--yield-top) - var(--yield-fade, 50px)),
-      rgba(0, 0, 0, 0.015) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.84),
-      rgba(0, 0, 0, 0.088) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.68),
-      rgba(0, 0, 0, 0.285) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.5),
-      rgba(0, 0, 0, 0.608) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.32),
-      rgba(0, 0, 0, 0.878) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.16),
+      rgba(0, 0, 0, 0) calc(var(--yield-top) - var(--yield-fade, 44px)),
+      rgba(0, 0, 0, 0.011) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.86),
+      rgba(0, 0, 0, 0.06) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.72),
+      rgba(0, 0, 0, 0.186) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.56),
+      rgba(0, 0, 0, 0.388) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.4),
+      rgba(0, 0, 0, 0.622) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.25),
+      rgba(0, 0, 0, 0.842) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.12),
       #000 var(--yield-top)
     );
     mask-image: linear-gradient(
       to bottom,
       rgba(0, 0, 0, 0) 0,
-      rgba(0, 0, 0, 0) calc(var(--yield-top) - var(--yield-fade, 50px)),
-      rgba(0, 0, 0, 0.015) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.84),
-      rgba(0, 0, 0, 0.088) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.68),
-      rgba(0, 0, 0, 0.285) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.5),
-      rgba(0, 0, 0, 0.608) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.32),
-      rgba(0, 0, 0, 0.878) calc(var(--yield-top) - var(--yield-fade, 50px) * 0.16),
+      rgba(0, 0, 0, 0) calc(var(--yield-top) - var(--yield-fade, 44px)),
+      rgba(0, 0, 0, 0.011) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.86),
+      rgba(0, 0, 0, 0.06) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.72),
+      rgba(0, 0, 0, 0.186) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.56),
+      rgba(0, 0, 0, 0.388) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.4),
+      rgba(0, 0, 0, 0.622) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.25),
+      rgba(0, 0, 0, 0.842) calc(var(--yield-top) - var(--yield-fade, 44px) * 0.12),
       #000 var(--yield-top)
     );
   }
@@ -404,7 +408,7 @@
     pointer-events: none !important;
   }
   .prose :is(h1, h2, h3, h4, h5, h6)[id] {
-    scroll-margin-top: 8rem;
+    scroll-margin-top: 7.25rem;
   }
   @media print {
     /* 打印时每一页的顶部都会落进这个区间，必须原样还原 */

@@ -406,7 +406,10 @@ export default function PostPage() {
     }
     const timer = window.setTimeout(() => {
       const element = document.getElementById(id)
-      if (element) window.scrollTo({ top: element.offsetTop - 90, behavior: 'smooth' })
+      if (element) {
+        const top = element.getBoundingClientRect().top + window.scrollY - 116
+        window.scrollTo({ top, behavior: 'smooth' })
+      }
     }, 120)
     return () => window.clearTimeout(timer)
   }, [visiblePost])

@@ -120,7 +120,7 @@ function makeMock2dContext(strokeSink, drawSink) {
 /*                     1. 暴雨背景自然水滴形态、同轴与阅读保护验证                */
 /* -------------------------------------------------------------------------- */
 
-test('暴雨渲染器：60fps 光学梭形水滴贴图（彻底摒弃直线雨丝）、轨迹严格同轴且中央阅读区自动降噪', () => {
+test('暴雨渲染器：60fps 晶莹折射水珠 + 浅景深散景水珠（零直线雨丝）、轨迹严格同轴且中央阅读区深度降噪', () => {
   const prevDocument = globalThis.document
   globalThis.document = {
     createElement() {
@@ -140,6 +140,8 @@ test('暴雨渲染器：60fps 光学梭形水滴贴图（彻底摒弃直线雨�
   try {
     const rain = weatherMod.createRain(true)
     assert.equal(rain.fps, 60)
+    assert.equal(headerYieldMod.VANISH_OFFSET_PX, 4)
+    assert.equal(headerYieldMod.FADE_SPAN_PX, 44)
 
     rain.configure({ count: 65, speed: 65, wind: 42, mist: 55, flash: 0 })
     rain.setup(1280, 720)
@@ -150,14 +152,19 @@ test('暴雨渲染器：60fps 光学梭形水滴贴图（彻底摒弃直线雨�
 
     rain.draw(drawCtx)
     assert.equal(strokes.length, 0, `不应再使用直线 lineTo 绘制生硬雨丝，实际残留 ${strokes.length} 条`)
-    const beforeDrops = draws.splice(0).filter((d) => d.sw === 16)
-    assert.ok(beforeDrops.length >= 150, `期望光学水滴贴图数量充足，实际 ${beforeDrops.length}`)
+    const isDropSprite = (d) => d.sw === 40 || (d.sw === 64 && d.w !== d.h)
+    const beforeDrops = draws.splice(0).filter(isDropSprite)
+    assert.ok(beforeDrops.length >= 120, `期望光学水珠贴图数量充足，实际 ${beforeDrops.length}`)
+    assert.ok(beforeDrops.some((d) => d.sw === 64), '应包含浅景深散景近景水珠贴图')
+    for (const d of beforeDrops) {
+      assert.ok(d.h / d.w <= 4.5, `水珠长宽比（${(d.h / d.w).toFixed(2)}）必须圆润自然，绝不拉成细硬直线`)
+    }
 
     // 推进一帧 1/60s，逐滴核验真实位移速度与水滴旋转角严格同轴
     const dt = 1 / 60
     rain.step(dt)
     rain.draw(drawCtx)
-    const afterDrops = draws.splice(0).filter((d) => d.sw === 16)
+    const afterDrops = draws.splice(0).filter(isDropSprite)
 
     const speeds = []
     let centerAlphaSum = 0
@@ -168,12 +175,14 @@ test('暴雨渲染器：60fps 光学梭形水滴贴图（彻底摒弃直线雨�
     for (let i = 0; i < Math.min(beforeDrops.length, afterDrops.length); i += 1) {
       const b = beforeDrops[i]
       const a = afterDrops[i]
-      if (b.tx >= 420 && b.tx <= 860) {
-        centerAlphaSum += b.alpha
-        centerCount += 1
-      } else if (b.tx <= 240 || b.tx >= 1040) {
-        flankAlphaSum += b.alpha
-        flankCount += 1
+      if (b.sw === 40) {
+        if (b.tx >= 440 && b.tx <= 840) {
+          centerAlphaSum += b.alpha
+          centerCount += 1
+        } else if (b.tx <= 220 || b.tx >= 1060) {
+          flankAlphaSum += b.alpha
+          flankCount += 1
+        }
       }
       const dy = a.ty - b.ty
       const dx = a.tx - b.tx
@@ -191,16 +200,24 @@ test('暴雨渲染器：60fps 光学梭形水滴贴图（彻底摒弃直线雨�
     const minVy = Math.min(...speeds)
     const maxVy = Math.max(...speeds)
     const avgVy = speeds.reduce((s, v) => s + v, 0) / speeds.length
-    assert.ok(minVy > 800, `远景雨滴速度过慢：${minVy} px/s`)
-    assert.ok(avgVy > 1300, `平均雨滴速度应保持自然落雨动势：${avgVy} px/s`)
-    assert.ok(maxVy < 2600, `近景雨滴速度不应过高造成频闪刺眼：${maxVy} px/s`)
+    assert.ok(minVy > 360, `远景水珠速度过慢：${minVy} px/s`)
+    assert.ok(avgVy > 480 && avgVy < 900, `平均水珠速度应低于人眼拉丝阈值并富自然动感：${avgVy} px/s`)
+    assert.ok(maxVy < 1100, `近景水珠速度不应过高造成频闪拉丝：${maxVy} px/s`)
 
     const centerAvgAlpha = centerAlphaSum / Math.max(1, centerCount)
     const flankAvgAlpha = flankAlphaSum / Math.max(1, flankCount)
     assert.ok(
-      centerAvgAlpha < flankAvgAlpha * 0.5,
-      `中央阅读区水滴对比度（${centerAvgAlpha.toFixed(3)}）应显著低于两侧边缘（${flankAvgAlpha.toFixed(3)}）以保护阅读体验`,
+      centerAvgAlpha < flankAvgAlpha * 0.35,
+      `中央阅读区水珠对比度（${centerAvgAlpha.toFixed(3)}）应显著低于两侧边缘（${flankAvgAlpha.toFixed(3)}）以保护阅读体验`,
     )
+
+    // 连续推进 30 帧并切换浅色模式验证涟漪溅水亦无任何直线 lineTo 残留
+    for (let k = 0; k < 30; k += 1) rain.step(dt)
+    rain.setTone(false)
+    strokes.length = 0
+    draws.length = 0
+    rain.draw(drawCtx)
+    assert.equal(strokes.length, 0, `浅色模式及湖面水花溅起后亦不应残留任何 lineTo 直线，实际 ${strokes.length}`)
 
     const backdropSource = readFileSync(join(root, 'src/components/AnimatedBackdrop.tsx'), 'utf8')
     assert.match(backdropSource, /interval \* 0\.82/)
@@ -317,30 +334,30 @@ test('headerYield 引擎：精确裁切穿过顶栏的叶级块，跳过模态�
     assert.equal(hero.hasAttribute('data-yield'), false)
     assert.equal(card1.hasAttribute('data-yield'), false)
 
-    // 滚动使 hero 进入下移后的顶栏防挡区间（header bottom = 56px -> yVanish = 70px, yOpaque = 120px）：
-    // hero: top=-20, bottom=100 -> 跨越 [70, 120]，--yield-top = 120 - (-20) = 140px，--yield-fade = 50px
+    // 滚动使 hero 进入微调上移后的顶栏防挡区间（header bottom = 56px -> yVanish = 60px, yOpaque = 104px）：
+    // hero: top=-20, bottom=100 -> 跨越 [60, 104]，--yield-top = 104 - (-20) = 124px，--yield-fade = 44px
     scrollY = 100
     await flushYield()
     assert.equal(hero.getAttribute('data-yield'), 'on')
-    assert.equal(hero.style.getPropertyValue('--yield-top'), '140px')
-    assert.equal(hero.style.getPropertyValue('--yield-fade'), '50px')
+    assert.equal(hero.style.getPropertyValue('--yield-top'), '124px')
+    assert.equal(hero.style.getPropertyValue('--yield-fade'), '44px')
     assert.equal(pageRoot.hasAttribute('data-yield'), false)
     assert.equal(cardList.hasAttribute('data-yield'), false)
     assert.equal(ignoredP.hasAttribute('data-yield'), false)
     assert.equal(dialogP.hasAttribute('data-yield'), false)
 
-    // 继续滚动：hero 整块越过 yVanish=70px 进入 hidden 态；card-1 进入 [70, 120] 过渡带；card-2 位于 100px 亦同步平滑过渡
-    scrollY = 230 // hero: bottom=-30<=70 -> hidden; card-1: top=-10, bottom=80 -> top=130px; card-2: top=100, bottom=190 -> top=20px
+    // 继续滚动：hero 整块越过 yVanish=60px 进入 hidden 态；card-1 进入 [60, 104] 过渡带；card-2 位于 100px 亦同步平滑过渡
+    scrollY = 230 // hero: bottom=-30<=60 -> hidden; card-1: top=-10, bottom=80 -> top=114px; card-2: top=100, bottom=190 -> top=4px
     await flushYield()
     assert.equal(hero.getAttribute('data-yield'), 'hidden')
     assert.equal(card1.getAttribute('data-yield'), 'on')
-    assert.equal(card1.style.getPropertyValue('--yield-top'), '130px')
-    assert.equal(card1.style.getPropertyValue('--yield-fade'), '50px')
+    assert.equal(card1.style.getPropertyValue('--yield-top'), '114px')
+    assert.equal(card1.style.getPropertyValue('--yield-fade'), '44px')
     assert.equal(card2.getAttribute('data-yield'), 'on')
-    assert.equal(card2.style.getPropertyValue('--yield-top'), '20px')
+    assert.equal(card2.style.getPropertyValue('--yield-top'), '4px')
 
-    // 再回退一点：card-2 完全处于清晰线 yOpaque=120px 下方，不挂任何蒙版
-    scrollY = 200 // card-2: top=130 >= 120 -> unmasked
+    // 再回退一点：card-2 完全处于清晰线 yOpaque=104px 下方，不挂任何蒙版
+    scrollY = 220 // card-2: top=110 >= 104 -> unmasked
     await flushYield()
     assert.equal(card2.hasAttribute('data-yield'), false)
 
