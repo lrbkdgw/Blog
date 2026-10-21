@@ -829,22 +829,20 @@ details[open] .callout-chevron {
 }
 
 /* ---------- 交互表单控件（issue #82）与图论画布（issue #83） ---------- */
-.ui-if-lined .ui-if-strike-bar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 1.75px;
-  border-radius: 9999px;
-  background: currentColor;
-  opacity: 0.72;
-  transform: translateY(-50%) scaleX(0);
-  transform-origin: left center;
-  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease;
-  pointer-events: none;
+.ui-if-lined .ui-if-strike-text {
+  display: inline;
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-position: 0 54%;
+  background-size: 0% 1.65px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition:
+    background-size 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.25s ease;
 }
 
-.ui-if-lined.is-lined-checked .ui-if-strike-bar {
-  transform: translateY(-50%) scaleX(1);
+.ui-if-lined.is-lined-checked .ui-if-strike-text {
+  background-size: 100% 1.65px;
 }
 

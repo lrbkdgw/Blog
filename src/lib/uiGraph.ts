@@ -1,7 +1,5 @@
 import {
-  chooseGridStep,
   clampUnitsPerPx,
-  formatAxisTick,
   UI_CCS_VIEW_HEIGHT,
   UI_CCS_VIEW_WIDTH,
   type UiCcsViewport,
@@ -645,62 +643,28 @@ export function updateUiGraphBlockPositions(
   return markdown
 }
 
-/** 静态 SVG 渲染（用于 VS Code MPE 静态兼容模式）。 */
+/** 静态 SVG 渲染（用于 VS Code MPE 静态兼容模式：纯图论画布，不含直角坐标系网格或坐标轴）。 */
 export function renderStaticUiGraphSvg(headerRest: string, sourceBody: string): string {
   const { directed, nodes, edges } = parseUiGraph(headerRest, sourceBody)
   const width = UI_CCS_VIEW_WIDTH
   const height = UI_CCS_VIEW_HEIGHT
   const viewport = computeInitialUiGraphViewport(nodes, width, height)
-  const { major, minor } = chooseGridStep(viewport.unitsPerPx)
-  const halfW = (width / 2) * viewport.unitsPerPx
-  const halfH = (height / 2) * viewport.unitsPerPx
-  const minX = viewport.centerX - halfW
-  const maxX = viewport.centerX + halfW
-  const minY = viewport.centerY - halfH
-  const maxY = viewport.centerY + halfH
   const toSX = (wx: number) => width / 2 + (wx - viewport.centerX) / viewport.unitsPerPx
   const toSY = (wy: number) => height / 2 - (wy - viewport.centerY) / viewport.unitsPerPx
   const fmt = (n: number) => String(Number(n.toFixed(2)))
   const esc = (s: string) =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-  const minorParts: string[] = []
-  for (let x = Math.ceil(minX / minor) * minor; x <= maxX; x += minor) minorParts.push(`M${fmt(toSX(x))} 0V${height}`)
-  for (let y = Math.ceil(minY / minor) * minor; y <= maxY; y += minor) minorParts.push(`M0 ${fmt(toSY(y))}H${width}`)
-
-  const majorParts: string[] = []
-  const ticks: string[] = []
-  const axisX = Math.min(width - 26, Math.max(26, toSX(0)))
-  const axisY = Math.min(height - 20, Math.max(20, toSY(0)))
-  for (let x = Math.ceil(minX / major) * major; x <= maxX; x += major) {
-    const sx = toSX(x)
-    majorParts.push(`M${fmt(sx)} 0V${height}`)
-    if (Math.abs(x) >= major * 1e-4 && sx > 22 && sx < width - 22) {
-      ticks.push(
-        `<text x="${fmt(sx)}" y="${fmt(Math.min(height - 6, axisY + 15))}" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.5">${formatAxisTick(x, major)}</text>`,
-      )
-    }
-  }
-  for (let y = Math.ceil(minY / major) * major; y <= maxY; y += major) {
-    const sy = toSY(y)
-    majorParts.push(`M0 ${fmt(sy)}H${width}`)
-    if (Math.abs(y) >= major * 1e-4 && sy > 16 && sy < height - 16) {
-      ticks.push(
-        `<text x="${fmt(Math.max(8, axisX - 7))}" y="${fmt(sy + 3.5)}" text-anchor="end" font-size="10" fill="currentColor" opacity="0.5">${formatAxisTick(y, major)}</text>`,
-      )
-    }
-  }
-
   const geoms = computeGraphEdgeGeometries(nodes, edges, directed, viewport, UI_GRAPH_NODE_RADIUS_PX, width, height)
   const edgeSvg = geoms
     .map((g) => {
       const arrow = g.arrowTip
-        ? `<polygon points="0,0 -9,-4.2 -7.2,0 -9,4.2" fill="#4f46e5" transform="translate(${fmt(g.arrowTip.x)},${fmt(g.arrowTip.y)}) rotate(${fmt(g.arrowTip.angleDeg)})" />`
+        ? `<polygon points="0,0 -8.6,-3.8 -6.8,0 -8.6,3.8" fill="#6366f1" transform="translate(${fmt(g.arrowTip.x)},${fmt(g.arrowTip.y)}) rotate(${fmt(g.arrowTip.angleDeg)})" />`
         : ''
       const weight = g.edge.weight
-        ? `<text x="${fmt(g.labelPos.x)}" y="${fmt(g.labelPos.y + 3.5)}" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">${esc(g.edge.weight)}</text>`
+        ? `<text x="${fmt(g.labelPos.x)}" y="${fmt(g.labelPos.y + 3.6)}" text-anchor="middle" font-size="11" font-weight="500" fill="currentColor">${esc(g.edge.weight)}</text>`
         : ''
-      return `<path d="${g.pathD}" fill="none" stroke="#4f46e5" stroke-opacity="0.82" stroke-width="2" stroke-linecap="round" />${arrow}${weight}`
+      return `<path d="${g.pathD}" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="1.75" stroke-linecap="round" />${arrow}${weight}`
     })
     .join('')
 
@@ -709,19 +673,14 @@ export function renderStaticUiGraphSvg(headerRest: string, sourceBody: string): 
       const sx = toSX(n.x)
       const sy = toSY(n.y)
       return (
-        `<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${UI_GRAPH_NODE_RADIUS_PX}" fill="#ffffff" stroke="#4f46e5" stroke-width="2" />` +
-        `<text x="${fmt(sx)}" y="${fmt(sy + 4)}" text-anchor="middle" font-size="12" font-weight="600" fill="#18181b">${esc(n.id)}</text>`
+        `<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${UI_GRAPH_NODE_RADIUS_PX}" fill="#ffffff" stroke="#6366f1" stroke-width="1.8" />` +
+        `<text x="${fmt(sx)}" y="${fmt(sy + 4)}" text-anchor="middle" font-size="12.5" font-weight="600" fill="#18181b">${esc(n.id)}</text>`
       )
     })
     .join('')
 
   return (
     `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${directed ? '有向图' : '无向图'}">` +
-    `<path d="${minorParts.join('')}" stroke="currentColor" stroke-opacity="0.06" stroke-width="1" />` +
-    `<path d="${majorParts.join('')}" stroke="currentColor" stroke-opacity="0.14" stroke-width="1" />` +
-    `<line x1="0" y1="${fmt(axisY)}" x2="${width}" y2="${fmt(axisY)}" stroke="currentColor" stroke-opacity="0.35" stroke-width="1.2" />` +
-    `<line x1="${fmt(axisX)}" y1="0" x2="${fmt(axisX)}" y2="${height}" stroke="currentColor" stroke-opacity="0.35" stroke-width="1.2" />` +
-    ticks.join('') +
     edgeSvg +
     nodeSvg +
     `</svg>`

@@ -333,8 +333,11 @@ test('表单交互与条件映射（#82）及图论画布（#83）实时响应�
     '',
     '::begin_ui-if[CheckList][lined]',
     '完成热身题',
+    '检查边界条件',
     '::nex',
     '写出正解',
+    '',
+    '补充复杂度证明',
     '::end_ui-if',
     '',
     '我今天要吃 ::ui-write[Number][R 0 1 4] 根香蕉！',
@@ -380,15 +383,19 @@ test('表单交互与条件映射（#82）及图论画布（#83）实时响应�
   await settle()
   assert.match(document.body.textContent, /选号：1, 4/)
 
-  // 3. 勾选 lined 是否框第 1 项：<<CheckList-1>> 变为 1，划线动画元素存在且 ::IF 块实时出现
-  const ifItem = document.querySelector('[data-ui-id="CheckList"]').querySelector('[role="checkbox"]')
-  assert.ok(document.querySelector('.ui-if-lined .ui-if-strike-bar'))
+  // 3. 勾选 lined 是否框第 1 项：<<CheckList-1>> 变为 1，多行/多段逐行删除线元素存在且 ::IF 块实时出现
+  const ifCard = document.querySelector('[data-ui-id="CheckList"]')
+  const ifItem = ifCard.querySelector('[role="checkbox"]')
+  assert.equal(ifCard.querySelectorAll('.ui-if-lined .ui-if-strike-text').length, 3)
+  assert.equal(ifCard.querySelectorAll('.ui-if-strike-bar').length, 0)
   ifItem.click()
   await settle()
   assert.match(document.body.textContent, /勾选：1/)
   assert.match(document.body.textContent, /热身已完成/)
 
-  // 4. 拖动 faster 滑块 Ti 到 2，同时修改行内填空框 Number 为 2：输入框不丢焦点，且 <IF:$<number> \le <Ti>$,你真棒！> 实时生效！
+  // 4. 拖动 faster 滑块 Ti 到 2，同时修改行内填空框 Number 为 2：输入框不丢焦点，单行输入框无多余外层边框盒
+  const nameField = document.querySelector('[data-ui-id="Name"]')
+  assert.doesNotMatch(nameField.className, /\bborder\b/)
   await setInput(dom, document.querySelector('input[type="range"]'), '2')
   const inlineInput = document.querySelector('span[data-ui-id="Number"] input')
   inlineInput.focus()
@@ -398,12 +405,19 @@ test('表单交互与条件映射（#82）及图论画布（#83）实时响应�
   assert.match(document.body.textContent, /你真棒！/)
   assert.match(document.body.textContent, /还不错！/)
 
-  // 5. 图论画布：孤立点 5 + 未显式声明但由边自动创建的 1, 2, 3 共 4 个点，dag 有向箭头存在，且支持滚轮缩放与双击复位
+  // 5. 图论画布：纯图展示无网格线、无坐标轴、悬浮不显示坐标，且支持滚轮缩放与双击复位
   const graphBox = document.querySelector('.ui-graph-box.ui-ccs-box')
   assert.ok(graphBox)
   assert.equal(graphBox.querySelectorAll('[data-node-id]').length, 4)
   assert.equal(graphBox.querySelectorAll('[data-graph-arrow]').length, 2)
   const graphSvg = graphBox.querySelector('svg[role="application"]')
+  assert.equal(graphSvg.querySelectorAll('line').length, 0)
+  assert.equal(graphSvg.querySelectorAll('path').length, 2)
+  const node1 = graphSvg.querySelector('[data-node-id="1"]')
+  const [, nsx, nsy] = node1.getAttribute('transform').match(/translate\(([-\d.]+),([-\d.]+)\)/)
+  graphSvg.dispatchEvent(new dom.window.MouseEvent('pointermove', { bubbles: true, clientX: Number(nsx), clientY: Number(nsy) }))
+  await settle()
+  assert.doesNotMatch(graphSvg.textContent || '', /\([-\d.]+,\s*[-\d.]+\)/)
   const initUnits = Number(graphSvg.getAttribute('data-units-per-px'))
   graphSvg.dispatchEvent(new dom.window.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -120, clientX: 340, clientY: 210 }))
   await settle()

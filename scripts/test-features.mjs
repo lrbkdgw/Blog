@@ -687,6 +687,29 @@ test('Issue #83：ui-graph 自动创建未声明节点、dag 有向箭头、重�
 
     await rerender()
 
+    const svg = container.querySelector('.ui-graph-box svg[role="application"]')
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 680, height: 420, right: 680, bottom: 420 })
+    svg.setPointerCapture = () => {}
+
+    // 验证纯图论画布：无任何直角坐标系网格线、无坐标轴 <line>、无坐标刻度，悬浮节点时也绝不显示任何坐标文字
+    assert.equal(svg.querySelectorAll('line').length, 0, '图论画布不应渲染 X/Y 坐标轴线')
+    assert.equal(svg.querySelectorAll('path').length, 2, 'SVG path 数量应严格等于边数（无背景网格 path）')
+    const staticSvg = uiGraphMod.renderStaticUiGraphSvg('[dag]', '5\n1 2 10\n2 3 5')
+    assert.doesNotMatch(staticSvg, /<line\b/, '静态 SVG 模式也不应包含任何坐标轴')
+    assert.equal((staticSvg.match(/<path\b/g) || []).length, 2, '静态 SVG path 数量应严格等于边数')
+
+    // 读取节点 1 当前屏幕坐标，先测试普通悬浮绝不弹出坐标气泡
+    const node1El = container.querySelector('[data-node-id="1"]')
+    const matchT = node1El.getAttribute('transform').match(/translate\(([-\d.]+),([-\d.]+)\)/)
+    const startSX = Number(matchT[1])
+    const startSY = Number(matchT[2])
+    const Ptr = dom.window.PointerEvent || dom.window.MouseEvent
+
+    svg.dispatchEvent(new Ptr('pointermove', { bubbles: true, clientX: startSX, clientY: startSY, pointerId: 1 }))
+    await new Promise((r) => setTimeout(r, 15))
+    assert.doesNotMatch(svg.textContent || '', /\([-\d.]+,\s*[-\d.]+\)/, '悬浮节点时绝不应显示坐标文本')
+
+    // 再开启「调整模式」拖拽到新的目标坐标 (490, 90)
     const adjustBtn = [...container.querySelectorAll('button')].find((b) =>
       b.textContent?.includes('调整模式'),
     )
@@ -694,21 +717,11 @@ test('Issue #83：ui-graph 自动创建未声明节点、dag 有向箭头、重�
     adjustBtn.click()
     await new Promise((r) => setTimeout(r, 25))
 
-    const svg = container.querySelector('.ui-graph-box svg[role="application"]')
-    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 680, height: 420, right: 680, bottom: 420 })
-    svg.setPointerCapture = () => {}
-
-    // 读取节点 1 当前屏幕坐标并拖拽到新的目标坐标 (490, 90)
-    const node1El = container.querySelector('[data-node-id="1"]')
-    const matchT = node1El.getAttribute('transform').match(/translate\(([-\d.]+),([-\d.]+)\)/)
-    const startSX = Number(matchT[1])
-    const startSY = Number(matchT[2])
-    const Ptr = dom.window.PointerEvent || dom.window.MouseEvent
-
     svg.dispatchEvent(new Ptr('pointerdown', { bubbles: true, button: 0, clientX: startSX, clientY: startSY, pointerId: 1 }))
     await new Promise((r) => setTimeout(r, 15))
     svg.dispatchEvent(new Ptr('pointermove', { bubbles: true, clientX: 490, clientY: 90, pointerId: 1 }))
     await new Promise((r) => setTimeout(r, 15))
+    assert.doesNotMatch(svg.textContent || '', /\([-\d.]+,\s*[-\d.]+\)/, '拖拽节点时画布内同样不显示坐标气泡')
     svg.dispatchEvent(new Ptr('pointerup', { bubbles: true, clientX: 490, clientY: 90, pointerId: 1 }))
     await new Promise((r) => setTimeout(r, 25))
 
@@ -725,6 +738,34 @@ test('Issue #83：ui-graph 自动创建未声明节点、dag 有向箭头、重�
       await new Promise((r) => setTimeout(r, 25))
       assert.doesNotMatch(currentMd, /1 \([-\d.]+, [-\d.]+\)/)
     }
+
+    // 同步实测：多行/多段 ui-if[lined] 逐行删除线结构 & 单行 ui-write 无外层包裹卡片框
+    currentMd = [
+      '::begin_ui-if[MultiLined][lined]',
+      '第一行待办',
+      '第二行带公式 $\\texttt{AC}$',
+      '::nex',
+      '第一段说明',
+      '',
+      '第二段说明',
+      '::end_ui-if',
+      '',
+      '::ui-write[CleanSingle][len 2 6][new][name 昵称]',
+    ].join('\n')
+    await rerender()
+
+    const ifCard = container.querySelector('[data-ui-id="MultiLined"]')
+    assert.equal(ifCard.querySelectorAll('.ui-if-strike-bar').length, 0, '不应残留旧版单条绝对定位划线元素')
+    const strikeRuns = ifCard.querySelectorAll('.ui-if-lined .ui-if-strike-text')
+    assert.equal(strikeRuns.length, 3, '多行条目（1 段含 <br>）+ 多段条目（2 段）应生成 3 个逐行内联删除线片段')
+    assert.equal(strikeRuns[0].querySelectorAll('br').length, 1, '多行单换行条目应保留 <br> 实现逐行删除线')
+    const cssSource = readFileSync(join(root, 'src/styles/index.css'), 'utf8')
+    assert.match(cssSource, /\.ui-if-lined\s+\.ui-if-strike-text/)
+    assert.match(cssSource, /box-decoration-break:\s*clone/)
+
+    const writeField = container.querySelector('[data-ui-id="CleanSingle"]')
+    assert.ok(writeField, '应渲染独立行 ui-write 字段')
+    assert.doesNotMatch(writeField.className, /\bborder\b/, '单行输入框外层容器不应再有包裹边框盒')
 
     reactRoot.unmount()
     await new Promise((r) => setTimeout(r, 30))

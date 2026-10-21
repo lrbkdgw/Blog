@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -26,7 +27,7 @@ import {
 export interface UiWidgetsContextValue {
   states: UiStateMap
   setWidgetState: (id: string, next: UiWidgetState) => void
-  renderMarkdownBlock: (markdown: string) => ReactNode
+  renderMarkdownBlock: (markdown: string, options?: { linedStrikethrough?: boolean }) => ReactNode
 }
 
 export const UiWidgetsContext = createContext<UiWidgetsContextValue | null>(null)
@@ -70,8 +71,72 @@ export function InlineMathText({ text }: { text: string }) {
   )
 }
 
+/**
+ * 保留选项块内的自然单行换行（如 `[B]\n我！\n爱！\n香！\n蕉！` 或多行判断文本），
+ * 同时完整保留围栏代码块、`$$...$$` 块级公式、表格、标题与列表。
+ */
+export function preserveOptionLineBreaks(markdown: string): string {
+  const lines = markdown.split('\n')
+  if (lines.length <= 1) return markdown
+
+  const result: string[] = []
+  let fence: string | null = null
+  let inMathBlock = false
+
+  const isBlockBoundary = (line: string): boolean => {
+    const t = line.trim()
+    if (!t) return true
+    if (/^(`{3,}|~{3,})/.test(t)) return true
+    if (/^\$\$/.test(t)) return true
+    if (/^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s?|\||::|---+$|\*\*\*+$)/.test(t)) return true
+    return false
+  }
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    const trimmed = line.trim()
+    const fenceMatch = trimmed.match(/^(`{3,}|~{3,})/)
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0]
+      if (!fence) fence = marker
+      else if (fence === marker) fence = null
+      result.push(line)
+      continue
+    }
+    if (fence) {
+      result.push(line)
+      continue
+    }
+
+    if (trimmed === '$$') {
+      inMathBlock = !inMathBlock
+      result.push(line)
+      continue
+    }
+    if (inMathBlock) {
+      result.push(line)
+      continue
+    }
+
+    const nextLine = lines[i + 1]
+    if (
+      nextLine !== undefined &&
+      !isBlockBoundary(line) &&
+      !isBlockBoundary(nextLine) &&
+      !line.endsWith('  ') &&
+      !line.endsWith('\\')
+    ) {
+      result.push(`${line}  `)
+    } else {
+      result.push(line)
+    }
+  }
+
+  return result.join('\n')
+}
+
 /* -------------------------------------------------------------------------- */
-/*                               1. 选择框组件                                  */
+/*                     1. 选择框组件（对齐折叠框 callout 视觉语言）               */
 /* -------------------------------------------------------------------------- */
 
 export function UiChooseCard({
@@ -104,81 +169,90 @@ export function UiChooseCard({
     ctx.setWidgetState(def.id, { kind: 'choose', selected: next })
   }
 
-  const rangeLabel =
-    def.maxSelect <= 1 && !def.hasExplicitRange
-      ? '单选'
+  const rangeHint =
+    !def.hasExplicitRange && def.maxSelect <= 1
+      ? null
       : def.minSelect === def.maxSelect
-        ? `请选择 ${def.minSelect} 项`
+        ? `选 ${def.minSelect} 项`
         : `可选 ${def.minSelect}–${def.maxSelect} 项`
   const belowMin = interacted && selected.length < def.minSelect
   const reachedMax = def.maxSelect > 1 && selected.length >= def.maxSelect
 
   return (
-    <div
-      className="not-prose ui-widget-card my-5 overflow-hidden rounded-xl border border-ink-200/70 bg-ink-50/40 dark:border-white/10 dark:bg-white/[.025]"
+    <section
+      className="not-prose ui-widget-card ui-choose-card my-6 overflow-hidden rounded-xl border border-ink-200/80 bg-white/95 shadow-2xs transition-colors dark:border-white/10 dark:bg-white/[0.03]"
       data-ui-id={def.id}
       data-source-line={sourceLine}
     >
-      {(def.name || def.hasExplicitRange) && (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-200/60 bg-white/75 px-4 py-2.5 dark:border-white/10 dark:bg-white/[.02]">
-          <span className="font-medium text-sm text-ink-900 dark:text-white">
-            {def.name ? <InlineMathText text={def.name} /> : def.id}
-          </span>
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition ${
-              belowMin
-                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                : 'bg-ink-100 text-ink-500 dark:bg-white/10 dark:text-ink-300'
-            }`}
-          >
-            {rangeLabel}
-            {def.maxSelect > 1 ? `（已选 ${selected.length}）` : ''}
-          </span>
+      {(def.name || rangeHint) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-200/60 bg-ink-50/50 px-4 py-2.5 dark:border-white/[0.07] dark:bg-white/[0.02]">
+          {def.name ? (
+            <span className="text-sm font-semibold text-ink-800 dark:text-ink-100">
+              <InlineMathText text={def.name} />
+            </span>
+          ) : (
+            <span />
+          )}
+          {rangeHint && (
+            <span
+              className={`text-xs transition ${
+                belowMin
+                  ? 'font-medium text-amber-600 dark:text-amber-300'
+                  : 'text-ink-400 dark:text-ink-500'
+              }`}
+            >
+              {rangeHint}
+            </span>
+          )}
         </div>
       )}
 
-      <div className="divide-y divide-ink-200/60 dark:divide-white/10">
+      <div className="divide-y divide-ink-200/55 dark:divide-white/[0.07]">
         {def.options.map((opt) => {
           const active = selected.includes(opt.index)
           const disabledByCap = !active && reachedMax
+          const formatted = preserveOptionLineBreaks(opt.content)
           return (
             <div
               key={opt.index}
               role={def.maxSelect <= 1 ? 'radio' : 'checkbox'}
               aria-checked={active}
               tabIndex={0}
-              onClick={() => toggleOption(opt.index)}
+              onClick={(e) => {
+                if ((e.target as HTMLElement | null)?.closest('a,button,input,summary')) return
+                toggleOption(opt.index)
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
                   toggleOption(opt.index)
                 }
               }}
-              className={`group flex cursor-pointer items-start gap-3 px-4 py-3 transition ${
+              className={`group flex items-start gap-3 px-4 py-3 transition-colors duration-150 outline-none focus-visible:bg-brand-500/8 ${
                 active
-                  ? 'bg-brand-500/[0.08] dark:bg-brand-400/[0.12]'
+                  ? 'cursor-pointer bg-brand-500/[0.065] dark:bg-brand-400/[0.09]'
                   : disabledByCap
-                    ? 'cursor-not-allowed opacity-55'
-                    : 'hover:bg-white/80 dark:hover:bg-white/[.04]'
+                    ? 'cursor-not-allowed opacity-45'
+                    : 'cursor-pointer hover:bg-ink-50/75 dark:hover:bg-white/[0.025]'
               }`}
             >
               <span
-                className={`mt-0.5 inline-flex min-h-6 min-w-6 shrink-0 items-center justify-center rounded-md border px-1.5 text-xs font-semibold transition ${
+                className={`mt-0.5 inline-flex min-h-6 min-w-6 shrink-0 items-center justify-center rounded-md border px-1.5 text-xs font-semibold transition-all duration-150 ${
                   active
-                    ? 'border-brand-500 bg-brand-500 text-white shadow-sm'
-                    : 'border-ink-300 bg-white text-ink-700 group-hover:border-brand-400 dark:border-white/20 dark:bg-ink-900 dark:text-ink-200'
+                    ? 'border-brand-500 bg-brand-500 text-white'
+                    : 'border-ink-200/90 bg-white text-ink-600 group-hover:border-brand-400/70 group-hover:text-brand-600 dark:border-white/15 dark:bg-white/[0.04] dark:text-ink-300 dark:group-hover:text-brand-300'
                 }`}
               >
                 <InlineMathText text={opt.label} />
               </span>
-              <div className="prose prose-sm min-w-0 flex-1 dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                {ctx ? ctx.renderMarkdownBlock(opt.content) : opt.content}
+              <div className="prose prose-sm min-w-0 flex-1 leading-relaxed text-ink-800 dark:prose-invert dark:text-ink-200 [&_.katex-display]:my-2 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_p]:my-0.5">
+                {ctx ? ctx.renderMarkdownBlock(formatted) : formatted}
               </div>
             </div>
           )
         })}
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -204,7 +278,7 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
     if (!btn) return
     const rect = btn.getBoundingClientRect()
     const viewportW = typeof window !== 'undefined' ? window.innerWidth : 1024
-    const minWidth = Math.max(rect.width, def.search ? 210 : 168)
+    const minWidth = Math.max(rect.width, def.search ? 200 : 160)
     const left = Math.max(8, Math.min(rect.left, viewportW - minWidth - 8))
     setPanelPos({ top: rect.bottom + 6, left, minWidth })
   }
@@ -281,25 +355,25 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
           ? { position: 'fixed', top: panelPos.top, left: panelPos.left, minWidth: panelPos.minWidth }
           : undefined
       }
-      className="z-[120] max-w-xs overflow-hidden rounded-xl border border-ink-200/80 bg-white shadow-xl dark:border-white/15 dark:bg-ink-900"
+      className="z-[120] max-w-xs overflow-hidden rounded-xl border border-ink-200/85 bg-white/98 shadow-lg shadow-ink-950/8 backdrop-blur-md dark:border-white/12 dark:bg-ink-900/98"
       data-ui-select-menu={def.id}
     >
       {def.search && (
-        <div className="flex items-center gap-1.5 border-b border-ink-200/70 px-2.5 py-2 dark:border-white/10">
+        <div className="flex items-center gap-1.5 border-b border-ink-200/60 px-2.5 py-2 dark:border-white/10">
           <Search size={13} className="shrink-0 text-ink-400" />
           <input
             ref={searchInputRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索选项…"
+            placeholder="搜索…"
             className="w-full bg-transparent text-xs text-ink-900 outline-none placeholder:text-ink-400 dark:text-white"
           />
         </div>
       )}
       {def.maxSelect > 1 && (
-        <div className="border-b border-ink-200/50 bg-ink-50/70 px-3 py-1 text-[11px] text-ink-500 dark:border-white/10 dark:bg-white/[.03] dark:text-ink-400">
-          可选 {def.minSelect}–{def.maxSelect} 项（已选 {selected.length}）
+        <div className="border-b border-ink-200/50 bg-ink-50/60 px-3 py-1 text-[11px] text-ink-400 dark:border-white/[0.08] dark:bg-white/[0.02] dark:text-ink-400">
+          可选 {def.minSelect}–{def.maxSelect} 项
         </div>
       )}
       <div className="max-h-56 overflow-y-auto p-1">
@@ -315,12 +389,12 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
                 type="button"
                 disabled={disabledByCap}
                 onClick={() => toggleItem(opt.index)}
-                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition ${
+                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] transition-colors ${
                   active
-                    ? 'bg-brand-500/12 font-medium text-brand-700 dark:bg-brand-400/20 dark:text-brand-200'
+                    ? 'bg-brand-500/10 font-medium text-brand-700 dark:bg-brand-400/15 dark:text-brand-200'
                     : disabledByCap
-                      ? 'cursor-not-allowed opacity-45'
-                      : 'text-ink-700 hover:bg-ink-100/80 dark:text-ink-200 dark:hover:bg-white/10'
+                      ? 'cursor-not-allowed opacity-40'
+                      : 'text-ink-700 hover:bg-ink-100/75 dark:text-ink-200 dark:hover:bg-white/[0.07]'
                 }`}
               >
                 <span className="truncate">
@@ -343,18 +417,18 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-ink-300/80 bg-white px-2.5 py-0.5 text-[0.9em] font-medium text-ink-800 shadow-2xs transition hover:border-brand-400 focus:border-brand-500 focus:outline-none dark:border-white/20 dark:bg-ink-900 dark:text-ink-100"
+        className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[0.9em] leading-none font-medium shadow-2xs transition duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/20 ${
+          summaryLabels.length > 0
+            ? 'border-brand-500/45 bg-brand-500/[0.05] text-ink-900 hover:border-brand-500 dark:border-brand-400/40 dark:bg-brand-400/10 dark:text-ink-100'
+            : 'border-ink-200/90 bg-white/95 text-ink-500 hover:border-ink-300 hover:text-ink-800 dark:border-white/15 dark:bg-white/[0.05] dark:text-ink-400 dark:hover:border-white/25 dark:hover:text-ink-200'
+        }`}
       >
         <span className="max-w-[14rem] truncate">
-          {summaryLabels.length > 0 ? (
-            <InlineMathText text={summaryLabels.join('、')} />
-          ) : (
-            <span className="text-ink-400">请选择…</span>
-          )}
+          {summaryLabels.length > 0 ? <InlineMathText text={summaryLabels.join('、')} /> : '请选择'}
         </span>
         <ChevronDown
           size={13}
-          className={`shrink-0 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`shrink-0 text-ink-400 transition-transform duration-150 ${open ? 'rotate-180 text-brand-500' : ''}`}
         />
       </button>
       {dropdownMenu &&
@@ -366,7 +440,7 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                               3. 是否框组件                                  */
+/*                3. 是否框组件（支持多行/折行/多段逐行删除线动画）                */
 /* -------------------------------------------------------------------------- */
 
 export function UiIfCard({
@@ -388,64 +462,74 @@ export function UiIfCard({
   }
 
   return (
-    <div
-      className="not-prose ui-widget-card my-5 divide-y divide-ink-200/60 overflow-hidden rounded-xl border border-ink-200/70 bg-ink-50/40 dark:divide-white/10 dark:border-white/10 dark:bg-white/[.025]"
+    <section
+      className="not-prose ui-widget-card ui-if-card my-6 divide-y divide-ink-200/55 overflow-hidden rounded-xl border border-ink-200/80 bg-white/95 shadow-2xs dark:divide-white/[0.07] dark:border-white/10 dark:bg-white/[0.03]"
       data-ui-id={def.id}
       data-source-line={sourceLine}
     >
       {def.items.map((item, idx) => {
         const on = Boolean(checked[idx])
+        const formatted = preserveOptionLineBreaks(item.content)
         return (
           <div
             key={item.index}
             role="checkbox"
             aria-checked={on}
             tabIndex={0}
-            onClick={() => toggleIndex(idx)}
+            onClick={(e) => {
+              if ((e.target as HTMLElement | null)?.closest('a,button,input,summary')) return
+              toggleIndex(idx)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault()
                 toggleIndex(idx)
               }
             }}
-            className={`group flex cursor-pointer items-center gap-3 px-4 py-3 transition ${
-              on
-                ? 'bg-brand-500/[0.06] dark:bg-brand-400/[0.09]'
-                : 'hover:bg-white/80 dark:hover:bg-white/[.04]'
-            }`}
+            className="group flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors duration-150 outline-none hover:bg-ink-50/75 focus-visible:bg-brand-500/8 dark:hover:bg-white/[0.025]"
           >
             <span
-              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition ${
+              className={`mt-[3px] flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-all duration-200 ${
                 on
-                  ? 'border-brand-500 bg-brand-500 text-white shadow-2xs'
-                  : 'border-ink-300 bg-white group-hover:border-brand-400 dark:border-white/25 dark:bg-ink-900'
+                  ? 'border-brand-500 bg-brand-500 text-white'
+                  : 'border-ink-300 bg-white group-hover:border-brand-400 dark:border-white/22 dark:bg-white/[0.04]'
               }`}
             >
-              {on && <Check size={13} strokeWidth={2.6} />}
+              <Check
+                size={12}
+                strokeWidth={3}
+                className={`transition-transform duration-200 ${on ? 'scale-100' : 'scale-0'}`}
+              />
             </span>
             <div
-              className={`ui-if-content relative min-w-0 flex-1 transition-opacity duration-300 ${
+              className={`ui-if-content min-w-0 flex-1 transition-opacity duration-250 ${
                 def.lined ? 'ui-if-lined' : ''
-              } ${on && def.lined ? 'is-lined-checked opacity-60' : ''}`}
+              } ${
+                on && def.lined
+                  ? 'is-lined-checked opacity-55'
+                  : 'opacity-100'
+              }`}
             >
-              <div className="prose prose-sm max-w-none dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                {ctx ? ctx.renderMarkdownBlock(item.content) : item.content}
+              <div className="prose prose-sm max-w-none leading-relaxed text-ink-800 dark:prose-invert dark:text-ink-200 [&_.katex-display]:my-2 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_p]:my-0.5">
+                {ctx
+                  ? ctx.renderMarkdownBlock(formatted, { linedStrikethrough: def.lined })
+                  : formatted}
               </div>
-              {def.lined && <span aria-hidden="true" className="ui-if-strike-bar" />}
             </div>
           </div>
         )
       })}
-    </div>
+    </section>
   )
 }
 
 /* -------------------------------------------------------------------------- */
-/*                               4. 填空框组件                                  */
+/*              4. 填空框组件（删除外层包裹卡片框，极简现代输入样式）              */
 /* -------------------------------------------------------------------------- */
 
 export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
   const ctx = useContext(UiWidgetsContext)
+  const inputId = useId()
   const fallback = useMemo(() => createInitialWidgetState(def), [def])
   const current = ctx?.states[def.id]
   const value = current?.kind === 'write' ? current.value : (fallback as { value: string }).value
@@ -453,7 +537,6 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
   const updateValue = (raw: string) => {
     if (!ctx) return
     if (def.real) {
-      // 允许用户流畅输入负号与小数点，同时限制小数位数不超过 bit
       if (raw !== '' && raw !== '-' && raw !== '+' && !/^[+-]?\d*(?:\.\d*)?$/.test(raw)) {
         return
       }
@@ -481,12 +564,13 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
     }
   }
 
-  // 行内模式：紧跟当前行文本后
+  // 行内模式：紧跟当前行文本后，清爽无多余外框
   if (!def.isNew) {
-    const widthCh = Math.max(4, Math.min(18, (value?.length || 2) + 2))
+    const widthCh = Math.max(4.5, Math.min(18, (value?.length || 2) + 2.5))
     return (
       <span className="not-prose ui-write-inline mx-1 inline-flex items-center align-baseline" data-ui-id={def.id}>
         <input
+          id={inputId}
           type="text"
           inputMode={def.real ? (def.real.bit === 0 ? 'numeric' : 'decimal') : 'text'}
           value={value}
@@ -494,46 +578,51 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
           onChange={(e) => updateValue(e.target.value)}
           onBlur={normalizeOnBlur}
           style={{ width: `${widthCh}ch` }}
-          aria-label={def.id}
-          className="rounded-md border border-ink-300/90 bg-white px-2 py-0.5 text-center font-mono text-[0.9em] text-ink-900 shadow-2xs transition focus:border-brand-500 focus:outline-none dark:border-white/20 dark:bg-ink-900 dark:text-white"
+          aria-label={def.name || def.id}
+          className="h-7 rounded-md border border-ink-200/90 bg-white/95 px-2 text-center font-mono text-[0.9em] leading-none text-ink-900 shadow-2xs outline-none transition duration-150 hover:border-brand-400/75 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 dark:border-white/15 dark:bg-white/[0.05] dark:text-ink-100"
         />
       </span>
     )
   }
 
-  // 块级模式（含单列 / merge 多列共用一行 / faster 滑动条）
+  // 独立行 / 多列 merge / faster 滑块模式：彻底去掉外层包裹卡片边框与底色盒
   const step = def.real ? Number(Math.pow(10, -def.real.bit).toFixed(Math.min(8, def.real.bit))) : 1
   const numericSliderVal = def.real
     ? Number(resolveEffectiveRealString(value, def.real).effective)
     : 0
   const realStatus = def.real ? resolveEffectiveRealString(value, def.real) : null
   const lenTooShort = Boolean(def.len && value.length > 0 && value.length < def.len.down)
+  const invalidHint =
+    def.real && realStatus && !realStatus.valid && realStatus.hint
+      ? realStatus.hint
+      : lenTooShort && def.len
+        ? `至少 ${def.len.down} 个字符`
+        : null
 
   return (
     <div
-      className="not-prose ui-write-block flex flex-col justify-between gap-2 rounded-xl border border-ink-200/70 bg-ink-50/40 px-4 py-3 dark:border-white/10 dark:bg-white/[.025]"
+      className="not-prose ui-write-field flex min-w-0 flex-col gap-1.5"
       data-ui-id={def.id}
     >
-      <div className="flex items-center justify-between gap-2">
-        <label className="text-xs font-medium text-ink-700 dark:text-ink-200">
-          {def.name ? <InlineMathText text={def.name} /> : def.id}
-        </label>
-        <span className="font-mono text-[11px] text-ink-400">
-          {def.real
-            ? realStatus && !realStatus.valid && realStatus.hint
-              ? realStatus.hint
-              : `${def.real.down} ~ ${def.real.up}`
-            : def.len
-              ? lenTooShort
-                ? `至少 ${def.len.down} 字（${value.length}/${def.len.up}）`
-                : `${value.length}/${def.len.up}`
-              : null}
-        </span>
-      </div>
+      {(def.name || invalidHint) && (
+        <div className="flex items-center justify-between gap-2">
+          {def.name ? (
+            <label htmlFor={inputId} className="text-[13px] font-medium text-ink-700 dark:text-ink-200">
+              <InlineMathText text={def.name} />
+            </label>
+          ) : (
+            <span />
+          )}
+          {invalidHint && (
+            <span className="font-mono text-[11px] text-rose-500 dark:text-rose-400">{invalidHint}</span>
+          )}
+        </div>
+      )}
 
       {def.faster && def.real ? (
-        <div className="flex items-center gap-3">
+        <div className="flex h-9 items-center gap-3">
           <input
+            id={inputId}
             type="range"
             min={def.real.down}
             max={def.real.up}
@@ -544,7 +633,7 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
               const num = Number(e.target.value)
               updateValue(formatRealValue(num, def.real!.bit))
             }}
-            className="h-1.5 min-w-0 flex-1 cursor-pointer accent-brand-500"
+            className="h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-ink-200/85 accent-brand-500 dark:bg-white/15"
           />
           <input
             type="text"
@@ -552,17 +641,21 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
             value={value}
             onChange={(e) => updateValue(e.target.value)}
             onBlur={normalizeOnBlur}
-            className="w-16 rounded-md border border-ink-200/80 bg-white px-2 py-1 text-center font-mono text-xs text-ink-900 outline-none focus:border-brand-500 dark:border-white/15 dark:bg-ink-900 dark:text-white"
+            aria-label={`${def.name || def.id} 数值输入`}
+            className="h-8 w-16 shrink-0 rounded-lg border border-ink-200/90 bg-white/95 px-2 text-center font-mono text-xs text-ink-900 shadow-2xs outline-none transition duration-150 hover:border-ink-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 dark:border-white/12 dark:bg-white/[0.04] dark:text-ink-100"
           />
         </div>
       ) : (
         <input
+          id={inputId}
           type="text"
           inputMode={def.real ? (def.real.bit === 0 ? 'numeric' : 'decimal') : 'text'}
           value={value}
           maxLength={def.len?.up}
           onChange={(e) => updateValue(e.target.value)}
           onBlur={normalizeOnBlur}
+          aria-label={def.name || def.id}
+          aria-invalid={Boolean(invalidHint)}
           placeholder={
             def.len
               ? `请输入 ${def.len.down}–${def.len.up} 个字符…`
@@ -570,7 +663,11 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
                 ? `${def.real.down} ~ ${def.real.up}`
                 : '请输入…'
           }
-          className="w-full rounded-lg border border-ink-200/80 bg-white px-3 py-1.5 text-sm text-ink-900 outline-none transition focus:border-brand-500 dark:border-white/15 dark:bg-ink-900 dark:text-white"
+          className={`h-9 w-full rounded-lg border bg-white/95 px-3 text-sm text-ink-900 shadow-2xs outline-none transition duration-150 placeholder:text-ink-400 dark:bg-white/[0.04] dark:text-ink-100 dark:placeholder:text-ink-500 ${
+            invalidHint
+              ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/15 dark:border-rose-400/80'
+              : 'border-ink-200/90 hover:border-ink-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 dark:border-white/12 dark:hover:border-white/20 dark:focus:border-brand-400'
+          }`}
         />
       )}
     </div>
@@ -586,7 +683,7 @@ export function UiWriteRow({
 }) {
   return (
     <div
-      className="not-prose ui-write-row my-4 grid gap-3"
+      className="not-prose ui-write-row my-4 grid items-end gap-4"
       data-source-line={sourceLine}
       style={{
         gridTemplateColumns: defs.length > 1 ? `repeat(${defs.length}, minmax(0, 1fr))` : undefined,

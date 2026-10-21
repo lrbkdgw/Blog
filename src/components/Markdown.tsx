@@ -262,6 +262,118 @@ function isCalloutNode(node: RehypeNode): boolean {
   )
 }
 
+const LINED_BLOCK_CONTAINERS = new Set([
+  'p',
+  'li',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'td',
+  'th',
+  'figcaption',
+])
+
+const NON_INLINE_TAGS = new Set([
+  'div',
+  'p',
+  'ul',
+  'ol',
+  'li',
+  'pre',
+  'table',
+  'thead',
+  'tbody',
+  'tr',
+  'td',
+  'th',
+  'blockquote',
+  'details',
+  'summary',
+  'section',
+  'hr',
+  'figure',
+  'figcaption',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+])
+
+function isInlineLinedNode(node: RehypeNode): boolean {
+  if (node.type === 'text') return true
+  if (node.type !== 'element') return false
+  if (NON_INLINE_TAGS.has(node.tagName || '')) return false
+  if (classNames(node.properties?.className).includes('katex-display')) return false
+  return true
+}
+
+function hasVisibleInlineContent(nodes: RehypeNode[]): boolean {
+  for (const n of nodes) {
+    if (n.type === 'text' && (n as { value?: string }).value?.trim()) return true
+    if (n.type === 'element' && n.tagName !== 'br') return true
+  }
+  return false
+}
+
+/**
+ * 为 `ui-if[...][lined]` 的每个段落/列表项内联片段包裹 `.ui-if-strike-text`，
+ * 配合 CSS `display: inline; box-decoration-break: clone` 实现支持多行折行、
+ * `<br>` 换行与多段落的逐行平滑删除线动画。
+ */
+function rehypeWrapLinedRuns() {
+  return function wrapLinedRunsPlugin() {
+    return (tree: RehypeNode) => {
+      const visit = (node: RehypeNode) => {
+        if (!Array.isArray(node.children)) return
+
+        if (node.type === 'element' && LINED_BLOCK_CONTAINERS.has(node.tagName || '')) {
+          const nextChildren: RehypeNode[] = []
+          let inlineBuffer: RehypeNode[] = []
+
+          const flushBuffer = () => {
+            if (inlineBuffer.length === 0) return
+            if (hasVisibleInlineContent(inlineBuffer)) {
+              nextChildren.push({
+                type: 'element',
+                tagName: 'span',
+                properties: { className: ['ui-if-strike-text'] },
+                children: inlineBuffer,
+              })
+            } else {
+              nextChildren.push(...inlineBuffer)
+            }
+            inlineBuffer = []
+          }
+
+          for (const child of node.children) {
+            if (isInlineLinedNode(child)) {
+              inlineBuffer.push(child)
+            } else {
+              flushBuffer()
+              visit(child)
+              nextChildren.push(child)
+            }
+          }
+          flushBuffer()
+          node.children = nextChildren
+          return
+        }
+
+        for (const child of node.children) {
+          visit(child)
+        }
+      }
+
+      visit(tree)
+    }
+  }
+}
+
 // 折叠框/展示框里的标题不作为正文锚点暴露，避免目录滚动定位命中框内标题。
 function rehypeRemoveHeadingIds({ calloutsOnly = false }: { calloutsOnly?: boolean } = {}) {
   return function removeHeadingIdsPlugin() {
@@ -979,6 +1091,11 @@ interface MarkdownProps {
    * 文章编辑模式下传入：允许可视化交互组件（如图论画布「调整模式」）将修改写回 Markdown 源码。
    */
   onContentChange?: (updater: (prevMarkdown: string) => string) => void
+  /**
+   * 内部开关：由 `::begin_ui-if[...][lined]` 开启，为每个文本块/列表项的内联片段包裹 `.ui-if-strike-text`，
+   * 实现支持多行折行、单行换行与多段落的逐行平滑删除线动画。
+   */
+  linedStrikethrough?: boolean
 }
 
 type SourceLineResolver = (node: unknown) => number | undefined
@@ -1194,6 +1311,7 @@ export const Markdown = memo(function Markdown({
   urlTransform,
   applyDirectives = true,
   onContentChange,
+  linedStrikethrough = false,
 }: MarkdownProps) {
   const widgetDefs = useMemo(() => extractUiWidgetDefs(content), [content])
   const [userWidgetStates, setUserWidgetStates] = useState<UiStateMap>({})
@@ -1221,12 +1339,13 @@ export const Markdown = memo(function Markdown({
   )
 
   const renderMarkdownBlock = useCallback(
-    (fragment: string) => (
+    (fragment: string, options?: { linedStrikethrough?: boolean }) => (
       <Markdown
         content={fragment}
         headingAnchors={false}
         applyDirectives={false}
         urlTransform={urlTransform}
+        linedStrikethrough={options?.linedStrikethrough}
       />
     ),
     [urlTransform],
@@ -1303,6 +1422,7 @@ export const Markdown = memo(function Markdown({
             ...(sourceLineMarkers ? [rehypeMarkBlockMath()] : []),
             [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
             [rehypeHighlight, { detect: true, ignoreMissing: true }],
+            ...(linedStrikethrough ? [rehypeWrapLinedRuns()] : []),
             ...(sourceLineMarkers ? [rehypeInheritPositions()] : []),
           ]}
           components={components}
