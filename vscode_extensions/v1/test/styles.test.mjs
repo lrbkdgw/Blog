@@ -52,6 +52,9 @@ const selectors = [
   '.prose details.callout-success',
   '.show-box',
   '.show-box .show-box-content > .prose',
+  '.ui-choose-card .prose',
+  '.ui-if-card .prose',
+  '.ui-if-lined .ui-if-strike-text',
   '.hljs-keyword',
   '.hljs-string',
   '.katex-display',
@@ -87,7 +90,7 @@ test('插件名、命令分类、预览贡献与实际构建产物一致', () =>
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
   assert.equal(manifest.displayName, 'Markdown 语法拓展')
   assert.equal(manifest.name, 'starlog-markdown') // 保留扩展 ID，旧用户直接升级。
-  assert.equal(manifest.version, '2.2.0')
+  assert.equal(manifest.version, '2.3.0')
   assert.ok(manifest.contributes.commands.every((command) => command.category === 'Markdown 语法拓展'))
   for (const file of [manifest.main, ...manifest.contributes['markdown.previewStyles'], ...manifest.contributes['markdown.previewScripts']]) {
     assert.ok(existsSync(resolve(root, file)), file)
@@ -109,6 +112,16 @@ test('普通/合并表格默认靠左，Tuack 外壳和内部表格仍居中', (
   const mpe = postcss.parse(readFileSync(join(root, 'media/mpe.css'), 'utf8'))
   assert.equal(declarations(mpe, 'table td[colspan]')['text-align'], undefined)
   assert.equal(declarations(mpe, '.starlog-table-tuack td')['text-align'], 'center')
+})
+
+test('选择框与是否框内正文排版与折叠框 .callout-content 字号及行高完全一致', () => {
+  const callout = declarations(reference, '.prose details.callout .callout-content')
+  const choose = declarations(reference, '.ui-choose-card .prose')
+  const uiIf = declarations(reference, '.ui-if-card .prose')
+  assert.equal(choose['font-size'], callout['font-size'])
+  assert.equal(choose['line-height'], callout['line-height'])
+  assert.equal(uiIf['font-size'], callout['font-size'])
+  assert.equal(uiIf['line-height'], callout['line-height'])
 })
 
 test('Settings 暴露默认关闭的渐变背景开关，并保留共享背景而不是重新定义渐变', () => {

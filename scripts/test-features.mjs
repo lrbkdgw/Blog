@@ -28,6 +28,8 @@ async function importTsModule(entryPath) {
 const weatherMod = await importTsModule('src/components/WeatherBackdrops.ts')
 const headerYieldMod = await importTsModule('src/lib/headerYield.ts')
 const uiCcsMod = await importTsModule('src/lib/uiCcs.ts')
+const uiWidgetsMod = await importTsModule('src/lib/uiWidgets.ts')
+const uiGraphMod = await importTsModule('src/lib/uiGraph.ts')
 const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
 
@@ -463,3 +465,313 @@ test('ui-ccs 解析器、数学运算符优先级、高次曲线裁剪、间断�
   assert.ok(steepHit.distancePx < 3.2, `高斜率正交投影距离应 <= 3.2px，实际 ${steepHit.distancePx}`)
   assert.ok(Math.abs(steepHit.y - yAt035) < 0.05)
 })
+
+/* -------------------------------------------------------------------------- */
+/*              4. Issue #82 表单交互控件、位运算/KaTeX 条件求值与边界测试         */
+/* -------------------------------------------------------------------------- */
+
+test('Issue #82：ui-choose / ui-select / ui-if / ui-write 解析、约束规则与 KaTeX 四则/位运算/比较求值', () => {
+  const sampleMd = [
+    '::begin_ui-choose[a_new_choose][今天吃什么][more 1 2]',
+    '[A]',
+    '香蕉好吃！',
+    '[B]',
+    '我！',
+    '爱！',
+    '$\\texttt{吃}$！',
+    '香！',
+    '蕉！',
+    '[X]',
+    '都不吃！',
+    '[$\\sum$]',
+    '计算题！',
+    '::end_ui-choose',
+    '',
+    '主食：',
+    '::begin_ui-select[Food][more 1 2][search]',
+    '米饭',
+    '面条',
+    '面包',
+    '::end_ui-select',
+    '',
+    '::begin_ui-if[Todo][lined]',
+    '任务一',
+    '::nex',
+    '任务二',
+    '::end_ui-if',
+    '',
+    '我今天要吃 ::ui-write[Number][R 0 1 4] 根香蕉！',
+    '::ui-write[IgnoredNoNew][name 无效标题][faster][merge]',
+    '::ui-write[Name][len 2 4][new][name 名字]',
+    '::ui-write[MergePeer][set 同行][len 1 6][new][merge][name 同行输入]',
+    '::ui-write[Ti][R 0 0 3][new][name 已经吃的香蕉][faster]',
+  ].join('\n')
+
+  const defs = uiWidgetsMod.extractUiWidgetDefs(sampleMd)
+  assert.equal(defs.length, 8)
+
+  const chooseDef = defs[0]
+  assert.equal(chooseDef.kind, 'choose')
+  assert.equal(chooseDef.name, '今天吃什么')
+  assert.deepEqual({ min: chooseDef.minSelect, max: chooseDef.maxSelect }, { min: 1, max: 2 })
+  assert.equal(chooseDef.options.length, 4)
+  assert.equal(chooseDef.options[3].label, '$\\sum$')
+  assert.match(chooseDef.options[1].content, /\\texttt\{吃\}/)
+
+  const selectDef = defs[1]
+  assert.equal(selectDef.kind, 'select')
+  assert.equal(selectDef.search, true)
+  assert.deepEqual({ min: selectDef.minSelect, max: selectDef.maxSelect }, { min: 1, max: 2 })
+
+  const ifDef = defs[2]
+  assert.equal(ifDef.kind, 'if')
+  assert.equal(ifDef.lined, true)
+  assert.equal(ifDef.items.length, 2)
+
+  // 验证 name / faster / merge 修饰符前置条件（无 new 时 name/merge 不生效；无 R+new 时 faster 不生效）
+  const ignoredNoNew = defs[4]
+  assert.equal(ignoredNoNew.isNew, false)
+  assert.equal(ignoredNoNew.name, undefined)
+  assert.equal(ignoredNoNew.faster, false)
+  assert.equal(ignoredNoNew.merge, false)
+
+  const sliderDef = defs[7]
+  assert.equal(sliderDef.faster, true)
+  assert.equal(sliderDef.name, '已经吃的香蕉')
+
+  // 验证 <<id>> / <id>（含精确匹配优先与大小写不敏感回退 Number -> <number>）及 <<id-number>>
+  const lookup = uiWidgetsMod.buildUiValueLookup(defs, {
+    a_new_choose: { kind: 'choose', selected: [2, 4] },
+    Food: { kind: 'select', selected: [3] },
+    Todo: { kind: 'if', checked: [true, false] },
+    Number: { kind: 'write', value: '2' },
+    Ti: { kind: 'write', value: '2' },
+  })
+  const replaced = uiWidgetsMod.substituteUiPlaceholdersInLine(
+    '选=<<a_new_choose>>, 食=<Food>, 勾1=<<Todo-1>>, 勾2=<Todo-2>, 数=<number>, 吃=<Ti>',
+    lookup,
+  )
+  assert.equal(replaced, '选=2, 4, 食=3, 勾1=1, 勾2=0, 数=2, 吃=2')
+
+  // 验证 KaTeX 四则运算、位运算（& | \oplus << >> ~）、比较运算（\le \leq \ge \geq \ne \neq）与逻辑运算
+  assert.equal(uiWidgetsMod.evaluateUiCondition('$2 \\le 2$'), true)
+  assert.equal(uiWidgetsMod.evaluateUiCondition('$3 \\leq 2 \\times 2$'), true)
+  assert.equal(uiWidgetsMod.evaluateUiCondition('$\\frac{6}{2} == 3$'), true)
+  assert.equal(uiWidgetsMod.evaluateUiCondition('$(5 \\oplus 3) == 6$'), true)
+  assert.equal(uiWidgetsMod.evaluateUiCondition('$(1 << 3) == 8$'), true)
+  assert.equal(uiWidgetsMod.evaluateUiCondition('$((6 & 3) == 2) \\land (4 \\ge 5)$'), false)
+
+  const inlineExpanded = uiWidgetsMod.expandInlineIfDirectives(
+    uiWidgetsMod.substituteUiPlaceholdersInLine(
+      '<IF:$<number> \\le <Ti>$,你真棒！><IF:$<number> \\leq 2 \\times <Ti>$,还不错！>',
+      lookup,
+    ),
+  )
+  assert.equal(inlineExpanded, '你真棒！还不错！')
+
+  // 验证 TOC 与文章摘要不会泄漏 UI 控件源码
+  const postWithUi = `## 引言\n\n摘要正文。\n\n${sampleMd}\n\n## 总结`
+  assert.deepEqual(postsMod.extractToc(postWithUi).map((h) => h.text), ['引言', '总结'])
+  assert.doesNotMatch(postsMod.excerpt(postWithUi), /begin_ui-choose|ui-write|::nex/)
+})
+
+/* -------------------------------------------------------------------------- */
+/*          5. Issue #83 图论画布自动建点、几何裁剪与编辑器「调整模式」写回验证    */
+/* -------------------------------------------------------------------------- */
+
+test('Issue #83：ui-graph 自动创建未声明节点、dag 有向箭头、重边自环几何，以及编辑器「调整模式」拖拽写回源码', async () => {
+  const graph = uiGraphMod.parseUiGraph(
+    '[dag]',
+    [
+      'isolated',
+      '1 2 10',
+      '2 1 20',
+      '2 3',
+      '3 3 7',
+      '4 5 - -2.5 3.5',
+    ].join('\n'),
+  )
+  assert.equal(graph.directed, true)
+  assert.equal(graph.errors.length, 0)
+  // isolated + 自动创建的 1, 2, 3, 4, 5 共 6 个点
+  assert.deepEqual(
+    graph.nodes.map((n) => n.id),
+    ['isolated', '1', '2', '3', '4', '5'],
+  )
+  const node4 = graph.nodes.find((n) => n.id === '4')
+  assert.deepEqual({ x: node4.x, y: node4.y }, { x: -2.5, y: 3.5 })
+
+  const vp = uiGraphMod.computeInitialUiGraphViewport(graph.nodes)
+  const geoms = uiGraphMod.computeGraphEdgeGeometries(graph.nodes, graph.edges, true, vp)
+  assert.equal(geoms.length, 5)
+  // 1->2 与 2->1 为平行重边，应自动弯曲为二次贝塞尔曲线 Q，且每条有向边均有箭头
+  assert.match(geoms[0].pathD, /^M[\d.-]+ [\d.-]+ Q/)
+  assert.match(geoms[1].pathD, /^M[\d.-]+ [\d.-]+ Q/)
+  // 3->3 自环为三次贝塞尔曲线 C
+  assert.match(geoms[3].pathD, /^M[\d.-]+ [\d.-]+ C/)
+  for (const g of geoms) {
+    assert.ok(g.arrowTip, 'dag 模式下每条边均应生成有向箭头坐标与角度')
+    assert.doesNotMatch(g.pathD, /NaN|Infinity/)
+  }
+
+  // 在真实 JSDOM + React 19 中挂载带 onContentChange 的编辑器预览，实测开启「调整模式」拖拽点位并写回源码
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+    pretendToBeVisual: true,
+    url: 'http://localhost/',
+  })
+  const prevGlobals = {
+    window: globalThis.window,
+    document: globalThis.document,
+    DOMParser: globalThis.DOMParser,
+    HTMLElement: globalThis.HTMLElement,
+    SVGElement: globalThis.SVGElement,
+    Node: globalThis.Node,
+  }
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    DOMParser: dom.window.DOMParser,
+    HTMLElement: dom.window.HTMLElement,
+    SVGElement: dom.window.SVGElement,
+    Node: dom.window.Node,
+  })
+
+  try {
+    const editorBundle = await build({
+      stdin: {
+        contents: `
+          import React from 'react'
+          import { createRoot } from 'react-dom/client'
+          import { Markdown } from './src/components/Markdown'
+          export { React, createRoot, Markdown }
+        `,
+        resolveDir: root,
+        loader: 'tsx',
+      },
+      bundle: true,
+      write: false,
+      format: 'esm',
+      platform: 'browser',
+      target: 'es2022',
+      define: { __STARLOG_OFFLINE__: 'false' },
+      loader: { '.css': 'empty', '.woff': 'empty', '.woff2': 'empty', '.ttf': 'empty' },
+    })
+    const { React, createRoot, Markdown } = await import(
+      `data:text/javascript;base64,${Buffer.from(editorBundle.outputFiles[0].text, 'utf8').toString('base64')}`
+    )
+
+    let currentMd = [
+      '## 图论演示',
+      '',
+      '::begin_ui-graph[dag]',
+      '5',
+      '1 2 10',
+      '2 3 5',
+      '::end_ui-graph',
+    ].join('\n')
+
+    const container = dom.window.document.getElementById('root')
+    const reactRoot = createRoot(container)
+    const rerender = async () => {
+      reactRoot.render(
+        React.createElement(Markdown, {
+          content: currentMd,
+          sourceLineMarkers: true,
+          onContentChange: (updater) => {
+            currentMd = typeof updater === 'function' ? updater(currentMd) : updater
+          },
+        }),
+      )
+      await new Promise((r) => setTimeout(r, 35))
+    }
+
+    await rerender()
+
+    const svg = container.querySelector('.ui-graph-box svg[role="application"]')
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 680, height: 420, right: 680, bottom: 420 })
+    svg.setPointerCapture = () => {}
+
+    // 验证纯图论画布：无任何直角坐标系网格线、无坐标轴 <line>、无坐标刻度，悬浮节点时也绝不显示任何坐标文字
+    assert.equal(svg.querySelectorAll('line').length, 0, '图论画布不应渲染 X/Y 坐标轴线')
+    assert.equal(svg.querySelectorAll('path').length, 2, 'SVG path 数量应严格等于边数（无背景网格 path）')
+    const staticSvg = uiGraphMod.renderStaticUiGraphSvg('[dag]', '5\n1 2 10\n2 3 5')
+    assert.doesNotMatch(staticSvg, /<line\b/, '静态 SVG 模式也不应包含任何坐标轴')
+    assert.equal((staticSvg.match(/<path\b/g) || []).length, 2, '静态 SVG path 数量应严格等于边数')
+
+    // 读取节点 1 当前屏幕坐标，先测试普通悬浮绝不弹出坐标气泡
+    const node1El = container.querySelector('[data-node-id="1"]')
+    const matchT = node1El.getAttribute('transform').match(/translate\(([-\d.]+),([-\d.]+)\)/)
+    const startSX = Number(matchT[1])
+    const startSY = Number(matchT[2])
+    const Ptr = dom.window.PointerEvent || dom.window.MouseEvent
+
+    svg.dispatchEvent(new Ptr('pointermove', { bubbles: true, clientX: startSX, clientY: startSY, pointerId: 1 }))
+    await new Promise((r) => setTimeout(r, 15))
+    assert.doesNotMatch(svg.textContent || '', /\([-\d.]+,\s*[-\d.]+\)/, '悬浮节点时绝不应显示坐标文本')
+
+    // 再开启「调整模式」拖拽到新的目标坐标 (490, 90)
+    const adjustBtn = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('调整模式'),
+    )
+    assert.ok(adjustBtn, '编辑器模式下 GraphPlane 应渲染「调整模式」按钮')
+    adjustBtn.click()
+    await new Promise((r) => setTimeout(r, 25))
+
+    svg.dispatchEvent(new Ptr('pointerdown', { bubbles: true, button: 0, clientX: startSX, clientY: startSY, pointerId: 1 }))
+    await new Promise((r) => setTimeout(r, 15))
+    svg.dispatchEvent(new Ptr('pointermove', { bubbles: true, clientX: 490, clientY: 90, pointerId: 1 }))
+    await new Promise((r) => setTimeout(r, 15))
+    assert.doesNotMatch(svg.textContent || '', /\([-\d.]+,\s*[-\d.]+\)/, '拖拽节点时画布内同样不显示坐标气泡')
+    svg.dispatchEvent(new Ptr('pointerup', { bubbles: true, clientX: 490, clientY: 90, pointerId: 1 }))
+    await new Promise((r) => setTimeout(r, 25))
+
+    // 验证松手后点位已自动保存回 Markdown 源码，且边权完全保留
+    assert.match(currentMd, /1 \([-\d.]+, [-\d.]+\)/, `拖拽后应将节点 1 新坐标写入源码，实际：\n${currentMd}`)
+    assert.match(currentMd, /1 2 10/)
+    assert.match(currentMd, /2 3 5/)
+
+    // 重新渲染后再点击重置按钮，验证恢复自动布局并清理辅助坐标行
+    await rerender()
+    const resetBtn = container.querySelector('button[title*="重置"]')
+    if (resetBtn) {
+      resetBtn.click()
+      await new Promise((r) => setTimeout(r, 25))
+      assert.doesNotMatch(currentMd, /1 \([-\d.]+, [-\d.]+\)/)
+    }
+
+    // 同步实测：多行/多段 ui-if[lined] 逐行删除线结构 & 单行 ui-write 无外层包裹卡片框
+    currentMd = [
+      '::begin_ui-if[MultiLined][lined]',
+      '第一行待办',
+      '第二行带公式 $\\texttt{AC}$',
+      '::nex',
+      '第一段说明',
+      '',
+      '第二段说明',
+      '::end_ui-if',
+      '',
+      '::ui-write[CleanSingle][len 2 6][new][name 昵称]',
+    ].join('\n')
+    await rerender()
+
+    const ifCard = container.querySelector('[data-ui-id="MultiLined"]')
+    assert.equal(ifCard.querySelectorAll('.ui-if-strike-bar').length, 0, '不应残留旧版单条绝对定位划线元素')
+    const strikeRuns = ifCard.querySelectorAll('.ui-if-lined .ui-if-strike-text')
+    assert.equal(strikeRuns.length, 3, '多行条目（1 段含 <br>）+ 多段条目（2 段）应生成 3 个逐行内联删除线片段')
+    assert.equal(strikeRuns[0].querySelectorAll('br').length, 1, '多行单换行条目应保留 <br> 实现逐行删除线')
+    const cssSource = readFileSync(join(root, 'src/styles/index.css'), 'utf8')
+    assert.match(cssSource, /\.ui-if-lined\s+\.ui-if-strike-text/)
+    assert.match(cssSource, /box-decoration-break:\s*clone/)
+
+    const writeField = container.querySelector('[data-ui-id="CleanSingle"]')
+    assert.ok(writeField, '应渲染独立行 ui-write 字段')
+    assert.doesNotMatch(writeField.className, /\bborder\b/, '单行输入框外层容器不应再有包裹边框盒')
+
+    reactRoot.unmount()
+    await new Promise((r) => setTimeout(r, 30))
+  } finally {
+    dom.window.close()
+    Object.assign(globalThis, prevGlobals)
+  }
+})
+

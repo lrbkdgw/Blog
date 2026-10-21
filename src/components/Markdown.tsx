@@ -1,4 +1,4 @@
-import { Children, cloneElement, createElement, isValidElement, memo, useCallback, useMemo, useState } from 'react'
+import { Children, cloneElement, createElement, isValidElement, memo, useCallback, useMemo, useRef, useState } from 'react'
 import type { HTMLAttributes, ReactNode } from 'react'
 import katex from 'katex'
 import ReactMarkdown from 'react-markdown'
@@ -12,6 +12,16 @@ import rehypeHighlight from 'rehype-highlight'
 import rehypeSlug from 'rehype-slug'
 import { ShowBox } from './ShowBox'
 import { CoordinatePlane } from './CoordinatePlane'
+import { GraphPlane } from './GraphPlane'
+import {
+  UiChooseCard,
+  UiIfCard,
+  UiSelectInline,
+  UiWidgetsContext,
+  UiWriteField,
+  UiWriteRow,
+  type UiWidgetsContextValue,
+} from './UiWidgets'
 import { resolvePendingImageSrc } from '../lib/updateQueue'
 import {
   EMPTY_ARTICLE_DIRECTIVES,
@@ -19,7 +29,29 @@ import {
   scanArticleDirectives,
   type ArticleDirectives,
 } from '../lib/articleDirectives'
-import { WifiOff, 
+import {
+  buildUiValueLookup,
+  createInitialWidgetState,
+  decodeUiPayload,
+  encodeUiPayload,
+  evaluateUiCondition,
+  expandInlineIfDirectives,
+  extractUiWidgetDefs,
+  parseUiChooseBlock,
+  parseUiIfBlock,
+  parseUiSelectBlock,
+  parseUiWriteToken,
+  substituteUiPlaceholdersInLine,
+  type UiChooseWidgetDef,
+  type UiIfWidgetDef,
+  type UiSelectWidgetDef,
+  type UiStateMap,
+  type UiWidgetState,
+  type UiWriteWidgetDef,
+} from '../lib/uiWidgets'
+import { updateUiGraphBlockPositions } from '../lib/uiGraph'
+import {
+  WifiOff,
   AlertCircle,
   AlertTriangle,
   Check,
@@ -57,7 +89,7 @@ const sanitizeSchema: SanitizeOptions = {
     '*': [
       ...(defaultSchema.attributes?.['*'] ?? []),
       'className',
-      // 站内预处理生成的结构属性：折叠框、交互展示框与直角坐标系的配置
+      // 站内预处理生成的结构属性：折叠框、交互展示框、直角坐标系、交互表单控件与图论画布
       'dataCallout',
       'dataTitle',
       'dataShowBox',
@@ -67,6 +99,17 @@ const sanitizeSchema: SanitizeOptions = {
       'dataUiCcs',
       'dataCcsTitle',
       'dataCcsContent',
+      'dataUiChoose',
+      'dataUiSelect',
+      'dataUiIf',
+      'dataUiWrite',
+      'dataUiWriteRow',
+      'dataUiPayload',
+      'dataUiId',
+      'dataUiGraph',
+      'dataGraphHeader',
+      'dataGraphSource',
+      'dataGraphIndex',
     ],
     details: [...(defaultSchema.attributes?.details ?? []), 'open'],
   },
@@ -78,6 +121,28 @@ function extractText(node: ReactNode): string {
   if (Array.isArray(node)) return node.map(extractText).join('')
   if (isValidElement(node)) return extractText((node.props as { children?: ReactNode }).children)
   return ''
+}
+
+/** 提取子树中第一个交互控件 ID，用作上层 `<p>` 的稳定 React key，防止上方条件块显隐切换时打断输入框焦点。 */
+function findEmbeddedWidgetKey(node: ReactNode): string | undefined {
+  if (node == null || typeof node === 'boolean' || typeof node === 'string' || typeof node === 'number') {
+    return undefined
+  }
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findEmbeddedWidgetKey(child)
+      if (found) return found
+    }
+    return undefined
+  }
+  if (isValidElement(node)) {
+    const props = node.props as Record<string, unknown>
+    if (typeof props['data-ui-id'] === 'string' && props['data-ui-id']) {
+      return `ui-host-${props['data-ui-id']}`
+    }
+    return findEmbeddedWidgetKey(props.children as ReactNode)
+  }
+  return undefined
 }
 
 function languageOf(node: ReactNode): string {
@@ -197,6 +262,118 @@ function isCalloutNode(node: RehypeNode): boolean {
   )
 }
 
+const LINED_BLOCK_CONTAINERS = new Set([
+  'p',
+  'li',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'td',
+  'th',
+  'figcaption',
+])
+
+const NON_INLINE_TAGS = new Set([
+  'div',
+  'p',
+  'ul',
+  'ol',
+  'li',
+  'pre',
+  'table',
+  'thead',
+  'tbody',
+  'tr',
+  'td',
+  'th',
+  'blockquote',
+  'details',
+  'summary',
+  'section',
+  'hr',
+  'figure',
+  'figcaption',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+])
+
+function isInlineLinedNode(node: RehypeNode): boolean {
+  if (node.type === 'text') return true
+  if (node.type !== 'element') return false
+  if (NON_INLINE_TAGS.has(node.tagName || '')) return false
+  if (classNames(node.properties?.className).includes('katex-display')) return false
+  return true
+}
+
+function hasVisibleInlineContent(nodes: RehypeNode[]): boolean {
+  for (const n of nodes) {
+    if (n.type === 'text' && (n as { value?: string }).value?.trim()) return true
+    if (n.type === 'element' && n.tagName !== 'br') return true
+  }
+  return false
+}
+
+/**
+ * 为 `ui-if[...][lined]` 的每个段落/列表项内联片段包裹 `.ui-if-strike-text`，
+ * 配合 CSS `display: inline; box-decoration-break: clone` 实现支持多行折行、
+ * `<br>` 换行与多段落的逐行平滑删除线动画。
+ */
+function rehypeWrapLinedRuns() {
+  return function wrapLinedRunsPlugin() {
+    return (tree: RehypeNode) => {
+      const visit = (node: RehypeNode) => {
+        if (!Array.isArray(node.children)) return
+
+        if (node.type === 'element' && LINED_BLOCK_CONTAINERS.has(node.tagName || '')) {
+          const nextChildren: RehypeNode[] = []
+          let inlineBuffer: RehypeNode[] = []
+
+          const flushBuffer = () => {
+            if (inlineBuffer.length === 0) return
+            if (hasVisibleInlineContent(inlineBuffer)) {
+              nextChildren.push({
+                type: 'element',
+                tagName: 'span',
+                properties: { className: ['ui-if-strike-text'] },
+                children: inlineBuffer,
+              })
+            } else {
+              nextChildren.push(...inlineBuffer)
+            }
+            inlineBuffer = []
+          }
+
+          for (const child of node.children) {
+            if (isInlineLinedNode(child)) {
+              inlineBuffer.push(child)
+            } else {
+              flushBuffer()
+              visit(child)
+              nextChildren.push(child)
+            }
+          }
+          flushBuffer()
+          node.children = nextChildren
+          return
+        }
+
+        for (const child of node.children) {
+          visit(child)
+        }
+      }
+
+      visit(tree)
+    }
+  }
+}
+
 // 折叠框/展示框里的标题不作为正文锚点暴露，避免目录滚动定位命中框内标题。
 function rehypeRemoveHeadingIds({ calloutsOnly = false }: { calloutsOnly?: boolean } = {}) {
   return function removeHeadingIdsPlugin() {
@@ -289,10 +466,57 @@ export interface PreprocessedMarkdown {
   directives: ArticleDirectives
 }
 
-/** 预处理 Markdown，支持折叠框与 Tuack 风格表格 */
+/** 判断某行是否为独占一行的块级 `[new]` 填空框指令。 */
+function matchStandaloneNewWrite(line: string): UiWriteWidgetDef | null {
+  const trimmed = line.trim()
+  if (!trimmed.startsWith('::ui-write[')) return null
+  const parsed = parseUiWriteToken(trimmed.slice('::ui-write'.length))
+  if (!parsed) return null
+  if (parsed.consumedLength + '::ui-write'.length !== trimmed.length) return null
+  return parsed.def.isNew ? parsed.def : null
+}
+
+/** 将普通文本行中的 `::ui-write[...]` 替换为内联或独立行组件标签（跳过反引号行内代码）。 */
+function expandInlineWriteDirectives(line: string): string {
+  if (!line.includes('::ui-write[')) return line
+  let out = ''
+  let inInlineCode = false
+  let pos = 0
+
+  while (pos < line.length) {
+    const ch = line[pos]
+    if (ch === '`') {
+      inInlineCode = !inInlineCode
+      out += ch
+      pos += 1
+      continue
+    }
+    if (!inInlineCode && line.startsWith('::ui-write[', pos)) {
+      const parsed = parseUiWriteToken(line.slice(pos + '::ui-write'.length))
+      if (parsed) {
+        if (parsed.def.isNew) {
+          out += `\n\n<div data-ui-write-row="true" data-ui-id="${encodeURIComponent(parsed.def.id)}" data-ui-payload="${encodeUiPayload([parsed.def])}"></div>\n\n`
+        } else {
+          out += `<span data-ui-write="true" data-ui-id="${encodeURIComponent(parsed.def.id)}" data-ui-payload="${encodeUiPayload(parsed.def)}"></span>`
+        }
+        pos += '::ui-write'.length + parsed.consumedLength
+        continue
+      }
+    }
+    out += ch
+    pos += 1
+  }
+
+  return out
+}
+
+/** 预处理 Markdown，支持折叠框、Tuack 表格、坐标系、交互表单控件、条件映射与图论画布 */
 export function preprocessMarkdownDetailed(
   md: string,
-  options: { articleDirectives?: boolean } = {},
+  options: {
+    articleDirectives?: boolean
+    uiLookup?: { exact: Map<string, string>; lower: Map<string, string> }
+  } = {},
 ): PreprocessedMarkdown {
   if (!md) return { text: '', lineMap: [], directives: EMPTY_ARTICLE_DIRECTIVES }
   const lines = md.split('\n')
@@ -303,27 +527,45 @@ export function preprocessMarkdownDetailed(
     options.articleDirectives !== false
       ? scanArticleDirectives(lines)
       : { directives: EMPTY_ARTICLE_DIRECTIVES, directiveLines: new Set<number>() }
+
+  // 若调用方未显式传入 uiLookup，则自动按本文声明的 UI 控件初始状态构建映射表
+  const lookup =
+    options.uiLookup ??
+    (() => {
+      const defs = extractUiWidgetDefs(md)
+      const defaults: UiStateMap = {}
+      for (const d of defs) defaults[d.id] = createInitialWidgetState(d)
+      return buildUiValueLookup(defs, defaults)
+    })()
+
   const result: string[] = []
   const lineMap: number[] = []
   const stack: { colonsCount: number; type: string }[] = []
+  const ifStack: boolean[] = []
   let inCodeFence = false
+  let rawGraphIndex = -1
+
+  const isIfActive = () => ifStack.every(Boolean)
 
   const push = (line: string, sourceLine: number) => {
     result.push(line)
     lineMap.push(sourceLine)
   }
 
+  const transformLineText = (rawLine: string) =>
+    expandInlineIfDirectives(substituteUiPlaceholdersInLine(rawLine, lookup))
+
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
+    const rawLine = lines[i]
 
     // 扩展指令不应解析代码示例；否则文档中的语法会被执行而无法展示源码。
-    if (/^\s*(`{3,}|~{3,})/.test(line)) {
+    if (/^\s*(`{3,}|~{3,})/.test(rawLine)) {
       inCodeFence = !inCodeFence
-      push(line, i)
+      if (isIfActive()) push(rawLine, i)
       continue
     }
     if (inCodeFence) {
-      push(line, i)
+      if (isIfActive()) push(rawLine, i)
       continue
     }
 
@@ -334,17 +576,168 @@ export function preprocessMarkdownDetailed(
       continue
     }
 
+    // 最高优先级替换 <<id>> / <id> / <<id-number>> / <id-number>
+    const subLine = substituteUiPlaceholdersInLine(rawLine, lookup)
+
+    // 块级条件渲染：::IF[<a>] … ::IF_END（支持任意多层嵌套）
+    const blockIfOpen = subLine.match(/^\s*::IF\[([\s\S]*)\]\s*$/)
+    if (blockIfOpen) {
+      const condHolds = isIfActive() && evaluateUiCondition(blockIfOpen[1])
+      ifStack.push(condHolds)
+      continue
+    }
+    if (/^\s*::IF_END\s*$/.test(subLine)) {
+      if (ifStack.length > 0) ifStack.pop()
+      continue
+    }
+
+    // 图论画布（issue #83）：::begin_ui-graph[<附加项>] … ::end_ui-graph
+    // 注意：即使位于条件为假的 ::IF 块中，也要递增 rawGraphIndex 以保证源码写回索引严格对齐！
+    const graphMatch = subLine.match(/^\s*::begin_ui-graph(?=$|\[|\s)([\s\S]*)$/)
+    if (graphMatch) {
+      const body: string[] = []
+      let end = i + 1
+      while (end < lines.length && !/^\s*::end_ui-graph\s*$/.test(lines[end])) {
+        body.push(transformLineText(lines[end]))
+        end += 1
+      }
+      if (end < lines.length) {
+        rawGraphIndex += 1
+        if (isIfActive()) {
+          push(
+            `<div data-ui-graph="true" data-graph-index="${rawGraphIndex}" data-graph-header="${encodeURIComponent(graphMatch[1])}" data-graph-source="${encodeURIComponent(body.join('\n'))}"></div>`,
+            i,
+          )
+          push('', i)
+        }
+        i = end
+        continue
+      }
+    }
+
+    if (!isIfActive()) {
+      continue
+    }
+
+    const line = expandInlineIfDirectives(subLine)
+
+    // 选择框（issue #82）：::begin_ui-choose[<id>][<name>][<附加项>] … ::end_ui-choose
+    const chooseMatch = line.match(/^\s*::begin_ui-choose([\s\S]*)$/)
+    if (chooseMatch) {
+      const body: string[] = []
+      let end = i + 1
+      while (end < lines.length && !/^\s*::end_ui-choose\s*$/.test(lines[end])) {
+        body.push(transformLineText(lines[end]))
+        end += 1
+      }
+      if (end < lines.length) {
+        const def = parseUiChooseBlock(chooseMatch[1], body)
+        if (def) {
+          push('', i)
+          push(
+            `<div data-ui-choose="true" data-ui-id="${encodeURIComponent(def.id)}" data-ui-payload="${encodeUiPayload(def)}"></div>`,
+            i,
+          )
+          push('', i)
+        }
+        i = end
+        continue
+      }
+    }
+
+    // 下拉选择框（issue #82）：::begin_ui-select[<id>][<附加项>] … ::end_ui-select（紧跟在上一行文本后）
+    const selectMatch = line.match(/^\s*::begin_ui-select([\s\S]*)$/)
+    if (selectMatch) {
+      const body: string[] = []
+      let end = i + 1
+      while (end < lines.length && !/^\s*::end_ui-select\s*$/.test(lines[end])) {
+        body.push(transformLineText(lines[end]))
+        end += 1
+      }
+      if (end < lines.length) {
+        const def = parseUiSelectBlock(selectMatch[1], body)
+        if (def) {
+          const selectHtml = `<span data-ui-select="true" data-ui-id="${encodeURIComponent(def.id)}" data-ui-payload="${encodeUiPayload(def)}"></span>`
+          const prevLine = result.length > 0 ? result[result.length - 1] : ''
+          const canAttachPrev =
+            result.length > 0 &&
+            prevLine.trim() !== '' &&
+            !prevLine.trim().startsWith('<div') &&
+            !prevLine.trim().startsWith('</')
+          if (canAttachPrev) {
+            result[result.length - 1] = `${prevLine}${selectHtml}`
+          } else {
+            push(selectHtml, i)
+          }
+        }
+        i = end
+        continue
+      }
+    }
+
+    // 是否框（issue #82）：::begin_ui-if[<id>][<附加项>] … ::end_ui-if
+    const uiIfMatch = line.match(/^\s*::begin_ui-if([\s\S]*)$/)
+    if (uiIfMatch) {
+      const body: string[] = []
+      let end = i + 1
+      while (end < lines.length && !/^\s*::end_ui-if\s*$/.test(lines[end])) {
+        body.push(transformLineText(lines[end]))
+        end += 1
+      }
+      if (end < lines.length) {
+        const def = parseUiIfBlock(uiIfMatch[1], body)
+        if (def) {
+          push('', i)
+          push(
+            `<div data-ui-if="true" data-ui-id="${encodeURIComponent(def.id)}" data-ui-payload="${encodeUiPayload(def)}"></div>`,
+            i,
+          )
+          push('', i)
+        }
+        i = end
+        continue
+      }
+    }
+
+    // 块级填空框（issue #82）：`new` 独占一行；后续紧接且中间无任何非空内容的 `new` + `merge` 共用同一行
+    const standaloneNewWrite = matchStandaloneNewWrite(line)
+    if (standaloneNewWrite) {
+      const rowDefs: UiWriteWidgetDef[] = [standaloneNewWrite]
+      let lastConsumed = i
+      let scan = i + 1
+      while (scan < lines.length) {
+        if (lines[scan].trim() === '') {
+          scan += 1
+          continue
+        }
+        const candidateLine = transformLineText(lines[scan])
+        const nextWrite = matchStandaloneNewWrite(candidateLine)
+        if (nextWrite && nextWrite.merge) {
+          rowDefs.push(nextWrite)
+          lastConsumed = scan
+          scan += 1
+          continue
+        }
+        break
+      }
+      push('', i)
+      push(
+        `<div data-ui-write-row="true" data-ui-id="${encodeURIComponent(rowDefs[0].id)}" data-ui-payload="${encodeUiPayload(rowDefs)}"></div>`,
+        i,
+      )
+      push('', i)
+      i = lastConsumed
+      continue
+    }
+
     // 交互展示框：::show_begin{标题}{变量定义} … ::show_end
     // 编码到 data attribute 后再由 React component 接管，可保留框内完整 Markdown。
-    // The variable definition may itself contain braces, e.g. Q{faster_set}.
-    // Capture its final closing brace rather than stopping at the directive's
-    // inner `}`.
     const showMatch = line.match(/^\s*::show_begin\{([^}]*)\}\{([\s\S]*)\}\s*$/i)
     if (showMatch) {
       const body: string[] = []
       let end = i + 1
       while (end < lines.length && !/^\s*::show_end\s*$/i.test(lines[end])) {
-        body.push(lines[end])
+        body.push(transformLineText(lines[end]))
         end += 1
       }
       if (end < lines.length) {
@@ -364,7 +757,7 @@ export function preprocessMarkdownDetailed(
       const body: string[] = []
       let end = i + 1
       while (end < lines.length && !/^\s*::end_ui-ccs\s*$/i.test(lines[end])) {
-        body.push(lines[end])
+        body.push(transformLineText(lines[end]))
         end += 1
       }
       if (end < lines.length) {
@@ -391,7 +784,7 @@ export function preprocessMarkdownDetailed(
         j < lines.length &&
         (lines[j].trim().startsWith('|') || lines[j].trim().includes('|'))
       ) {
-        push(lines[j], j)
+        push(expandInlineWriteDirectives(transformLineText(lines[j])), j)
         j++
       }
       push('', i)
@@ -444,7 +837,15 @@ export function preprocessMarkdownDetailed(
       continue
     }
 
-    push(line, i)
+    // 行内 ::ui-write[...]（若嵌在行中带 [new] 则自动拆行）
+    const expandedWriteLine = expandInlineWriteDirectives(line)
+    if (expandedWriteLine.includes('\n')) {
+      for (const piece of expandedWriteLine.split('\n')) {
+        push(piece, i)
+      }
+    } else {
+      push(expandedWriteLine, i)
+    }
   }
 
   while (stack.pop()) {
@@ -686,6 +1087,19 @@ interface MarkdownProps {
    * 既不执行也不会被吞掉（issue #59）。
    */
   applyDirectives?: boolean
+  /**
+   * 文章编辑模式下传入：允许可视化交互组件（如图论画布「调整模式」）将修改写回 Markdown 源码。
+   */
+  onContentChange?: (updater: (prevMarkdown: string) => string) => void
+  /**
+   * 内部开关：由 `::begin_ui-if[...][lined]` 开启，为每个文本块/列表项的内联片段包裹 `.ui-if-strike-text`，
+   * 实现支持多行折行、单行换行与多段落的逐行平滑删除线动画。
+   */
+  linedStrikethrough?: boolean
+  /**
+   * 内部开关：供交互控件（选择框、是否框）内部嵌套 Markdown 使用，移除正文级 `prose-base` 大字号与大行距。
+   */
+  compact?: boolean
 }
 
 type SourceLineResolver = (node: unknown) => number | undefined
@@ -695,7 +1109,6 @@ const noSourceLine: SourceLineResolver = () => undefined
 
 /** 直接透传的块级标签（双栏同步时作为候选锚点）。 */
 const MARKER_TAGS = [
-  'p',
   'h1',
   'h5',
   'h6',
@@ -705,11 +1118,14 @@ const MARKER_TAGS = [
   'blockquote',
   'hr',
   'figure',
-  'span',
   'details',
 ] as const
 
-function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTransform) {
+function buildComponents(
+  marker: SourceLineResolver | null,
+  urlTransform?: UrlTransform,
+  onContentChange?: (updater: (prevMarkdown: string) => string) => void,
+) {
   const toSourceLine: SourceLineResolver = marker ?? noSourceLine
   const passthrough = (tag: string) => {
     return function MarkerBlock({ node, ...rest }: { node?: unknown } & Record<string, unknown>) {
@@ -739,6 +1155,14 @@ function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTr
         {children}
       </Heading>
     ),
+    p: ({ node, children, ...rest }: { node?: unknown; children?: ReactNode } & HTMLAttributes<HTMLParagraphElement>) => {
+      const widgetKey = findEmbeddedWidgetKey(children)
+      return (
+        <p key={widgetKey} {...rest} data-source-line={toSourceLine(node)}>
+          {children}
+        </p>
+      )
+    },
     a: ({ node, href, children, ...rest }: { node?: unknown; href?: string; children?: ReactNode }) => {
       const external = !!href && /^https?:\/\//.test(href)
       return (
@@ -754,8 +1178,6 @@ function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTr
     img: ({ src, alt }: { src?: string; alt?: string }) => {
       const raw = typeof src === 'string' ? src : ''
       const resolved = resolvePendingImageSrc(raw)
-      // 离线版不联网：远程 / 站内图片地址会被解析成空串（见 resolveOfflineImageSrc）。
-      // 这里显示一条明确说明而不是破图，避免看起来像「文章坏了」。
       if (!resolved) {
         return (
           <span className="my-3 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-ink-300/70 bg-ink-50/60 px-3 py-2 text-xs text-ink-500 dark:border-white/12 dark:bg-white/[0.03]">
@@ -793,6 +1215,15 @@ function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTr
         'data-ui-ccs'?: string
         'data-ccs-title'?: string
         'data-ccs-content'?: string
+        'data-ui-choose'?: string
+        'data-ui-if'?: string
+        'data-ui-write-row'?: string
+        'data-ui-payload'?: string
+        'data-ui-id'?: string
+        'data-ui-graph'?: string
+        'data-graph-header'?: string
+        'data-graph-source'?: string
+        'data-graph-index'?: string
       }
       if (attributes['data-show-box'] === 'true') {
         return (
@@ -814,6 +1245,38 @@ function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTr
           />
         )
       }
+      if (attributes['data-ui-graph'] === 'true') {
+        const graphIdx = Number.parseInt(attributes['data-graph-index'] ?? '0', 10)
+        return (
+          <GraphPlane
+            key={`ui-graph-${graphIdx}`}
+            header={decodeShowAttribute(attributes['data-graph-header'])}
+            source={decodeShowAttribute(attributes['data-graph-source'])}
+            sourceLine={toSourceLine(node)}
+            onCommitPositions={
+              onContentChange
+                ? (positions) => {
+                    onContentChange((prev) => updateUiGraphBlockPositions(prev, graphIdx, positions))
+                  }
+                : undefined
+            }
+          />
+        )
+      }
+      if (attributes['data-ui-choose'] === 'true') {
+        const def = decodeUiPayload<UiChooseWidgetDef>(attributes['data-ui-payload'])
+        if (def) return <UiChooseCard key={`ui-choose-${def.id}`} def={def} sourceLine={toSourceLine(node)} />
+      }
+      if (attributes['data-ui-if'] === 'true') {
+        const def = decodeUiPayload<UiIfWidgetDef>(attributes['data-ui-payload'])
+        if (def) return <UiIfCard key={`ui-if-${def.id}`} def={def} sourceLine={toSourceLine(node)} />
+      }
+      if (attributes['data-ui-write-row'] === 'true') {
+        const defs = decodeUiPayload<UiWriteWidgetDef[]>(attributes['data-ui-payload'])
+        if (defs && defs.length > 0) {
+          return <UiWriteRow key={`ui-write-row-${defs[0].id}`} defs={defs} sourceLine={toSourceLine(node)} />
+        }
+      }
       return <div {...props} data-source-line={toSourceLine(node)}>{children}</div>
     },
     summary: ({ node, ...props }: { node?: unknown } & HTMLAttributes<HTMLElement>) => (
@@ -822,6 +1285,26 @@ function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTr
     ...(marker
       ? Object.fromEntries(MARKER_TAGS.map((tag) => [tag, passthrough(tag)]))
       : {}),
+    span: ({ node, children, ...props }: { node?: unknown; children?: ReactNode } & HTMLAttributes<HTMLSpanElement>) => {
+      const attributes = props as HTMLAttributes<HTMLSpanElement> & {
+        'data-ui-select'?: string
+        'data-ui-write'?: string
+        'data-ui-payload'?: string
+      }
+      if (attributes['data-ui-select'] === 'true') {
+        const def = decodeUiPayload<UiSelectWidgetDef>(attributes['data-ui-payload'])
+        if (def) return <UiSelectInline key={`ui-select-${def.id}`} def={def} />
+      }
+      if (attributes['data-ui-write'] === 'true') {
+        const def = decodeUiPayload<UiWriteWidgetDef>(attributes['data-ui-payload'])
+        if (def) return <UiWriteField key={`ui-write-${def.id}`} def={def} />
+      }
+      return (
+        <span {...props} data-source-line={toSourceLine(node)}>
+          {children}
+        </span>
+      )
+    },
   }
 }
 
@@ -831,52 +1314,132 @@ export const Markdown = memo(function Markdown({
   sourceLineMarkers = false,
   urlTransform,
   applyDirectives = true,
+  onContentChange,
+  linedStrikethrough = false,
+  compact = false,
 }: MarkdownProps) {
-  const processed = useMemo(
-    () => preprocessMarkdownDetailed(content, { articleDirectives: applyDirectives }),
-    [content, applyDirectives],
+  const widgetDefs = useMemo(() => extractUiWidgetDefs(content), [content])
+  const [userWidgetStates, setUserWidgetStates] = useState<UiStateMap>({})
+
+  const effectiveUiStates = useMemo<UiStateMap>(() => {
+    const merged: UiStateMap = {}
+    for (const def of widgetDefs) {
+      const prev = userWidgetStates[def.id]
+      if (prev && prev.kind === def.kind) {
+        merged[def.id] = prev
+      } else {
+        merged[def.id] = createInitialWidgetState(def)
+      }
+    }
+    return merged
+  }, [widgetDefs, userWidgetStates])
+
+  const setWidgetState = useCallback((id: string, next: UiWidgetState) => {
+    setUserWidgetStates((prev) => ({ ...prev, [id]: next }))
+  }, [])
+
+  const uiLookup = useMemo(
+    () => buildUiValueLookup(widgetDefs, effectiveUiStates),
+    [widgetDefs, effectiveUiStates],
   )
 
-  const toSourceLine = useCallback<SourceLineResolver>(
-    (node) => {
-      if (!sourceLineMarkers) return undefined
-      const position = (node as { position?: { start?: { line?: number } } } | undefined)?.position
-      const processedLine = position?.start?.line
-      if (typeof processedLine !== 'number') return undefined
-      const sourceIndex = processed.lineMap[processedLine - 1]
-      return sourceIndex === undefined ? undefined : sourceIndex + 1
-    },
-    [sourceLineMarkers, processed.lineMap],
+  const renderMarkdownBlock = useCallback(
+    (fragment: string, options?: { linedStrikethrough?: boolean }) => (
+      <Markdown
+        content={fragment}
+        headingAnchors={false}
+        applyDirectives={false}
+        urlTransform={urlTransform}
+        linedStrikethrough={options?.linedStrikethrough}
+        compact
+      />
+    ),
+    [urlTransform],
   )
+
+  const uiContextValue = useMemo<UiWidgetsContextValue>(
+    () => ({
+      states: effectiveUiStates,
+      setWidgetState,
+      renderMarkdownBlock,
+    }),
+    [effectiveUiStates, setWidgetState, renderMarkdownBlock],
+  )
+
+  const processed = useMemo(
+    () =>
+      preprocessMarkdownDetailed(content, {
+        articleDirectives: applyDirectives,
+        uiLookup,
+      }),
+    [content, applyDirectives, uiLookup],
+  )
+
+  const lineMapRef = useRef<number[]>(processed.lineMap)
+  lineMapRef.current = processed.lineMap
+
+  const onContentChangeRef = useRef(onContentChange)
+  onContentChangeRef.current = onContentChange
+
+  const hasContentChangeHandler = Boolean(onContentChange)
+  const stableOnContentChange = useMemo<MarkdownProps['onContentChange']>(
+    () =>
+      hasContentChangeHandler
+        ? (updater) => {
+            onContentChangeRef.current?.(updater)
+          }
+        : undefined,
+    [hasContentChangeHandler],
+  )
+
+  const toSourceLine = useCallback<SourceLineResolver>((node) => {
+    const position = (node as { position?: { start?: { line?: number } } } | undefined)?.position
+    const processedLine = position?.start?.line
+    if (typeof processedLine !== 'number') return undefined
+    const sourceIndex = lineMapRef.current[processedLine - 1]
+    return sourceIndex === undefined ? undefined : sourceIndex + 1
+  }, [])
 
   const components = useMemo(
-    () => buildComponents(sourceLineMarkers ? toSourceLine : noSourceLine, urlTransform),
-    [sourceLineMarkers, toSourceLine, urlTransform],
+    () =>
+      buildComponents(
+        sourceLineMarkers ? toSourceLine : noSourceLine,
+        urlTransform,
+        stableOnContentChange,
+      ),
+    [sourceLineMarkers, toSourceLine, urlTransform, stableOnContentChange],
   )
 
   return (
-    <div
-      className="prose prose-base dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight"
-      style={applyDirectives ? articleFontStyle(processed.directives) : undefined}
-    >
-      <ReactMarkdown
-        urlTransform={urlTransform}
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[
-          rehypeRaw,
-          [rehypeSanitize, sanitizeSchema],
-          ...(headingAnchors
-            ? [rehypeSlug, rehypeRemoveHeadingIds({ calloutsOnly: true })]
-            : [rehypeRemoveHeadingIds()]),
-          ...(sourceLineMarkers ? [rehypeMarkBlockMath()] : []),
-          [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
-          [rehypeHighlight, { detect: true, ignoreMissing: true }],
-          ...(sourceLineMarkers ? [rehypeInheritPositions()] : []),
-        ]}
-        components={components}
+    <UiWidgetsContext.Provider value={uiContextValue}>
+      <div
+        className={
+          compact
+            ? 'prose prose-sm max-w-none dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight'
+            : 'prose prose-base dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight'
+        }
+        style={applyDirectives ? articleFontStyle(processed.directives) : undefined}
       >
-        {processed.text}
-      </ReactMarkdown>
-    </div>
+        <ReactMarkdown
+          urlTransform={urlTransform}
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[
+            rehypeRaw,
+            [rehypeSanitize, sanitizeSchema],
+            ...(headingAnchors
+              ? [rehypeSlug, rehypeRemoveHeadingIds({ calloutsOnly: true })]
+              : [rehypeRemoveHeadingIds()]),
+            ...(sourceLineMarkers ? [rehypeMarkBlockMath()] : []),
+            [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
+            [rehypeHighlight, { detect: true, ignoreMissing: true }],
+            ...(linedStrikethrough ? [rehypeWrapLinedRuns()] : []),
+            ...(sourceLineMarkers ? [rehypeInheritPositions()] : []),
+          ]}
+          components={components}
+        >
+          {processed.text}
+        </ReactMarkdown>
+      </div>
+    </UiWidgetsContext.Provider>
   )
 })

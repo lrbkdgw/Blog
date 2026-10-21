@@ -15,6 +15,8 @@ const corpus = [
   '<div class="custom"><strong>原始 HTML</strong></div>\n\n![图片](./images/demo.png)\n\n| 转义 | 代码 |\n| - | - |\n| 甲 | 乙 |\n| `^` | &lt; |',
   '::set-font[LXGW WenKai]\n::set-code-font[Fira Code]\n::set-background[1]\n\n## 标题\n\n正文 $a\\pm b$ 与 `code`。\n\n```markdown\n::set-font[围栏内只是示例]\n```',
   '::begin_ui-ccs\ncreate_point:(1,2);\ncreate_line:(-3,-2),(0,1),(3,-1),[color=red];\ncreate_line:(7*x^2+6*x+90*x^3);\n::end_ui-ccs\n\n```markdown\n::begin_ui-ccs\ncreate_point:(0,0);\n::end_ui-ccs\n```',
+  '::begin_ui-graph[dag]\n5\n1 2 10\n2 3 5\n::end_ui-graph\n\n```markdown\n::begin_ui-graph\n1 2\n::end_ui-graph\n```',
+  '::begin_ui-choose[Ti][题型][more 1 2]\n[A]\n一\n[B]\n二\n::end_ui-choose\n\n前缀：\n::begin_ui-select[Sel][search]\n甲\n乙\n::end_ui-select\n\n::begin_ui-if[Todo][lined]\n条目一\n::nex\n条目二\n::end_ui-if\n\n::ui-write[Num][set 2][R 0 1 3][faster][new][name 数量]\n::ui-write[Author][set 星野][len 1 12][new][merge][name 作者]\n\n值 <<Num>> <IF:$<Num> == 2$,命中>\n\n::IF[$<Num> \\ge 2$]\n块命中\n::IF_END',
 ]
 
 for (const [index, source] of corpus.entries()) {
@@ -202,3 +204,39 @@ test('LaTeX 符号可按别名搜索，插入光标落在第一个空参数内',
   const frac = core.LATEX_SYMBOLS.find((symbol) => symbol.command === '\\frac{}{}')
   assert.deepEqual(core.latexSymbolInsert(frac), { text: '\\frac{}{}', selectionStart: 6, selectionEnd: 6 })
 })
+
+test('表单交互控件（#82）与图论画布（#83）：解析、求值、坐标回写、复制降级与 MPE 静态兼容', () => {
+  const uiGraphSrc = '::begin_ui-graph[dag]\n5\n1 2 10\n2 3 5\n::end_ui-graph'
+  const graph = core.parseUiGraph('[dag]', '5\n1 2 10\n2 3 5')
+  assert.equal(graph.directed, true)
+  assert.equal(graph.nodes.length, 4) // 5 + 自动创建的 1, 2, 3
+  assert.equal(graph.edges.length, 2)
+  const rewritten = core.updateUiGraphBlockPositions(uiGraphSrc, 0, {
+    '1': { x: -3.5, y: 2 },
+    '5': { x: 4, y: 1.25 },
+  })
+  const reparsed = core.parseUiGraph('[dag]', rewritten.split('\n').slice(1, -1).join('\n'))
+  assert.equal(reparsed.nodes.find((n) => n.id === '1').x, -3.5)
+  assert.equal(reparsed.nodes.find((n) => n.id === '5').x, 4)
+  assert.match(core.transformMarkdown(uiGraphSrc), /starlog-graph-static/)
+  assert.match(core.convertMarkdownForCopy(uiGraphSrc, 'luogu'), /\*\*有向图\*\*/)
+
+  const uiFormSrc = [
+    '::begin_ui-choose[Ti][题型][more 1 2]',
+    '[A]',
+    '一',
+    '[B]',
+    '二',
+    '::end_ui-choose',
+    '::ui-write[Num][set 2][R 0 1 3]',
+    '当前 <<Num>> <IF:$<Num> \\le 2$,达标>',
+    '::IF[$<Num> == 2$]',
+    '块级命中',
+    '::IF_END',
+  ].join('\n')
+  const staticMd = core.convertMarkdownForCopy(uiFormSrc, 'luogu')
+  assert.match(staticMd, /当前 2 达标/)
+  assert.match(staticMd, /块级命中/)
+  assert.doesNotMatch(staticMd, /::begin_ui-choose|::IF/)
+})
+

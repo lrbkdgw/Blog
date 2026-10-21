@@ -54,6 +54,14 @@ export function stripMarkdown(md: string): string {
   return md
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/::begin_ui-ccs[\s\S]*?::end_ui-ccs/gi, ' ')
+    .replace(/::begin_ui-graph[\s\S]*?::end_ui-graph/gi, ' ')
+    .replace(/::begin_ui-choose[\s\S]*?::end_ui-choose/gi, ' ')
+    .replace(/::begin_ui-select[\s\S]*?::end_ui-select/gi, ' ')
+    .replace(/::begin_ui-if[\s\S]*?::end_ui-if/gi, ' ')
+    .replace(/::ui-write(?:\[[^\]]*\])+/g, ' ')
+    .replace(/::IF\[[\s\S]*?\]/g, ' ')
+    .replace(/::IF_END/g, ' ')
+    .replace(/<IF:[^,>]+,([^>]*)>/g, '$1')
     .replace(/`[^`]*`/g, ' ')
     .replace(/\$\$[\s\S]*?\$\$/g, ' ')
     .replace(/\$[^$\n]*\$/g, ' ')
@@ -488,6 +496,17 @@ export function extractToc(md: string): TocItem[] {
     if (ccsStart) {
       let end = index + 1
       while (end < lines.length && !/^\s*::end_ui-ccs\s*$/i.test(lines[end])) end += 1
+      if (end < lines.length) {
+        index = end
+        continue
+      }
+    }
+
+    const uiBlockStart = line.match(/^\s*::begin_ui-(graph|choose|select|if)(?=$|\[|\s)/i)
+    if (uiBlockStart) {
+      const endRe = new RegExp(`^\\s*::end_ui-${uiBlockStart[1]}\\s*$`, 'i')
+      let end = index + 1
+      while (end < lines.length && !endRe.test(lines[end])) end += 1
       if (end < lines.length) {
         index = end
         continue

@@ -179,6 +179,20 @@ export function activate(context: vscode.ExtensionContext) {
         ),
       ),
     ),
+    vscode.commands.registerCommand('starlog.insertGraph', () =>
+      insertSnippet(
+        new vscode.SnippetString(
+          '::begin_ui-graph[${1:dag}]\n${2:5}\n${3:1 2 10}\n${4:2 3 5}\n$0::end_ui-graph\n',
+        ),
+      ),
+    ),
+    vscode.commands.registerCommand('starlog.insertUiControls', () =>
+      insertSnippet(
+        new vscode.SnippetString(
+          '::begin_ui-choose[${1:a_new_choose}][${2:今天吃什么}][${3:more 1 2}]\n[A]\n${4:选项一}\n[B]\n${5:选项二}\n::end_ui-choose\n\n$0',
+        ),
+      ),
+    ),
     vscode.commands.registerCommand('starlog.insertCallout', () => insertCallout()),
     vscode.commands.registerCommand('starlog.insertLatexSymbol', () => insertLatexSymbol()),
     vscode.commands.registerCommand('starlog.insertTuackTable', () =>

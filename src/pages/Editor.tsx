@@ -17,8 +17,10 @@ import { Archive,
   Italic,
   Link2,
   List,
+  ListChecks,
   ListOrdered,
   Loader2,
+  Network,
   Omega,
   LogIn,
   LockKeyhole,
@@ -492,6 +494,18 @@ export default function Editor() {
 
   const markDirty = () => setDirty(true)
 
+  const handlePreviewContentChange = useCallback(
+    (updater: (prevMarkdown: string) => string) => {
+      setContent((prev) => {
+        const next = updater(prev)
+        setDebouncedContent(next)
+        return next
+      })
+      setDirty(true)
+    },
+    [],
+  )
+
   /* ------------------------------ 工具栏操作 ------------------------------ */
   const applyAction = (action: EditAction | null) => {
     if (!action) return
@@ -610,6 +624,32 @@ export default function Editor() {
             s,
             e,
             '::begin_ui-ccs\ncreate_point:(0,0);\ncreate_line:(-2,-1),(2,3),[color=red];\ncreate_line:(7*x^2+6*x+90*x^3);\n::end_ui-ccs\n',
+          ),
+        ),
+    },
+    {
+      icon: Network,
+      title: '图论画布 (ui-graph)',
+      run: () =>
+        withSelection((v, s, e) =>
+          insertBlock(
+            v,
+            s,
+            e,
+            '::begin_ui-graph[dag]\n5\n1 2 10\n2 3 5\n1 3\n3 4 2\n::end_ui-graph\n',
+          ),
+        ),
+    },
+    {
+      icon: ListChecks,
+      title: '交互表单与条件映射 (ui-choose / ui-select / ui-if / ui-write)',
+      run: () =>
+        withSelection((v, s, e) =>
+          insertBlock(
+            v,
+            s,
+            e,
+            '::begin_ui-choose[a_new_choose][今天吃什么][more 1 2]\n[A]\n香蕉好吃！\n[B]\n我爱吃苹果！\n::end_ui-choose\n\n我今天要吃 ::ui-write[Number][R 0 1 4] 根香蕉！\n\n::ui-write[Ti][R 0 0 3][new][name 已经吃的香蕉][faster]\n\n<IF:$<number> \\le <Ti>$,你真棒！><IF:$<number> \\leq 2 \\times <Ti>$,还不错！>\n',
           ),
         ),
     },
@@ -1526,7 +1566,11 @@ export default function Editor() {
                     {title || '未命名文章'}
                   </h1>
                 )}
-                <Markdown content={deferredContent} sourceLineMarkers={view === 'split'} />
+                <Markdown
+                  content={deferredContent}
+                  sourceLineMarkers={view === 'split'}
+                  onContentChange={handlePreviewContentChange}
+                />
               </div>
             )}
           </div>

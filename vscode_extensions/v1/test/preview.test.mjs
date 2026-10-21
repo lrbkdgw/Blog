@@ -307,3 +307,126 @@ test('直角坐标系 ui-ccs 极简无上下栏、未悬浮不显示点坐标、
   assert.deepEqual(errors, [])
 })
 
+test('表单交互与条件映射（#82）及图论画布（#83）实时响应式交互、焦点保持与拖拽缩放', async (t) => {
+  const fullDoc = [
+    '::begin_ui-choose[a_new_choose][今天吃什么][more 1 2]',
+    '[A]',
+    '香蕉好吃！',
+    '[B]',
+    '我！',
+    '爱！',
+    '$\\texttt{吃}$！',
+    '香！',
+    '蕉！',
+    '[X]',
+    '都不吃！',
+    '[$\\sum$]',
+    '计算题！',
+    '::end_ui-choose',
+    '',
+    '水果选择：',
+    '::begin_ui-select[Fruit][search]',
+    '香蕉',
+    '苹果',
+    '葡萄',
+    '::end_ui-select',
+    '',
+    '::begin_ui-if[CheckList][lined]',
+    '完成热身题',
+    '检查边界条件',
+    '::nex',
+    '写出正解',
+    '',
+    '补充复杂度证明',
+    '::end_ui-if',
+    '',
+    '我今天要吃 ::ui-write[Number][R 0 1 4] 根香蕉！',
+    '',
+    '::ui-write[Name][len 2 4][new][name 名字]',
+    '::ui-write[Tag][set 极客][len 1 6][new][merge][name 头衔]',
+    '',
+    '::ui-write[Ti][R 0 0 3][new][name 已经吃的香蕉][faster]',
+    '',
+    '选号：<<a_new_choose>>｜水果：<<Fruit>>｜勾选：<<CheckList-1>>｜目标：<number>',
+    '',
+    '<IF:$<number> \\le <Ti>$,你真棒！><IF:$<number> \\leq 2 \\times <Ti>$,还不错！>',
+    '',
+    '::IF[$<CheckList-1> == 1$]',
+    '### 热身已完成',
+    '::IF_END',
+    '',
+    '::begin_ui-graph[dag]',
+    '5',
+    '1 2 10',
+    '2 3 5',
+    '::end_ui-graph',
+  ].join('\n')
+
+  const { dom, document, errors } = await preview(fullDoc)
+  t.after(() => close(dom))
+
+  // 1. 验证初始状态：未选时 choose 为 0，Number 为 1（被 [1,4] 夹紧），Ti 为 0，下拉默认第 1 项，merge 共用一行 2 列
+  assert.match(document.body.textContent, /选号：0｜水果：1｜勾选：0｜目标：1/)
+  assert.doesNotMatch(document.body.textContent, /你真棒！|还不错！|热身已完成/)
+  const mergedRow = document.querySelector('.ui-write-row')
+  assert.equal(mergedRow.children.length, 2)
+
+  // 2. 点击选择框第 1 项与第 4 项（more 1 2），再点第 2 项不会超出上限 2
+  const chooseButtons = document.querySelector('[data-ui-id="a_new_choose"]').querySelectorAll('[role="checkbox"]')
+  assert.equal(chooseButtons.length, 4)
+  assert.ok(chooseButtons[3].querySelector('.katex')) // [$\sum$] 渲染了 KaTeX
+  chooseButtons[0].click()
+  await settle()
+  chooseButtons[3].click()
+  await settle()
+  chooseButtons[1].click() // 已达上限 2，不应被选中
+  await settle()
+  assert.match(document.body.textContent, /选号：1, 4/)
+
+  // 3. 勾选 lined 是否框第 1 项：<<CheckList-1>> 变为 1，多行/多段逐行删除线元素存在且 ::IF 块实时出现
+  const ifCard = document.querySelector('[data-ui-id="CheckList"]')
+  const ifItem = ifCard.querySelector('[role="checkbox"]')
+  assert.equal(ifCard.querySelectorAll('.ui-if-lined .ui-if-strike-text').length, 3)
+  assert.equal(ifCard.querySelectorAll('.ui-if-strike-bar').length, 0)
+  ifItem.click()
+  await settle()
+  assert.match(document.body.textContent, /勾选：1/)
+  assert.match(document.body.textContent, /热身已完成/)
+
+  // 4. 拖动 faster 滑块 Ti 到 2，同时修改行内填空框 Number 为 2：输入框不丢焦点，单行输入框无多余外层边框盒
+  const nameField = document.querySelector('[data-ui-id="Name"]')
+  assert.doesNotMatch(nameField.className, /\bborder\b/)
+  await setInput(dom, document.querySelector('input[type="range"]'), '2')
+  const inlineInput = document.querySelector('span[data-ui-id="Number"] input')
+  inlineInput.focus()
+  await setInput(dom, inlineInput, '2')
+  assert.equal(document.activeElement, document.querySelector('span[data-ui-id="Number"] input'))
+  assert.match(document.body.textContent, /目标：2/)
+  assert.match(document.body.textContent, /你真棒！/)
+  assert.match(document.body.textContent, /还不错！/)
+
+  // 5. 图论画布：纯图展示无网格线、无坐标轴、悬浮不显示坐标，且支持滚轮缩放与双击复位
+  const graphBox = document.querySelector('.ui-graph-box.ui-ccs-box')
+  assert.ok(graphBox)
+  assert.equal(graphBox.querySelectorAll('[data-node-id]').length, 4)
+  assert.equal(graphBox.querySelectorAll('[data-graph-arrow]').length, 2)
+  const graphSvg = graphBox.querySelector('svg[role="application"]')
+  assert.equal(graphSvg.querySelectorAll('line').length, 0)
+  assert.equal(graphSvg.querySelectorAll('path').length, 2)
+  const node1 = graphSvg.querySelector('[data-node-id="1"]')
+  const [, nsx, nsy] = node1.getAttribute('transform').match(/translate\(([-\d.]+),([-\d.]+)\)/)
+  graphSvg.dispatchEvent(new dom.window.MouseEvent('pointermove', { bubbles: true, clientX: Number(nsx), clientY: Number(nsy) }))
+  await settle()
+  assert.doesNotMatch(graphSvg.textContent || '', /\([-\d.]+,\s*[-\d.]+\)/)
+  const initUnits = Number(graphSvg.getAttribute('data-units-per-px'))
+  graphSvg.dispatchEvent(new dom.window.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -120, clientX: 340, clientY: 210 }))
+  await settle()
+  assert.ok(Number(graphSvg.getAttribute('data-units-per-px')) < initUnits)
+  graphSvg.dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true }))
+  await settle()
+  assert.equal(Number(graphSvg.getAttribute('data-units-per-px')), initUnits)
+
+  assert.deepEqual(errors, [])
+})
+
+

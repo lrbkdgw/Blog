@@ -24,3 +24,19 @@ export {
 } from './core/uiCcs'
 export { parseArticleDirectives, stripArticleDirectives } from './core/articleDirectives'
 export { LATEX_SYMBOLS, latexSymbolInsert, searchLatexSymbols } from './core/latexSymbols'
+export {
+  computeGraphEdgeGeometries,
+  parseUiGraph,
+  renderStaticUiGraphSvg,
+  updateUiGraphBlockPositions,
+} from './core/uiGraph'
+export {
+  evaluateUiCondition,
+  expandInlineIfDirectives,
+  extractUiWidgetDefs,
+  parseUiChooseBlock,
+  parseUiIfBlock,
+  parseUiSelectBlock,
+  parseUiWriteToken,
+  renderStaticUiMarkdown,
+} from './core/uiWidgets'

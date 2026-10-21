@@ -25,7 +25,9 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 🕓 **历史版本** | 每次发布均保留 Git 提交版本；可浏览、查看、继续编辑、**自定义版本名称**（随待更新队列保存到 GitHub 对应文章下），并对比任意两个版本的**源码差异或较新版本的渲染差异**（新增 / 删除着色） |
 | 🔒 **密码文章** | 标题与标签公开，正文与其他信息由浏览器 Web Crypto 加密；本设备成功解锁一次后可自动恢复 |
 | 🎛️ **交互展示框** | Markdown 中可声明整数、有理数、字符串变量，实时计算并渲染展示内容 |
+| 🧩 **表单交互与条件映射** | 支持选择框 `ui-choose`、行内下拉框 `ui-select`（支持 `search`）、是否框 `ui-if`（支持 `lined` 划线动画）、填空/滑块输入框 `ui-write`（支持 `merge` 同行并列），以及 `<<id>>` / `<id>` 最高优先级值替换、`<IF:<a>,<b>>` 与 `::IF[<a>]…::IF_END` KaTeX 条件渲染（issue #82） |
 | 📐 **直角坐标系** | `::begin_ui-ccs … ::end_ui-ccs` 语法支持描点、多点折线与函数曲线（如 `create_line:(7*x^2+6*x+90*x^3);`），可拖拽平移、滚轮/双指缩放预览整个平面（issue #76） |
+| 🕸️ **图论画布** | `::begin_ui-graph[<附加项>] … ::end_ui-graph` 延续直角坐标系同款视觉与拖拽平移/滚轮缩放交互，支持 `dag` 有向边、可选边权与坐标、未声明端点自动创建，并在站内编辑器中支持**「调整模式」**可视化拖拽节点并直接写回 Markdown 源码保存（issue #83） |
 | 📄 **文章排版指令** | 文首 `::set-font` / `::set-code-font` / `::set-background` 强制本文的字体与动态背景，仅在阅读本文时生效 |
 | 📱 **响应式** | 手机 / 平板 / 桌面均已适配，支持打印样式 |
 | 🧭 **全透明页头 + 全站防冲突让路** | 页头不铺底色、不加毛玻璃、不描边、不投影，背景原样透出；**全站所有页面**滚进顶栏前在页头下沿下方提前沿多控制点 Hermite S 曲线柔和消融（`src/lib/headerYield.ts`，含深色模式感知明度伽马补偿），字不与导航打架、背景一像素不动（issue #53 / #63 / #71 / #78） |
@@ -283,7 +285,7 @@ Google Fonts，离开文章即恢复，不改动已保存的设置。
 仓库自带可直接安装的 **Markdown 语法拓展**插件。它在 VS Code **内置 Markdown 预览**中直接复用本站的 React 渲染组件、KaTeX / 高亮配置与 Tailwind 样式，展示框中的公式、表格和代码也会随变量实时更新。
 
 ```bash
-code --install-extension vscode_extensions/v1/starlog-markdown-2.2.0.vsix --force
+code --install-extension vscode_extensions/v1/starlog-markdown-2.3.0.vsix --force
 ```
 
 安装后打开 `.md` 并使用 `Ctrl/⌘+K V` 分屏预览；命令 **Markdown 语法拓展: 打开语法示例文档**可用于对照检查。成品内嵌所需脚本、样式与公式字体，无需额外插件或本地博客服务。MPE 保留为可选静态兼容模式，完整同款交互效果请使用内置预览。
@@ -374,6 +376,74 @@ create_line:(7*x^2+6*x+90*x^3);
 - `create_line:(表达式);`：绘制显式函数 $y = f(x)$ 的曲线（支持 `+ - * / ^`、括号、隐式乘法及 `sin`、`cos`、`tan`、`sqrt`、`abs`、`ln`、`exp` 等常见函数，自动自适应细分采样与视口裁剪），可选 `,[color=...]`。
 - 支持嵌套在 `::show_begin … ::show_end` 展示框内，随变量滑块实时更新函数曲线与点线位置。
 
+## 🕸️ 图论画布语法（ui-graph）
+
+使用 `::begin_ui-graph[<附加项>]` 与 `::end_ui-graph` 包围图定义，延续与二维直角坐标系一致的简洁卡片外框与**拖拽平移、滚轮/双指缩放、双击复位**交互（纯图论画布展示，不显示坐标轴、网格或节点坐标气泡）（issue #83）：
+
+```markdown
+::begin_ui-graph[dag]
+5
+1 2 10
+2 3 5
+::end_ui-graph
+```
+
+- `<point>`（或 `<point> (<x>, <y>)`）：创建节点（可选指定平面坐标）；**即使某个点从未单独创建过，只要出现在边中也自动创建**。
+- `<s> <t> <w> <x> <y>`：声明从起点 `s` 到终点 `t` 的边，其中边权 `w` 与坐标 `x, y` 均为可选项。
+- 附加项 `[dag]`：启用有向图渲染（自动计算停靠于节点圆周上的箭头、平行重边弧线与自环曲线）。
+- **编辑器「调整模式」**：在站内编辑器中编辑文章时，画布右上角自动提供「调整模式」开关，开启后可直接拖拽图中任意节点调整位置并写回对应 Markdown 源码块保存，亦支持一键重置自动布局。
+
+## 🧩 表单交互与条件映射语法（ui-choose / ui-select / ui-if / ui-write / IF）
+
+支持在文章中嵌入四类表单交互控件，并通过最高优先级的 `<<id>>` / `<id>` 替换与 KaTeX 数学条件公式动态控制正文渲染（issue #82）：
+
+```markdown
+::begin_ui-choose[a_new_choose][今天吃什么][more 1 2]
+[A]
+香蕉好吃！
+[B]
+我！
+爱！
+$\texttt{吃}$！
+香！
+蕉！
+[$\sum$]
+计算题！
+::end_ui-choose
+
+当前饮品：
+::begin_ui-select[Drink][search]
+乌龙茶
+美式咖啡
+柠檬水
+::end_ui-select
+
+::begin_ui-if[Todo][lined]
+完成第一题
+::nex
+完成对拍验证
+::end_ui-if
+
+我今天要吃 ::ui-write[Number][R 0 1 4] 根香蕉！
+
+::ui-write[Name][len 2 4][new][name 名字]
+::ui-write[Tag][set 极客][len 1 6][new][merge][name 头衔]
+
+::ui-write[Ti][R 0 0 3][new][name 已经吃的香蕉][faster]
+
+<IF:$<number> \le <Ti>$,你真棒！><IF:$<number> \leq 2 \times <Ti>$,还不错！>
+
+::IF[$<Todo-1> == 1$]
+> 第一题已完成！
+::IF_END
+```
+
+- **选择框 `::begin_ui-choose[<id>][<name>][<附加项>] … ::end_ui-choose`**：默认单选，`more <down> <up>` 指定最少/最多可选数量，选项按从上到下以 $1$ 起编号。
+- **下拉框 `::begin_ui-select[<id>][<附加项>] … ::end_ui-select`**：默认单选且紧跟在上一行文本后，支持 `more <down> <up>` 与 `search` 搜索过滤。
+- **是否框 `::begin_ui-if[<id>][<附加项>] … ::end_ui-if`**：以 `::nex` 分隔各布尔项，通过 1-indexed `<<id-number>>` / `<id-number>` 引用（`0`/`1`），`lined` 启用勾选划线动画。
+- **填空框 `::ui-write[<id>][<附加项>]`**：默认紧接当前行文本后，支持 `set <number>`、`R <bit> <down> <up>`、`len <down> <up>`、`new`、`name <name>`（需 `new`）、`faster`（需 `R` + `new`）与 `merge`（与前一个无内容间隔的 `new` 共用一行）。
+- **值替换与条件渲染**：`<<id>>` / `<id>` 以最高优先级替换为控件当前值或 1-indexed 选项编号；`<IF:<a>,<b>>` 与 `::IF[<a>] … ::IF_END` 支持含四则运算、位运算、比大小与逻辑运算的 KaTeX 条件表达式。
+
 ## 📄 文章排版指令（字体与背景）
 
 在文章**最开头**（frontmatter 之后、第一段正文之前）可以写三条指令，强制本文的排版。指令行本身不是正文，不会出现在渲染结果、摘要与字数统计里：
@@ -457,11 +527,15 @@ create_line:(7*x^2+6*x+90*x^3);
 │   │   ├── AnimatedBackdrop.tsx   # 动态背景生命周期、樱花与粒子星链
 │   │   ├── WeatherBackdrops.ts     # 雪花、暴雨与竹林（Canvas）
 │   │   ├── CoordinatePlane.tsx    # 可交互二维直角坐标系（::begin_ui-ccs）
+│   │   ├── GraphPlane.tsx         # 可交互图论画布与编辑器「调整模式」（::begin_ui-graph）
+│   │   ├── UiWidgets.tsx          # 选择框 / 下拉框 / 是否框 / 填空框交互组件
 │   │   ├── LatexPicker.tsx        # LaTeX 符号选择框（Shift + ↑）
 │   │   └── ThemePicker.tsx        # 页头配色主题色卡
 │   ├── lib/                       # 配置、文章解析、认证、GitHub API、待更新队列、主题
 │   │   ├── headerYield.ts         # 全站顶栏防冲突渐变遮罩引擎
 │   │   ├── uiCcs.ts               # 直角坐标系语法解析、数学表达式求值与曲线裁剪
+│   │   ├── uiGraph.ts             # 图论画布解析、自动布局、几何裁剪与源码点位回写
+│   │   ├── uiWidgets.ts           # 表单交互控件解析、控件值映射与 KaTeX 条件求值
 │   │   ├── themes.ts              # 配色主题元数据（真实色卡在 styles/index.css）
 │   │   ├── articleDirectives.ts   # 文首排版指令 ::set-font / ::set-code-font / ::set-background
 │   │   ├── latexSymbols.ts        # LaTeX 符号目录（别名搜索，编辑器与 VS Code 插件共用）

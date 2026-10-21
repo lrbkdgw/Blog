@@ -1,5 +1,42 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-21 · 新增表单交互与条件映射语法（#82）及可调点位的交互图论画布 `ui-graph`（#83）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+1. **Issue #82（添加 Markdown 语法 #8）**：需要在文章与预览中支持完整的交互式表单控件体系（选择框 `ui-choose`、行内下拉框 `ui-select`、是否框 `ui-if`、填空框 `ui-write`），并支持最高优先级的控件值/1-indexed 编号替换（`<<id>>` / `<id>`、`<<id-number>>` / `<id-number>`）以及基于 KaTeX 数学公式的条件渲染（行内 `<IF:<a>,<b>>` 与块级 `::IF[<a>] … ::IF_END`，支持四则、位运算、比大小与逻辑运算）。
+2. **Issue #83（添加 Markdown 语法 #9）**：需要新增与平面直角坐标系 `ui-ccs` 风格完全一致的图论画布语法 `::begin_ui-graph[<附加项>] … ::end_ui-graph`，支持 `dag` 有向图、可选 `w, x, y` 参数、未显式声明端点的自动创建，并在编辑文章时提供「调整模式」以可视化拖拽调整节点位置并直接保存回 Markdown 源码。
+
+### 新增
+
+- **表单交互与条件映射引擎及组件（Issue #82）**（`src/lib/uiWidgets.ts`、`src/components/UiWidgets.tsx`、`src/components/Markdown.tsx`、`src/styles/index.css`）：
+  - **选择框** `::begin_ui-choose[<id>][<name>][<附加项>] … ::end_ui-choose`：默认单选，支持 `more <down> <up>` 自定义最少/最多可选数量，选项名（如 `[$\sum$]`）与多行选项内容均支持完整 Markdown 与 KaTeX 数学公式渲染；
+  - **下拉选择框** `::begin_ui-select[<id>][<附加项>] … ::end_ui-select`：默认单选并自动紧跟在上一行文本后，支持 `more <down> <up>` 多选与 `search` 实时搜索过滤（Portal 浮层定位，不受祖先裁切影响）；
+  - **是否框** `::begin_ui-if[<id>][<附加项>] … ::end_ui-if`：按 `::nex` 分隔各布尔条目，支持 1-indexed `<<id-number>>` / `<id-number>` 调用及 `lined` 逐行勾选平滑划线动画（`.ui-if-lined .ui-if-strike-text`，配合 `box-decoration-break: clone` 完整支持多行折行、换行与多段富文本）；
+  - **填空框** `::ui-write[<id>][<附加项>]`：默认紧跟在当前行文本后，采用无多余外框包裹的极简现代输入样式，完整实现 `set <number>`、`R <bit> <down> <up>`（实数精度与上下界校验）、`len <down> <up>`、`new`（独占一行）、`name <name>`（需配合 `new`）、`faster`（滑动条选择，需配合 `R` 与 `new`）以及 `merge`（与前一个相邻无间隔内容的 `new` 共用一行，连续多个 `merge` 多列并排）；
+  - **最高优先级值替换与 KaTeX 条件求值**：支持 `<<id>>` / `<id>` 最高优先级替换（选择框/下拉框替换为 1-indexed 选项编号，同时保留精确匹配优先 + 大小写不敏感兜底以兼容 `<Number>` / `<number>` 混写），支持行内 `<IF:<a>,<b>>` 与可嵌套块级 `::IF[<a>] … ::IF_END`，内置递归下降数学与位运算求值器（支持 `\le`、`\leq`、`\ge`、`\geq`、`\ne`、`\neq`、`\times`、`\div`、`\cdot`、`\frac{}{}`、`<<`、`>>`、`\\ll`、`\\gg`、`&`、`|`、`\oplus`、`~`、`\land`、`\lor`、`\lnot` 等）；
+  - **零重挂载稳定架构**：`Markdown.tsx` 使用 `lineMapRef` 与 `onContentChangeRef` 保持 `ReactMarkdown` 自定义组件表引用恒定，确保交互勾选、打开搜索下拉框、连续输入填空框与触发 `lined` 动画时子组件绝不卸载重挂、光标焦点完全保留。
+- **交互图论画布与编辑器「调整模式」坐标写回（Issue #83）**（`src/lib/uiGraph.ts`、`src/components/GraphPlane.tsx`、`src/pages/Editor.tsx`）：
+  - 实现 `::begin_ui-graph[<附加项>] … ::end_ui-graph` 解析器与确定性布局引擎：支持孤立点 `<point>`、显式点坐标 `<id> (<x>, <y>)`、边定义 `<s> <t> [<w> [<x> <y>]]`（`w, x, y` 可选）、未显式声明端点的自动创建、自环与平行重边自动弧度分离，以及 `[dag]` 有向边箭头；
+  - `GraphPlane` 延续 `CoordinatePlane` 同款简洁圆角画布卡片与鼠标/触控拖拽平移、滚轮/双指缩放、双击与快捷键复位交互，采用纯图论节点与边展示（不显示直角坐标轴、网格线或悬浮坐标气泡，悬浮节点时柔和聚光关联边）；
+  - 在站内编辑器（`Editor.tsx` 传入 `onContentChange`）中自动展示右上角**「调整模式」**悬浮开关，开启后可直接拖拽图中任意节点实时预览并在松手/保存时将精确坐标写回对应 `::begin_ui-graph` 源码块（支持一键重置自动布局）。
+- **全链路生态同步**（`src/lib/markdownSource.ts`、`src/lib/posts.ts`、`content/about.md`、`README.md`、`vscode_extensions/v1`、`offline/index.html`）：
+  - 编辑器工具栏新增「图论画布 (`ui-graph`)」与「交互表单与条件映射」快捷插入按钮；
+  - 洛谷 / 基本 Markdown 复制转换器、文章摘要与目录提取器同步适配全部新语法；
+  - VS Code 插件 **Markdown 语法拓展**升级至 **`2.3.0`**（新增 `starlog.insertGraph`、`starlog.insertUiControls` 命令、代码片段、TextMate 语法高亮与 MPE 静态兼容渲染，重新打包 `starlog-markdown-2.3.0.vsix`）；
+  - 同步重新构建并自检离线单文件版 `offline/index.html`。
+
+### 验证
+
+- 更新 `scripts/test-features.mjs` 与 `vscode_extensions/v1/test/{extension,host,styles,preview}.test.mjs`：覆盖 `#82` 全部控件/修饰符/公式位运算/焦点保持/划线动画测试，以及 `#83` 自动建点/`dag` 箭头/重边自环/编辑器「调整模式」拖拽写回与重置完整回归。
+- `npm test`（根特性测试 + VS Code 插件 71 项测试）、`npm --prefix vscode_extensions/v1 run typecheck`、`npm run build`、`npm run extension:package`、`npm run build:offline` 全部零错误通过。
+
 ## 2026-10-20 · 暴雨背景晶莹液滴重构（消除直线雨丝与阅读干扰）及全站顶部防挡位置精调与深色模式优化
 
 | 模型信息 | |
