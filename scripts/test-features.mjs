@@ -32,6 +32,7 @@ const uiWidgetsMod = await importTsModule('src/lib/uiWidgets.ts')
 const uiGraphMod = await importTsModule('src/lib/uiGraph.ts')
 const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
+const echoCaveMod = await importTsModule('src/lib/echoCave.ts')
 
 function makeMock2dContext(strokeSink, drawSink) {
   const stack = []
@@ -248,6 +249,8 @@ test('全站所有路由页面与悬浮门户组件均已接入顶部防冲突�
     'src/pages/Editor.tsx',
     'src/pages/Login.tsx',
     'src/pages/NotFound.tsx',
+    'src/pages/Toolbox.tsx',
+    'src/pages/EchoCave.tsx',
   ]
   for (const rel of requiredYieldFiles) {
     const content = readFileSync(join(root, rel), 'utf8')
@@ -785,3 +788,151 @@ test('Issue #83：ui-graph 自动创建未声明节点、dag 有向箭头、重�
   }
 })
 
+
+/* -------------------------------------------------------------------------- */
+/*               6. Issue #93 百宝箱 · 回声洞：识别限流、豁免与混排验证           */
+/* -------------------------------------------------------------------------- */
+
+test('Issue #93：回声洞每小时 3 条 / 每天 10 条的识别规则、贡献者豁免、隐藏过滤与一言穿插节奏', () => {
+  const mk = (id, login, date, association = 'NONE', hidden = false) => ({
+    id,
+    text: `回声 ${id}`,
+    source: 'discussion',
+    createdAt: date.getTime(),
+    authorLogin: login,
+    authorAssociation: association,
+    hidden,
+  })
+  const at = (day, hour, minute = 0) => new Date(2026, 9, day, hour, minute)
+
+  // 普通用户 alice：21 日 10 点连发 5 条，之后每小时再发，合计当天 13 条
+  const alice = [
+    mk('a1', 'alice', at(21, 10, 0)),
+    mk('a2', 'alice', at(21, 10, 10)),
+    mk('a3', 'alice', at(21, 10, 20)),
+    mk('a4', 'alice', at(21, 10, 30)),
+    mk('a5', 'alice', at(21, 10, 40)),
+    mk('a6', 'alice', at(21, 11, 0)),
+    mk('a7', 'alice', at(21, 11, 10)),
+    mk('a8', 'alice', at(21, 11, 20)),
+    mk('a9', 'alice', at(21, 12, 0)),
+    mk('a10', 'alice', at(21, 12, 10)),
+    mk('a11', 'alice', at(21, 12, 20)),
+    mk('a12', 'alice', at(21, 13, 0)),
+    mk('a13', 'alice', at(21, 13, 10)),
+    // 次日重新计数，应被识别
+    mk('a14', 'alice', at(22, 10, 0)),
+  ]
+  // 仓库贡献者 bob（CONTRIBUTOR）：同一小时连发 15 条也应全部识别
+  const bob = Array.from({ length: 15 }, (_, i) => mk(`b${i + 1}`, 'bob', at(21, 10, i), 'CONTRIBUTOR'))
+  // 站长（ownerLogin 口径）即使身份标记缺失也不受限
+  const owner = Array.from({ length: 5 }, (_, i) => mk(`o${i + 1}`, 'SiteOwner', at(21, 10, i)))
+
+  const recognized = echoCaveMod.filterRecognizedEchoes(
+    [...alice, ...bob, ...owner].reverse(),
+    { ownerLogin: 'siteowner' },
+  )
+  const recognizedIds = recognized.map((e) => e.id)
+  assert.deepEqual(
+    recognizedIds.filter((id) => id.startsWith('a')),
+    ['a1', 'a2', 'a3', 'a6', 'a7', 'a8', 'a9', 'a10', 'a11', 'a12', 'a14'],
+    'alice 当天只应识别 10 点的前 3 条及其后各时段凑满的每日前 10 条，次日重新计数',
+  )
+  assert.equal(recognizedIds.filter((id) => id.startsWith('b')).length, 15, '仓库贡献者应不受频率限制')
+  assert.equal(recognizedIds.filter((id) => id.startsWith('o')).length, 5, '仓库所有者应不受频率限制')
+
+  // 被最小化隐藏的回声不出现、也不占用作者的识别名额
+  const withHidden = [
+    mk('h1', 'carol', at(21, 9, 0), 'NONE', true),
+    mk('h2', 'carol', at(21, 9, 5)),
+    mk('h3', 'carol', at(21, 9, 10)),
+    mk('h4', 'carol', at(21, 9, 15)),
+    mk('h5', 'carol', at(21, 9, 20)),
+  ]
+  assert.deepEqual(
+    echoCaveMod.filterRecognizedEchoes(withHidden).map((e) => e.id),
+    ['h2', 'h3', 'h4'],
+    '隐藏内容应被跳过且不占名额，该小时仍识别之后的前 3 条',
+  )
+
+  // 发送侧额度：达到小时上限优先报 hour，其次才是每日上限；贡献者永不受限
+  const now = at(21, 10, 50).getTime()
+  assert.deepEqual(
+    (({ hourCount, dayCount, canSend, blockedBy }) => ({ hourCount, dayCount, canSend, blockedBy }))(
+      echoCaveMod.getEchoSendQuota(alice.slice(0, 5), 'ALICE', false, now),
+    ),
+    { hourCount: 5, dayCount: 5, canSend: false, blockedBy: 'hour' },
+  )
+  const dayQuota = echoCaveMod.getEchoSendQuota(alice.slice(0, 12), 'alice', false, at(21, 14, 0).getTime())
+  assert.equal(dayQuota.hourCount, 0)
+  assert.equal(dayQuota.blockedBy, 'day')
+  assert.equal(echoCaveMod.getEchoSendQuota(alice, 'alice', true, now).canSend, true)
+  assert.equal(echoCaveMod.ECHO_HOURLY_LIMIT, 3)
+  assert.equal(echoCaveMod.ECHO_DAILY_LIMIT, 10)
+  assert.equal(echoCaveMod.isRateLimitExemptAssociation('COLLABORATOR'), true)
+  assert.equal(echoCaveMod.isRateLimitExemptAssociation('FIRST_TIME_CONTRIBUTOR'), false)
+
+  // 一言穿插节奏：空池全听一言；单条与一言交替；多条时每 3 声 1 声一言
+  assert.equal(echoCaveMod.shouldFetchHitokoto(0, 0), true)
+  assert.deepEqual([0, 1, 2, 3].map((i) => echoCaveMod.shouldFetchHitokoto(i, 1)), [false, true, false, true])
+  assert.deepEqual(
+    [0, 1, 2, 3, 4, 5].map((i) => echoCaveMod.shouldFetchHitokoto(i, 6)),
+    [false, false, true, false, false, true],
+  )
+
+  // 洗牌袋：一袋之内不重复，换袋时第一条不与上一声重复
+  const pool = Array.from({ length: 5 }, (_, i) => mk(`p${i}`, 'pool', at(21, 8, i)))
+  let bag = []
+  let lastId = null
+  const seen = []
+  for (let i = 0; i < 11; i += 1) {
+    const drawn = echoCaveMod.drawFromEchoBag(pool, bag, lastId, () => 0.42)
+    bag = drawn.bag
+    lastId = drawn.entry.id
+    seen.push(drawn.entry.id)
+  }
+  assert.deepEqual(new Set(seen.slice(0, 5)).size, 5, '洗牌袋第一轮应恰好听遍 5 声各一次')
+  assert.notEqual(seen[5], seen[4], '第二袋的第一声不应与上一声重复')
+  assert.notEqual(seen[10], seen[9], '第三袋的第一声不应与上一声重复')
+
+  // 文本清洗：讨论正文的 Markdown / HTML 剥成一句纯文本并按 200 字截断
+  assert.equal(
+    echoCaveMod.toEchoPlainText('> **你好**，[世界](https://example.com)！\n![图](x.png)\n```\ncode\n```'),
+    '你好，世界！',
+  )
+  assert.equal(echoCaveMod.toEchoPlainText('<!-- starlog-echo-cave -->'), '')
+  assert.equal(echoCaveMod.normalizeEchoText('  多\n 行\t文字  '), '多 行 文字')
+  const longText = echoCaveMod.toEchoPlainText('回'.repeat(240))
+  assert.equal(longText.length, 201)
+  assert.ok(longText.endsWith('…'))
+
+  // 一言解析与出处整理
+  assert.deepEqual(
+    echoCaveMod.parseHitokoto({ id: 42, hitokoto: '山高水长。', from: '某本书', from_who: '某人' }),
+    {
+      id: 'hitokoto-42',
+      text: '山高水长。',
+      source: 'hitokoto',
+      createdAt: 0,
+      attribution: '《某本书》 · 某人',
+    },
+  )
+  assert.equal(echoCaveMod.parseHitokoto({ hitokoto: '   ' }), null)
+  assert.equal(echoCaveMod.parseHitokoto(null), null)
+  assert.equal(echoCaveMod.formatHitokotoAttribution({ from: '', from_who: null }), undefined)
+
+  // 站点接线：导航页签、路由、离线硬检查与端点的 OFFLINE 置空写法都在位
+  const layoutSource = readFileSync(join(root, 'src/components/Layout.tsx'), 'utf8')
+  assert.match(layoutSource, /to: '\/toolbox', label: '百宝箱'/)
+  const appSource = readFileSync(join(root, 'src/App.tsx'), 'utf8')
+  assert.match(appSource, /path="toolbox" element=\{<Toolbox \/>\}/)
+  assert.match(appSource, /path="toolbox\/echo-cave" element=\{<EchoCave \/>\}/)
+  const echoSource = readFileSync(join(root, 'src/lib/echoCave.ts'), 'utf8')
+  assert.match(echoSource, /const HITOKOTO_API = OFFLINE \? '' : 'https:\/\/v1\.hitokoto\.cn'/)
+  const verifySource = readFileSync(join(root, 'scripts/verify-offline.mjs'), 'utf8')
+  assert.match(verifySource, /v1\.hitokoto\.cn/)
+  const githubSource = readFileSync(join(root, 'src/lib/github.ts'), 'utf8')
+  assert.match(githubSource, /export async function loadEchoCaveEntries/)
+  assert.match(githubSource, /starlog-echo-cave/)
+  assert.match(githubSource, /export async function checkIsRepoContributor/)
+})
