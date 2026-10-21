@@ -161,6 +161,7 @@ const FORBIDDEN = [
   ['OAuth 令牌交换', 'login/oauth/access_token'],
   ['云端字体（Google Fonts）', 'fonts.googleapis.com'],
   ['云端字体资源域名', 'fonts.gstatic.com'],
+  ['hitokoto 一言（回声洞）', 'v1.hitokoto.cn'],
   ['OAuth App Client ID', 'Ov23lid9P8sdNuiKhkzy'],
 ]
 const found = FORBIDDEN.filter(([, needle]) => html.includes(needle))

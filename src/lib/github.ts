@@ -1,4 +1,4 @@
-import { commentsConfig, githubConfig, oauthConfig, STORAGE_KEYS } from './config'
+import { commentsConfig, echoCaveConfig, githubConfig, oauthConfig, STORAGE_KEYS } from './config'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 import { OFFLINE, OFFLINE_NO_NETWORK_HINT } from './runtime'
 
@@ -842,6 +842,8 @@ export interface BlogDiscussionThread {
 export interface BlogCommentsResult {
   repositoryId: string
   categoryId: string
+  /** 当前令牌在该仓库的权限（ADMIN / MAINTAIN / WRITE / TRIAGE / READ），读不到时为 null */
+  viewerPermission: string | null
   discussion: BlogDiscussionThread | null
   comments: BlogDiscussionComment[]
 }
@@ -857,11 +859,15 @@ function discussionMarker(postSlug: string): string {
 
 async function getDiscussionRepository(
   target: RepoTarget,
-): Promise<{ repositoryId: string; categoryId: string }> {
+  categoryName: string = commentsConfig.category,
+  featureLabel = '评论',
+  categorySetting = 'commentsConfig.category',
+): Promise<{ repositoryId: string; categoryId: string; viewerPermission: string | null }> {
   const data = await githubGraphql<{
     repository: {
       id: string
       hasDiscussionsEnabled: boolean
+      viewerPermission: string | null
       discussionCategories: { nodes: DiscussionCategoryNode[] }
     } | null
   }>(
@@ -869,6 +875,7 @@ async function getDiscussionRepository(
       repository(owner: $owner, name: $repo) {
         id
         hasDiscussionsEnabled
+        viewerPermission
         discussionCategories(first: 100) {
           nodes { id name }
         }
@@ -877,17 +884,17 @@ async function getDiscussionRepository(
     { owner: target.owner, repo: target.repo },
   )
   const repository = data.repository
-  if (!repository) throw new Error('找不到评论所使用的 GitHub 仓库')
+  if (!repository) throw new Error(`找不到${featureLabel}所使用的 GitHub 仓库`)
   if (!repository.hasDiscussionsEnabled) {
     throw new Error('目标仓库尚未开启 GitHub Discussions，请先在仓库 Settings → Features 中启用')
   }
   const category = repository.discussionCategories.nodes.find(
-    (item) => item.name.toLowerCase() === commentsConfig.category.toLowerCase(),
+    (item) => item.name.toLowerCase() === categoryName.toLowerCase(),
   )
   if (!category) {
-    throw new Error(`GitHub Discussions 中没有“${commentsConfig.category}”分类，请修改 commentsConfig.category`)
+    throw new Error(`GitHub Discussions 中没有“${categoryName}”分类，请修改 ${categorySetting}`)
   }
-  return { repositoryId: repository.id, categoryId: category.id }
+  return { repositoryId: repository.id, categoryId: category.id, viewerPermission: repository.viewerPermission ?? null }
 }
 
 interface DiscussionCommentConnection {
@@ -900,12 +907,11 @@ interface DiscussionNode extends BlogDiscussionThread {
   comments: DiscussionCommentConnection
 }
 
-async function findBlogDiscussion(
-  postSlug: string,
+async function findDiscussionByMarker(
+  marker: string,
   categoryId: string,
   target: RepoTarget,
 ): Promise<DiscussionNode | null> {
-  const marker = discussionMarker(postSlug)
   let after: string | null = null
   do {
     const data: {
@@ -1010,10 +1016,11 @@ export async function loadBlogDiscussionComments(
   target = getRepoTarget(),
 ): Promise<BlogCommentsResult> {
   const repository = await getDiscussionRepository(target)
-  const discussion = await findBlogDiscussion(postSlug, repository.categoryId, target)
+  const discussion = await findDiscussionByMarker(discussionMarker(postSlug), repository.categoryId, target)
   const comments = discussion ? await loadRemainingDiscussionComments(discussion, target) : []
   return {
     ...repository,
+    viewerPermission: repository.viewerPermission,
     discussion: discussion
       ? { id: discussion.id, number: discussion.number, url: discussion.url }
       : null,
@@ -1021,24 +1028,16 @@ export async function loadBlogDiscussionComments(
   }
 }
 
-export async function createBlogDiscussion(
+async function createDiscussionThread(
   repositoryId: string,
   categoryId: string,
-  postSlug: string,
-  postTitle: string,
+  title: string,
+  body: string,
 ): Promise<BlogDiscussionThread> {
-  const title = `${commentsConfig.titlePrefix} ${postTitle.trim() || postSlug}`.slice(0, 180)
-  const body = [
-    `此讨论用于文章「${postTitle.trim() || postSlug}」的评论。`,
-    '',
-    '评论请遵守 GitHub 社区准则。',
-    '',
-    discussionMarker(postSlug),
-  ].join('\n')
   const data = await githubGraphql<{
     createDiscussion: { discussion: BlogDiscussionThread | null }
   }>(
-    `mutation CreateBlogDiscussion(
+    `mutation CreateDiscussionThread(
       $repositoryId: ID!
       $categoryId: ID!
       $title: String!
@@ -1053,10 +1052,27 @@ export async function createBlogDiscussion(
         discussion { id number url }
       }
     }`,
-    { repositoryId, categoryId, title, body },
+    { repositoryId, categoryId, title: title.slice(0, 180), body },
   )
-  if (!data.createDiscussion.discussion) throw new Error('无法创建文章对应的 GitHub Discussion')
+  if (!data.createDiscussion.discussion) throw new Error('无法创建 GitHub Discussion')
   return data.createDiscussion.discussion
+}
+
+export async function createBlogDiscussion(
+  repositoryId: string,
+  categoryId: string,
+  postSlug: string,
+  postTitle: string,
+): Promise<BlogDiscussionThread> {
+  const title = `${commentsConfig.titlePrefix} ${postTitle.trim() || postSlug}`
+  const body = [
+    `此讨论用于文章「${postTitle.trim() || postSlug}」的评论。`,
+    '',
+    '评论请遵守 GitHub 社区准则。',
+    '',
+    discussionMarker(postSlug),
+  ].join('\n')
+  return createDiscussionThread(repositoryId, categoryId, title, body)
 }
 
 export async function addBlogDiscussionComment(
@@ -1082,6 +1098,83 @@ export async function deleteBlogDiscussionComment(commentId: string): Promise<vo
     }`,
     { commentId },
   )
+}
+
+/* ------------------------------ 百宝箱 · 回声洞 ----------------------------- */
+
+/**
+ * 回声洞的 GitHub Discussions 快照。
+ *
+ * 所有回声都存在**同一个讨论**里（每条回声 = 一条 comment），这样：
+ *   - 只需一个讨论，不用为每句话建一个（页面加载与限流统计都简单）；
+ *   - 讨论正文带 `echoCaveConfig.marker`，换了标题也能找到旧讨论；
+ *   - `viewerPermission` 用来判断当前用户是不是仓库贡献者（贡献者不受条数限制）。
+ */
+export interface EchoCaveSnapshot {
+  repositoryId: string
+  categoryId: string
+  viewerPermission: string | null
+  discussion: BlogDiscussionThread | null
+  /** 按时间升序（旧 → 新） */
+  comments: BlogDiscussionComment[]
+}
+
+/** 读取回声墙（需要登录：GitHub Discussions 的 GraphQL 没有匿名入口） */
+export async function loadEchoCave(target = getRepoTarget()): Promise<EchoCaveSnapshot> {
+  const { repositoryId, categoryId, viewerPermission } = await getDiscussionRepository(
+    target,
+    echoCaveConfig.category,
+    '回声洞',
+    'echoCaveConfig.category',
+  )
+  const discussion = await findDiscussionByMarker(echoCaveConfig.marker, categoryId, target)
+  const comments = discussion ? await loadRemainingDiscussionComments(discussion, target) : []
+  return {
+    repositoryId,
+    categoryId,
+    viewerPermission,
+    discussion: discussion
+      ? { id: discussion.id, number: discussion.number, url: discussion.url }
+      : null,
+    comments: comments.sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+  }
+}
+
+/**
+ * 把一条回声写进 GitHub Discussions。
+ *
+ * 回声墙讨论还不存在时先创建（任何人都能在公开仓库的分类下建讨论），
+ * 然后把内容作为该讨论的评论提交。条数限制在页面侧按已加载的评论统计，
+ * 这里只做空内容与超长兜底（GitHub 侧无法区分「本站限制」）。
+ */
+export async function postEchoCaveEcho(
+  text: string,
+  snapshot: EchoCaveSnapshot | null,
+  target = getRepoTarget(),
+): Promise<BlogDiscussionThread> {
+  const body = text.trim()
+  if (!body) throw new Error('回声不能是空的')
+  if (body.length > echoCaveConfig.maxLength) {
+    throw new Error(`回声最多 ${echoCaveConfig.maxLength} 个字`)
+  }
+  const current = snapshot ?? (await loadEchoCave(target))
+  const discussion =
+    current.discussion ??
+    (await createDiscussionThread(
+      current.repositoryId,
+      current.categoryId,
+      echoCaveConfig.title,
+      [
+        '这里是回声洞的回声墙。',
+        '',
+        '在博客「百宝箱 → 回声洞」页面下方的横线上写下的话，会作为评论出现在这里。',
+        '评论请遵守 GitHub 社区准则。',
+        '',
+        echoCaveConfig.marker,
+      ].join('\n'),
+    ))
+  await addBlogDiscussionComment(discussion.id, body)
+  return discussion
 }
 
 /* ---------------------------- 账号外观偏好 ---------------------------- */
