@@ -1,5 +1,31 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-21 · 图论画布边权改为纯数字标注（#91）并同步重建离线单文件版
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+- **Issue #91（图中边权周边的底删掉，改为纯数字）**：`ui-graph` 图论画布的边权标签此前渲染为「圆角药丸底色块 + 数字」——白色/深色矩形底会在边线附近形成明显的遮挡色块，既与极简画布风格不符，也容易盖住相邻的边线、箭头与平行边弧线。
+
+### 调整
+
+- **边权标签去掉底色块，改为纯数字**（`src/components/GraphPlane.tsx`）：
+  - 删除边权标签的 `<rect>` 底色（原 `pillW` 计算、`fill-white/95 dark:fill-ink-950/95` 圆角矩形）与包裹用的 `<g transform>`，直接以 `<text>` 在 `labelPos` 处居中绘制纯数字；
+  - 使用 `dominant-baseline="middle"` 垂直居中（替代原先 `y=3.6` 的基线补偿），字号、等宽字体、`fill-ink-600 / dark:fill-ink-300` 配色与悬浮关联边时的高亮（`brand-600 / brand-300`）保持不变；
+  - 标签沿用已有的 `pointer-events-none`，不影响画布拖拽平移与「调整模式」节点拖拽命中。
+- **文档同步**（`README.md`、`content/about.md`）：在「图论画布语法（ui-graph）」小节补充说明——边权以纯数字直接标注在边旁，不再带白色/深色底色块。
+
+### 验证
+
+- `scripts/test-features.mjs` 新增 `#91` 回归断言：交互画布的边权分组内 `<rect>` 数量必须为 `0`，边权文本严格为纯数字（`['10', '5']`）；静态 SVG 模式同样不得出现 `<rect>` 底色并保留数字 `10`。
+- 已重新构建并自检离线单文件版：`npm run build:offline` 通过（3.15 MB、13 篇内置文章、无在线端点），并将 `dist-offline/index.html` 同步到 `offline/index.html`。
+- `node --test scripts/test-features.mjs`（6 项）、`npm run extension:test`（71 项通过 / 4 项跳过）、`npm --prefix vscode_extensions/v1 run typecheck`、`npm run build` 全部零错误通过。
+
 ## 2026-10-21 · 新增表单交互与条件映射语法（#82）及可调点位的交互图论画布 `ui-graph`（#83）
 
 | 模型信息 | |
