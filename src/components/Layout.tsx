@@ -74,7 +74,7 @@ function Logo() {
         width={40}
         height={40}
         fetchPriority="high"
-        className="h-10 w-10 rounded-xl object-cover shadow-md shadow-brand-600/20 ring-1 ring-black/5 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105 dark:ring-white/10"
+        className="h-10 w-10 rounded-xl object-cover shadow-md shadow-brand-600/20 ring-1 ring-black/5 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105 dark:ring-white/15 dark:shadow-black/50"
       />
     </Link>
   )
@@ -178,8 +178,8 @@ function Header({ onSearch }: { onSearch: () => void }) {
               className={({ isActive }) =>
                 `relative rounded-lg px-3 py-1.5 text-sm font-medium transition ${
                   isActive
-                    ? 'text-brand-600 dark:text-brand-300'
-                    : 'text-ink-500 hover:text-ink-900 dark:text-ink-400 dark:hover:text-white'
+                    ? 'text-brand-600 dark:text-brand-300 dark:[text-shadow:0_1px_12px_rgba(0,0,0,0.65)]'
+                    : 'text-ink-500 hover:text-ink-900 dark:text-ink-200/95 dark:hover:text-white dark:[text-shadow:0_1px_12px_rgba(0,0,0,0.65)]'
                 }`
               }
             >
@@ -198,7 +198,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
         <div className="ml-auto flex items-center gap-1.5">
           <button
             onClick={onSearch}
-            className="btn-ghost group hidden h-9 gap-2 !px-3 text-ink-400 sm:inline-flex"
+            className="btn-ghost group hidden h-9 gap-2 !px-3 text-ink-500 sm:inline-flex dark:text-ink-300"
             aria-label="搜索"
           >
             <Search size={16} />
@@ -211,7 +211,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
             <Search size={17} />
           </button>
 
-          <Link to="/settings" className="btn-ghost h-9 w-9 !px-0 text-ink-500 hover:text-brand-600 dark:text-ink-400 dark:hover:text-brand-300" title="设置" aria-label="设置">
+          <Link to="/settings" className="btn-ghost h-9 w-9 !px-0 text-ink-500 hover:text-brand-600 dark:text-ink-300 dark:hover:text-brand-300" title="设置" aria-label="设置">
             <Settings size={18} />
           </Link>
 
@@ -315,8 +315,8 @@ function Footer() {
   )
 
   return (
-    <footer className="no-print mt-24 border-t border-ink-200/60 py-10 dark:border-white/[0.08]">
-      <div className="container-page flex flex-col items-center justify-between gap-5 sm:flex-row" data-yield-list>
+    <footer className="no-print mt-24" data-yield-list>
+      <div className="container-page flex flex-col items-center justify-between gap-5 border-t border-ink-200/60 py-10 sm:flex-row dark:border-white/[0.08]">
         <div className="text-center sm:text-left">
           <p className="text-xs text-ink-400">
             © {new Date().getFullYear()} {siteConfig.author.name}

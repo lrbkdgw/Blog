@@ -325,8 +325,8 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
   }
 
   return (
-    <section className="no-print mt-16 border-t border-ink-200/60 pt-10 dark:border-white/[0.08]" data-yield-list>
-      <div className="mb-6 flex items-center justify-between gap-3">
+    <section className="no-print mt-16" data-yield-list>
+      <div className="mb-6 flex items-center justify-between gap-3 border-t border-ink-200/60 pt-10 dark:border-white/[0.08]">
         <h2 className="flex items-center gap-2 font-serif text-xl font-bold tracking-tight text-ink-900 dark:text-white">
           <MessageSquare size={20} className="text-brand-500" />
           评论 ({comments.length})

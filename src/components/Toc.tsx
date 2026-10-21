@@ -13,7 +13,7 @@ export function Toc({ items }: { items: TocItem[] }) {
     if (headings.length === 0) return
 
     const onScroll = () => {
-      const offset = 120
+      const offset = 108
       let current = headings[0].id
       for (const h of headings) {
         if (h.getBoundingClientRect().top <= offset) current = h.id
@@ -48,7 +48,8 @@ export function Toc({ items }: { items: TocItem[] }) {
                   e.preventDefault()
                   const el = document.getElementById(item.id)
                   if (el) {
-                    window.scrollTo({ top: el.offsetTop - 90, behavior: 'smooth' })
+                    const top = el.getBoundingClientRect().top + window.scrollY - 100
+                    window.scrollTo({ top, behavior: 'smooth' })
                     history.replaceState(null, '', `#${item.id}`)
                   }
                 }}

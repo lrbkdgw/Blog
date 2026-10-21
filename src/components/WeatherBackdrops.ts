@@ -117,7 +117,16 @@ const rainCloudCache = new Map<boolean, HTMLCanvasElement>()
  * drawImage 与批量描边；山形、树林与云场用固定种子，缩放窗口不会换一张脸。
  */
 export function createRain(initialDark: boolean): Renderer {
-  interface Drop { x: number; y: number; z: number; len: number; drift: number; bright: number }
+  interface Drop {
+    x: number
+    y: number
+    z: number
+    size: number
+    drift: number
+    bright: number
+    phase: number
+    bokeh: boolean
+  }
   interface Ripple { x: number; y: number; age: number; life: number; scale: number; depth: number }
   interface NoiseGrid { data: Float32Array; size: number }
 
@@ -135,6 +144,10 @@ export function createRain(initialDark: boolean): Renderer {
   let shimmer: HTMLCanvasElement
   let grade: HTMLCanvasElement
   let foreground: HTMLCanvasElement
+  let dropSoft: HTMLCanvasElement
+  let dropCrisp: HTMLCanvasElement
+  let dropBokeh: HTMLCanvasElement
+  let rainVeil: HTMLCanvasElement
 
   const seeded = (seed: number) => {
     let value = (seed * 2654435761) >>> 0
@@ -293,16 +306,115 @@ export function createRain(initialDark: boolean): Renderer {
     return texture
   }
 
-  const spawn = (top = false): Drop => ({
-    x: rand(-w * 0.65, w * 1.15),
-    y: top ? rand(-h * 0.32, -16) : rand(-80, h),
-    z: rand(0.05, 1),
-    len: rand(0.55, 1.55),
-    drift: rand(0.78, 1.24),
-    bright: rand(0, 1),
-  })
+  const spawn = (top = false): Drop => {
+    const z = Math.pow(Math.random(), 1.35)
+    return {
+      x: rand(-w * 0.45, w * 1.15),
+      y: top ? rand(-h * 0.3, -18) : rand(-80, h),
+      z,
+      size: rand(0.8, 1.28),
+      drift: rand(0.85, 1.16),
+      bright: rand(0, 1),
+      phase: rand(0, TAU),
+      bokeh: z > 0.72 && Math.random() < 0.26,
+    }
+  }
 
-  const dropVelocity = (speed: number, z: number) => (920 + speed * 25) * (0.42 + z * 1.08)
+  /**
+   * 契合人眼视觉暂留（~45ms）与 60fps 的舒缓自然雨滴速度（约 410–920 px/s，单帧位移 7–15px）：
+   * 彻底低于人眼把运动颗粒拖成细直线的融合阈值，使每一滴水珠都呈现出清晰温润的液滴下落质感。
+   */
+  const dropVelocity = (speed: number, z: number) => (370 + speed * 5.6) * (0.56 + z * 0.68)
+
+  const currentSlope = (d: Drop, atTime = time) => {
+    const windBase = (values.wind ?? 25) / 100
+    const gust = 1 + 0.14 * Math.sin(atTime * 0.37) + 0.07 * Math.sin(time * 0 + atTime * 0.91 + 1.4)
+    return windBase * gust * 0.44 * d.drift + Math.sin(atTime * 1.35 + d.phase) * 0.015
+  }
+
+  /**
+   * 预烘焙中空折射水滴贴图（40×84 / 40×92）：
+   * 下部为圆润半球形液滴弯月面，上部收束为轻柔水汽短尾；内部通透半透明（透出背后山林与页面底色），
+   * 边缘具菲涅尔微反光，底端带焦散月牙高光——呈现真正的液态水珠而非粉笔白线或雪点。
+   */
+  const makeWaterDropSprite = (
+    sw: number,
+    sh: number,
+    rgbBody: [number, number, number],
+    rgbRim: [number, number, number],
+    sharpness: number,
+  ) =>
+    paint(sw, sh, (ctx) => {
+      const image = ctx.createImageData(sw, sh)
+      const data = image.data
+      const cx = (sw - 1) * 0.5
+      const bellyV = 0.72
+      for (let py = 0; py < sh; py += 1) {
+        const v = py / (sh - 1)
+        const profile =
+          v <= bellyV
+            ? 0.14 + 0.86 * Math.pow(smooth01(0.02, bellyV, v), 0.78)
+            : Math.sqrt(Math.max(0, 1 - Math.pow((v - bellyV) / 0.265, 2)))
+        const halfW = profile * (sw * 0.44)
+        if (halfW <= 0.25) continue
+        const axial =
+          Math.pow(smooth01(0.02, 0.46, v), sharpness) * (1 - smooth01(0.92, 0.995, v))
+        for (let px = 0; px < sw; px += 1) {
+          const u = (px - cx) / halfW
+          const r2 = u * u
+          if (r2 >= 1) continue
+          const r = Math.sqrt(r2)
+          const edgeFeather = 1 - smooth01(0.78, 1.0, r)
+          const body = 0.34 * Math.pow(1 - r2, 0.85)
+          const fresnelRim =
+            0.44 * Math.exp(-Math.pow((r - 0.74) / 0.18, 2)) * smooth01(0.26, bellyV, v)
+          const meniscusGlint =
+            0.58 *
+            Math.exp(-(Math.pow((u + 0.16) / 0.48, 2) + Math.pow((v - 0.8) / 0.115, 2)))
+          const alpha = Math.min(1, (body + fresnelRim + meniscusGlint) * axial * edgeFeather)
+          if (alpha <= 0.002) continue
+          const specMix = Math.min(1, (fresnelRim * 0.8 + meniscusGlint * 1.25) / 0.65)
+          const idx = (py * sw + px) * 4
+          data[idx] = rgbBody[0] + (rgbRim[0] - rgbBody[0]) * specMix
+          data[idx + 1] = rgbBody[1] + (rgbRim[1] - rgbBody[1]) * specMix
+          data[idx + 2] = rgbBody[2] + (rgbRim[2] - rgbBody[2]) * specMix
+          data[idx + 3] = Math.round(alpha * 255)
+        }
+      }
+      ctx.putImageData(image, 0, 0)
+    })
+
+  /** 预烘焙近景浅景深散景水珠贴图（64×64）：中心通透、外缘柔焦菲涅尔光晕。 */
+  const makeBokehDropSprite = (
+    size: number,
+    rgbBody: [number, number, number],
+    rgbRim: [number, number, number],
+  ) =>
+    paint(size, size, (ctx) => {
+      const image = ctx.createImageData(size, size)
+      const data = image.data
+      const c = (size - 1) * 0.5
+      for (let py = 0; py < size; py += 1) {
+        for (let px = 0; px < size; px += 1) {
+          const ux = (px - c) / (size * 0.47)
+          const uy = (py - c) / (size * 0.47)
+          const r2 = ux * ux + uy * uy
+          if (r2 >= 1) continue
+          const r = Math.sqrt(r2)
+          const body = 0.2 * Math.pow(1 - r2, 0.65)
+          const ring = 0.36 * Math.exp(-Math.pow((r - 0.76) / 0.15, 2))
+          const feather = 1 - smooth01(0.84, 1.0, r)
+          const alpha = Math.min(1, (body + ring) * feather)
+          const mix = Math.min(1, ring / 0.36)
+          const idx = (py * size + px) * 4
+          data[idx] = rgbBody[0] + (rgbRim[0] - rgbBody[0]) * mix
+          data[idx + 1] = rgbBody[1] + (rgbRim[1] - rgbBody[1]) * mix
+          data[idx + 2] = rgbBody[2] + (rgbRim[2] - rgbBody[2]) * mix
+          data[idx + 3] = Math.round(alpha * 255)
+        }
+      }
+      ctx.putImageData(image, 0, 0)
+    })
 
   const build = () => {
     horizon = Math.round(h * 0.7)
@@ -828,7 +940,7 @@ export function createRain(initialDark: boolean): Renderer {
       c.fillRect(0, 0, w, landH)
     }), 2)
 
-    water = paint(w, waterH, (ctx) => {
+    water = soften(paint(w, waterH, (ctx) => {
       // 倒影顶端（紧贴岸线）压一层水色：镜像会把陆地上的雾带一起翻下来，
       // 不压的话岸线下方会出现一条亮带。真实湖面在掠射角下也偏向水色。
       const shoreLine = ctx.createLinearGradient(0, 0, 0, Math.max(8, waterH * 0.07))
@@ -919,7 +1031,7 @@ export function createRain(initialDark: boolean): Renderer {
           [1, 'rgba(255,255,255,0)'],
         ])
       }
-    })
+    }), 2)
 
     /* ------------------------------ 雾团 ------------------------------ */
     const cachedMist = rainMistCache.get(dark)
@@ -1088,6 +1200,52 @@ export function createRain(initialDark: boolean): Renderer {
       blade(-w * 0.04, 1)
       blade(w * 1.04, -1)
     }), 4)
+
+    /* -------------------- 光学水滴贴图与远景斜向雨幕 -------------------- */
+    dropSoft = makeWaterDropSprite(
+      40,
+      84,
+      dark ? [136, 178, 210] : [132, 158, 178],
+      dark ? [216, 240, 255] : [250, 253, 255],
+      1.35,
+    )
+    dropCrisp = makeWaterDropSprite(
+      40,
+      92,
+      dark ? [158, 198, 228] : [120, 148, 170],
+      dark ? [242, 251, 255] : [255, 255, 255],
+      1.1,
+    )
+    dropBokeh = makeBokehDropSprite(
+      64,
+      dark ? [142, 184, 214] : [168, 192, 208],
+      dark ? [224, 244, 255] : [252, 254, 255],
+    )
+    rainVeil = soften(
+      paint(256, 256, (ctx) => {
+        const image = ctx.createImageData(256, 256)
+        const data = image.data
+        const veilRgb = dark ? [150, 188, 218] : [224, 236, 245]
+        for (let py = 0; py < 256; py += 1) {
+          const v = py / 255
+          const envY = Math.sin(Math.PI * Math.pow(v, 0.82))
+          for (let px = 0; px < 256; px += 1) {
+            const u = px / 255
+            // 横纵向双端平滑归零，绝不留下贴图边界硬接缝
+            const envX = Math.pow(Math.sin(Math.PI * u), 1.4)
+            const streak = fbm(u * 3.1 - v * 0.55, v * 0.42)
+            const a = smooth01(0.42, 0.78, streak) * envY * envX
+            const idx = (py * 256 + px) * 4
+            data[idx] = veilRgb[0]
+            data[idx + 1] = veilRgb[1]
+            data[idx + 2] = veilRgb[2]
+            data[idx + 3] = Math.round(a * 255)
+          }
+        }
+        ctx.putImageData(image, 0, 0)
+      }),
+      4,
+    )
   }
 
   return {
@@ -1098,11 +1256,11 @@ export function createRain(initialDark: boolean): Renderer {
       build()
       drops = []
       ripples = []
-      resize(drops, Math.round((values.count ?? 70) * 15 * area(w, h)), spawn)
+      resize(drops, Math.round((values.count ?? 70) * 3.8 * area(w, h)), spawn)
     },
     configure(next) {
       values = next
-      resize(drops, Math.round((values.count ?? 70) * 15 * area(w, h)), spawn)
+      resize(drops, Math.round((values.count ?? 70) * 3.8 * area(w, h)), spawn)
       if (!(values.lightning ?? 0)) {
         flash = 0
         second = 0
@@ -1127,14 +1285,14 @@ export function createRain(initialDark: boolean): Renderer {
         nextFlash = time + rand(8, 18)
       }
 
-      const wind = (values.wind ?? 25) / 100
       const speed = values.speed ?? 65
       for (const d of drops) {
+        // 用推进前的时刻 slope 积分一步，保证上一帧绘制角度与本步位移向量严格同轴
+        const slope = currentSlope(d, time - dt)
         const vy = dropVelocity(speed, d.z)
-        const slope = wind * 0.65 * d.drift
         d.y += vy * dt
         d.x += vy * slope * dt
-        if (d.y > h + 60 || d.x < -w * 0.7 || d.x > w * 1.5) Object.assign(d, spawn(true))
+        if (d.y > h + 40 || d.x < -w * 0.55 || d.x > w * 1.35) Object.assign(d, spawn(true))
       }
 
       rippleClock += dt * ((values.count ?? 70) / 100) * (0.85 + speed / 95)
@@ -1209,56 +1367,57 @@ export function createRain(initialDark: boolean): Renderer {
         ctx.restore()
       }
 
-      /* 雨：三层，越近越快越长；雨丝方向严格对齐实际位移斜率，消除横向漂移假感 */
-      const wind = (values.wind ?? 25) / 100
+      /* 远景柔焦雨幕：用大尺度水汽纹理表现漫天雨势，完全不产生细碎线条噪声 */
+      const windBase = (values.wind ?? 25) / 100
+      const gust = 1 + 0.14 * Math.sin(time * 0.37) + 0.07 * Math.sin(time * 0.91 + 1.4)
+      const wind = windBase * gust
       const speed = values.speed ?? 65
-      const colors = dark
-        ? [
-            ['rgba(148,184,208,0.10)', 'rgba(190,218,238,0.19)'],
-            ['rgba(178,210,232,0.15)', 'rgba(216,238,250,0.27)'],
-            ['rgba(222,240,252,0.22)', 'rgba(246,251,255,0.34)'],
-          ]
-        : [
-            ['rgba(54,78,94,0.12)', 'rgba(40,64,82,0.18)'],
-            ['rgba(44,68,86,0.17)', 'rgba(32,56,74,0.25)'],
-            ['rgba(30,52,70,0.24)', 'rgba(22,44,62,0.34)'],
-          ]
       ctx.save()
-      ctx.lineCap = 'round'
-      for (let layer = 0; layer < 3; layer += 1) {
-        if (layer === 2) {
-          ctx.strokeStyle = dark ? 'rgba(214,238,252,0.055)' : 'rgba(255,255,255,0.13)'
-          ctx.lineWidth = 2.8
-          ctx.beginPath()
-          for (const d of drops) {
-            if (Math.min(2, Math.floor(d.z * 3)) !== layer) continue
-            const vy = dropVelocity(speed, d.z)
-            const slope = wind * 0.65 * d.drift
-            const length = (16 + vy * 0.02) * d.len
-            ctx.moveTo(d.x, d.y)
-            ctx.lineTo(d.x + slope * length, d.y + length)
-          }
-          ctx.stroke()
-        }
-        for (let bucket = 0; bucket < 2; bucket += 1) {
-          ctx.strokeStyle = colors[layer][bucket]
-          ctx.lineWidth = [0.5, 0.7, 1.1][layer] * (bucket ? 1.15 : 0.9)
-          ctx.beginPath()
-          for (const d of drops) {
-            if (Math.min(2, Math.floor(d.z * 3)) !== layer) continue
-            if ((d.bright > 0.58) !== (bucket === 1)) continue
-            const vy = dropVelocity(speed, d.z)
-            const slope = wind * 0.65 * d.drift
-            const length = (12 + vy * 0.0175) * d.len
-            ctx.moveTo(d.x, d.y)
-            ctx.lineTo(d.x + slope * length, d.y + length)
-          }
-          ctx.stroke()
-        }
+      for (let i = 0; i < 2; i += 1) {
+        const veilX = (((time * (0.045 + i * 0.028) * (0.4 + wind)) + i * 0.5) % 1) * w * 1.5 - w * 0.45
+        ctx.globalAlpha = (dark ? 0.048 : 0.082) * (0.65 + mist * 0.7)
+        ctx.drawImage(rainVeil, veilX, -h * 0.06, w * 0.95, horizon * 1.08)
       }
       ctx.restore()
 
-      /* 涟漪：外圈 + 内圈 + 落下瞬间的一根小水柱 */
+      /* 自然光学液滴：通透梨形水珠 + 浅景深散景水珠 + 中央阅读净空区 */
+      const halfW = Math.max(1, w * 0.5)
+      // 中央正文列（约 820px 宽）深度降噪，两侧天空与山湖保留完整烟雨层次
+      const readingEdgeInner = Math.min(0.42, 350 / halfW)
+      const readingEdgeOuter = Math.min(0.84, 575 / halfW)
+      ctx.save()
+      ctx.imageSmoothingEnabled = true
+      for (const d of drops) {
+        const slope = currentSlope(d, time)
+        const normX = Math.abs(d.x - halfW) / halfW
+        const outsideReading = smooth01(readingEdgeInner, readingEdgeOuter, normX)
+        const baseAlpha = dark
+          ? (0.15 + d.z * 0.22) * (0.62 + d.bright * 0.48)
+          : (0.17 + d.z * 0.24) * (0.62 + d.bright * 0.46)
+        let sprite: HTMLCanvasElement
+        let dropW: number
+        let dropH: number
+        if (d.bokeh) {
+          sprite = dropBokeh
+          dropW = (6.8 + d.z * 5.8) * d.size
+          dropH = dropW * 1.18
+          ctx.globalAlpha = baseAlpha * 0.3 * (0.08 + 0.92 * outsideReading)
+        } else {
+          // 真实水珠长宽比仅 1:2.1–1:3.1（宽 2.6–6.2px，长 6.2–18px），圆润晶莹，绝不拉成细硬直线
+          sprite = d.z > 0.56 && d.bright > 0.45 ? dropCrisp : dropSoft
+          dropW = (3.0 + d.z * 2.5) * d.size
+          dropH = dropW * (2.05 + d.z * 1.05) + dropVelocity(speed, d.z) * 0.0022
+          ctx.globalAlpha = baseAlpha * (0.18 + 0.82 * outsideReading)
+        }
+        ctx.save()
+        ctx.translate(d.x, d.y)
+        ctx.rotate(-Math.atan(slope))
+        ctx.drawImage(sprite, -dropW * 0.5, -dropH, dropW, dropH)
+        ctx.restore()
+      }
+      ctx.restore()
+
+      /* 涟漪：外圈 + 内圈 + 落下瞬间溅起的晶莹小水珠 */
       ctx.save()
       ctx.lineCap = 'round'
       for (const r of ripples) {
@@ -1278,13 +1437,13 @@ export function createRain(initialDark: boolean): Renderer {
           ctx.stroke()
           ctx.globalAlpha = 1
         }
-        if (t < 0.12) {
-          ctx.strokeStyle = dark ? 'rgba(235,248,255,0.4)' : 'rgba(255,255,255,0.62)'
-          const hh = (2 + r.depth * 4) * (1 - t / 0.12)
-          ctx.beginPath()
-          ctx.moveTo(r.x, r.y - hh)
-          ctx.lineTo(r.x, r.y)
-          ctx.stroke()
+        if (t < 0.16) {
+          const crown = 1 - t / 0.16
+          const beadR = (1.6 + r.depth * 1.9) * crown
+          const lift = (1.8 + r.depth * 3.8) * Math.sin(Math.PI * (1 - crown * 0.65))
+          ctx.globalAlpha = crown * (dark ? 0.42 : 0.58)
+          ctx.drawImage(dropBokeh, r.x - beadR, r.y - lift - beadR, beadR * 2, beadR * 2)
+          ctx.globalAlpha = 1
         }
       }
       ctx.restore()

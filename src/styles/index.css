@@ -344,29 +344,75 @@
     background-color: transparent;
     box-shadow: none;
   }
-  /* issue #71：正文给页头让路。只给「滚进这一栏」的内容块挂 mask，让文字在进入页头
-     之前渐变透明掉；背景（body 渐变 + 动态背景层）在别的图层，一像素都不动，
-     因此既让了路，也没有违反 #53 / #63 的「页头不许遮挡背景」。
-     --yield-top = 页头下沿相对块顶部的距离，--yield-fade = 淡出行程，由 headerYield.ts 写入。 */
+  /* issue #71 / #78：正文给页头让路。只给「滚进这一栏」的内容块挂 mask，让文字在触及页头之前
+     就在页头下沿下方提前柔和消融；背景（body 渐变 + 动态背景层）在独立图层，一像素都不动，
+     既彻底杜绝重叠，也严格遵守 #53 / #63「页头不许遮挡背景」。
+     --yield-top = 完全清晰线相对块顶部的距离，--yield-fade = 过渡带高度，由 headerYield.ts 写入；
+     多控制点 Hermite S 曲线消除首尾折角（Mach band），并为深色模式单独做感知明度伽马补偿。 */
   [data-yield='on'] {
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
     -webkit-mask-image: linear-gradient(
       to bottom,
-      transparent 0,
-      transparent calc(var(--yield-top) - var(--yield-fade, 40px)),
+      rgba(0, 0, 0, 0) 0,
+      rgba(0, 0, 0, 0) calc(var(--yield-top) - var(--yield-fade, 40px)),
+      rgba(0, 0, 0, 0.061) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.85),
+      rgba(0, 0, 0, 0.216) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.7),
+      rgba(0, 0, 0, 0.5) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.5),
+      rgba(0, 0, 0, 0.784) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.3),
+      rgba(0, 0, 0, 0.939) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.15),
       #000 var(--yield-top)
     );
     mask-image: linear-gradient(
       to bottom,
-      transparent 0,
-      transparent calc(var(--yield-top) - var(--yield-fade, 40px)),
+      rgba(0, 0, 0, 0) 0,
+      rgba(0, 0, 0, 0) calc(var(--yield-top) - var(--yield-fade, 40px)),
+      rgba(0, 0, 0, 0.061) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.85),
+      rgba(0, 0, 0, 0.216) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.7),
+      rgba(0, 0, 0, 0.5) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.5),
+      rgba(0, 0, 0, 0.784) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.3),
+      rgba(0, 0, 0, 0.939) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.15),
       #000 var(--yield-top)
     );
+  }
+  .dark [data-yield='on'] {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0) 0,
+      rgba(0, 0, 0, 0) calc(var(--yield-top) - var(--yield-fade, 40px)),
+      rgba(0, 0, 0, 0.036) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.85),
+      rgba(0, 0, 0, 0.158) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.7),
+      rgba(0, 0, 0, 0.42) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.5),
+      rgba(0, 0, 0, 0.739) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.3),
+      rgba(0, 0, 0, 0.924) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.15),
+      #000 var(--yield-top)
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0) 0,
+      rgba(0, 0, 0, 0) calc(var(--yield-top) - var(--yield-fade, 40px)),
+      rgba(0, 0, 0, 0.036) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.85),
+      rgba(0, 0, 0, 0.158) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.7),
+      rgba(0, 0, 0, 0.42) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.5),
+      rgba(0, 0, 0, 0.739) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.3),
+      rgba(0, 0, 0, 0.924) calc(var(--yield-top) - var(--yield-fade, 40px) * 0.15),
+      #000 var(--yield-top)
+    );
+  }
+  [data-yield='hidden'] {
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+  .prose :is(h1, h2, h3, h4, h5, h6)[id] {
+    scroll-margin-top: 6.25rem;
   }
   @media print {
     /* 打印时每一页的顶部都会落进这个区间，必须原样还原 */
     [data-yield] {
       -webkit-mask-image: none !important;
       mask-image: none !important;
+      opacity: 1 !important;
+      pointer-events: auto !important;
     }
   }
   /* 移动端展开的导航面板：独立的浮层底色（页头本身已经透明） */
