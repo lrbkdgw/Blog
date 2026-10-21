@@ -422,7 +422,6 @@ export function GraphPlane({ header, source, sourceLine, onCommitPositions }: Gr
           {/* 图论边、箭头与边权标签 */}
           {layout.edgeGeoms.map((geom) => {
             const weightStr = geom.edge.weight
-            const pillW = weightStr ? Math.max(20, weightStr.length * 7.2 + 10) : 0
             const isIncidentHovered =
               hover !== null && (geom.edge.source === hover.id || geom.edge.target === hover.id)
             return (
@@ -454,31 +453,19 @@ export function GraphPlane({ header, source, sourceLine, onCommitPositions }: Gr
                   />
                 )}
                 {weightStr && (
-                  <g
-                    transform={`translate(${fmtSvg(geom.labelPos.x)},${fmtSvg(geom.labelPos.y)})`}
-                    className="pointer-events-none"
+                  <text
+                    x={fmtSvg(geom.labelPos.x)}
+                    y={fmtSvg(geom.labelPos.y)}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    className={`pointer-events-none font-mono text-[11px] font-medium transition-colors duration-150 ${
+                      isIncidentHovered
+                        ? 'fill-brand-600 dark:fill-brand-300'
+                        : 'fill-ink-600 dark:fill-ink-300'
+                    }`}
                   >
-                    <rect
-                      x={-pillW / 2}
-                      y={-9}
-                      width={pillW}
-                      height={18}
-                      rx={5}
-                      className="fill-white/95 dark:fill-ink-950/95"
-                    />
-                    <text
-                      x={0}
-                      y={3.6}
-                      textAnchor="middle"
-                      className={`font-mono text-[11px] font-medium transition-colors duration-150 ${
-                        isIncidentHovered
-                          ? 'fill-brand-600 dark:fill-brand-300'
-                          : 'fill-ink-600 dark:fill-ink-300'
-                      }`}
-                    >
-                      {weightStr}
-                    </text>
-                  </g>
+                    {weightStr}
+                  </text>
                 )}
               </g>
             )

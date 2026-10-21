@@ -694,9 +694,19 @@ test('Issue #83：ui-graph 自动创建未声明节点、dag 有向箭头、重�
     // 验证纯图论画布：无任何直角坐标系网格线、无坐标轴 <line>、无坐标刻度，悬浮节点时也绝不显示任何坐标文字
     assert.equal(svg.querySelectorAll('line').length, 0, '图论画布不应渲染 X/Y 坐标轴线')
     assert.equal(svg.querySelectorAll('path').length, 2, 'SVG path 数量应严格等于边数（无背景网格 path）')
+    // Issue #91：边权只保留纯数字文本，不再带有白色/深色底色块（无任何 <rect> 底）
+    assert.equal(
+      svg.querySelectorAll('g[data-graph-edge] rect').length,
+      0,
+      '边权标签不应再包裹任何底色 <rect>，应改为纯数字',
+    )
+    const weightTexts = [...svg.querySelectorAll('g[data-graph-edge] text')].map((t) => t.textContent)
+    assert.deepEqual(weightTexts.sort(), ['10', '5'], '边权应以纯数字文本直接标注在边旁')
     const staticSvg = uiGraphMod.renderStaticUiGraphSvg('[dag]', '5\n1 2 10\n2 3 5')
     assert.doesNotMatch(staticSvg, /<line\b/, '静态 SVG 模式也不应包含任何坐标轴')
     assert.equal((staticSvg.match(/<path\b/g) || []).length, 2, '静态 SVG path 数量应严格等于边数')
+    assert.doesNotMatch(staticSvg, /<rect\b/, '静态 SVG 的边权同样不应带底色块')
+    assert.match(staticSvg, />10</, '静态 SVG 应保留纯数字边权 10')
 
     // 读取节点 1 当前屏幕坐标，先测试普通悬浮绝不弹出坐标气泡
     const node1El = container.querySelector('[data-node-id="1"]')
