@@ -28,6 +28,7 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 🧩 **表单交互与条件映射** | 支持选择框 `ui-choose`、行内下拉框 `ui-select`（支持 `search`）、是否框 `ui-if`（支持 `lined` 划线动画）、填空/滑块输入框 `ui-write`（支持 `merge` 同行并列），以及 `<<id>>` / `<id>` 最高优先级值替换、`<IF:<a>,<b>>` 与 `::IF[<a>]…::IF_END` KaTeX 条件渲染（issue #82） |
 | 📐 **直角坐标系** | `::begin_ui-ccs … ::end_ui-ccs` 语法支持描点、多点折线与函数曲线（如 `create_line:(7*x^2+6*x+90*x^3);`），可拖拽平移、滚轮/双指缩放预览整个平面（issue #76） |
 | 🕸️ **图论画布** | `::begin_ui-graph[<附加项>] … ::end_ui-graph` 延续直角坐标系同款视觉与拖拽平移/滚轮缩放交互，支持 `dag` 有向边、可选边权与坐标、未声明端点自动创建，并在站内编辑器中支持**「调整模式」**可视化拖拽节点并直接写回 Markdown 源码保存（issue #83） |
+| 🧰 **百宝箱 · 回声洞** | 页头新增「百宝箱」入口，其中「回声洞」轻点卡片一句一句显示内容：来源为 hitokoto 与 GitHub Discussions 留言；留言每人每小时最多 3 条、每天最多 10 条（仓库贡献者不限），超出部分不会被识别（issue #93） |
 | 📄 **文章排版指令** | 文首 `::set-font` / `::set-code-font` / `::set-background` 强制本文的字体与动态背景，仅在阅读本文时生效 |
 | 📱 **响应式** | 手机 / 平板 / 桌面均已适配，支持打印样式 |
 | 🧭 **全透明页头 + 全站防冲突让路** | 页头不铺底色、不加毛玻璃、不描边、不投影，背景原样透出；**全站所有页面**滚进顶栏前在页头下沿下方提前沿多控制点 Hermite S 曲线柔和消融（`src/lib/headerYield.ts`，含深色模式感知明度伽马补偿），字不与导航打架、背景一像素不动（issue #53 / #63 / #71 / #78） |
@@ -481,6 +482,46 @@ $\texttt{吃}$！
 字体通过作用域 CSS 变量 + 容器 `font-family` 局部生效，背景经
 `src/lib/animatedBackground.ts` 的内存级 `setAnimatedSceneOverride` 临时覆盖 Layout 的背景层。
 
+## 🧰 百宝箱 · 回声洞
+
+页头导航的「**百宝箱**」（`/treasure`）用来收纳和写文章无关的小模块，现在有「**回声洞**」（`/treasure/echo`）一个。
+
+**怎么玩**：进入回声洞后轻点卡片（或点「换一句」）就会显示一句回声，牌堆用完会自动补内置句并再取几条一言。内容来源有两处：
+
+| 来源 | 说明 |
+| --- | --- |
+| hitokoto 一言 | 在线版实时取 [`v1.hitokoto.cn`](https://v1.hitokoto.cn/)；离线版不联网，只用内置句子 |
+| GitHub Discussions | 页面下方横线里的留言，保存在目标仓库的一个讨论里（标题 `[回声洞] 回声墙`，正文带 `<!-- starlog-echo-cave -->` 标记，每条留言是该讨论下的一条评论），可跨浏览器、跨设备看到 |
+
+**留言规则**（issue #93）：
+
+- 需要登录 GitHub（GitHub Discussions 的读取与发送都必须带令牌，静态站点没有匿名入口）。
+- 每人**每小时最多 3 条、每天最多 10 条**；超出的部分仍会留在 GitHub 上，但不会被识别、也不会进回声池（按滚动窗口统计，同一作者的超出条目直接过滤）。
+- **仓库贡献者不受限制**：讨论评论的 `authorAssociation` 为 `OWNER` / `MEMBER` / `COLLABORATOR` / `CONTRIBUTOR`，或当前令牌在该仓库的权限高于只读（`ADMIN` / `MAINTAIN` / `WRITE` / `TRIAGE`）。
+- 单条最多 120 字，换行与连续空白会压成一行。
+
+**前置条件**：目标仓库在 **Settings → Features** 开启 **Discussions**，且存在 `echoCaveConfig.category`（默认 `General`）分类；否则页面会直接给出对应的提示。
+
+**配置**：集中在 `src/lib/config.ts` 的 `echoCaveConfig`：
+
+```ts
+export const echoCaveConfig = {
+  category: 'General',                  // 回声墙所在的 Discussions 分类
+  title: '[回声洞] 回声墙',              // 首次留言时自动创建的讨论标题
+  marker: '<!-- starlog-echo-cave -->', // 识别旧讨论用的正文标记（改了会找不到旧回声）
+  maxLength: 120,                       // 单条字数上限
+  perHour: 3,                           // 每人每小时最多被识别的条数
+  perDay: 10,                           // 每人每天最多被识别的条数
+} as const
+```
+
+实现：GitHub 读写与 `EchoCaveSnapshot` 在 `src/lib/github.ts`（`loadEchoCave` / `postEchoCaveEcho`），
+限流、牌堆、文本规整与一言拉取在 `src/lib/echoCave.ts`（纯函数，可单测），页面在
+`src/pages/Treasure.tsx` 与 `src/pages/EchoCave.tsx`。
+
+> 离线单文件版里回声洞只显示内置句子：既不会请求 hitokoto，也不会读写 GitHub，
+> 输入框会明确说明「离线版不会联网」。
+
 ## 🕓 历史版本与加密文章
 
 每次通过编辑器发布文章都会创建一个 Git commit，因此无需额外数据库即可保存完整历史。文章页“历史”按钮会列出该 Markdown 文件的每次提交，并可为任一版本**修改版本名称**（优先于提交信息显示，即更新该 Git 记录展示的名字）。修改名称会**加入待更新队列**，统一更新后保存到 GitHub 对应文章旁的 `content/posts/{slug}.versions.json`，构建后所有访客可见；未更新前名称先记录在本浏览器立即生效。同一文章的多次改名合并为一条队列条目，恢复默认（留空保存）会删除对应名称，删除文章时该名称文件也会一并清理。查看某个历史版本后点“编辑”时，若现有文章（含内容）完全一致就进入对应编辑页，否则会新建一份已填充该历史内容的本地草稿。
@@ -536,11 +577,12 @@ $\texttt{吃}$！
 │   │   ├── uiCcs.ts               # 直角坐标系语法解析、数学表达式求值与曲线裁剪
 │   │   ├── uiGraph.ts             # 图论画布解析、自动布局、几何裁剪与源码点位回写
 │   │   ├── uiWidgets.ts           # 表单交互控件解析、控件值映射与 KaTeX 条件求值
+│   │   ├── echoCave.ts            # 回声洞：条数限制、牌堆穿插、一言拉取与内置句
 │   │   ├── themes.ts              # 配色主题元数据（真实色卡在 styles/index.css）
 │   │   ├── articleDirectives.ts   # 文首排版指令 ::set-font / ::set-code-font / ::set-background
 │   │   ├── latexSymbols.ts        # LaTeX 符号目录（别名搜索，编辑器与 VS Code 插件共用）
 │   │   └── fontStacks.ts          # 默认字体栈（字体偏好与文章指令共用）
-│   ├── pages/                     # 首页 / 文章 / 归档 / 标签 / 关于 / 登录 / 后台 / 编辑器
+│   ├── pages/                     # 首页 / 文章 / 归档 / 标签 / 百宝箱（含回声洞）/ 关于 / 登录 / 后台 / 编辑器
 │   ├── styles/index.css           # Tailwind + 代码高亮 + 排版细节
 │   ├── App.tsx                    # 路由
 │   └── main.tsx                   # 入口
@@ -566,7 +608,7 @@ $\texttt{吃}$！
 - 本地构建：`npm run build:offline`（= `vite build --config vite.offline.config.ts` + 产物自检），
   想用浏览器先验证：`npm run preview:offline`；
 - 自检是**硬性**的：多余文件、残留相对引用、KaTeX 字体缺失、某篇文章没进包、内联脚本语法被破坏，
-  以及——`api.github.com` / `/graphql` / `login/device/code` / `fonts.googleapis.com` / OAuth Client ID
+  以及——`api.github.com` / `/graphql` / `login/device/code` / `fonts.googleapis.com` / `v1.hitokoto.cn` / OAuth Client ID
   任一字符串出现在产物里——都会让构建直接失败。也就是说「离线版不联网」不是承诺，是可检查的事实。
 
 ### 支持范围
@@ -578,6 +620,7 @@ $\texttt{吃}$！
 | ✅ 字体 | **只用本机已安装的字体**：不请求 Google Fonts，也不注入云端 `@font-face`；本机没有的字体名按默认字体栈显示 |
 | ✅ 写作 | 新建 / 编辑 / 自动保存 / 加密文章（浏览器 WebCrypto 本机加解密）/ 本机版本历史与差异对比 |
 | ✅ 评论 | 变成「本机笔记」：只写在这台设备上，任何情况下都不会提交到远端 |
+| ✅ 百宝箱 · 回声洞 | 只能听内置句子：不请求 hitokoto、不读写 GitHub Discussions，输入框为禁用状态并说明原因 |
 | 📤 带走 | 编辑器里的「保存到在线网站的本地文章」或「管理 → 离线文章包 → 导出」生成 `*.starlog-import.json`；在线上站点「管理 → 离线文章包 → 导入离线文章包」选它，即写入该站点的本地文章列表 |
 | ❌ 没有 | GitHub 登录与授权、远程仓库读写、在线评论、PR 审批、远端 Git 历史版本、云端字体同步、远程图片加载、待更新队列提交 |
 
@@ -674,6 +717,9 @@ GitHub 的授权端点（`github.com/login/*`）不返回 CORS 头，浏览器�
 
 **本地草稿会丢吗？**  
 草稿存在浏览器 `localStorage`，清除浏览器数据会丢失。重要内容请及时加入**待更新队列**并统一更新到 GitHub，或在设置页「导出全部草稿」。
+
+**回声洞的留言保存在哪里？有数量限制吗？**
+在目标仓库的 GitHub Discussions（`echoCaveConfig` 指定的分类，默认 `General`）里的一个讨论中，每条留言是一条评论，所以换设备也能看到。每人每小时最多 3 条、每天最多 10 条，超出部分不会被识别（也不会显示在回声池里），仓库贡献者不受限制。读取和发送都需要 GitHub 登录。
 
 **评论保存在哪里？**
 每篇文章的评论会写入目标仓库的 GitHub Discussions（默认使用 `General` 分类），不再只存在当前浏览器。访客使用 GitHub 登录后即可加载、发表和按 GitHub 权限删除评论；目标仓库需要开启 Discussions。旧版本遗留的本机评论会继续显示迁移提示，但不会自动上传。
