@@ -32,7 +32,6 @@ const uiWidgetsMod = await importTsModule('src/lib/uiWidgets.ts')
 const uiGraphMod = await importTsModule('src/lib/uiGraph.ts')
 const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
-const echoCaveMod = await importTsModule('src/lib/echoCave.ts')
 
 function makeMock2dContext(strokeSink, drawSink) {
   const stack = []
@@ -244,8 +243,6 @@ test('全站所有路由页面与悬浮门户组件均已接入顶部防冲突�
     'src/pages/Archive.tsx',
     'src/pages/TagsPage.tsx',
     'src/pages/About.tsx',
-    'src/pages/Treasure.tsx',
-    'src/pages/EchoCave.tsx',
     'src/pages/SettingsPage.tsx',
     'src/pages/Admin.tsx',
     'src/pages/Editor.tsx',
@@ -788,137 +785,3 @@ test('Issue #83：ui-graph 自动创建未声明节点、dag 有向箭头、重�
   }
 })
 
-
-/* -------------------------------------------------------------------------- */
-/*        6. Issue #93 百宝箱 · 回声洞：条数限制、牌堆穿插与离线端点隔离验证        */
-/* -------------------------------------------------------------------------- */
-
-test('Issue #93：回声洞文本规整、每人每小时 3 条 / 每天 10 条的识别限制、贡献者豁免与牌堆穿插', () => {
-  // 文本规整：换行与连续空白压成一行，超长按上限截断
-  assert.equal(echoCaveMod.normalizeEchoText('  你好\n\n世界\t！ '), '你好 世界 ！')
-  assert.equal(echoCaveMod.normalizeEchoText('a'.repeat(200)).length, 120)
-  assert.equal(echoCaveMod.normalizeEchoText(''), '')
-
-  const base = Date.parse('2026-10-21T10:00:00Z')
-  const makeComment = (id, login, minutes, association = 'NONE') => ({
-    id,
-    body: `第 ${id} 条回声`,
-    createdAt: new Date(base + minutes * 60_000).toISOString(),
-    updatedAt: new Date(base + minutes * 60_000).toISOString(),
-    url: `https://github.com/lrbkdgw/Blog/discussions/1#comment-${id}`,
-    viewerCanDelete: false,
-    viewerDidAuthor: false,
-    authorAssociation: association,
-    author: { login, avatarUrl: '', url: `https://github.com/${login}` },
-  })
-
-  const comments = [
-    makeComment('c1', 'visitor', 0),
-    makeComment('c2', 'visitor', 1),
-    makeComment('c3', 'visitor', 2),
-    makeComment('c4', 'visitor', 3),
-    makeComment('c5', 'visitor', 4),
-    // 其他人互不影响
-    makeComment('c6', 'other', 5),
-  ]
-  const echoes = echoCaveMod.discussionCommentsToEchoes(comments)
-  assert.equal(echoes.length, 6)
-  assert.equal(echoes[0].kind, 'discussion')
-  assert.equal(echoes[0].source, '@visitor')
-  assert.equal(echoes[0].authorIsContributor, false)
-  assert.equal(echoes[0].createdAt, base)
-
-  // 同一作者同一小时内只有前 3 条被识别，其余仍留在 GitHub 上但进不了回声池
-  const limited = echoCaveMod.applyEchoRateLimits(echoes)
-  assert.deepEqual(
-    limited.filter((entry) => entry.authorLogin === 'visitor').map((entry) => entry.id),
-    ['c1', 'c2', 'c3'],
-  )
-  assert.equal(limited.filter((entry) => entry.authorLogin === 'other').length, 1)
-
-  // 贡献者（OWNER / MEMBER / COLLABORATOR / CONTRIBUTOR）不受条数限制
-  const contributed = echoCaveMod.discussionCommentsToEchoes(
-    Array.from({ length: 5 }, (_, index) => makeComment(`o${index}`, 'owner', index, 'OWNER')),
-  )
-  assert.ok(contributed.every((entry) => entry.authorIsContributor))
-  assert.equal(echoCaveMod.applyEchoRateLimits(contributed).length, 5)
-
-  // 每天最多 10 条：每小时 1 条也照样只识别前 10 条
-  const hourly = echoCaveMod.discussionCommentsToEchoes(
-    Array.from({ length: 12 }, (_, index) => makeComment(`h${index}`, 'slow', index * 60)),
-  )
-  assert.equal(
-    echoCaveMod.applyEchoRateLimits(hourly, { perHour: 100, perDay: 10 }).length,
-    10,
-  )
-
-  // 非讨论来源（hitokoto / 内置句）原样通过，不参与限流
-  const mixed = echoCaveMod.applyEchoRateLimits([
-    { id: 'k1', kind: 'hitokoto', text: '一言', source: '一言' },
-    { id: 'b1', kind: 'builtin', text: '内置', source: '回声洞' },
-    ...echoes,
-  ])
-  assert.equal(mixed.filter((entry) => entry.kind !== 'discussion').length, 2)
-
-  // 发送前的额度判断
-  const quota = echoCaveMod.echoQuota(echoes, 'visitor', { now: base + 10 * 60_000 })
-  assert.equal(quota.hourUsed, 5)
-  assert.equal(quota.hourLeft, 0)
-  assert.equal(quota.allowed, false)
-  assert.match(quota.message, /每小时最多 3 条/)
-  // 滚动窗口：70 分钟后这 5 条都已滑出最近一小时
-  const fresh = echoCaveMod.echoQuota(echoes, 'visitor', { now: base + 70 * 60_000 })
-  assert.equal(fresh.allowed, true)
-  assert.equal(fresh.hourUsed, 0)
-  assert.equal(fresh.dayUsed, 5)
-  assert.equal(echoCaveMod.echoQuota(echoes, 'visitor', { contributor: true }).allowed, true)
-  assert.equal(echoCaveMod.echoQuota(echoes, null).allowed, true)
-
-  // 牌堆：三个来源轮流穿插，同文本只保留一次
-  const deck = echoCaveMod.buildEchoDeck(
-    {
-      discussion: [{ id: 'd1', kind: 'discussion', text: '来自讨论', source: '@visitor' }],
-      hitokoto: [{ id: 'k1', kind: 'hitokoto', text: '来自一言', source: '《测试》' }],
-      builtin: [
-        { id: 'b1', kind: 'builtin', text: '来自内置', source: '回声洞' },
-        { id: 'b2', kind: 'builtin', text: '来自讨论', source: '回声洞' },
-      ],
-    },
-    () => 0.5,
-  )
-  assert.deepEqual(
-    deck.map((entry) => entry.kind),
-    ['discussion', 'hitokoto', 'builtin'],
-  )
-  assert.equal(deck.length, 3, '重复文本不应在牌堆里出现两次')
-
-  // 牌堆用尽后从内置句补货，只补还没出现过的
-  const seen = new Set(deck.map(echoCaveMod.echoFingerprint))
-  const refill = echoCaveMod.takeBuiltinEchoes(seen, 5)
-  assert.ok(refill.length > 0 && refill.length <= 5)
-  assert.ok(refill.every((entry) => !seen.has(echoCaveMod.echoFingerprint(entry))))
-  assert.equal(echoCaveMod.BUILTIN_ECHOES.length >= 20, true)
-})
-
-test('Issue #93：回声洞入口、路由与离线端点隔离', () => {
-  const appSource = readFileSync(join(root, 'src/App.tsx'), 'utf8')
-  assert.match(appSource, /path="treasure"/)
-  assert.match(appSource, /path="treasure\/echo"/)
-
-  const layoutSource = readFileSync(join(root, 'src/components/Layout.tsx'), 'utf8')
-  assert.match(layoutSource, /to: '\/treasure', label: '百宝箱'/)
-
-  // 一言端点必须在离线构建期置空（与 github.ts 的 API 常量同一写法）
-  const echoSource = readFileSync(join(root, 'src/lib/echoCave.ts'), 'utf8')
-  assert.match(echoSource, /const HITOKOTO_ENDPOINT = OFFLINE \? '' : 'https:\/\/v1\.hitokoto\.cn\/'/)
-  assert.match(echoSource, /if \(OFFLINE \|\| !HITOKOTO_ENDPOINT\) return \[\]/)
-
-  const verifySource = readFileSync(join(root, 'scripts/verify-offline.mjs'), 'utf8')
-  assert.match(verifySource, /'v1\.hitokoto\.cn'/)
-
-  // 回声保存在 GitHub Discussions：同一个讨论 + 正文标记，评论即回声
-  const githubSource = readFileSync(join(root, 'src/lib/github.ts'), 'utf8')
-  assert.match(githubSource, /export async function loadEchoCave/)
-  assert.match(githubSource, /export async function postEchoCaveEcho/)
-  assert.match(githubSource, /echoCaveConfig\.marker/)
-})

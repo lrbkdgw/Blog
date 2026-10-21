@@ -1,55 +1,5 @@
 # 更新日志 · ChangeLog
 
-## 2026-10-21 · 新增「百宝箱」页签与回声洞（#93）：GitHub Discussions 留言 + hitokoto，含识别条数限制
-
-| 模型信息 | |
-| --- | --- |
-| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
-| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
-| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
-
-### 背景
-
-- **Issue #93（添加功能）**：要求在页头新增「**百宝箱**」页签；其中目前只有一个「**回声洞**」模块，点进去是单独页面，**不断点击即可显示内容**。内容来源为：① 任何人可以在页面下方横线上留言，留言保存到 **GitHub Discussions**；每人每小时最多 3 条、每天最多 10 条，超出部分只识别前几条，仓库贡献者不受限制；② **hitokoto**。
-
-### 新增
-
-- **页头导航与路由**（`src/components/Layout.tsx`、`src/App.tsx`）：桌面与移动端导航新增「百宝箱」（`/treasure`），并新增 `/treasure/echo` 回声洞页面；两页均接入 `data-yield-list`，沿用全站顶部防冲突让行机制。
-- **百宝箱页**（`src/pages/Treasure.tsx`）：模块卡片式入口，现有「回声洞」一张（含来源、限制与交互方式标签），另留一张「更多模块打磨中」的占位卡；后续新增模块只需往 `MODULES` 里加一项。
-- **回声洞页**（`src/pages/EchoCave.tsx`）：
-  - 中央大卡片**轻点显示**一句回声，再次点击（或点「换一句」）依次往下；揭开前是一条「轻点这里，听听洞里的回声」的引导态；
-  - 牌堆把 **GitHub 讨论留言 / hitokoto / 内置句** 三个来源轮流穿插，按文本去重，用完自动补内置句并再取几条一言（最多 6 轮，避免无节制请求）；
-  - 下方一条**横线输入框** + 发送按钮，实时显示字数与「本小时 / 今天」已用额度；未登录、离线版、超出限额分别给出明确提示；
-  - 发送成功后立刻把刚写的这句放到牌堆最前面展示，并静默刷新讨论；
-  - 「补充回声」按钮可再取一言并重新拉取讨论；读取失败时就地提示并可重试。
-- **GitHub Discussions 读写层**（`src/lib/github.ts`）：新增 `loadEchoCave()` / `postEchoCaveEcho()` 与 `EchoCaveSnapshot`。所有回声保存在**同一个讨论**（标题 `[回声洞] 回声墙`，正文带 `<!-- starlog-echo-cave -->` 标记），每条回声是该讨论下的一条评论；讨论不存在时首次留言自动创建。查询同时返回仓库的 `viewerPermission`，用于判断当前用户是否为仓库贡献者。
-- **回声逻辑层**（`src/lib/echoCave.ts`，纯函数可单测）：
-  - `normalizeEchoText`：压制换行与连续空白、按上限截断（不会截断 emoji 代理对）；
-  - `discussionCommentsToEchoes` / `applyEchoRateLimits`：把评论转成统一条目，并按作者做**滚动窗口**限制——任意 1 小时最多 3 条、任意 24 小时最多 10 条，超出的留言仍留在 GitHub 上但**不被识别**；`OWNER` / `MEMBER` / `COLLABORATOR` / `CONTRIBUTOR` 及权限高于只读的用户全部豁免；
-  - `echoQuota`：发送前计算已用条数与剩余额度并生成提示文案；
-  - `buildEchoDeck` / `takeBuiltinEchoes` / `shuffleEchoes`：多来源轮转牌堆与内置句补货；
-  - `fetchHitokotoBatch`：并发取一言、任一失败静默忽略，**离线构建期端点置空**并直接返回空数组；
-  - `BUILTIN_ECHOES`：30 条本仓原创短句，保证断网、接口异常与离线版下页面依然有内容。
-- **离线版行为**：回声洞只显示内置句，输入框禁用并说明「离线版不会联网」；`scripts/verify-offline.mjs` 的在线端点禁词新增 `v1.hitokoto.cn`。
-- **文档**：`README.md` 功能表与新增「🧰 百宝箱 · 回声洞」章节（玩法、来源、留言规则、前置条件、`echoCaveConfig` 配置、实现位置）、离线支持范围与 FAQ；`content/about.md` 使用指南与常见问题同步补充。
-
-### 调整
-
-- `getDiscussionRepository()` 泛化为可传入分类名、功能名与配置项名，并返回 `viewerPermission`；文章评论侧的提示文案保持原样。
-- 抽出 `createDiscussionThread()` 供文章评论与回声洞共用，`createBlogDiscussion()` 行为不变。
-- 离线自检与特性测试相应扩展。
-
-### 修复
-
-- 无（本次为功能新增）。
-
-### 验证
-
-- `node --test scripts/test-features.mjs`：8 项全部通过，新增 `#93` 两组断言（文本规整、每小时 3 条 / 每天 10 条识别限制、贡献者豁免、额度计算、牌堆穿插与去重、内置句补货、路由与 `百宝箱` 导航、hitokoto 端点离线置空、`verify-offline` 禁词）。
-- `npm run build`（`tsc --noEmit` + vite）、`npm run extension:test`（71 项通过 / 4 项跳过）、`npm --prefix vscode_extensions/v1 run typecheck` 全部零错误。
-- `npm run build:offline` 通过自检（3.17 MB、13 篇内置文章、无任何在线端点），并同步 `dist-offline/index.html` 到 `offline/index.html`。
-- 另用 jsdom 对两个新页面做冒烟验证：挂载、卡片点击首次揭开、再次点击换句、计数文案、未登录发送时的登录提示均符合预期。
-
 ## 2026-10-21 · 图论画布边权改为纯数字标注（#91）并同步重建离线单文件版
 
 | 模型信息 | |
