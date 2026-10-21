@@ -34,7 +34,7 @@ export const SCENES: SceneSpec[] = [
 {
     id: 'sakura',
     name: '樱花',
-    desc: '花瓣旋转着飘落，近处的花瓣更清晰、远处更虚，背景飘着逆光散景；画面会跟随明暗模式换成白昼或夜樱两套配色。',
+    desc: '春昼晴樱：蓝粉晴空、两侧樱枝与三层立体花簇，樱瓣三维翻飞落进春水；夜间换成紫靛星夜、胧月与岸边石灯笼。',
     params: [
       { key: 'count', label: '花瓣数量', hint: '屏幕上同时存在的花瓣数', min: 0, max: 100, step: 1, default: 40 },
       { key: 'speed', label: '飘落速度', hint: '花瓣下落与旋转的快慢', min: 0, max: 100, step: 1, default: 50 },
@@ -46,7 +46,7 @@ export const SCENES: SceneSpec[] = [
 {
     id: 'network',
     name: '粒子星链',
-    desc: '光点漂移并彼此连线，数据脉冲沿线滑动，鼠标附近会聚拢；画面会跟随明暗模式在暗夜与浅色星图之间切换。',
+    desc: '光点漂移并彼此连线，脉冲沿星链多跳接力滑行，鼠标附近会聚拢；丝绒星云与浑仪星轨随明暗切换暗夜 / 浅色星图。',
     params: [
       { key: 'density', label: '光点数量', hint: '粒子的多少', min: 0, max: 100, step: 1, default: 45 },
       { key: 'link', label: '连线距离', hint: '多远的粒子之间会出现连线', min: 0, max: 100, step: 1, default: 50 },
@@ -58,7 +58,7 @@ export const SCENES: SceneSpec[] = [
   {
     id: 'snow',
     name: '雪花',
-    desc: '六角雪晶与柔焦雪片分层飘落，远山隐在雪雾中；浅色是清冷雪日，深色是蓝调雪夜。',
+    desc: '六角枝晶、细雪与柔焦近景三层飘落，三层雪岭上长着成片落雪云杉；浅色是清冷雪日，深色是蓝月雪夜。',
     params: [
       { key: 'count', label: '雪花数量', hint: '远近雪片的密度', min: 0, max: 100, step: 1, default: 55 },
       { key: 'speed', label: '飘落速度', hint: '雪片下降的快慢', min: 0, max: 100, step: 1, default: 35 },
@@ -70,7 +70,7 @@ export const SCENES: SceneSpec[] = [
   {
     id: 'rain',
     name: '暴雨',
-    desc: '远近三层雨丝斜落，水面泛起涟漪，薄雾缓慢流动；浅色是阴雨白昼，深色是冷调雨夜，闪电默认关闭。',
+    desc: '雨云下的山湖：连片林线、整幅渐隐倒影与涟漪、贴水薄雾；浅色是阴雨白昼，深色是冷调雨夜，闪电默认关闭。',
     params: [
       { key: 'count', label: '雨量', hint: '雨丝密度，较低的值更省电', min: 0, max: 100, step: 1, default: 70 },
       { key: 'speed', label: '落雨速度', hint: '雨滴速度与雨丝长度', min: 0, max: 100, step: 1, default: 65 },
@@ -82,7 +82,7 @@ export const SCENES: SceneSpec[] = [
   {
     id: 'bamboo',
     name: '竹林',
-    desc: '远中近竹竿与叶簇随风轻摆，雾气和斜射光穿过林间；浅色是晨光青竹，深色是幽绿月夜。',
+    desc: '有空气透视的竹海：竹节上长着下垂叶簇，光束与薄雾穿过林间，竹叶随风飘落；浅色是晨光青竹，深色是幽绿月夜。',
     params: [
       { key: 'density', label: '竹林密度', hint: '竹竿与叶簇数量', min: 0, max: 100, step: 1, default: 55 },
       { key: 'wind', label: '摇曳幅度', hint: '竹竿随风摆动的幅度', min: 0, max: 100, step: 1, default: 40 },

@@ -11,82 +11,565 @@ function paint(w: number, h: number, draw: (ctx: CanvasRenderingContext2D) => vo
   if (ctx) draw(ctx)
   return canvas
 }
+/** 固定种子伪随机：山形、雪岭、雾团等静态部分每次重建都保持一致，缩放窗口不会「换一座山」 */
+function seeded(seed: number) {
+  let value = (seed * 2654435761) >>> 0
+  return () => {
+    value = (value * 1664525 + 1013904223) >>> 0
+    return value / 4294967296
+  }
+}
 function resize<T>(items: T[], count: number, make: () => T) {
   items.length = Math.min(items.length, count)
   while (items.length < count) items.push(make())
 }
-function sky(ctx: CanvasRenderingContext2D, w: number, h: number, colors: string[]) {
-  const gradient = ctx.createLinearGradient(0, 0, w * 0.25, h)
-  colors.forEach((color, i) => gradient.addColorStop(i / (colors.length - 1), color))
-  ctx.fillStyle = gradient; ctx.fillRect(0, 0, w, h)
-}
-
-/** 三层景深雪片：六角晶体、清晰小雪与近景柔焦，逐帧复用贴图。 */
+/**
+ * 雪花（清冷雪日 · 蓝调雪夜）：
+ *   · 远景：三层雪岭依次推远，岭脊压着一线积雪高光，近岭长着落雪的针叶林；
+ *     夜间是星野与一轮清冷冬月，白昼只留一抹被雪雾洗淡的薄阳。
+ *   · 雪片：六角雪晶（带枝晶分叉）、细雪星屑、近景柔焦大雪花三层景深，另有一层落地雪光闪烁。
+ *   · 全部静态部分烘焙进离屏贴图，逐帧只做 drawImage。
+ */
 export function createSnow(initialDark: boolean): Renderer {
-  interface Flake { x: number; y: number; z: number; phase: number; angle: number; spin: number }
+  interface Flake { x: number; y: number; z: number; phase: number; angle: number; spin: number; sparkle: boolean }
   let w = 1, h = 1, dark = initialDark
   let values: SceneValues = {}, flakes: Flake[] = []
-  let background: HTMLCanvasElement, sprites: HTMLCanvasElement[] = []
-  const spawn = (top = false): Flake => ({ x: rand(-40, w + 40), y: top ? rand(-50, -8) : rand(0, h), z: rand(0.15, 1), phase: rand(0, TAU), angle: rand(0, TAU), spin: rand(-0.4, 0.4) })
+  let background: HTMLCanvasElement = paint(1, 1, () => {})
+  let sprites: HTMLCanvasElement[] = []
+  let sparkleSprite: HTMLCanvasElement | null = null
+
+  const spawn = (top = false): Flake => ({
+    x: rand(-60, w + 60),
+    y: top ? rand(-70, -10) : rand(0, h),
+    z: Math.pow(Math.random(), 1.25) * 0.94 + 0.06,
+    phase: rand(0, TAU),
+    angle: rand(0, TAU),
+    spin: rand(-0.42, 0.42),
+    sparkle: Math.random() < 0.12,
+  })
+
+  /** 一片六角雪晶：六条主枝 + 每枝两对小分叉 + 中心光核 */
+  const crystalSprite = (size: number, tint: string, lineWidth: number, glow: boolean) =>
+    paint(size, size, (ctx) => {
+      const c = size / 2
+      if (glow) {
+        const g = ctx.createRadialGradient(c, c, 0, c, c, c)
+        g.addColorStop(0, 'rgba(255,255,255,0.32)')
+        g.addColorStop(0.5, 'rgba(214,235,255,0.1)')
+        g.addColorStop(1, 'rgba(190,220,250,0)')
+        ctx.fillStyle = g
+        ctx.fillRect(0, 0, size, size)
+      }
+      ctx.strokeStyle = tint
+      ctx.lineWidth = lineWidth
+      ctx.lineCap = 'round'
+      const arm = c * 0.86
+      for (let i = 0; i < 6; i += 1) {
+        ctx.save()
+        ctx.translate(c, c)
+        ctx.rotate((i * TAU) / 6)
+        ctx.beginPath()
+        ctx.moveTo(0, 0)
+        ctx.lineTo(0, -arm)
+        // 主枝上的两对小分叉，越靠外越短，像真实枝晶
+        for (const t of [0.52, 0.76]) {
+          const y = -arm * t
+          const branch = arm * 0.26 * (1 - t * 0.35)
+          ctx.moveTo(0, y)
+          ctx.lineTo(-branch, y - branch * 0.72)
+          ctx.moveTo(0, y)
+          ctx.lineTo(branch, y - branch * 0.72)
+        }
+        ctx.stroke()
+        // 枝端小光点
+        ctx.fillStyle = 'rgba(255,255,255,0.85)'
+        ctx.beginPath()
+        ctx.arc(0, -arm, lineWidth * 0.9, 0, TAU)
+        ctx.fill()
+        ctx.restore()
+      }
+      const core = ctx.createRadialGradient(c, c, 0, c, c, c * 0.3)
+      core.addColorStop(0, 'rgba(255,255,255,0.95)')
+      core.addColorStop(0.5, 'rgba(226,242,255,0.4)')
+      core.addColorStop(1, 'rgba(226,242,255,0)')
+      ctx.fillStyle = core
+      ctx.fillRect(0, 0, size, size)
+    })
+
+  /** 柔焦近景雪片：中心通透、边缘羽化的暖白光斑 */
+  const bokehFlake = (size: number) =>
+    paint(size, size, (ctx) => {
+      const c = size / 2
+      const g = ctx.createRadialGradient(c, c, 0, c, c, c)
+      g.addColorStop(0, dark ? 'rgba(240,250,255,0.62)' : 'rgba(255,255,255,0.92)')
+      g.addColorStop(0.34, dark ? 'rgba(214,236,255,0.3)' : 'rgba(255,255,255,0.5)')
+      g.addColorStop(0.72, dark ? 'rgba(186,216,248,0.08)' : 'rgba(226,240,250,0.16)')
+      g.addColorStop(1, 'rgba(200,226,250,0)')
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, size, size)
+    })
+
+  const buildSprites = () => {
+    const crystalTint = dark ? 'rgba(232,246,255,0.92)' : 'rgba(255,255,255,0.98)'
+    const fineTint = dark ? 'rgba(206,230,250,0.8)' : 'rgba(255,255,255,0.9)'
+    sprites = [
+      crystalSprite(96, crystalTint, 2.1, false), // 0: 主雪晶
+      crystalSprite(64, fineTint, 1.5, true), // 1: 远景小雪晶（带微光）
+      bokehFlake(128), // 2: 近景柔焦
+      paint(48, 48, (ctx) => { // 3: 细雪星屑
+        const c = 24
+        const g = ctx.createRadialGradient(c, c, 0, c, c, c)
+        g.addColorStop(0, dark ? 'rgba(240,250,255,0.95)' : 'rgba(255,255,255,1)')
+        g.addColorStop(0.45, dark ? 'rgba(214,238,255,0.35)' : 'rgba(210,232,246,0.4)')
+        g.addColorStop(1, 'rgba(210,236,255,0)')
+        ctx.fillStyle = g
+        ctx.fillRect(0, 0, 48, 48)
+      }),
+    ]
+    sparkleSprite = makeSparkle(dark ? 'rgba(236,248,255,0.95)' : 'rgba(255,255,255,0.95)')
+  }
+
   const build = () => {
-    sprites = [0, 1, 2].map(layer => paint(64, 64, ctx => {
-      const tint = dark ? '225,240,255' : '91,127,158'
-      if (layer === 2) {
-        const glow = ctx.createRadialGradient(32, 32, 0, 32, 32, 30)
-        glow.addColorStop(0, dark ? 'rgba(242,249,255,.8)' : 'rgba(255,255,255,.95)')
-        glow.addColorStop(.35, dark ? 'rgba(220,237,255,.35)' : 'rgba(137,171,193,.3)')
-        glow.addColorStop(1, 'rgba(180,210,240,0)')
-        ctx.fillStyle = glow; ctx.fillRect(0, 0, 64, 64)
+    buildSprites()
+    const scale = Math.max(0.68, Math.min(1.5, w / 1440))
+    const horizon = h * 0.74
+    background = paint(w, h, (ctx) => {
+      const skyGrad = ctx.createLinearGradient(0, 0, w * 0.35, h)
+      if (dark) {
+        skyGrad.addColorStop(0, '#050b17')
+        skyGrad.addColorStop(0.42, '#0b1a2c')
+        skyGrad.addColorStop(0.75, '#16314a')
+        skyGrad.addColorStop(1, '#1f435c')
       } else {
-        ctx.strokeStyle = 'rgba(' + tint + ',.9)'; ctx.lineWidth = layer ? 2.5 : 1.7; ctx.lineCap = 'round'
-        for (let i = 0; i < 6; i++) {
-          ctx.save(); ctx.translate(32, 32); ctx.rotate(i * TAU / 6)
-          ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -24)
-          for (const y of [-11, -18]) { ctx.moveTo(-6, y - 4); ctx.lineTo(0, y); ctx.lineTo(6, y - 4) }
-          ctx.stroke(); ctx.restore()
+        skyGrad.addColorStop(0, '#b6d3e6')
+        skyGrad.addColorStop(0.42, '#d0e4f1')
+        skyGrad.addColorStop(0.72, '#e6f2fa')
+        skyGrad.addColorStop(1, '#d3e6f2')
+      }
+      ctx.fillStyle = skyGrad
+      ctx.fillRect(0, 0, w, h)
+
+      const sr = seeded(331)
+      if (dark) {
+        // 星野与冬月
+        for (let i = 0; i < 70; i += 1) {
+          const sx = sr() * w
+          const sy = Math.pow(sr(), 1.4) * horizon * 0.7
+          ctx.fillStyle = `rgba(232,242,255,${(0.12 + sr() * 0.5).toFixed(3)})`
+          ctx.beginPath()
+          ctx.arc(sx, sy, 0.5 + sr() * 1.1, 0, TAU)
+          ctx.fill()
+        }
+        const moonX = w * 0.79
+        const moonY = h * 0.16
+        const moonR = Math.max(13, Math.min(34, Math.min(w, h) * 0.032))
+        const halo = ctx.createRadialGradient(moonX, moonY, 0, moonX, moonY, moonR * 7)
+        halo.addColorStop(0, 'rgba(206,232,255,0.22)')
+        halo.addColorStop(0.32, 'rgba(160,198,236,0.09)')
+        halo.addColorStop(1, 'rgba(120,164,214,0)')
+        ctx.fillStyle = halo
+        ctx.fillRect(0, 0, w, h)
+        ctx.save()
+        ctx.beginPath()
+        ctx.arc(moonX, moonY, moonR, 0, TAU)
+        ctx.clip()
+        const disc = ctx.createRadialGradient(moonX - moonR * 0.3, moonY - moonR * 0.3, moonR * 0.1, moonX, moonY, moonR)
+        disc.addColorStop(0, 'rgba(255,255,255,0.98)')
+        disc.addColorStop(0.7, 'rgba(232,244,255,0.95)')
+        disc.addColorStop(1, 'rgba(198,222,244,0.9)')
+        ctx.fillStyle = disc
+        ctx.fillRect(moonX - moonR, moonY - moonR, moonR * 2, moonR * 2)
+        ctx.fillStyle = 'rgba(168,196,224,0.16)'
+        for (const [ox, oy, rr] of [[-0.28, -0.12, 0.3], [0.22, 0.24, 0.19], [-0.02, 0.4, 0.13]] as Array<[number, number, number]>) {
+          ctx.beginPath()
+          ctx.ellipse(moonX + ox * moonR, moonY + oy * moonR, rr * moonR, rr * moonR * 0.8, 0.4, 0, TAU)
+          ctx.fill()
+        }
+        ctx.restore()
+      } else {
+        // 被雪雾洗淡的薄阳
+        const sunX = w * 0.74
+        const sunY = h * 0.24
+        const sunGlow = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, Math.max(w, h) * 0.55)
+        sunGlow.addColorStop(0, 'rgba(255,253,246,0.72)')
+        sunGlow.addColorStop(0.2, 'rgba(255,249,235,0.3)')
+        sunGlow.addColorStop(1, 'rgba(255,249,235,0)')
+        ctx.fillStyle = sunGlow
+        ctx.fillRect(0, 0, w, h)
+      }
+
+      /* ---------------- 三层雪岭 ---------------- */
+      /**
+       * 雪峰剖面：每层放 4–7 座峰，用 cos² 单峰 + 软最大值合成，
+       * 峰顶利落、谷地圆缓，比逐点噪声更像真实山脊。
+       */
+      const makeRange = (seedNum: number, peakH: number, baseY: number, count: number) => {
+        const r = seeded(seedNum)
+        const summits = Array.from({ length: count }, (_, i) => ({
+          c: ((i + 0.15 + r() * 0.7) / count) * w,
+          H: peakH * (0.55 + r() * 0.45),
+          W: (w / count) * (0.85 + r() * 0.6),
+        }))
+        const samples = Math.max(120, Math.round(w / 8))
+        const pts: Array<{ x: number; y: number }> = []
+        for (let i = 0; i <= samples; i += 1) {
+          const x = (i / samples) * w
+          let sum = 0
+          for (const s2 of summits) {
+            const t = Math.min(1, Math.abs(x - s2.c) / s2.W)
+            const bump = Math.cos((t * Math.PI) / 2) ** 2
+            // 峰的右坡比左坡缓一点，山形不对称（迎风面陡、背风面长）
+            sum += (s2.H * bump) ** 3
+          }
+          const height = Math.cbrt(sum) * (0.82 + 0.18 * Math.sin(x * 0.013 + seedNum))
+          pts.push({ x, y: baseY - height })
+        }
+        return pts
+      }
+
+      const tone = dark
+        ? {
+            ranges: [
+              { body: ['#16293f', '#0f2033'] as [string, string], lit: 'rgba(150,186,220,0.42)', depth: 0.5 },
+              { body: ['#1b3854', '#132a41'] as [string, string], lit: 'rgba(176,208,238,0.5)', depth: 0.52 },
+              { body: ['#23496a', '#183552'] as [string, string], lit: 'rgba(206,230,250,0.62)', depth: 0.55 },
+            ],
+            pines: '#0f2438',
+            pineSnow: 'rgba(190,218,242,0.3)',
+          }
+        : {
+            ranges: [
+              { body: ['#c3d6e6', '#a3bcd2'] as [string, string], lit: 'rgba(255,255,255,0.98)', depth: 0.5 },
+              { body: ['#b0c9dd', '#8fabC4'] as [string, string], lit: 'rgba(255,255,255,1)', depth: 0.52 },
+              { body: ['#9fbbd2', '#7f9db6'] as [string, string], lit: 'rgba(255,255,255,1)', depth: 0.55 },
+            ],
+            pines: '#86a6bd',
+            pineSnow: 'rgba(255,255,255,0.92)',
+          }
+
+      const traceSmooth = (pts: Array<{ x: number; y: number }>) => {
+        ctx.moveTo(pts[0].x, pts[0].y)
+        for (let i = 1; i < pts.length - 1; i += 1) {
+          const mx = (pts[i].x + pts[i + 1].x) / 2
+          const my = (pts[i].y + pts[i + 1].y) / 2
+          ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my)
+        }
+        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y)
+      }
+
+      /**
+       * 一座雪岭：
+       *   ① 山体：纵向渐变（脊线亮、山脚暗）；
+       *   ② 积雪：把同一轮廓裁剪住，用一段自上而下渐隐的白，只在峰顶附近留下雪盖；
+       *   ③ 再叠一层从左侧来的方向光，雪岭就有了体积。
+       * 全程没有拼接多边形，所以岭脊永远干净、圆润。
+       */
+      const drawRange = (
+        pts: Array<{ x: number; y: number }>,
+        cfg: { body: [string, string]; lit: string; depth: number },
+        baseY: number,
+      ) => {
+        const minY = Math.min(...pts.map((p2) => p2.y))
+        const bodyGrad = ctx.createLinearGradient(0, minY, 0, baseY + h * 0.08)
+        bodyGrad.addColorStop(0, cfg.body[0])
+        bodyGrad.addColorStop(1, cfg.body[1])
+
+        const path = () => {
+          ctx.beginPath()
+          ctx.moveTo(-20, h)
+          traceSmooth(pts)
+          ctx.lineTo(w + 20, h)
+          ctx.closePath()
+        }
+
+        path()
+        ctx.fillStyle = bodyGrad
+        ctx.fill()
+
+        ctx.save()
+        path()
+        ctx.clip()
+        // 雪盖：峰顶最厚，往下 3 段山高内渐隐
+        const snowBottom = minY + (baseY - minY) * 1.05
+        const snowGrad = ctx.createLinearGradient(0, minY - h * 0.02, 0, snowBottom)
+        snowGrad.addColorStop(0, cfg.lit)
+        snowGrad.addColorStop(0.42, cfg.lit.replace(/[\d.]+\)$/, '0.55)'))
+        snowGrad.addColorStop(0.78, cfg.lit.replace(/[\d.]+\)$/, '0.14)'))
+        snowGrad.addColorStop(1, cfg.lit.replace(/[\d.]+\)$/, '0)'))
+        ctx.fillStyle = snowGrad
+        ctx.fillRect(0, 0, w, h)
+
+        // 方向光：左亮右暗，给山体一点体积
+        const dirLight = ctx.createLinearGradient(0, 0, w, h * 0.6)
+        dirLight.addColorStop(0, dark ? 'rgba(196,224,250,0.1)' : 'rgba(255,255,255,0.5)')
+        dirLight.addColorStop(0.55, 'rgba(255,255,255,0)')
+        dirLight.addColorStop(1, dark ? 'rgba(4,10,20,0.24)' : 'rgba(90,124,152,0.16)')
+        ctx.fillStyle = dirLight
+        ctx.fillRect(0, 0, w, h)
+        ctx.restore()
+
+        // 脊线受光：极细的一道亮线
+        ctx.save()
+        ctx.lineCap = 'round'
+        ctx.beginPath()
+        traceSmooth(pts)
+        ctx.strokeStyle = cfg.lit
+        ctx.globalAlpha = dark ? 0.42 : 0.75
+        ctx.lineWidth = 1
+        ctx.stroke()
+        ctx.restore()
+      }
+
+      const drawHaze = (y: number, band: number, alpha: number) => {
+        const g = ctx.createLinearGradient(0, y - band, 0, y + band * 0.5)
+        g.addColorStop(0, 'rgba(255,255,255,0)')
+        g.addColorStop(0.55, dark ? `rgba(176,206,234,${alpha})` : `rgba(255,255,255,${alpha * 0.9})`)
+        g.addColorStop(1, 'rgba(255,255,255,0)')
+        ctx.fillStyle = g
+        ctx.fillRect(0, y - band, w, band * 1.5)
+      }
+
+      const ranges = [
+        makeRange(17, h * 0.17, horizon + 6, Math.max(4, Math.round(w / 300))),
+        makeRange(53, h * 0.125, horizon + 24, Math.max(3, Math.round(w / 400))),
+        makeRange(97, h * 0.075, horizon + 48, Math.max(2, Math.round(w / 520))),
+      ]
+      drawRange(ranges[0], tone.ranges[0], horizon + 6)
+      drawHaze(horizon - h * 0.015, h * 0.06, dark ? 0.1 : 0.44)
+      drawRange(ranges[1], tone.ranges[1], horizon + 24)
+      drawHaze(horizon + h * 0.02, h * 0.045, dark ? 0.08 : 0.36)
+
+      // 最近一道岭：先铺山体，再把落雪针叶林「种」在它的山脊线上
+      drawRange(ranges[2], tone.ranges[2], horizon + 48)
+      const ridgeAt = (x: number) => {
+        const pts = ranges[2]
+        const t = Math.min(1, Math.max(0, (x + 20) / (w + 40))) * (pts.length - 1)
+        const i = Math.min(pts.length - 2, Math.floor(t))
+        const f = t - i
+        return pts[i].y + (pts[i + 1].y - pts[i].y) * f
+      }
+      /** 一棵落雪云杉：三段下垂的枝层，顶上盖一层雪 */
+      const paintSpruce = (x: number, baseY: number, height: number, width: number, body: string, snow: string) => {
+        ctx.fillStyle = body
+        ctx.beginPath()
+        const tiers = 3
+        ctx.moveTo(x, baseY - height)
+        for (let t = 0; t < tiers; t += 1) {
+          const top = baseY - height + (height * 0.17) * t
+          const bottom = baseY - height + height * (0.52 + t * 0.24)
+          const spread = width * (0.34 + t * 0.33)
+          ctx.lineTo(x + spread, bottom)
+          ctx.quadraticCurveTo(x + spread * 0.34, bottom - height * 0.03, x + spread * 0.16, top + height * 0.06)
+        }
+        ctx.lineTo(x + width * 0.1, baseY)
+        ctx.lineTo(x - width * 0.1, baseY)
+        for (let t = tiers - 1; t >= 0; t -= 1) {
+          const top = baseY - height + (height * 0.17) * t
+          const bottom = baseY - height + height * (0.52 + t * 0.24)
+          const spread = width * (0.34 + t * 0.33)
+          ctx.lineTo(x - spread * 0.16, top + height * 0.06)
+          ctx.quadraticCurveTo(x - spread * 0.34, bottom - height * 0.03, x - spread, bottom)
+        }
+        ctx.closePath()
+        ctx.fill()
+
+        // 积雪：每层枝梢上的一小片白，越往顶越厚
+        ctx.fillStyle = snow
+        for (let t = 0; t < tiers; t += 1) {
+          const top = baseY - height + (height * 0.17) * t
+          const spread = width * (0.3 + t * 0.3)
+          const snowH = height * (0.13 - t * 0.02)
+          ctx.beginPath()
+          ctx.moveTo(x - spread * 0.94, top + height * (0.35 - t * 0.06))
+          ctx.quadraticCurveTo(x - spread * 0.3, top + height * (0.2 - t * 0.04), x, top + snowH * 0.2)
+          ctx.quadraticCurveTo(x + spread * 0.3, top + height * (0.2 - t * 0.04), x + spread * 0.94, top + height * (0.35 - t * 0.06))
+          ctx.quadraticCurveTo(x, top + height * (0.34 - t * 0.05), x - spread * 0.94, top + height * (0.35 - t * 0.06))
+          ctx.closePath()
+          ctx.fill()
         }
       }
-    }))
-    background = paint(w, h, ctx => {
-      sky(ctx, w, h, dark ? ['#091321', '#172b42', '#25445b'] : ['#e8f1f7', '#f7fafc', '#d4e5ef'])
-      // 柔和的远山与积雪坡面，中心保留阅读空间。
-      for (let layer = 0; layer < 3; layer++) {
-        ctx.fillStyle = dark ? ['#1d3448', '#263f52', '#314e61'][layer] : ['#c9dce8', '#deebf2', '#f4f9fc'][layer]
-        ctx.beginPath(); ctx.moveTo(0, h)
-        for (let x = 0; x <= w + 16; x += 16) ctx.lineTo(x, h * (.76 + layer * .09) + Math.sin(x / w * 7 + layer * 2) * h * .045)
-        ctx.lineTo(w, h); ctx.closePath(); ctx.fill()
+
+      // 成片云杉林：前后两排，后排高而淡、前排矮而实，沿岭脊自然聚成几簇
+      const treeRng = seeded(211)
+      const groveRng = seeded(463)
+      const groves = Array.from({ length: Math.max(3, Math.round(w / 420)) }, () => ({
+        center: groveRng() * w,
+        span: (0.1 + groveRng() * 0.22) * w,
+        strength: 0.55 + groveRng() * 0.45,
+      }))
+      const densityAt = (x: number) => {
+        let value = 0.08
+        for (const g of groves) {
+          value = Math.max(value, g.strength * Math.max(0, 1 - Math.abs(x - g.center) / g.span))
+        }
+        return value
       }
-      const glow = ctx.createRadialGradient(w * .72, h * .15, 0, w * .72, h * .15, w * .65)
-      glow.addColorStop(0, dark ? 'rgba(183,218,250,.14)' : 'rgba(255,255,255,.7)'); glow.addColorStop(1, 'rgba(210,230,250,0)')
-      ctx.fillStyle = glow; ctx.fillRect(0, 0, w, h)
+      const rows: Array<{ count: number; minH: number; maxH: number; body: string; snow: string; offset: number }> = [
+        {
+          count: Math.round(w / 8),
+          minH: 16,
+          maxH: 52,
+          body: dark ? 'rgba(20, 44, 64, 0.85)' : 'rgba(126, 156, 178, 0.6)',
+          snow: dark ? 'rgba(188, 214, 238, 0.34)' : 'rgba(255, 255, 255, 0.78)',
+          offset: 22,
+        },
+        {
+          count: Math.round(w / 11),
+          minH: 22,
+          maxH: 70,
+          body: dark ? '#0e2436' : '#6d8ea6',
+          snow: dark ? 'rgba(214, 234, 252, 0.5)' : 'rgba(255, 255, 255, 0.92)',
+          offset: 10,
+        },
+      ]
+      for (const row of rows) {
+        for (let i = 0; i < row.count; i += 1) {
+          const tx = treeRng() * w
+          if (treeRng() > densityAt(tx) * 1.25 + 0.12) continue
+          const baseY = ridgeAt(tx) + (row.offset + treeRng() * 18) * scale
+          const th = (row.minH + Math.pow(treeRng(), 1.3) * (row.maxH - row.minH)) * scale
+          const tw = th * (0.26 + treeRng() * 0.12)
+          paintSpruce(tx, baseY, th, tw, row.body, row.snow)
+        }
+      }
+      // 林线脚下的一层雪雾，让树林与雪坡自然衔接
+      const treeline = ctx.createLinearGradient(0, horizon + h * 0.03, 0, horizon + h * 0.12)
+      treeline.addColorStop(0, dark ? 'rgba(120, 168, 200, 0)' : 'rgba(255, 255, 255, 0)')
+      treeline.addColorStop(0.55, dark ? 'rgba(146, 190, 216, 0.14)' : 'rgba(255, 255, 255, 0.5)')
+      treeline.addColorStop(1, dark ? 'rgba(120, 168, 200, 0)' : 'rgba(255, 255, 255, 0)')
+      ctx.fillStyle = treeline
+      ctx.fillRect(0, horizon + h * 0.03, w, h * 0.09)
+
+      drawHaze(horizon + h * 0.055, h * 0.05, dark ? 0.09 : 0.28)
+
+      // 前景雪原：柔和起伏，压住正文下方的阅读区
+      const field = ctx.createLinearGradient(0, h * 0.82, 0, h)
+      if (dark) {
+        field.addColorStop(0, '#2b5470')
+        field.addColorStop(0.55, '#1d3d55')
+        field.addColorStop(1, '#152f45')
+      } else {
+        field.addColorStop(0, '#f2f9fd')
+        field.addColorStop(0.5, '#e2f0f9')
+        field.addColorStop(1, '#cfe4f2')
+      }
+      ctx.beginPath()
+      ctx.moveTo(0, h)
+      for (let x = 0; x <= w + 12; x += 12) {
+        const t = x / w
+        const drift = h * 0.055 * Math.sin(t * 5.1 + 0.7) + h * 0.02 * Math.sin(t * 11.3 + 2.1)
+        ctx.lineTo(x, h * 0.845 + drift)
+      }
+      ctx.lineTo(w, h)
+      ctx.closePath()
+      ctx.fillStyle = field
+      ctx.fill()
+
+      // 雪面晶光：稀疏的高光点，绝不成片噪点
+      const glint = seeded(877)
+      for (let i = 0; i < 120; i += 1) {
+        const gx = glint() * w
+        const gy = h * 0.86 + Math.pow(glint(), 1.3) * h * 0.13
+        const gr = 0.5 + glint() * 1.3
+        ctx.fillStyle = dark ? `rgba(212,236,255,${(0.08 + glint() * 0.22).toFixed(3)})` : `rgba(255,255,255,${(0.24 + glint() * 0.5).toFixed(3)})`
+        ctx.beginPath()
+        ctx.arc(gx, gy, gr, 0, TAU)
+        ctx.fill()
+      }
+
+      const vignette = ctx.createRadialGradient(w * 0.5, h * 0.42, Math.min(w, h) * 0.24, w * 0.5, h * 0.5, Math.hypot(w, h) * 0.66)
+      vignette.addColorStop(0, 'rgba(0,0,0,0)')
+      vignette.addColorStop(1, `rgba(0,0,0,${dark ? 0.42 : 0.05})`)
+      ctx.fillStyle = vignette
+      ctx.fillRect(0, 0, w, h)
     })
   }
+
+  /** 极简四芒星：用于少数大雪晶的闪烁 */
+  const makeSparkle = (color: string) =>
+    paint(64, 64, (ctx) => {
+      const drawBeam = (horizontal: boolean) => {
+        const g = horizontal
+          ? ctx.createLinearGradient(0, 32, 64, 32)
+          : ctx.createLinearGradient(32, 0, 32, 64)
+        g.addColorStop(0, 'rgba(255,255,255,0)')
+        g.addColorStop(0.5, color)
+        g.addColorStop(1, 'rgba(255,255,255,0)')
+        ctx.fillStyle = g
+        if (horizontal) ctx.fillRect(0, 31, 64, 2)
+        else ctx.fillRect(31, 0, 2, 64)
+      }
+      drawBeam(true)
+      drawBeam(false)
+    })
+
   return {
-    fps: 30,
-    setup(width, height) { w = width; h = height; build(); flakes = []; resize(flakes, Math.round((values.count ?? 55) * 3 * area(w, h)), spawn) },
-    configure(next) { values = next; resize(flakes, Math.round((values.count ?? 55) * 3 * area(w, h)), spawn) },
-    setTone(next) { if (dark !== next) { dark = next; build() } },
+    fps: 60,
+    setup(width, height) {
+      w = width
+      h = height
+      build()
+      flakes = []
+      resize(flakes, Math.round((values.count ?? 55) * 3.1 * area(w, h)), spawn)
+    },
+    configure(next) {
+      values = next
+      resize(flakes, Math.round((values.count ?? 55) * 3.1 * area(w, h)), spawn)
+    },
+    setTone(next) {
+      if (dark !== next) {
+        dark = next
+        build()
+      }
+    },
     step(dt) {
+      const wind = (values.wind ?? 12) / 100
+      const swirl = 6 + (values.swirl ?? 45) * 0.28
       for (const f of flakes) {
-        f.phase += dt * (.35 + f.z); f.angle += f.spin * dt
-        f.x += (((values.wind ?? 12) / 100) * 85 * f.z + Math.sin(f.phase) * (6 + (values.swirl ?? 45) * .25) * f.z) * dt
-        f.y += (8 + (values.speed ?? 35) * .75) * (.3 + f.z * 1.2) * dt
-        if (f.x < -50) f.x = w + 45
-        if (f.x > w + 50) f.x = -45
-        if (f.y > h + 50) Object.assign(f, spawn(true))
+        f.phase += dt * (0.32 + f.z * 0.85)
+        f.angle += f.spin * dt
+        f.x += (wind * 88 * f.z + Math.sin(f.phase) * swirl * f.z) * dt
+        f.y += (9 + (values.speed ?? 35) * 0.78) * (0.26 + f.z * 1.25) * dt
+        if (f.x < -70) f.x = w + 60
+        if (f.x > w + 70) f.x = -60
+        if (f.y > h + 60) Object.assign(f, spawn(true))
       }
     },
     draw(ctx) {
       ctx.drawImage(background, 0, 0, w, h)
+      const sizeScale = 0.5 + (values.size ?? 45) / 100
       ctx.save()
-      // 远景先画，近景后画；深浅切换只重建贴图，不重置雪片。
-      for (let layer = 0; layer < 3; layer++) for (const f of flakes) {
-        const index = f.z > .84 ? 2 : f.z > .5 ? 0 : 1
-        if ((index === 1 ? 0 : index === 0 ? 1 : 2) !== layer) continue
-        const size = (3 + f.z * f.z * 26) * (.5 + (values.size ?? 45) / 100)
-        ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.angle)
-        ctx.globalAlpha = (dark ? .45 : .5) + f.z * .35
-        ctx.drawImage(sprites[index], -size / 2, -size / 2, size, size); ctx.restore()
+      // 远 → 近三层：先小雪晶，再主雪晶，最后柔焦近景
+      for (let layer = 0; layer < 3; layer += 1) {
+        for (const f of flakes) {
+          const index = f.z > 0.82 ? 2 : f.z > 0.46 ? 0 : 1
+          const order = index === 1 ? 0 : index === 0 ? 1 : 2
+          if (order !== layer) continue
+          const size = index === 2
+            ? (10 + f.z * f.z * 34) * sizeScale
+            : index === 0
+              ? (4.4 + f.z * f.z * 20) * sizeScale
+              : (2.4 + f.z * 6) * sizeScale
+          ctx.save()
+          ctx.translate(f.x, f.y)
+          ctx.rotate(f.angle)
+          ctx.globalAlpha = (dark ? 0.34 : 0.42) + f.z * 0.42
+          ctx.drawImage(sprites[index] ?? sprites[0], -size / 2, -size / 2, size, size)
+          ctx.restore()
+        }
+      }
+      // 少数大晶的星芒闪烁
+      if (sparkleSprite) {
+        ctx.save()
+        ctx.globalCompositeOperation = dark ? 'lighter' : 'source-over'
+        for (const f of flakes) {
+          if (!f.sparkle || f.z < 0.6) continue
+          const twinkle = 0.5 + 0.5 * Math.sin(f.phase * 1.4)
+          const size = (8 + f.z * 16) * sizeScale * (0.7 + twinkle * 0.5)
+          ctx.globalAlpha = (dark ? 0.5 : 0.4) * twinkle
+          ctx.drawImage(sparkleSprite, f.x - size / 2, f.y - size / 2, size, size)
+        }
+        ctx.restore()
       }
       ctx.restore()
     },
@@ -102,6 +585,7 @@ export function createSnow(initialDark: boolean): Renderer {
 const rainMistCache = new Map<boolean, HTMLCanvasElement>()
 const rainGlowCache = new Map<string, HTMLCanvasElement>()
 const rainCloudCache = new Map<boolean, HTMLCanvasElement>()
+const rainVeilCache = new Map<boolean, HTMLCanvasElement>()
 
 /**
  * 暴雨：雨夜 / 阴雨白昼的山湖。
@@ -268,13 +752,19 @@ export function createRain(initialDark: boolean): Renderer {
    * 云场贴图只跟明暗有关，按色调缓存。
    * 640×280 的低分辨率噪声放大到整个天空，既省烘焙时间，又自带柔边。
    */
+  /**
+   * 云场：
+   * fbm 只跑一遍、缓存成一张「密度 + 受光」的灰度贴图（60k 像素 × 5 个八度，
+   * 是整次烘焙里最贵的一步）；深浅两套配色只差一层着色，因此按明暗各缓存一份最终贴图，
+   * 换主题 / 重建背景时直接复用。
+   */
   const cloudTexture = () => {
     const cached = rainCloudCache.get(dark)
     if (cached) return cached
-    const cw = 512, ch = 224
+    const cw = 384, ch = 168
     const maxCloud = dark ? 0.76 : 0.7
-    const base = dark ? [5, 9, 16] : [86, 104, 120]
-    const lit = dark ? [96, 126, 152] : [238, 245, 249]
+    const base = dark ? [5, 9, 16] : [80, 98, 114]
+    const lit = dark ? [96, 126, 152] : [240, 247, 251]
     const lightU = dark ? 0.84 : 0.76
     const lightV = dark ? 0.236 : 0.74
     const aspect = cw / ch
@@ -453,11 +943,12 @@ export function createRain(initialDark: boolean): Renderer {
           waterTop: '#c5d4db',
           waterMid: '#b4c7d1',
           waterLow: '#a2b9c4',
-          ridge: ['#c1ced6', '#b1c2cb', '#a4b7c1'],
-          forest: ['#aec0c7', '#9bb0b4', '#88a6a9'],
-          forestDeep: '#73908f',
-          reed: '#648084',
-          shore: '#5c7a7e',
+          // 阴雨白昼的林线要比水色更深，才能读成「长满树的山」而不是一层薄雾
+          ridge: ['#9db4bf', '#87a2ae', '#6f8c98'],
+          forest: ['#7f99a4', '#6a8791', '#53717b'],
+          forestDeep: '#3e5b64',
+          reed: '#34525b',
+          shore: '#2c4952',
         }
 
     /* ---------------------------- 山脊 ---------------------------- */
@@ -587,6 +1078,9 @@ export function createRain(initialDark: boolean): Renderer {
       const r = seeded(cfg.seed)
       let x = -80
       let trees = 0
+      // 必须先定好填充色再攒路径：否则前 70 棵树会沿用上一层（雾带渐变）留下的 fillStyle，
+      // 在林线上留下一排发白的「雾团」。
+      ctx.fillStyle = cfg.color
       ctx.beginPath()
       while (x < w + 80) {
         const clump =
@@ -606,12 +1100,13 @@ export function createRain(initialDark: boolean): Renderer {
         else broadleaf(ctx, x, base, hh, hw, cfg.seed)
         trees += 1
         if (trees % 70 === 0) {
-          ctx.fillStyle = cfg.color
           ctx.fill()
           ctx.beginPath()
         }
         x += cfg.spacing * (0.5 + r() * 0.95)
       }
+      // 收尾：把最后不足 70 棵攒下的路径一并填掉，避免残留到下一层绘制里
+      ctx.fill()
     }
 
     /**
@@ -888,7 +1383,7 @@ export function createRain(initialDark: boolean): Renderer {
       const haze = ctx.createLinearGradient(0, horizon - h * 0.22, 0, horizon)
       haze.addColorStop(0, `rgba(${tone.haze},0)`)
       haze.addColorStop(0.7, `rgba(${tone.haze},${dark ? 0.09 : 0.2})`)
-      haze.addColorStop(1, `rgba(${tone.haze},${dark ? 0.2 : 0.44})`)
+      haze.addColorStop(1, `rgba(${tone.haze},${dark ? 0.2 : 0.34})`)
       ctx.fillStyle = haze
       ctx.fillRect(0, horizon - h * 0.22, w, h * 0.22)
 
@@ -939,6 +1434,21 @@ export function createRain(initialDark: boolean): Renderer {
       c.fillStyle = dark ? 'rgba(6,14,20,0.34)' : 'rgba(146,168,180,0.18)'
       c.fillRect(0, 0, w, landH)
     }), 2)
+    // 倒影的纵向渐隐烘焙进贴图本身（贴岸最实、越远越淡）。
+    // 以前是分 7 个横带各用一个 globalAlpha 贴回去，带与带的透明度不同，
+    // 放大对比度就能看到 6 条横贯水面的接缝；现在整张只贴一次渐隐，接缝不存在。
+    mirror = paint(w, landH, (c) => {
+      c.drawImage(mirror, 0, 0)
+      c.globalCompositeOperation = 'destination-in'
+      const fade = c.createLinearGradient(0, 0, 0, landH)
+      fade.addColorStop(0, 'rgba(0,0,0,0.95)')
+      fade.addColorStop(0.18, 'rgba(0,0,0,0.86)')
+      fade.addColorStop(0.55, 'rgba(0,0,0,0.6)')
+      fade.addColorStop(0.82, 'rgba(0,0,0,0.34)')
+      fade.addColorStop(1, 'rgba(0,0,0,0.16)')
+      c.fillStyle = fade
+      c.fillRect(0, 0, w, landH)
+    })
 
     water = soften(paint(w, waterH, (ctx) => {
       // 倒影顶端（紧贴岸线）压一层水色：镜像会把陆地上的雾带一起翻下来，
@@ -1160,7 +1670,7 @@ export function createRain(initialDark: boolean): Renderer {
 
       // 光的来向：右侧一丝极淡的暖色，让整片灰蓝不至于发闷
       if (!dark) {
-        ctx.fillStyle = 'rgba(238,243,246,0.15)'
+        ctx.fillStyle = 'rgba(238,243,246,0.07)'
         ctx.fillRect(0, 0, w, h)
       }
 
@@ -1221,11 +1731,12 @@ export function createRain(initialDark: boolean): Renderer {
       dark ? [142, 184, 214] : [168, 192, 208],
       dark ? [224, 244, 255] : [252, 254, 255],
     )
-    rainVeil = soften(
+    const cachedVeil = rainVeilCache.get(dark)
+    rainVeil = cachedVeil ?? soften(
       paint(256, 256, (ctx) => {
         const image = ctx.createImageData(256, 256)
         const data = image.data
-        const veilRgb = dark ? [150, 188, 218] : [224, 236, 245]
+        const veilRgb = dark ? [150, 188, 218] : [226, 238, 247]
         for (let py = 0; py < 256; py += 1) {
           const v = py / 255
           const envY = Math.sin(Math.PI * Math.pow(v, 0.82))
@@ -1246,6 +1757,7 @@ export function createRain(initialDark: boolean): Renderer {
       }),
       4,
     )
+    if (!cachedVeil) rainVeilCache.set(dark, rainVeil)
   }
 
   return {
@@ -1316,17 +1828,31 @@ export function createRain(initialDark: boolean): Renderer {
     draw(ctx) {
       ctx.drawImage(background, 0, 0, w, h)
 
-      /* 倒影：分带贴回，每带横向偏移随时间轻微变化，水面就有了「晃动」 */
-      const bands = 7
-      const bandH = mirror.height / bands
-      const stretch = 0.86
+      /*
+       * 倒影：整张镜像只贴一次（纵向渐隐已经烘焙在贴图里，所以没有分带接缝），
+       * 再叠 9 条横向错位的窄光带——水面会「晃」，但不会出现一圈圈横线。
+       */
       ctx.save()
-      ctx.globalAlpha = dark ? 0.62 : 0.54
-      for (let i = 0; i < bands; i += 1) {
-        const drift = Math.sin(time * 0.45 + i * 0.85) * (1.1 + i * 1.15) + Math.sin(time * 0.19 + i * 2.2) * 1.8
-        const fade = [0.62, 0.84, 0.97, 1, 0.98, 0.9, 0.74][i] ?? 0.8
-        ctx.globalAlpha = (dark ? 0.62 : 0.54) * fade
-        ctx.drawImage(mirror, 0, i * bandH, mirror.width, bandH, drift, horizon + i * bandH * stretch, w, bandH * stretch + 1)
+      ctx.globalAlpha = dark ? 0.74 : 0.62
+      ctx.drawImage(mirror, 0, horizon, w, mirror.height * 0.88)
+      ctx.globalAlpha = dark ? 0.2 : 0.16
+      for (let i = 0; i < 9; i += 1) {
+        const v = (i + 0.5) / 9
+        const drift =
+          Math.sin(time * 0.5 + i * 0.9) * (1.4 + v * 6) +
+          Math.sin(time * 0.21 + i * 1.7) * 2.2
+        const bandH = mirror.height * 0.88 * 0.16
+        ctx.drawImage(
+          mirror,
+          0,
+          v * mirror.height - mirror.height * 0.06,
+          mirror.width,
+          mirror.height * 0.12,
+          drift,
+          horizon + v * mirror.height * 0.88 - bandH * 0.5,
+          w,
+          bandH,
+        )
       }
       ctx.restore()
 
@@ -1469,78 +1995,536 @@ export function createRain(initialDark: boolean): Renderer {
   }
 }
 
-/** 竹竿与叶簇预绘在独立贴图中，按远中近三层缓慢摆动。 */
+/**
+ * 竹林（晨光青竹 · 幽绿月夜）：
+ *
+ * 之前每一根竹竿都是一张几乎一样的贴图，满屏复制出「壁纸感」。
+ * 现在分成四层：
+ *   ① 远景：雾中的竹影剪影（细、淡、冷），只提供纵深；
+ *   ② 中景：成竹带竹节与分枝，叶簇沿竹节自然下垂；
+ *   ③ 光：斜射的光束与林间浮尘，随呼吸缓慢明灭；
+ *   ④ 近景：边缘两丛虚焦竹叶 + 飘落的竹叶。
+ * 竹竿贴图按「深度 + 变体」预烘焙，同类竹竿共用一张，逐帧只做旋转贴图。
+ */
 export function createBamboo(initialDark: boolean): Renderer {
-  interface Stem { x: number; depth: number; phase: number; lean: number; sprite: HTMLCanvasElement }
+  interface Stem { x: number; depth: number; phase: number; lean: number; speed: number; sprite: number; scale: number }
+  interface FallingLeaf { x: number; y: number; vx: number; vy: number; phase: number; angle: number; spin: number; size: number; alpha: number }
+
   let w = 1, h = 1, dark = initialDark, time = 0
-  let values: SceneValues = {}, stems: Stem[] = [], background: HTMLCanvasElement, fog: HTMLCanvasElement
-  const stemSprite = (seed: number, depth: number) => paint(220, Math.min(1200, h + 100), ctx => {
-    const sh = ctx.canvas.height, thick = 3 + depth * 9
-    const shade = dark ? ['#284941', '#376658', '#4a7c60'] : ['#a2bd9a', '#6f9467', '#456f4d']
-    const gradient = ctx.createLinearGradient(100 - thick, 0, 100 + thick, 0)
-    gradient.addColorStop(0, shade[0]); gradient.addColorStop(.35, shade[2]); gradient.addColorStop(1, shade[1])
-    ctx.fillStyle = gradient; ctx.fillRect(100 - thick / 2, 0, thick, sh)
-    const segment = 75 + seed * 25
-    for (let y = 30; y < sh; y += segment) {
-      ctx.strokeStyle = dark ? 'rgba(157,193,142,.35)' : 'rgba(233,242,210,.65)'; ctx.lineWidth = 2
-      ctx.beginPath(); ctx.moveTo(99 - thick / 2, y); ctx.lineTo(102 + thick / 2, y - 1); ctx.stroke()
-      if (y > sh * .84) continue
-      const side = Math.sin(y + seed * 9) > 0 ? 1 : -1
-      ctx.strokeStyle = shade[1]; ctx.lineWidth = 1.3
-      ctx.beginPath(); ctx.moveTo(100, y); ctx.quadraticCurveTo(100 + side * 35, y - 20, 100 + side * 65, y - 35); ctx.stroke()
-      ctx.fillStyle = shade[depth > .65 ? 2 : 1]
-      for (let j = 0; j < 9; j++) {
-        const px = 100 + side * (15 + j * 5), py = y - 9 - j * 3.4, direction = j % 2 ? -1 : 1
-        ctx.save(); ctx.translate(px, py); ctx.rotate(side * -.35 + direction * .65)
-        ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(10, -8, 28 + seed * 8, -4); ctx.quadraticCurveTo(13, 4, 0, 0); ctx.fill(); ctx.restore()
-      }
+  let values: SceneValues = {}
+  let stems: Stem[] = []
+  let leaves: FallingLeaf[] = []
+  let background: HTMLCanvasElement = paint(1, 1, () => {})
+  let foreground: HTMLCanvasElement = paint(1, 1, () => {})
+  let mistTex: HTMLCanvasElement = paint(1, 1, () => {})
+  let shaftTex: HTMLCanvasElement = paint(1, 1, () => {})
+  let stemSprites: HTMLCanvasElement[] = []
+
+  /** 把颜色往背景色方向混一部分，做空气透视（远竹退到雾里） */
+  const fadeHex = (hex: string, target: [number, number, number], amount: number) => {
+    const value = hex.replace('#', '')
+    const rgb = [
+      Number.parseInt(value.slice(0, 2), 16),
+      Number.parseInt(value.slice(2, 4), 16),
+      Number.parseInt(value.slice(4, 6), 16),
+    ]
+    const mixed = rgb.map((c, i) => Math.round(c + (target[i] - c) * amount))
+    return `rgb(${mixed[0]}, ${mixed[1]}, ${mixed[2]})`
+  }
+
+  const palette = () =>
+    dark
+      ? {
+          seed: 9,
+          far: 'rgba(96, 140, 116, 0.3)',
+          stem: ['#16352c', '#2c5847', '#3f7057'] as [string, string, string],
+          node: 'rgba(150, 196, 160, 0.3)',
+          leafDark: '#1c4034',
+          leafLight: '#3f6f52',
+          leafEdge: 'rgba(178, 220, 186, 0.45)',
+          mist: 'rgba(150, 196, 172,',
+          shaft: 'rgba(196, 236, 208,',
+          glow: 'rgba(150, 210, 178,',
+        }
+      : {
+          seed: 3,
+          far: 'rgba(150, 178, 132, 0.34)',
+          stem: ['#8fae76', '#6d9459', '#a9c78c'] as [string, string, string],
+          node: 'rgba(244, 250, 214, 0.55)',
+          leafDark: '#5c8348',
+          leafLight: '#8fb268',
+          leafEdge: 'rgba(255, 255, 224, 0.55)',
+          mist: 'rgba(250, 252, 232,',
+          shaft: 'rgba(255, 252, 216,',
+          glow: 'rgba(255, 250, 208,',
+        }
+
+  /** 一片竹叶：从叶柄处起笔的柳叶刀形，带主脉与尖端高光 */
+  const paintLeaf = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    length: number,
+    width: number,
+    angle: number,
+    fill: string,
+    edge: string,
+  ) => {
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.rotate(angle)
+    ctx.fillStyle = fill
+    ctx.beginPath()
+    ctx.moveTo(0, 0)
+    ctx.quadraticCurveTo(length * 0.36, -width * 0.95, length * 0.72, -width * 0.3)
+    ctx.quadraticCurveTo(length * 1.02, -width * 0.12, length, 0)
+    ctx.quadraticCurveTo(length * 0.98, width * 0.1, length * 0.7, width * 0.3)
+    ctx.quadraticCurveTo(length * 0.34, width * 0.8, 0, 0)
+    ctx.closePath()
+    ctx.fill()
+    ctx.strokeStyle = edge
+    ctx.lineWidth = 0.7
+    ctx.beginPath()
+    ctx.moveTo(0, 0)
+    ctx.quadraticCurveTo(length * 0.6, -width * 0.08, length * 0.98, 0)
+    ctx.stroke()
+    ctx.restore()
+  }
+
+  /** 一簇下垂的竹叶：3–6 片，长短不一，向下俯垂 */
+  const paintLeafCluster = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    size: number,
+    angle: number,
+    rng: () => number,
+    fill: string,
+    edge: string,
+    lightFill: string,
+  ) => {
+    const count = 3 + Math.floor(rng() * 4)
+    for (let i = 0; i < count; i += 1) {
+      const spread = (rng() - 0.5) * 1.15
+      const droop = 0.28 + rng() * 0.55
+      paintLeaf(
+        ctx,
+        x + (rng() - 0.5) * size * 0.35,
+        y + (rng() - 0.5) * size * 0.22,
+        size * (0.72 + rng() * 0.6),
+        size * (0.14 + rng() * 0.07),
+        angle + spread + droop,
+        i % 3 === 0 ? lightFill : fill,
+        edge,
+      )
     }
+  }
+
+  /** 预烘焙竹竿：纵向竹青渐变、竹节环、上部两三层下垂叶簇 */
+  const buildStemSprite = (variant: number, depth: number) => {
+    const c = palette()
+    const width = Math.round(150 + depth * 90)
+    const height = Math.round(h + 140)
+    const thick = (3.4 + depth * 15) * (0.82 + ((variant * 37) % 10) / 26)
+    const centerX = width / 2
+    return paint(width, height, (ctx) => {
+      const rng = seeded(c.seed * 97 + variant * 131 + Math.round(depth * 10))
+      // 空气透视：越远的竹竿越接近林间雾色，颜色更淡、更冷
+      const haze: [number, number, number] = dark ? [46, 84, 72] : [226, 238, 208]
+      const air = Math.pow(1 - depth, 1.5) * 0.42
+      const stemShades = c.stem.map((hex) => fadeHex(hex, haze, air)) as [string, string, string]
+      const leafTone = fadeHex(c.leafDark, haze, air * 0.8)
+      const leafHighlight = fadeHex(c.leafLight, haze, air * 0.8)
+      const grad = ctx.createLinearGradient(centerX - thick, 0, centerX + thick, 0)
+      grad.addColorStop(0, stemShades[1])
+      grad.addColorStop(0.28, stemShades[2])
+      grad.addColorStop(0.55, stemShades[0])
+      grad.addColorStop(1, stemShades[1])
+      ctx.fillStyle = grad
+      ctx.fillRect(centerX - thick / 2, -10, thick, height + 20)
+
+      // 竹节：每 100–150px 一道，节上有一圈亮边
+      const segment = 84 + rng() * 52
+      for (let y = 40 + rng() * segment; y < height; y += segment) {
+        ctx.fillStyle = dark ? 'rgba(6, 20, 16, 0.42)' : 'rgba(58, 88, 46, 0.26)'
+        ctx.fillRect(centerX - thick / 2 - 0.6, y, thick + 1.2, Math.max(1.6, thick * 0.13))
+        ctx.fillStyle = c.node
+        ctx.fillRect(centerX - thick / 2 - 0.4, y - 1.8, thick + 0.8, 1.3)
+
+        // 节上分枝 + 叶簇：越往上越密，底部只留秃竿
+        if (y < height * 0.86 && rng() < 0.92) {
+          const side = rng() < 0.5 ? -1 : 1
+          const branchLen = (30 + rng() * 52) * (depth * 0.7 + 0.6)
+          const tipX = centerX + side * branchLen
+          const tipY = y - (10 + rng() * 26)
+          ctx.strokeStyle = stemShades[1]
+          ctx.lineWidth = Math.max(0.9, thick * 0.14)
+          ctx.lineCap = 'round'
+          ctx.beginPath()
+          ctx.moveTo(centerX, y)
+          ctx.quadraticCurveTo(centerX + side * branchLen * 0.55, y - branchLen * 0.42, tipX, tipY)
+          ctx.stroke()
+          const clusterSize = (16 + rng() * 20) * (0.6 + depth * 0.8)
+          paintLeafCluster(
+            ctx,
+            tipX,
+            tipY,
+            clusterSize,
+            side > 0 ? -0.15 : Math.PI - 0.35,
+            rng,
+            leafTone,
+            c.leafEdge,
+            leafHighlight,
+          )
+          if (rng() < 0.55) {
+            paintLeafCluster(
+              ctx,
+              centerX + side * branchLen * 0.45,
+              y - branchLen * 0.16,
+              clusterSize * 0.8,
+              side > 0 ? 0.35 : Math.PI - 0.6,
+              rng,
+              leafTone,
+              c.leafEdge,
+              leafHighlight,
+            )
+          }
+        }
+      }
+
+      // 顶部叶冠：点在画面外的竹梢
+      paintLeafCluster(ctx, centerX, 18, 30 * (0.7 + depth * 0.7), -0.4, rng, leafTone, c.leafEdge, leafHighlight)
+      paintLeafCluster(ctx, centerX, 44, 24 * (0.7 + depth * 0.7), 2.6, rng, leafTone, c.leafEdge, leafHighlight)
+      paintLeafCluster(ctx, centerX, 72, 20 * (0.7 + depth * 0.7), 1.1, rng, leafTone, c.leafEdge, leafHighlight)
+    })
+  }
+
+  const spawnLeaf = (top = false): FallingLeaf => ({
+    x: rand(-40, w + 40),
+    y: top ? rand(-60, -10) : rand(0, h),
+    vx: rand(-14, 20),
+    vy: rand(12, 34),
+    phase: rand(0, TAU),
+    angle: rand(0, TAU),
+    spin: rand(-0.5, 0.5),
+    size: rand(7, 15),
+    alpha: rand(0.3, 0.72),
   })
+
   const rebuildStems = () => {
-    const count = Math.round(10 + (values.density ?? 55) * .35 * Math.max(.65, Math.min(1.6, w / 1440)))
-    resize(stems, count, () => ({ x: Math.random(), depth: rand(.1, 1), phase: rand(0, TAU), lean: rand(-.065, .065), sprite: document.createElement('canvas') }))
+    const c = palette()
+    const factor = Math.max(0.7, Math.min(1.55, w / 1440))
+    const count = Math.round((5 + (values.density ?? 55) * 0.16) * factor)
+    resize(stems, count, () => ({
+      x: Math.random(),
+      depth: Math.pow(Math.random(), 0.85) * 0.9 + 0.1,
+      phase: rand(0, TAU),
+      lean: rand(-0.05, 0.05),
+      speed: rand(0.55, 1.15),
+      sprite: 0,
+      scale: 0.8 + Math.random() * 0.35,
+    }))
     stems.sort((a, b) => a.depth - b.depth)
-    for (let i = 0; i < stems.length; i++) stems[i].sprite = stemSprite((i * .618) % 1, stems[i].depth)
+    stemSprites = []
+    const variants = 4
+    for (let i = 0; i < stems.length; i += 1) {
+      const depth = stems[i].depth
+      const variant = i % variants
+      // 每根竹竿单独烘焙太贵：按「深度档 × 变体」共享贴图
+      const bucket = Math.round(depth * 6)
+      stems[i].sprite = bucket * variants + variant
+      const key = stems[i].sprite
+      if (!stemSprites[key]) stemSprites[key] = buildStemSprite(variant, bucket / 6)
+    }
+    // 远景竹影：贴在背景上的细竹剪影
+    void c
   }
+
   const build = () => {
-    background = paint(w, h, ctx => {
-      sky(ctx, w, h, dark ? ['#071a18', '#112f28', '#1b3c31'] : ['#e8f0dd', '#f4f5e7', '#cbdcc1'])
-      const sun = ctx.createRadialGradient(w * .62, h * .18, 0, w * .62, h * .18, w * .65)
-      sun.addColorStop(0, dark ? 'rgba(185,221,201,.12)' : 'rgba(255,253,219,.8)'); sun.addColorStop(1, 'rgba(215,240,207,0)')
-      ctx.fillStyle = sun; ctx.fillRect(0, 0, w, h)
+    const c = palette()
+    const horizon = h * 0.92
+    background = paint(w, h, (ctx) => {
+      const skyGrad = ctx.createLinearGradient(w * 0.15, 0, w * 0.7, h)
+      if (dark) {
+        skyGrad.addColorStop(0, '#061414')
+        skyGrad.addColorStop(0.42, '#0b2320')
+        skyGrad.addColorStop(0.78, '#123029')
+        skyGrad.addColorStop(1, '#173b30')
+      } else {
+        skyGrad.addColorStop(0, '#f4f8e6')
+        skyGrad.addColorStop(0.42, '#eaf3da')
+        skyGrad.addColorStop(0.76, '#dcecd0')
+        skyGrad.addColorStop(1, '#cfe4c6')
+      }
+      ctx.fillStyle = skyGrad
+      ctx.fillRect(0, 0, w, h)
+
+      // 晨光 / 月光柔晕
+      const glowX = w * 0.66
+      const glowY = dark ? h * 0.18 : h * 0.24
+      const glowR = Math.max(w, h) * (dark ? 0.5 : 0.62)
+      const sun = ctx.createRadialGradient(glowX, glowY, 0, glowX, glowY, glowR)
+      sun.addColorStop(0, dark ? 'rgba(178, 226, 196, 0.2)' : 'rgba(255, 252, 214, 0.92)')
+      sun.addColorStop(0.28, dark ? 'rgba(140, 196, 170, 0.08)' : 'rgba(255, 250, 208, 0.42)')
+      sun.addColorStop(1, 'rgba(255, 255, 255, 0)')
+      ctx.fillStyle = sun
+      ctx.fillRect(0, 0, w, h)
+
+      // 远景竹影：三层，越远越淡越细，形成真正的纵深；
+      // 单独画在一张临时画布上再叠进来，用横向渐隐把中央阅读走廊让出来。
+      const shadowLayer = paint(w, h, (sc) => {
+        for (let layer = 0; layer < 3; layer += 1) {
+          const rng = seeded(41 + layer * 17)
+          const alpha = (dark ? 0.3 : 0.26) * (1 - layer * 0.26)
+          sc.strokeStyle = c.far.replace(/[\d.]+\)$/, `${alpha.toFixed(3)})`)
+          const spacing = w / (14 + layer * 5)
+          for (let x = -spacing; x < w + spacing; x += spacing * (0.55 + rng() * 0.9)) {
+            const sway = Math.sin(x * 0.004 + layer) * w * 0.014
+            sc.lineWidth = (1.1 + layer * 0.9) * (0.7 + rng() * 0.7)
+            sc.beginPath()
+            sc.moveTo(x, h + 10)
+            sc.quadraticCurveTo(x + sway * 0.4, h * 0.5, x + sway, -10)
+            sc.stroke()
+            // 竹梢的几簇虚影叶
+            if (rng() < 0.7) {
+              paintLeafCluster(
+                sc,
+                x + sway * 0.86 + (rng() - 0.5) * 26,
+                h * (0.02 + rng() * 0.16),
+                (16 + rng() * 16) * (0.7 + layer * 0.35),
+                1.2 + rng() * 1.1,
+                rng,
+                c.far.replace(/[\d.]+\)$/, `${(alpha * 1.15).toFixed(3)})`),
+                'rgba(0,0,0,0)',
+                c.far.replace(/[\d.]+\)$/, `${(alpha * 1.4).toFixed(3)})`),
+              )
+            }
+          }
+        }
+      })
+      // 横向渐隐：中央留白给正文，两侧让竹林占满
+      const shadowMask = paint(w, h, (mc) => {
+        mc.drawImage(shadowLayer, 0, 0, w, h)
+        mc.globalCompositeOperation = 'destination-in'
+        const horizontal = mc.createLinearGradient(0, 0, w, 0)
+        horizontal.addColorStop(0, 'rgba(0,0,0,1)')
+        horizontal.addColorStop(0.22, 'rgba(0,0,0,0.92)')
+        horizontal.addColorStop(0.5, 'rgba(0,0,0,0.2)')
+        horizontal.addColorStop(0.78, 'rgba(0,0,0,0.92)')
+        horizontal.addColorStop(1, 'rgba(0,0,0,1)')
+        mc.fillStyle = horizontal
+        mc.fillRect(0, 0, w, h)
+      })
+      ctx.save()
+      ctx.imageSmoothingEnabled = true
+      ctx.drawImage(shadowMask, 0, 0, w, h)
+      ctx.restore()
+
+      // 林间地面薄雾
+      const ground = ctx.createLinearGradient(0, horizon - h * 0.24, 0, h)
+      ground.addColorStop(0, 'rgba(255,255,255,0)')
+      ground.addColorStop(0.55, dark ? 'rgba(150, 196, 172, 0.1)' : 'rgba(255, 255, 244, 0.55)')
+      ground.addColorStop(1, dark ? 'rgba(120, 168, 148, 0.16)' : 'rgba(252, 253, 236, 0.72)')
+      ctx.fillStyle = ground
+      ctx.fillRect(0, horizon - h * 0.24, w, h - horizon + h * 0.24)
+
+      // 烘焙在背景里的柔焦竹叶剪影（压住两侧顶部，框住画面）
+      const frameRng = seeded(613)
+      for (const [cx, cy, flip] of [
+        [w * 0.06, h * 0.1, 1],
+        [w * 0.16, h * 0.04, 1],
+        [w * 0.94, h * 0.08, -1],
+        [w * 0.84, h * 0.03, -1],
+      ] as Array<[number, number, number]>) {
+        for (let i = 0; i < 3; i += 1) {
+          ctx.save()
+          ctx.globalAlpha = dark ? 0.5 : 0.42
+          paintLeafCluster(
+            ctx,
+            cx + (frameRng() - 0.5) * 90,
+            cy + (frameRng() - 0.5) * 60,
+            (24 + frameRng() * 26),
+            flip > 0 ? 2.2 + frameRng() * 0.5 : -0.6 + frameRng() * 0.5,
+            frameRng,
+            c.leafDark,
+            c.leafEdge,
+            c.leafLight,
+          )
+          ctx.restore()
+        }
+      }
+
+      const vignette = ctx.createRadialGradient(w * 0.5, h * 0.46, Math.min(w, h) * 0.26, w * 0.5, h * 0.5, Math.hypot(w, h) * 0.68)
+      vignette.addColorStop(0, 'rgba(0,0,0,0)')
+      vignette.addColorStop(1, `rgba(0,0,0,${dark ? 0.44 : 0.06})`)
+      ctx.fillStyle = vignette
+      ctx.fillRect(0, 0, w, h)
     })
-    fog = paint(256, 128, ctx => {
-      const g = ctx.createRadialGradient(128, 64, 0, 128, 64, 128)
-      g.addColorStop(0, dark ? 'rgba(157,197,172,.2)' : 'rgba(246,249,225,.85)'); g.addColorStop(1, 'rgba(210,230,200,0)')
-      ctx.fillStyle = g; ctx.fillRect(0, 0, 256, 128)
+
+    // 雾团贴图：横向无缝（x、x±贴图宽各画一遍），四周羽化
+    mistTex = paint(360, 180, (ctx) => {
+      const rng = seeded(719)
+      for (let i = 0; i < 46; i += 1) {
+        const cx = rng() * 360
+        const cy = rng() * 180
+        const r = 18 + rng() * 62
+        const a = 0.05 + rng() * 0.1
+        for (const ox of [-360, 0, 360]) {
+          const g = ctx.createRadialGradient(cx + ox, cy, 0, cx + ox, cy, r)
+          g.addColorStop(0, `${c.mist}${(dark ? a : a * 1.6).toFixed(3)})`)
+          g.addColorStop(1, `${c.mist}0)`)
+          ctx.fillStyle = g
+          ctx.fillRect(cx + ox - r, cy - r * 0.7, r * 2, r * 1.4)
+        }
+      }
     })
+
+    // 光束贴图：中心亮、两侧渐隐，纵向从上到下淡出
+    shaftTex = paint(160, 512, (ctx) => {
+      const gx = ctx.createLinearGradient(0, 0, 160, 0)
+      gx.addColorStop(0, `${c.shaft}0)`)
+      gx.addColorStop(0.5, `${c.shaft}0.6)`)
+      gx.addColorStop(1, `${c.shaft}0)`)
+      ctx.fillStyle = gx
+      ctx.fillRect(0, 0, 160, 512)
+      ctx.globalCompositeOperation = 'destination-in'
+      const gy = ctx.createLinearGradient(0, 0, 0, 512)
+      gy.addColorStop(0, 'rgba(0,0,0,0.85)')
+      gy.addColorStop(0.5, 'rgba(0,0,0,0.34)')
+      gy.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = gy
+      ctx.fillRect(0, 0, 160, 512)
+    })
+
+    // 近景虚焦竹叶：左右两侧各一丛，虚化后压在画面最前面
+    const fg = paint(w, h, (ctx) => {
+      const rng = seeded(907)
+      for (const [cx, cy, flip] of [[-w * 0.01, h * 0.73, 1], [w * 1.01, h * 0.8, -1], [w * 0.07, h * 1.0, 1]] as Array<[number, number, number]>) {
+        for (let i = 0; i < 4; i += 1) {
+          paintLeafCluster(
+            ctx,
+            cx + (rng() - 0.5) * 120,
+            cy + (rng() - 0.5) * 140,
+            52 + rng() * 40,
+            flip > 0 ? -0.9 + rng() * 0.9 : Math.PI - 0.9 + rng() * 0.9,
+            rng,
+            dark ? 'rgba(10, 26, 20, 0.85)' : 'rgba(74, 106, 58, 0.6)',
+            dark ? 'rgba(120, 170, 140, 0.3)' : 'rgba(255, 255, 226, 0.34)',
+            dark ? 'rgba(26, 54, 42, 0.9)' : 'rgba(106, 138, 78, 0.7)',
+          )
+        }
+      }
+    })
+    foreground = paint(w, h, (ctx) => {
+      // 缩小再放大做廉价柔焦
+      const factor = 5
+      const small = paint(w / factor, h / factor, (c2) => {
+        c2.imageSmoothingEnabled = true
+        c2.drawImage(fg, 0, 0, w / factor, h / factor)
+      })
+      ctx.imageSmoothingEnabled = true
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(small, 0, 0, w, h)
+    })
+
     rebuildStems()
+    resize(leaves, Math.round(14 * Math.max(0.7, Math.min(1.6, w / 1440))), () => spawnLeaf())
   }
+
   return {
     fps: 24,
-    setup(width, height) { w = width; h = height; build() },
-    configure(next) { const previous = values.density; values = next; if (previous !== next.density) rebuildStems() },
-    setTone(next) { if (next !== dark) { dark = next; build() } },
-    step(dt) { time += dt * (.15 + (values.speed ?? 35) / 100) },
+    setup(width, height) {
+      w = width
+      h = height
+      leaves = []
+      build()
+    },
+    configure(next) {
+      const previous = values.density
+      values = next
+      if (previous !== next.density) rebuildStems()
+    },
+    setTone(next) {
+      if (next !== dark) {
+        dark = next
+        build()
+      }
+    },
+    step(dt) {
+      const speed = values.speed ?? 35
+      time += dt * (0.16 + speed / 100)
+      const wind = (values.wind ?? 40) / 100
+      for (const leaf of leaves) {
+        leaf.phase += dt * (0.6 + speed / 90)
+        leaf.angle += leaf.spin * dt
+        leaf.x += (leaf.vx + wind * 46 * Math.sin(leaf.phase * 0.8)) * dt
+        leaf.y += leaf.vy * dt
+        if (leaf.y > h + 30 || leaf.x > w + 40 || leaf.x < -40) Object.assign(leaf, spawnLeaf(true))
+      }
+    },
     draw(ctx) {
       ctx.drawImage(background, 0, 0, w, h)
-      ctx.save()
+
+      // 光束：随时间轻微明灭、横向漂移
+      const lightAmount = (values.light ?? 45) / 100
+      if (lightAmount > 0.03) {
+        ctx.save()
+        ctx.globalCompositeOperation = dark ? 'lighter' : 'screen'
+        for (let i = 0; i < 4; i += 1) {
+          const breathe = 0.55 + 0.45 * Math.sin(time * 0.34 + i * 1.6)
+          const x = w * (0.34 + i * 0.17) + Math.sin(time * 0.22 + i) * w * 0.02
+          ctx.globalAlpha = lightAmount * (dark ? 0.1 : 0.24) * breathe
+          ctx.save()
+          ctx.translate(x, -h * 0.05)
+          ctx.rotate(-0.22)
+          ctx.drawImage(shaftTex, -w * 0.09, 0, w * 0.18, h * 1.15)
+          ctx.restore()
+        }
+        ctx.restore()
+      }
+
+      // 竹竿：由远及近，随风摆动（绕根部旋转，顶部摆幅最大）
+      const wind = (values.wind ?? 40) / 100
       for (const stem of stems) {
-        const depth = stem.depth, sway = Math.sin(time + stem.phase) * .02 * (values.wind ?? 40) / 40
-        ctx.save(); ctx.translate(stem.x * (w + 160) - 80, h + 40)
-        ctx.rotate(stem.lean + sway * (.35 + depth))
-        ctx.globalAlpha = .25 + depth * .6
-        const scale = .6 + depth * .65
-        ctx.drawImage(stem.sprite, -100 * scale, -h * (1.1 + depth * .12), 220 * scale, h * (1.1 + depth * .12)); ctx.restore()
+        const sprite = stemSprites[stem.sprite]
+        if (!sprite) continue
+        const sway = Math.sin(time * stem.speed + stem.phase) * 0.02 * (0.35 + wind * 1.65)
+        const sway2 = Math.sin(time * stem.speed * 0.47 + stem.phase * 1.7) * 0.008 * (0.4 + wind)
+        ctx.save()
+        ctx.translate(stem.x * (w + 160) - 80, h + 46)
+        ctx.rotate(stem.lean + sway + sway2)
+        ctx.globalAlpha = 0.42 + stem.depth * 0.56
+        const drawW = sprite.width * stem.scale
+        const drawH = sprite.height * stem.scale
+        ctx.drawImage(sprite, -drawW / 2, -drawH + 20, drawW, drawH)
+        ctx.restore()
       }
-      ctx.globalAlpha = (values.mist ?? 45) / 100
-      ctx.drawImage(fog, Math.sin(time * .13) * w * .14 - w * .15, h * .38, w * 1.4, h * .65)
-      ctx.globalAlpha = (values.light ?? 45) / 100 * (dark ? .025 : .07)
-      ctx.fillStyle = dark ? '#bde7d6' : '#fffce2'
-      for (let i = 0; i < 4; i++) {
-        const x = w * (.35 + i * .16) + Math.sin(time * .25) * 16
-        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + w * .04, 0); ctx.lineTo(x - w * .25, h); ctx.lineTo(x - w * .4, h); ctx.closePath(); ctx.fill()
+
+      // 林间薄雾：两层反向缓慢横移
+      const mistAmount = (values.mist ?? 45) / 100
+      if (mistAmount > 0.02) {
+        ctx.save()
+        ctx.globalCompositeOperation = dark ? 'screen' : 'source-over'
+        for (let i = 0; i < 2; i += 1) {
+          const drift = ((time * (0.012 + i * 0.006) + i * 0.4) % 1) * (w + 400) - 200
+          ctx.globalAlpha = mistAmount * (dark ? 0.34 : 0.54) * (1 - i * 0.3)
+          ctx.drawImage(mistTex, drift - 200, h * (0.52 + i * 0.16), w * 0.9, h * (0.3 + i * 0.08))
+        }
+        ctx.restore()
       }
+
+      // 飘落的竹叶
+      ctx.save()
+      for (const leaf of leaves) {
+        const swayAngle = leaf.angle + Math.sin(leaf.phase) * 0.5
+        paintLeaf(ctx, leaf.x, leaf.y, leaf.size, leaf.size * 0.16, swayAngle, dark ? 'rgba(96, 148, 118, 0.7)' : 'rgba(112, 148, 82, 0.75)', dark ? 'rgba(178, 220, 186, 0.28)' : 'rgba(255, 255, 226, 0.34)')
+      }
+      ctx.restore()
+
+      // 近景虚焦竹叶
+      ctx.save()
+      ctx.globalAlpha = dark ? 0.82 : 0.66
+      ctx.drawImage(foreground, 0, 0, w, h)
       ctx.restore()
     },
   }
