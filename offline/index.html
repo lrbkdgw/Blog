@@ -274,10 +274,8 @@ encryption: "{\\"version\\":1,\\"algorithm\\":\\"AES-GCM\\",\\"kdf\\":\\"PBKDF2-
 `,UD=`---
 title: "你好，这是一个能在线写作的静态博客"
 date: "2025-09-20"
-updated: "2026-10-05"
+updated: "2026-10-21"
 summary: "介绍这个博客是怎么在没有后端的情况下，做到登录、在线编辑和一键发布的。"
-tags: ["公告"]
-pinned: true
 ---
 
 GitHub Pages 是纯静态托管——没有服务器、没有数据库、没有接口。那么「登录」和「在线编辑」到底是怎么实现的？
@@ -336,7 +334,6 @@ const modules = import.meta.glob('/content/posts/**/*.md', {
 Fork 这个仓库，改掉 \`src/lib/config.ts\` 里的站点信息与 \`githubConfig\`，推送到 \`main\`，等 Actions 跑完就有自己的博客了。
 
 > 写作这件事，最重要的从来不是工具。但一个顺手的工具，确实能让人更愿意开始写。
-
 `,zD=`---
 title: "瞎编技能"
 date: "2026-10-14"
@@ -602,9 +599,8 @@ $$
 `,HD=`---
 title: "Markdown&KaTeX 语法测试"
 date: "2026-10-04"
-updated: "2026-10-05"
+updated: "2026-10-21"
 summary: "-"
-tags: ["Test"]
 ---
 
 #### 表格和合并
@@ -657,7 +653,6 @@ Write article and upd it to github.
 $$
 \\prod_{1 \\leq i \\leq n} \\sum_{1 \\leq j \\leq m} \\gcd(a_i,a_j) \\bmod (10^9+7) 
 $$
-
 `,qD=`---
 title: "【Problem】最长点对"
 date: "1970-01-01"
@@ -1607,7 +1602,7 @@ type Nice = Prettify<Ugly>
 title: "Welcome"
 date: "2026-10-21"
 updated: "2026-10-21"
-summary: "欢迎来到 lrbkdgw's Blog！ 这个 Blog 的所有内容均由 AI 开发，并且增加了很多功能！ 项目托管在 Cloudflare Pages 和 Github Pages，但目前主要维护 Cloudflare Pages 的页面…"
+summary: "Hello World！"
 pinned: true
 ---
 
