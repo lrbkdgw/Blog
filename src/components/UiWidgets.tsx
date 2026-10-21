@@ -136,7 +136,7 @@ export function preserveOptionLineBreaks(markdown: string): string {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                     1. 选择框组件（紧凑字号与行高、极简卡片风格）              */
+/*              1. 选择框组件（与折叠框 callout 完全一致的 14.5px 字号与行高）   */
 /* -------------------------------------------------------------------------- */
 
 export function UiChooseCard({
@@ -180,14 +180,14 @@ export function UiChooseCard({
 
   return (
     <section
-      className="not-prose ui-widget-card ui-choose-card my-4 overflow-hidden rounded-lg border border-ink-200/80 bg-white/95 shadow-2xs transition-colors dark:border-white/10 dark:bg-white/[0.03]"
+      className="not-prose ui-widget-card ui-choose-card my-6 overflow-hidden rounded-xl border border-ink-200/80 bg-white/95 shadow-2xs transition-colors dark:border-white/10 dark:bg-white/[0.03]"
       data-ui-id={def.id}
       data-source-line={sourceLine}
     >
       {(def.name || rangeHint) && (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-200/60 bg-ink-50/50 px-3 py-1.5 dark:border-white/[0.07] dark:bg-white/[0.02]">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-200/60 bg-ink-50/50 px-4 py-2.5 dark:border-white/[0.07] dark:bg-white/[0.02]">
           {def.name ? (
-            <span className="text-xs font-semibold text-ink-800 dark:text-ink-100">
+            <span className="text-sm font-semibold text-ink-800 dark:text-ink-100">
               <InlineMathText text={def.name} />
             </span>
           ) : (
@@ -195,7 +195,7 @@ export function UiChooseCard({
           )}
           {rangeHint && (
             <span
-              className={`text-[11px] transition ${
+              className={`text-xs transition ${
                 belowMin
                   ? 'font-medium text-amber-600 dark:text-amber-300'
                   : 'text-ink-400 dark:text-ink-500'
@@ -228,7 +228,7 @@ export function UiChooseCard({
                   toggleOption(opt.index)
                 }
               }}
-              className={`group flex items-start gap-2.5 px-3 py-1.5 transition-colors duration-150 outline-none focus-visible:bg-brand-500/8 ${
+              className={`group flex items-start gap-2.5 px-4 py-2.5 transition-colors duration-150 outline-none focus-visible:bg-brand-500/8 ${
                 active
                   ? 'cursor-pointer bg-brand-500/[0.065] dark:bg-brand-400/[0.09]'
                   : disabledByCap
@@ -237,7 +237,7 @@ export function UiChooseCard({
               }`}
             >
               <span
-                className={`mt-[1px] inline-flex min-h-[19px] min-w-[19px] shrink-0 items-center justify-center rounded border px-1 text-[11px] leading-none font-semibold transition-all duration-150 ${
+                className={`mt-[1.5px] inline-flex min-h-[21px] min-w-[21px] shrink-0 items-center justify-center rounded-md border px-1.5 text-xs leading-none font-semibold transition-all duration-150 ${
                   active
                     ? 'border-brand-500 bg-brand-500 text-white'
                     : 'border-ink-200/90 bg-white text-ink-600 group-hover:border-brand-400/70 group-hover:text-brand-600 dark:border-white/15 dark:bg-white/[0.04] dark:text-ink-300 dark:group-hover:text-brand-300'
@@ -245,7 +245,7 @@ export function UiChooseCard({
               >
                 <InlineMathText text={opt.label} />
               </span>
-              <div className="min-w-0 flex-1 text-[13px] leading-[1.48] text-ink-800 dark:text-ink-200 [&_.katex-display]:my-1.5">
+              <div className="min-w-0 flex-1 text-[14.5px] leading-relaxed text-ink-800 dark:text-ink-200 [&_.katex-display]:my-2">
                 {ctx ? ctx.renderMarkdownBlock(formatted) : formatted}
               </div>
             </div>
@@ -278,7 +278,7 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
     if (!btn) return
     const rect = btn.getBoundingClientRect()
     const viewportW = typeof window !== 'undefined' ? window.innerWidth : 1024
-    const minWidth = Math.max(rect.width, def.search ? 184 : 148)
+    const minWidth = Math.max(rect.width, def.search ? 196 : 156)
     const left = Math.max(8, Math.min(rect.left, viewportW - minWidth - 8))
     setPanelPos({ top: rect.bottom + 5, left, minWidth })
   }
@@ -355,30 +355,30 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
           ? { position: 'fixed', top: panelPos.top, left: panelPos.left, minWidth: panelPos.minWidth }
           : undefined
       }
-      className="z-[120] max-w-xs overflow-hidden rounded-lg border border-ink-200/85 bg-white/98 shadow-lg shadow-ink-950/8 backdrop-blur-md dark:border-white/12 dark:bg-ink-900/98"
+      className="z-[120] max-w-xs overflow-hidden rounded-xl border border-ink-200/85 bg-white/98 shadow-lg shadow-ink-950/8 backdrop-blur-md dark:border-white/12 dark:bg-ink-900/98"
       data-ui-select-menu={def.id}
     >
       {def.search && (
-        <div className="flex items-center gap-1.5 border-b border-ink-200/60 px-2.5 py-1.5 dark:border-white/10">
-          <Search size={12} className="shrink-0 text-ink-400" />
+        <div className="flex items-center gap-1.5 border-b border-ink-200/60 px-2.5 py-2 dark:border-white/10">
+          <Search size={13} className="shrink-0 text-ink-400" />
           <input
             ref={searchInputRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜索…"
-            className="w-full bg-transparent text-xs text-ink-900 outline-none placeholder:text-ink-400 dark:text-white"
+            className="w-full bg-transparent text-sm text-ink-900 outline-none placeholder:text-ink-400 dark:text-white"
           />
         </div>
       )}
       {def.maxSelect > 1 && (
-        <div className="border-b border-ink-200/50 bg-ink-50/60 px-2.5 py-1 text-[11px] text-ink-400 dark:border-white/[0.08] dark:bg-white/[0.02] dark:text-ink-400">
+        <div className="border-b border-ink-200/50 bg-ink-50/60 px-3 py-1 text-xs text-ink-400 dark:border-white/[0.08] dark:bg-white/[0.02] dark:text-ink-400">
           可选 {def.minSelect}–{def.maxSelect} 项
         </div>
       )}
-      <div className="max-h-52 overflow-y-auto p-1">
+      <div className="max-h-56 overflow-y-auto p-1">
         {filteredOptions.length === 0 ? (
-          <div className="px-2.5 py-1.5 text-center text-xs text-ink-400">无匹配选项</div>
+          <div className="px-3 py-2 text-center text-sm text-ink-400">无匹配选项</div>
         ) : (
           filteredOptions.map((opt) => {
             const active = selected.includes(opt.index)
@@ -389,7 +389,7 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
                 type="button"
                 disabled={disabledByCap}
                 onClick={() => toggleItem(opt.index)}
-                className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-xs transition-colors ${
+                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[14.5px] leading-relaxed transition-colors ${
                   active
                     ? 'bg-brand-500/10 font-medium text-brand-700 dark:bg-brand-400/15 dark:text-brand-200'
                     : disabledByCap
@@ -400,7 +400,7 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
                 <span className="truncate">
                   <InlineMathText text={opt.content} />
                 </span>
-                {active && <Check size={12} className="shrink-0 text-brand-500" />}
+                {active && <Check size={13} className="shrink-0 text-brand-500" />}
               </button>
             )
           })
@@ -417,17 +417,17 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className={`inline-flex h-[24px] items-center gap-1 rounded-md border px-2 text-[12.5px] leading-none font-medium shadow-2xs transition duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/20 ${
+        className={`inline-flex h-[27px] items-center gap-1.5 rounded-lg border px-2.5 text-[14.5px] leading-relaxed font-medium shadow-2xs transition duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/20 ${
           summaryLabels.length > 0
             ? 'border-brand-500/45 bg-brand-500/[0.05] text-ink-900 hover:border-brand-500 dark:border-brand-400/40 dark:bg-brand-400/10 dark:text-ink-100'
             : 'border-ink-200/90 bg-white/95 text-ink-500 hover:border-ink-300 hover:text-ink-800 dark:border-white/15 dark:bg-white/[0.05] dark:text-ink-400 dark:hover:border-white/25 dark:hover:text-ink-200'
         }`}
       >
-        <span className="max-w-[13rem] truncate">
+        <span className="max-w-[14rem] truncate">
           {summaryLabels.length > 0 ? <InlineMathText text={summaryLabels.join('、')} /> : '请选择'}
         </span>
         <ChevronDown
-          size={12}
+          size={13}
           className={`shrink-0 text-ink-400 transition-transform duration-150 ${open ? 'rotate-180 text-brand-500' : ''}`}
         />
       </button>
@@ -440,7 +440,7 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                3. 是否框组件（紧凑字号行高 + 多行逐行删除线动画）              */
+/*            3. 是否框组件（与折叠框一致的 14.5px 字号与 leading-relaxed 行高） */
 /* -------------------------------------------------------------------------- */
 
 export function UiIfCard({
@@ -463,7 +463,7 @@ export function UiIfCard({
 
   return (
     <section
-      className="not-prose ui-widget-card ui-if-card my-4 divide-y divide-ink-200/55 overflow-hidden rounded-lg border border-ink-200/80 bg-white/95 shadow-2xs dark:divide-white/[0.07] dark:border-white/10 dark:bg-white/[0.03]"
+      className="not-prose ui-widget-card ui-if-card my-6 divide-y divide-ink-200/55 overflow-hidden rounded-xl border border-ink-200/80 bg-white/95 shadow-2xs dark:divide-white/[0.07] dark:border-white/10 dark:bg-white/[0.03]"
       data-ui-id={def.id}
       data-source-line={sourceLine}
     >
@@ -486,23 +486,23 @@ export function UiIfCard({
                 toggleIndex(idx)
               }
             }}
-            className="group flex cursor-pointer items-start gap-2.5 px-3 py-1.5 transition-colors duration-150 outline-none hover:bg-ink-50/75 focus-visible:bg-brand-500/8 dark:hover:bg-white/[0.025]"
+            className="group flex cursor-pointer items-start gap-2.5 px-4 py-2.5 transition-colors duration-150 outline-none hover:bg-ink-50/75 focus-visible:bg-brand-500/8 dark:hover:bg-white/[0.025]"
           >
             <span
-              className={`mt-[2px] flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border transition-all duration-200 ${
+              className={`mt-[3px] flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded-[4.5px] border transition-all duration-200 ${
                 on
                   ? 'border-brand-500 bg-brand-500 text-white'
                   : 'border-ink-300 bg-white group-hover:border-brand-400 dark:border-white/22 dark:bg-white/[0.04]'
               }`}
             >
               <Check
-                size={10.5}
+                size={11.5}
                 strokeWidth={3}
                 className={`transition-transform duration-200 ${on ? 'scale-100' : 'scale-0'}`}
               />
             </span>
             <div
-              className={`ui-if-content min-w-0 flex-1 text-[13px] leading-[1.48] transition-opacity duration-250 [&_.katex-display]:my-1.5 ${
+              className={`ui-if-content min-w-0 flex-1 text-[14.5px] leading-relaxed transition-opacity duration-250 [&_.katex-display]:my-2 ${
                 def.lined ? 'ui-if-lined' : ''
               } ${
                 on && def.lined
@@ -522,7 +522,7 @@ export function UiIfCard({
 }
 
 /* -------------------------------------------------------------------------- */
-/*              4. 填空框组件（紧凑字号与高度，无外层包裹边框盒）                 */
+/*          4. 填空框组件（对齐折叠框 14.5px 字号与 leading-relaxed 行高）       */
 /* -------------------------------------------------------------------------- */
 
 export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
@@ -562,9 +562,9 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
     }
   }
 
-  // 行内模式：紧跟当前行文本后，小巧紧凑
+  // 行内模式：紧跟当前行文本后，14.5px 字号自然融入行内
   if (!def.isNew) {
-    const widthCh = Math.max(4.2, Math.min(16, (value?.length || 2) + 2.2))
+    const widthCh = Math.max(4.5, Math.min(18, (value?.length || 2) + 2.4))
     return (
       <span className="not-prose ui-write-inline mx-1 inline-flex items-center align-baseline" data-ui-id={def.id}>
         <input
@@ -577,13 +577,13 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
           onBlur={normalizeOnBlur}
           style={{ width: `${widthCh}ch` }}
           aria-label={def.name || def.id}
-          className="h-[23px] rounded border border-ink-200/90 bg-white/95 px-1.5 text-center font-mono text-[12.5px] leading-none text-ink-900 shadow-2xs outline-none transition duration-150 hover:border-brand-400/75 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 dark:border-white/15 dark:bg-white/[0.05] dark:text-ink-100"
+          className="h-[27px] rounded-md border border-ink-200/90 bg-white/95 px-2 text-center font-mono text-[14.5px] leading-relaxed text-ink-900 shadow-2xs outline-none transition duration-150 hover:border-brand-400/75 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 dark:border-white/15 dark:bg-white/[0.05] dark:text-ink-100"
         />
       </span>
     )
   }
 
-  // 独立行 / 多列 merge / faster 滑块模式：紧凑高度与字号，无多余外层边框盒
+  // 独立行 / 多列 merge / faster 滑块模式：无多余外层边框盒，与折叠框一致的 14px 标签 + 14.5px 内容字号与行高
   const step = def.real ? Number(Math.pow(10, -def.real.bit).toFixed(Math.min(8, def.real.bit))) : 1
   const numericSliderVal = def.real
     ? Number(resolveEffectiveRealString(value, def.real).effective)
@@ -603,22 +603,22 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
       data-ui-id={def.id}
     >
       {(def.name || invalidHint) && (
-        <div className="flex items-center justify-between gap-2 leading-tight">
+        <div className="flex items-center justify-between gap-2">
           {def.name ? (
-            <label htmlFor={inputId} className="text-xs font-medium text-ink-600 dark:text-ink-300">
+            <label htmlFor={inputId} className="text-sm font-medium text-ink-700 leading-relaxed dark:text-ink-200">
               <InlineMathText text={def.name} />
             </label>
           ) : (
             <span />
           )}
           {invalidHint && (
-            <span className="font-mono text-[11px] text-rose-500 dark:text-rose-400">{invalidHint}</span>
+            <span className="font-mono text-xs text-rose-500 dark:text-rose-400">{invalidHint}</span>
           )}
         </div>
       )}
 
       {def.faster && def.real ? (
-        <div className="flex h-[28px] items-center gap-2.5">
+        <div className="flex h-[32px] items-center gap-3">
           <input
             id={inputId}
             type="range"
@@ -631,7 +631,7 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
               const num = Number(e.target.value)
               updateValue(formatRealValue(num, def.real!.bit))
             }}
-            className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-ink-200/85 accent-brand-500 dark:bg-white/15"
+            className="h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-ink-200/85 accent-brand-500 dark:bg-white/15"
           />
           <input
             type="text"
@@ -640,7 +640,7 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
             onChange={(e) => updateValue(e.target.value)}
             onBlur={normalizeOnBlur}
             aria-label={`${def.name || def.id} 数值输入`}
-            className="h-[26px] w-14 shrink-0 rounded-md border border-ink-200/90 bg-white/95 px-1.5 text-center font-mono text-xs text-ink-900 shadow-2xs outline-none transition duration-150 hover:border-ink-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 dark:border-white/12 dark:bg-white/[0.04] dark:text-ink-100"
+            className="h-[30px] w-16 shrink-0 rounded-lg border border-ink-200/90 bg-white/95 px-2 text-center font-mono text-[14.5px] leading-relaxed text-ink-900 shadow-2xs outline-none transition duration-150 hover:border-ink-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 dark:border-white/12 dark:bg-white/[0.04] dark:text-ink-100"
           />
         </div>
       ) : (
@@ -661,7 +661,7 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
                 ? `${def.real.down} ~ ${def.real.up}`
                 : '请输入…'
           }
-          className={`h-[29px] w-full rounded-md border bg-white/95 px-2.5 text-[12.5px] leading-none text-ink-900 shadow-2xs outline-none transition duration-150 placeholder:text-[11.5px] placeholder:text-ink-400 dark:bg-white/[0.04] dark:text-ink-100 dark:placeholder:text-ink-500 ${
+          className={`h-[34px] w-full rounded-lg border bg-white/95 px-3 text-[14.5px] leading-relaxed text-ink-900 shadow-2xs outline-none transition duration-150 placeholder:text-[13.5px] placeholder:text-ink-400 dark:bg-white/[0.04] dark:text-ink-100 dark:placeholder:text-ink-500 ${
             invalidHint
               ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/15 dark:border-rose-400/80'
               : 'border-ink-200/90 hover:border-ink-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 dark:border-white/12 dark:hover:border-white/20 dark:focus:border-brand-400'
@@ -681,7 +681,7 @@ export function UiWriteRow({
 }) {
   return (
     <div
-      className="not-prose ui-write-row my-2.5 grid items-end gap-3"
+      className="not-prose ui-write-row my-3.5 grid items-end gap-3.5"
       data-source-line={sourceLine}
       style={{
         gridTemplateColumns: defs.length > 1 ? `repeat(${defs.length}, minmax(0, 1fr))` : undefined,

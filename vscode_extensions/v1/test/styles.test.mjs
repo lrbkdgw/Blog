@@ -114,6 +114,16 @@ test('普通/合并表格默认靠左，Tuack 外壳和内部表格仍居中', (
   assert.equal(declarations(mpe, '.starlog-table-tuack td')['text-align'], 'center')
 })
 
+test('选择框与是否框内正文排版与折叠框 .callout-content 字号及行高完全一致', () => {
+  const callout = declarations(reference, '.prose details.callout .callout-content')
+  const choose = declarations(reference, '.ui-choose-card .prose')
+  const uiIf = declarations(reference, '.ui-if-card .prose')
+  assert.equal(choose['font-size'], callout['font-size'])
+  assert.equal(choose['line-height'], callout['line-height'])
+  assert.equal(uiIf['font-size'], callout['font-size'])
+  assert.equal(uiIf['line-height'], callout['line-height'])
+})
+
 test('Settings 暴露默认关闭的渐变背景开关，并保留共享背景而不是重新定义渐变', () => {
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
   const setting = manifest.contributes.configuration.properties['starlog.preview.enableGradientBackground']
