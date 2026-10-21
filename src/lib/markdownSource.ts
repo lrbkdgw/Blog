@@ -6,6 +6,8 @@ import {
   renderShowContent,
 } from './showBox'
 import { formatCoordinateValue, parseUiCcs } from './uiCcs'
+import { parseUiGraph } from './uiGraph'
+import { renderStaticUiMarkdown } from './uiWidgets'
 
 export type MarkdownCopyTarget = 'direct' | 'luogu' | 'basic'
 
@@ -305,14 +307,67 @@ export function convertUiCcsToMarkdown(markdown: string): string {
   return output.join('\n')
 }
 
+/** 将 `::begin_ui-graph ... ::end_ui-graph` 降级为不依赖交互 SVG 的标准 Markdown 描述块。 */
+export function convertUiGraphToMarkdown(markdown: string): string {
+  const lines = markdown.split('\n')
+  const output: string[] = []
+  let fence: string | null = null
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    const marker = fenceMarker(line)
+    if (marker) {
+      if (!fence) fence = marker
+      else if (fence === marker) fence = null
+      output.push(line)
+      continue
+    }
+    if (fence) {
+      output.push(line)
+      continue
+    }
+
+    const match = line.match(/^\s*::begin_ui-graph(?=$|\[|\s)([\s\S]*)$/)
+    if (match) {
+      const body: string[] = []
+      let end = i + 1
+      while (end < lines.length && !/^\s*::end_ui-graph\s*$/.test(lines[end])) {
+        body.push(lines[end])
+        end += 1
+      }
+      if (end < lines.length) {
+        const parsed = parseUiGraph(match[1], body.join('\n'))
+        const arrow = parsed.directed ? '\\to' : '\\text{ — }'
+        output.push(`> **${parsed.directed ? '有向图' : '无向图'}**（点数：${parsed.nodes.length}，边数：${parsed.edges.length}）`)
+        if (parsed.nodes.length > 0) {
+          output.push(`> - 顶点：${parsed.nodes.map((n) => `\`${n.id}\``).join(', ')}`)
+        }
+        for (const e of parsed.edges) {
+          output.push(
+            `> - 边：$${e.source} ${arrow} ${e.target}$${e.weight ? `（边权 \`${e.weight}\`）` : ''}`,
+          )
+        }
+        i = end
+        continue
+      }
+    }
+
+    output.push(line)
+  }
+
+  return output.join('\n')
+}
+
 /**
- * direct：原样源码；luogu：移除 Blog 专属语法（展示框、直角坐标系与文首排版指令 ::set-font 等，
+ * direct：原样源码；luogu：移除 Blog 专属语法（展示框、直角坐标系、图论画布、表单交互控件与文首排版指令 ::set-font 等，
  * 洛谷不认识这些指令，留着只会变成正文杂质）；basic：再移除洛谷扩展。
  */
 export function convertMarkdownForCopy(markdown: string, target: MarkdownCopyTarget): string {
   if (target === 'direct') return markdown
-  const withoutBlogExtensions = convertUiCcsToMarkdown(
-    convertShowBoxesToMarkdown(stripArticleDirectives(markdown)),
+  const withoutBlogExtensions = renderStaticUiMarkdown(
+    convertUiGraphToMarkdown(
+      convertUiCcsToMarkdown(convertShowBoxesToMarkdown(stripArticleDirectives(markdown))),
+    ),
   )
   if (target === 'luogu') return withoutBlogExtensions
   return convertLuoguExtensionsToMarkdown(expandMergedTableCells(withoutBlogExtensions))

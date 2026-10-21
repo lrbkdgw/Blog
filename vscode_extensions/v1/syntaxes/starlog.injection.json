@@ -6,6 +6,9 @@
     { "include": "#show-begin" },
     { "include": "#show-end" },
     { "include": "#ui-ccs" },
+    { "include": "#ui-graph" },
+    { "include": "#ui-blocks" },
+    { "include": "#if-blocks" },
     { "include": "#callout-open" },
     { "include": "#callout-close" },
     { "include": "#article-directives" },
@@ -41,6 +44,40 @@
         { "match": "[+\\-*/^=]", "name": "keyword.operator.starlog.markdown" },
         { "match": "[,;()]", "name": "punctuation.separator.starlog.markdown" }
       ]
+    },
+    "ui-graph": {
+      "name": "meta.starlog.uigraph.markdown",
+      "begin": "^\\s*(::begin_ui-graph)(?:(\\[)([^\\]]*)(\\]))*\\s*$",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.starlog.markdown" },
+        "2": { "name": "punctuation.definition.starlog.markdown" },
+        "3": { "name": "keyword.other.starlog.markdown" },
+        "4": { "name": "punctuation.definition.starlog.markdown" }
+      },
+      "end": "^\\s*(::end_ui-graph)\\s*$",
+      "endCaptures": {
+        "1": { "name": "keyword.control.starlog.markdown" }
+      },
+      "patterns": [
+        { "match": "-?\\d+(?:\\.\\d+)?", "name": "constant.numeric.starlog.markdown" },
+        { "match": "[,()]", "name": "punctuation.separator.starlog.markdown" }
+      ]
+    },
+    "ui-blocks": {
+      "match": "^\\s*(::begin_ui-(?:choose|select|if)|::end_ui-(?:choose|select|if)|::nex)(.*)$",
+      "captures": {
+        "1": { "name": "keyword.control.starlog.markdown" },
+        "2": { "name": "variable.parameter.starlog.markdown" }
+      }
+    },
+    "if-blocks": {
+      "match": "^\\s*(::IF|::IF_END)(?:(\\[)(.*)(\\]))?\\s*$",
+      "captures": {
+        "1": { "name": "keyword.control.starlog.markdown" },
+        "2": { "name": "punctuation.definition.starlog.markdown" },
+        "3": { "name": "meta.embedded.expression.starlog" },
+        "4": { "name": "punctuation.definition.starlog.markdown" }
+      }
     },
     "show-begin": {
       "name": "meta.starlog.showbox.begin.markdown",
@@ -119,6 +156,25 @@
     },
     "inline-tokens": {
       "patterns": [
+        {
+          "name": "meta.starlog.uiwrite.markdown",
+          "match": "(::ui-write)((?:\\[[^\\]]*\\])+)",
+          "captures": {
+            "1": { "name": "keyword.control.starlog.markdown" },
+            "2": { "name": "variable.parameter.starlog.markdown" }
+          }
+        },
+        {
+          "name": "meta.starlog.inlineif.markdown",
+          "match": "(<IF:)([^,>]+)(,)([^>]*)(>)",
+          "captures": {
+            "1": { "name": "keyword.control.starlog.markdown" },
+            "2": { "name": "meta.embedded.expression.starlog" },
+            "3": { "name": "punctuation.separator.starlog.markdown" },
+            "4": { "name": "string.unquoted.starlog.markdown" },
+            "5": { "name": "keyword.control.starlog.markdown" }
+          }
+        },
         {
           "name": "meta.starlog.mapping.markdown",
           "match": "(\\*&)([^:*&{}()\\s]+)(:)(\\{)([^{}]*)(\\})(\\*&)",

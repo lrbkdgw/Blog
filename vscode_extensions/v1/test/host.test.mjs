@@ -45,8 +45,8 @@ function activateHost() {
 
 test('安装后的主进程包仅依赖 vscode/Node 内置模块，不依赖仓库或 node_modules', () => {
   const { api, commands, context } = activateHost()
-  assert.equal(commands.size, 12)
-  assert.equal(context.subscriptions.length, 13)
+  assert.equal(commands.size, 14)
+  assert.equal(context.subscriptions.length, 15)
   const md = api.extendMarkdownIt(new MarkdownIt())
   const html = md.render(
     '::show_begin{测试}{a:Z=2[0,5,1]}\n$x_{*&show(a)*&}$\n::show_end\n\n::begin_ui-ccs\ncreate_point:(1,2);\ncreate_line:(0,0),(2,3),[color=red];\ncreate_line:(7*x^2+6*x+90*x^3);\n::end_ui-ccs',

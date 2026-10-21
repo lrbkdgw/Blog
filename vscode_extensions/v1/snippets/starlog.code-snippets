@@ -21,6 +21,67 @@
     ],
     "description": "Markdown 语法拓展：可拖拽缩放的直角坐标系 ::begin_ui-ccs … ::end_ui-ccs"
   },
+  "图论画布": {
+    "prefix": ["uigraph", "::begin_ui-graph"],
+    "body": [
+      "::begin_ui-graph[${1:dag}]",
+      "${2:5}",
+      "${3:1 2 10}",
+      "${4:2 3 5}",
+      "$0::end_ui-graph",
+      ""
+    ],
+    "description": "Markdown 语法拓展：可拖拽缩放与调整点位的图论画布 ::begin_ui-graph … ::end_ui-graph"
+  },
+  "选择框": {
+    "prefix": ["uichoose", "::begin_ui-choose"],
+    "body": [
+      "::begin_ui-choose[${1:a_new_choose}][${2:今天吃什么}][${3:more 1 2}]",
+      "[A]",
+      "${4:选项一}",
+      "[B]",
+      "${5:选项二}",
+      "$0::end_ui-choose",
+      ""
+    ],
+    "description": "Markdown 语法拓展：单选/多选框 ::begin_ui-choose … ::end_ui-choose"
+  },
+  "下拉框": {
+    "prefix": ["uiselect", "::begin_ui-select"],
+    "body": [
+      "::begin_ui-select[${1:sel_id}][${2:search}]",
+      "${3:选项一}",
+      "${4:选项二}",
+      "$0::end_ui-select"
+    ],
+    "description": "Markdown 语法拓展：紧接上一行文本的下拉选择框 ::begin_ui-select … ::end_ui-select"
+  },
+  "是否框": {
+    "prefix": ["uiif", "::begin_ui-if"],
+    "body": [
+      "::begin_ui-if[${1:todo}][lined]",
+      "${2:条目一}",
+      "::nex",
+      "${3:条目二}",
+      "$0::end_ui-if",
+      ""
+    ],
+    "description": "Markdown 语法拓展：布尔勾选框（支持 lined 划线动画）"
+  },
+  "填空框": {
+    "prefix": ["uiwrite", "::ui-write"],
+    "body": "::ui-write[${1:Number}][${2:R 0 1 4}]",
+    "description": "Markdown 语法拓展：填空/滑块输入框 ::ui-write[id][...]"
+  },
+  "条件渲染块": {
+    "prefix": ["::IF", "ifblock"],
+    "body": [
+      "::IF[$${1:<Number> \\le <Ti>}$]",
+      "$0",
+      "::IF_END"
+    ],
+    "description": "Markdown 语法拓展：块级条件渲染 ::IF[<a>] … ::IF_END"
+  },
   "展示框变量 · 整数": {
     "prefix": "varz",
     "body": "${1:a}:Z=${2:0}[${3:-10},${4:10},${5:1}]",

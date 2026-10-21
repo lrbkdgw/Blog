@@ -14,6 +14,8 @@ import {
 } from './showBox'
 import { stripArticleDirectives } from './articleDirectives'
 import { renderStaticUiCcsSvg } from './uiCcs'
+import { renderStaticUiGraphSvg } from './uiGraph'
+import { renderStaticUiMarkdown } from './uiWidgets'
 
 export interface TransformOptions {
   /** MPE 兼容模式只渲染默认值，不提供交互脚本。 */
@@ -171,7 +173,8 @@ export function transformMarkdown(markdown: string, options: TransformOptions = 
   if (!markdown) return ''
   // 文首排版指令（::set-font[…] 等）不是正文：MPE 无法执行它们，与博客一致直接移除，
   // 避免指令原文出现在静态预览里（内置预览则由博客 Markdown 组件完整处理）。
-  markdown = stripArticleDirectives(markdown)
+  // 同时把 UI 表单交互控件与默认条件映射展开为静态 Markdown。
+  markdown = renderStaticUiMarkdown(stripArticleDirectives(markdown))
   const prefix = options.prefix || 'starlog'
   const lines = markdown.split('\n')
   const result: string[] = []
@@ -224,6 +227,28 @@ export function transformMarkdown(markdown: string, options: TransformOptions = 
         result.push(
           '<div class="' + prefix + '-ccs-static">' +
           renderStaticUiCcsSvg(body.join('\n')) +
+          '</div>',
+        )
+        result.push('')
+        i = end
+        continue
+      }
+    }
+
+    // 图论画布：::begin_ui-graph[<附加项>] … ::end_ui-graph（MPE 静态 SVG 兼容渲染）
+    const graphMatch = line.match(/^\s*::begin_ui-graph(?=$|\[|\s)([\s\S]*)$/)
+    if (graphMatch) {
+      const body: string[] = []
+      let end = i + 1
+      while (end < lines.length && !/^\s*::end_ui-graph\s*$/i.test(lines[end])) {
+        body.push(lines[end])
+        end += 1
+      }
+      if (end < lines.length) {
+        result.push('')
+        result.push(
+          '<div class="' + prefix + '-ccs-static ' + prefix + '-graph-static">' +
+          renderStaticUiGraphSvg(graphMatch[1], body.join('\n')) +
           '</div>',
         )
         result.push('')

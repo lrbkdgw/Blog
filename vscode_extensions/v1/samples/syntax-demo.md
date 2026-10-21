@@ -115,3 +115,50 @@ create_line:(-3,-2),(0,1),(3,-1),[color=red];
 create_line:(7*x^2+6*x+90*x^3);
 ::end_ui-ccs
 
+## 7. 图论画布（ui-graph）
+
+使用 `::begin_ui-graph[<附加项>]` 与 `::end_ui-graph` 绘制可拖拽平移、滚轮缩放的图论画布（`dag` 启用有向图；站内编辑器中可开启「调整模式」直接拖拽保存节点坐标）：
+
+::begin_ui-graph[dag]
+5
+1 2 10
+2 3 5
+1 3 18
+3 4 7
+::end_ui-graph
+
+## 8. 表单交互与条件映射（ui-choose / ui-select / ui-if / ui-write / IF）
+
+::begin_ui-choose[Ti][题型偏好][more 1 2]
+[A]
+动态规划
+[B]
+图论最短路
+[C]
+多项式与生成函数
+::end_ui-choose
+
+当前难度系数：
+::begin_ui-select[Diff][search]
+入门
+普及 / 提高-
+提高+ / 省选-
+NOI / CTSC
+::end_ui-select
+
+::begin_ui-if[Task][lined]
+读完题面并手玩样例
+::nex
+写出暴力对拍程序
+::end_ui-if
+
+::ui-write[Number][set 2][R 0 1 3][faster][new][name 期望刷题数]
+::ui-write[Author][set 星野][len 1 12][new][merge][name 读者昵称]
+
+你好 **<<Author>>**！当前难度编号为 `<<Diff>>`，第 1 项准备状态为 `<<Task-1>>` <IF:$<Task-1> == 1$,（已完成样例手玩！）>。
+
+::IF[$<Number> \ge 2$]
+> 目标充实：今天计划完成 **<<Number>>** 道练习题！
+::IF_END
+
+

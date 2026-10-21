@@ -1,5 +1,11 @@
 # 更新日志
 
+## 2.3.0 — 2026-10-21
+
+- 新增表单交互与条件映射语法（与博客 issue #82 同步）：支持选择框 `::begin_ui-choose[<id>][<name>][<附加项>] … ::end_ui-choose`（默认单选、`more <down> <up>` 多选）、行内下拉框 `::begin_ui-select[<id>][<附加项>] … ::end_ui-select`（紧接上一行文本，支持 `more` 与 `search` 搜索）、是否框 `::begin_ui-if[<id>][<附加项>] … ::nex … ::end_ui-if`（支持 `lined` 划线动画与 `<<id-number>>` / `<id-number>` 引用）、填空/滑块输入框 `::ui-write[<id>][<附加项>]`（支持 `set`、`R <bit> <down> <up>`、`len <down> <up>`、`new`、`name <name>`、`faster`、`merge` 同行并列），以及最高优先级的 `<<id>>` / `<id>` 替换、行内 `<IF:<a>,<b>>` 与块级 `::IF[<a>] … ::IF_END`（KaTeX 条件求值）。
+- 新增图论画布语法 `::begin_ui-graph[<附加项>] … ::end_ui-graph`（与博客 issue #83 同步）：内置预览直接复用博客 `GraphPlane` 组件，延续 `ui-ccs` 同款视觉与拖拽平移 / 滚轮缩放 / 双击复位体验，支持独立声明 `<point>`、可选边权与坐标 `<s> <t> <w> <x> <y>`、未声明端点自动补齐与 `dag` 有向边箭头；在博客站内编辑器中额外提供「调整模式」支持拖拽调整节点位置并写回 Markdown 源码。
+- 新增命令 **插入图论画布 (ui-graph)**（`starlog.insertGraph`）与 **插入表单交互控件**（`starlog.insertUiControls`），同步更新代码片段、TextMate 语法注入、MPE 静态兼容渲染与洛谷 / 基本 Markdown 复制降级。
+
 ## 2.2.0 — 2026-10-20
 
 - 新增直角坐标系语法 `::begin_ui-ccs … ::end_ui-ccs`（与博客 issue #76 同步）：支持 `create_point:(x,y);`、`create_line:(x_1,y_1),...,(x_n,y_n),[color=...];` 与显式函数曲线 `create_line:(7*x^2+6*x+90*x^3);`，内置预览直接复用博客极简无上下栏 `CoordinatePlane` 组件，支持拖拽平移、滚轮缩放、双击复位、悬浮在线上显示最近点坐标且靠近交点/折点/端点/单点时优先磁吸显示精确坐标，以及嵌套在 `::show_begin` 内的实时联动。
