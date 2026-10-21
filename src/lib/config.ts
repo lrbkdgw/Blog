@@ -75,34 +75,6 @@ export const commentsConfig = {
   titlePrefix: '[文章评论]',
 }
 
-/**
- * 百宝箱 · 回声洞（issue #93）。
- *
- * 回声洞里的「回声」有两个来源：
- *   1. GitHub Discussions —— 任何登录用户都可以在页面下方的横线上留言，
- *      内容保存进目标仓库的**一个**讨论（标题 `title`，正文带 `marker` 标记，
- *      每条回声是这个讨论下的一条 comment），因此可跨浏览器、跨设备看到；
- *   2. hitokoto（一言）—— 在线版直接取接口，离线版不联网，只用内置句子。
- *
- * 条数限制按「每位作者」计算：每小时最多 `perHour` 条、每天最多 `perDay` 条，
- * 超出部分既不能再发送，也不会被「识别」进回声池。仓库贡献者不受限制
- * （OWNER / MEMBER / COLLABORATOR / CONTRIBUTOR，或仓库权限高于 READ）。
- */
-export const echoCaveConfig = {
-  /** 回声墙讨论所在的 GitHub Discussions 分类（需与 commentsConfig 的分类同名或单独建一个）。 */
-  category: 'General',
-  /** 回声墙讨论的标题。 */
-  title: '[回声洞] 回声墙',
-  /** 识别回声墙讨论所用的正文标记（请勿随意修改，否则会找不到旧讨论并新建一个）。 */
-  marker: '<!-- starlog-echo-cave -->',
-  /** 单条回声的最大字数。 */
-  maxLength: 120,
-  /** 每位作者每小时最多被识别的条数。 */
-  perHour: 3,
-  /** 每位作者每天最多被识别的条数。 */
-  perDay: 10,
-} as const
-
 export const oauthConfig = {
   /**
    * OAuth App 的 Client ID。

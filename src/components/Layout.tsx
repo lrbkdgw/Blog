@@ -33,7 +33,6 @@ const NAV = [
   { to: '/', label: '首页', end: true },
   { to: '/archive', label: '归档' },
   { to: '/tags', label: '标签' },
-  { to: '/treasure', label: '百宝箱' },
   { to: '/about', label: '帮助' },
 ]
 
