@@ -1096,6 +1096,10 @@ interface MarkdownProps {
    * 实现支持多行折行、单行换行与多段落的逐行平滑删除线动画。
    */
   linedStrikethrough?: boolean
+  /**
+   * 内部开关：供交互控件（选择框、是否框）内部嵌套 Markdown 使用，移除正文级 `prose-base` 大字号与大行距。
+   */
+  compact?: boolean
 }
 
 type SourceLineResolver = (node: unknown) => number | undefined
@@ -1312,6 +1316,7 @@ export const Markdown = memo(function Markdown({
   applyDirectives = true,
   onContentChange,
   linedStrikethrough = false,
+  compact = false,
 }: MarkdownProps) {
   const widgetDefs = useMemo(() => extractUiWidgetDefs(content), [content])
   const [userWidgetStates, setUserWidgetStates] = useState<UiStateMap>({})
@@ -1346,6 +1351,7 @@ export const Markdown = memo(function Markdown({
         applyDirectives={false}
         urlTransform={urlTransform}
         linedStrikethrough={options?.linedStrikethrough}
+        compact
       />
     ),
     [urlTransform],
@@ -1407,7 +1413,11 @@ export const Markdown = memo(function Markdown({
   return (
     <UiWidgetsContext.Provider value={uiContextValue}>
       <div
-        className="prose prose-base dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight"
+        className={
+          compact
+            ? 'prose prose-sm max-w-none dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight'
+            : 'prose prose-base dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight'
+        }
         style={applyDirectives ? articleFontStyle(processed.directives) : undefined}
       >
         <ReactMarkdown

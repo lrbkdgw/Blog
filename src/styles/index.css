@@ -829,20 +829,51 @@ details[open] .callout-chevron {
 }
 
 /* ---------- 交互表单控件（issue #82）与图论画布（issue #83） ---------- */
+.ui-choose-card .prose,
+.ui-if-card .prose {
+  max-width: none;
+  font-size: 0.8125rem;
+  line-height: 1.48;
+}
+
+.ui-choose-card .prose p,
+.ui-if-card .prose p {
+  margin-top: 0.2rem;
+  margin-bottom: 0.2rem;
+}
+
+.ui-choose-card .prose ul,
+.ui-choose-card .prose ol,
+.ui-if-card .prose ul,
+.ui-if-card .prose ol {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.ui-choose-card .prose > :first-child,
+.ui-if-card .prose > :first-child {
+  margin-top: 0;
+}
+
+.ui-choose-card .prose > :last-child,
+.ui-if-card .prose > :last-child {
+  margin-bottom: 0;
+}
+
 .ui-if-lined .ui-if-strike-text {
   display: inline;
   background-image: linear-gradient(currentColor, currentColor);
   background-repeat: no-repeat;
   background-position: 0 54%;
-  background-size: 0% 1.65px;
+  background-size: 0% 1.45px;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
   transition:
-    background-size 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    background-size 0.32s cubic-bezier(0.22, 1, 0.36, 1),
     opacity 0.25s ease;
 }
 
 .ui-if-lined.is-lined-checked .ui-if-strike-text {
-  background-size: 100% 1.65px;
+  background-size: 100% 1.45px;
 }
 
