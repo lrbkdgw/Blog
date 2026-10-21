@@ -484,6 +484,41 @@
     background: linear-gradient(to right, transparent, var(--site-background-tint-secondary), transparent),
       linear-gradient(to right, transparent, var(--site-background-glow-secondary), transparent);
   }
+
+  /* 百宝箱 · 回声洞（issue #93）：洞口的声波涟漪与下方横线留言框 */
+  .echo-ring {
+    position: absolute;
+    width: 11rem;
+    height: 11rem;
+    border-radius: 9999px;
+    border: 1.5px solid rgb(var(--brand-400) / 0.35);
+    animation: echo-ripple 4.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  }
+  .echo-ring-delay-1 {
+    animation-delay: 1.5s;
+  }
+  .echo-ring-delay-2 {
+    animation-delay: 3s;
+  }
+  @keyframes echo-ripple {
+    0% {
+      transform: scale(0.35);
+      opacity: 0.55;
+    }
+    100% {
+      transform: scale(1.9);
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .echo-ring {
+      animation: none;
+      opacity: 0.25;
+    }
+  }
+  .echo-line-input {
+    @apply w-full rounded-none border-0 border-b-2 border-ink-300 bg-transparent px-1 pb-2 pt-1 text-[15px] text-ink-900 outline-none transition placeholder:text-ink-400 focus:border-brand-500 disabled:opacity-50 dark:border-white/20 dark:text-white dark:placeholder:text-ink-500 dark:focus:border-brand-400;
+  }
 }
 
 /* ---------- 代码高亮 ---------- */

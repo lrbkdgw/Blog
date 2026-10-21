@@ -162,6 +162,7 @@ const FORBIDDEN = [
   ['云端字体（Google Fonts）', 'fonts.googleapis.com'],
   ['云端字体资源域名', 'fonts.gstatic.com'],
   ['OAuth App Client ID', 'Ov23lid9P8sdNuiKhkzy'],
+  ['回声洞一言接口（hitokoto）', 'v1.hitokoto.cn'],
 ]
 const found = FORBIDDEN.filter(([, needle]) => html.includes(needle))
 if (found.length > 0) {

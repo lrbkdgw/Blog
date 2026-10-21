@@ -1,5 +1,5 @@
 import aboutRaw from '/content/about.md?raw'
-import { BookOpen, Compass, ExternalLink, Github, PenLine, Settings, Sparkles } from 'lucide-react'
+import { BookOpen, Compass, ExternalLink, Github, Package, PenLine, Settings, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Markdown } from '../components/Markdown'
 import { parseFrontmatter } from '../lib/frontmatter'
@@ -48,6 +48,10 @@ export default function About() {
           <Link to="/archive" className="chip">
             <BookOpen size={12} />
             文章归档
+          </Link>
+          <Link to="/toolbox" className="chip">
+            <Package size={12} />
+            百宝箱
           </Link>
           {social.github && (
             <a
