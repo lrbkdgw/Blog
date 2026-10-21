@@ -1,5 +1,33 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-21 · 交互选择、填空、条件显示与可编辑图语法（#82 / #83）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 新增
+
+- **选择与条件 Markdown 控件（issue #82）**：支持 `ui-choose`、`ui-select`、`ui-if`、1-based 选项引用、行内 `<IF:公式,内容>` 与块级 `::IF…::IF_END`；选项及条件内容保留 Markdown / KaTeX，并随输入状态更新。
+- **`::ui-write` 填空框**：支持初始值、实数范围 / 精度、文本长度约束、独占新行、标签、数值滑块及相邻 `merge` 分组；输入值可在引用、条件与动态公式中使用。
+- **交互图（issue #83）**：支持 `dag`、隐式建点、边权和目标顶点坐标；文章编辑器提供拖动调整模式并把点坐标保存回 Markdown。
+- VS Code 扩展升级至 **2.3.0**，同步内置交互预览、语法高亮 / 代码片段与 MPE 静态降级；生成新的 VSIX 安装包。
+
+### 调整
+
+- 洛谷 / 基本 Markdown 复制、摘要与目录处理适配新语法；非交互目标将输入框、选择 / 条件和图转换为可读的静态 Markdown。
+- 更新根 README、关于页与 VS Code 扩展文档 / 示例；重建离线单文件版 `offline/index.html`。
+
+### 验证
+
+- `npm test`：博客特性测试 **6 项通过**；扩展回归 **71 项通过、4 项跳过**（未设置 `BROWSER_EXECUTABLE_PATH`，跳过真实 Chromium 测试）。
+- `npm run build` 与 `npm --prefix vscode_extensions/v1 run typecheck` 通过。
+- `npm run extension:package` 生成 `vscode_extensions/v1/starlog-markdown-2.3.0.vsix`。
+- `npm run build:offline` 与 `scripts/verify-offline.mjs` 自检通过；离线文件包含 **11 篇文章**，无联网端点。
+- TextMate 语法与 VS Code 代码片段 JSON 校验通过。
+
 ## 2026-10-20 · 暴雨背景晶莹液滴重构（消除直线雨丝与阅读干扰）及全站顶部防挡位置精调与深色模式优化
 
 | 模型信息 | |

@@ -28,6 +28,9 @@ async function importTsModule(entryPath) {
 const weatherMod = await importTsModule('src/components/WeatherBackdrops.ts')
 const headerYieldMod = await importTsModule('src/lib/headerYield.ts')
 const uiCcsMod = await importTsModule('src/lib/uiCcs.ts')
+const uiChoicesMod = await importTsModule('src/lib/uiChoices.ts')
+const uiWriteMod = await importTsModule('src/lib/uiWrite.ts')
+const uiGraphMod = await importTsModule('src/lib/uiGraph.ts')
 const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
 
@@ -462,4 +465,249 @@ test('ui-ccs 解析器、数学运算符优先级、高次曲线裁剪、间断�
   assert.ok(steepHit && steepHit.kind === 'line', '高斜率曲线旁 3px 悬停应命中曲线最近点')
   assert.ok(steepHit.distancePx < 3.2, `高斜率正交投影距离应 <= 3.2px，实际 ${steepHit.distancePx}`)
   assert.ok(Math.abs(steepHit.y - yAt035) < 0.05)
+})
+
+/* -------------------------------------------------------------------------- */
+/*             4. 交互选择 / 条件表达式 / 图与源码往返测试                     */
+/* -------------------------------------------------------------------------- */
+
+test('交互选择配置、1-based 值引用、条件公式白名单求值与图节点坐标源码往返', () => {
+  const choose = uiChoicesMod.parseUiChoiceConfig(
+    'choose',
+    'meal',
+    '今天吃什么',
+    'more 1 2',
+    '[A]\n香蕉好吃！\n[B]\n我！\n爱！\n[$\\sum$]\n计算题！',
+  )
+  assert.equal(choose.options.length, 3)
+  assert.equal(choose.minCount, 1)
+  assert.equal(choose.maxCount, 2)
+  assert.deepEqual(uiChoicesMod.initialUiChoiceValue(choose), [1])
+  assert.deepEqual(uiChoicesMod.normalizeSelectedIndexes([3, 2, 2, 0], 3, [1]), [2, 3])
+  const fencedChoose = uiChoicesMod.parseUiChoiceConfig(
+    'choose',
+    'fenced',
+    '代码示例',
+    '',
+    '[A]\n```markdown\n[B]\n::end_ui-choose\n```\n选项内容\n[B]\n第二项',
+  )
+  assert.equal(fencedChoose.options.length, 2)
+  assert.match(fencedChoose.options[0].content, /\[B\]\n::end_ui-choose/)
+
+  const checklist = uiChoicesMod.parseUiChoiceConfig('if', 'tasks', '', 'lined', '先读题\n::nex\n再检查')
+  assert.equal(checklist.lined, true)
+  assert.equal(checklist.options.length, 2)
+  const fencedChecklist = uiChoicesMod.parseUiChoiceConfig(
+    'if',
+    'fenced-tasks',
+    '',
+    '',
+    '第一项\n```markdown\n::nex\n::end_ui-if\n```\n::nex\n第二项',
+  )
+  assert.equal(fencedChecklist.options.length, 2)
+  assert.match(fencedChecklist.options[0].content, /::nex\n::end_ui-if/)
+  assert.deepEqual(uiChoicesMod.initialUiChoiceValue(checklist), [false, false])
+  const values = { number: [2], Ti: [3], tasks: [true, false] }
+  assert.equal(uiChoicesMod.formatUiReference('number', values), '2')
+  assert.equal(uiChoicesMod.formatUiReference('tasks-1', values), '1')
+  assert.equal(uiChoicesMod.formatUiReference('tasks-2', values), '0')
+  assert.equal(uiChoicesMod.evaluateUiCondition('$<number> \\le <Ti>$', values), true)
+  assert.equal(uiChoicesMod.evaluateUiCondition('$<number> \\times 2 == <Ti>$', values), false)
+  assert.equal(uiChoicesMod.evaluateUiCondition('(<number> & 1) == 0', values), true)
+  assert.equal(uiChoicesMod.evaluateUiCondition('globalThis.process.exit()', values), false)
+  assert.equal(uiChoicesMod.evaluateUiCondition('1 / 0 > 0', values), false)
+  assert.equal(
+    uiChoicesMod.resolveUiMathReferences('x_{<<number>>} + <Ti>', values),
+    'x_{2} + 3',
+  )
+
+  const graphSource = [
+    'point isolated',
+    'A B 5 10 20',
+    'C A -3 4 6',
+    'point B 30 40',
+    '# keep this comment',
+  ].join('\n')
+  const graph = uiGraphMod.parseUiGraph(graphSource, 'dag')
+  assert.equal(graph.directed, true)
+  assert.deepEqual(graph.nodes.map((node) => node.id), ['isolated', 'A', 'B', 'C'])
+  assert.deepEqual(graph.edges.map(({ from, to, weight }) => ({ from, to, weight })), [
+    { from: 'A', to: 'B', weight: '5' },
+    { from: 'C', to: 'A', weight: '-3' },
+  ])
+  assert.deepEqual(graph.nodes.find((node) => node.id === 'B') && {
+    x: graph.nodes.find((node) => node.id === 'B').x,
+    y: graph.nodes.find((node) => node.id === 'B').y,
+  }, { x: 30, y: 40 })
+  assert.deepEqual(graph.nodes.find((node) => node.id === 'A') && {
+    x: graph.nodes.find((node) => node.id === 'A').x,
+    y: graph.nodes.find((node) => node.id === 'A').y,
+  }, { x: 4, y: 6 })
+  const laidOut = uiGraphMod.layoutUiGraphNodes(graph.nodes)
+  const transform = uiGraphMod.computeUiGraphTransform(laidOut)
+  assert.ok(transform.scale > 0)
+  assert.equal(uiGraphMod.uiGraphToSvg(laidOut[0], transform).x >= 0, true)
+
+  const positionedBody = uiGraphMod.formatUiGraphPositions(graphSource, [
+    { id: 'isolated', x: 0, y: 0 },
+    { id: 'A', x: 50.25, y: -12 },
+    { id: 'B', x: 100, y: 20 },
+    { id: 'C', x: -30, y: 70 },
+  ])
+  assert.match(positionedBody, /^point isolated 0 0/m)
+  assert.match(positionedBody, /^point A 50.25 -12/m)
+  assert.match(positionedBody, /A B 5 10 20/)
+  assert.match(positionedBody, /# keep this comment/)
+  const reparsed = uiGraphMod.parseUiGraph(positionedBody, 'dag')
+  assert.deepEqual(reparsed.nodes.find((node) => node.id === 'B') && {
+    x: reparsed.nodes.find((node) => node.id === 'B').x,
+    y: reparsed.nodes.find((node) => node.id === 'B').y,
+  }, { x: 100, y: 20 })
+
+  const article = [
+    '## 图与交互语法',
+    '',
+    '::begin_ui-graph[dag]',
+    graphSource,
+    '::end_ui-graph',
+    '',
+    '```markdown',
+    '::begin_ui-graph[dag]',
+    '```',
+  ].join('\n')
+  const replaced = uiGraphMod.replaceUiGraphBodyAtLine(article, 3, positionedBody)
+  assert.ok(replaced.includes(`::begin_ui-graph[dag]\n${positionedBody}\n::end_ui-graph`))
+  assert.equal(uiGraphMod.replaceUiGraphBodyAtLine(article, 900, 'bad'), article)
+  assert.doesNotMatch(postsMod.excerpt(article), /ui-graph|isolated|A B 5/)
+  assert.equal(
+    postsMod.excerpt('正文 <IF:$<number> \\le <Ti>$,条件内容不进入摘要> 完毕'),
+    '正文 完毕',
+  )
+  assert.equal(postsMod.excerpt([
+    '正文',
+    '::IF[1 == 1]',
+    '外层条件',
+    '::IF[2 == 2]',
+    '嵌套条件',
+    '::IF_END',
+    '外层剩余条件',
+    '::IF_END',
+    '结束',
+  ].join('\n')), '正文 结束')
+  assert.deepEqual(postsMod.extractToc([
+    '## 可见标题',
+    '::begin_ui-choose[id][title]',
+    '[A]',
+    '## 控件内部标题',
+    '::end_ui-choose',
+    '::IF[1 == 1]',
+    '## 条件内部标题',
+    '::IF_END',
+    '## 之后的标题',
+  ].join('\n')).map((item) => item.text), ['可见标题', '之后的标题'])
+
+  const copy = mdSourceMod.convertMarkdownForCopy([
+    '::begin_ui-graph[dag]',
+    'A B 5 10 20',
+    '::end_ui-graph',
+    '',
+    '::begin_ui-choose[meal][选择][more 1 2]',
+    '[A]',
+    '苹果',
+    '::end_ui-choose',
+    '',
+    '::begin_ui-select[fruit][search]',
+    '苹果',
+    '香蕉',
+    '::end_ui-select',
+    '',
+    '::begin_ui-if[tasks][lined]',
+    '读题',
+    '::nex',
+    '检查',
+    '::end_ui-if',
+    '',
+    '<<meal>> <IF:$<number> \\le 2$,答对！>',
+  ].join('\n'), 'basic')
+  assert.doesNotMatch(copy, /::begin_ui-(?:graph|choose|select|if)|::end_ui-|::nex/)
+  assert.match(copy, /A → B（权重 5）/)
+  assert.match(copy, /今天吃什么|选择/)
+  assert.match(copy, /【meal】/)
+  assert.ok(copy.includes('当 $<number> \\le 2$ 成立时：答对！'))
+
+  const fencedCopy = mdSourceMod.convertMarkdownForCopy([
+    '::begin_ui-choose[fenced][代码题]',
+    '[A]',
+    '```markdown',
+    '[not-an-option]',
+    '::end_ui-choose',
+    '```',
+    '选项说明',
+    '::end_ui-choose',
+    '',
+    '::IF[1 == 1]',
+    '```markdown',
+    '::IF_END',
+    '```',
+    '条件说明',
+    '::IF_END',
+  ].join('\n'), 'luogu')
+  assert.match(fencedCopy, /\[not-an-option\]/)
+  assert.match(fencedCopy, /::end_ui-choose/)
+  assert.match(fencedCopy, /::IF_END/)
+  assert.match(fencedCopy, /条件说明/)
+})
+
+test('填空框语法、数值与长度约束、默认值、行布局及静态源码降级', () => {
+  const inlineSource = '吃了 ::ui-write[number][R 0 1 4] 根香蕉'
+  const token = uiWriteMod.parseUiWriteToken(inlineSource, inlineSource.indexOf('::ui-write'))
+  assert.ok(token)
+  assert.equal(token.id, 'number')
+  assert.deepEqual(token.options, ['R 0 1 4'])
+  assert.equal(inlineSource.slice(token.start, token.end), '::ui-write[number][R 0 1 4]')
+
+  const real = uiWriteMod.parseUiWriteConfig('number', ['R 2 0.5 4', 'set 1.25'])
+  assert.equal(real.mode, 'real')
+  assert.equal(real.decimalPlaces, 2)
+  assert.equal(real.minValue, 0.5)
+  assert.equal(real.maxValue, 4)
+  assert.equal(real.initialValue, 1.25)
+  assert.equal(uiWriteMod.validateUiWriteRealValue('2.25', real), null)
+  assert.match(uiWriteMod.validateUiWriteRealValue('0.25', real), /不能小于/)
+  assert.match(uiWriteMod.validateUiWriteRealValue('1.234', real), /小数/)
+  assert.equal(uiWriteMod.validateUiWriteRealValue('', real), null)
+
+  const text = uiWriteMod.parseUiWriteLine('::ui-write[Name][len 2 4][new][name 姓名]')
+  assert.ok(text)
+  const textConfig = uiWriteMod.parseUiWriteConfig(text.id, text.options)
+  assert.equal(textConfig.mode, 'text')
+  assert.equal(textConfig.minLength, 2)
+  assert.equal(textConfig.maxLength, 4)
+  assert.equal(textConfig.newLine, true)
+  assert.equal(textConfig.name, '姓名')
+
+  const slider = uiWriteMod.parseUiWriteConfig('Ti', ['R 0 0 3', 'set 1', 'new', 'name 已吃的香蕉', 'faster'])
+  assert.equal(slider.faster, true)
+  assert.equal(slider.initialValue, 1)
+  assert.deepEqual(slider.errors, [])
+  const merge = uiWriteMod.parseUiWriteConfig('right', ['R 0 0 10', 'new', 'name 右值', 'merge'])
+  assert.equal(merge.merge, true)
+  assert.match(uiWriteMod.parseUiWriteConfig('bad', ['faster']).errors.join(' '), /必须与 R 和 new 一起使用/)
+  assert.match(uiWriteMod.parseUiWriteConfig('bad', ['name 标题']).errors.join(' '), /name 必须与 new/)
+
+  const values = { number: 2, Ti: 3, empty: '' }
+  assert.equal(uiChoicesMod.formatUiReference('number', values), '2')
+  assert.equal(uiChoicesMod.formatUiReference('empty', values), '')
+  assert.equal(uiChoicesMod.evaluateUiCondition('$<number> \\le <Ti>$', values), true)
+  assert.equal(uiChoicesMod.evaluateUiCondition('<<empty>> == 0', values), false)
+
+  const copied = mdSourceMod.convertMarkdownForCopy(
+    '内联 ::ui-write[number][R 0 1 4]。\n\n::ui-write[Name][len 2 4][new][name 姓名]\n\n`::ui-write[code]`',
+    'luogu',
+  )
+  assert.match(copied, /内联 ________。/)
+  assert.match(copied, /\*\*姓名\*\*：________/)
+  assert.match(copied, /`::ui-write\[code\]`/)
+  assert.equal(mdSourceMod.convertMarkdownForCopy('`<<value>>` <<value>>', 'luogu'), '`<<value>>` 【value】')
+  assert.doesNotMatch(postsMod.excerpt('正文 ::ui-write[number][R 0 1 4]'), /ui-write|number/)
 })

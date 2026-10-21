@@ -244,7 +244,7 @@ $$
 ~~~markdown
 | 测试编号 | 数据范围 | 特殊性质 |
 | :---: | :---: | :---: |
-| 1 | $n \\le 10$ | 无 |
+| 1 | $n \le 10$ | 无 |
 | 2 | ^ | 无 |
 | 3 | 跨列合并示例 | < |
 ~~~
@@ -303,6 +303,70 @@ create_line:(7*x^2+6*x+90*x^3);
 - `create_line:(x_1,y_1),(x_2,y_2),...,(x_n,y_n),[color=red];`：按顺序连接多个坐标点绘制线段或折线，可选 `[color=...]` 设置线条颜色。
 - `create_line:(表达式);`：绘制函数 $y = f(x)$ 的曲线（支持 `+ - * / ^`、括号、隐式乘法及 `sin`、`cos`、`tan`、`sqrt`、`abs`、`ln`、`exp` 等常见函数），可选 `,[color=...]` 指定颜色。
 - 直角坐标系也可写在 `::show_begin … ::show_end` 展示框内，配合 `*&show(a)*&` 动态观察参数变化对图像的影响。
+
+### 交互填空、选择与条件显示（#82）
+
+选择框、下拉框和勾选框的值在同一篇 Markdown 中共享，选项从 **1** 开始编号；选择框选项正文支持完整 Markdown 与 KaTeX。
+
+~~~markdown
+::begin_ui-choose[meal][今天吃什么][more 1 2]
+[A]
+苹果好吃！
+[B]
+**香蕉**也不错，$x^2$。
+::end_ui-choose
+
+今天选择编号：<<meal>>；第一项是否选中：<<meal-1>>
+
+今天吃了 ::ui-write[number][R 0 1 4] 根香蕉。
+::ui-write[Name][len 2 12][new][name 姓名]
+::ui-write[Ti][R 0 0 3][set 1][new][name 已吃的香蕉][faster]
+
+::begin_ui-select[fruit][more 1 3 search]
+苹果
+香蕉
+梨
+::end_ui-select
+
+::begin_ui-if[tasks][lined]
+阅读题目
+::nex
+检查答案
+::end_ui-if
+
+<IF:$<fruit> \le 2$,**选中了前两项之一。**>
+
+::IF[<<tasks-1>> == 1]
+第一项任务完成了！这里可以放完整 Markdown、公式、图片或折叠框。
+::IF_END
+~~~
+
+- `::begin_ui-choose[id][名称][more <down> <up>]` 创建命名选项框；不写 `more` 时为单选，写入时第一个数字是至少选中的数量，第二个数字是最多选中的数量。
+- `::begin_ui-select[id][more <down> <up> search]` 创建下拉框；可选 `more` 控制选择数量、`search` 显示选项搜索框。选项按行填写。
+- `::begin_ui-if[id][附加项]` 创建是/否勾选项，使用独占一行的 `::nex` 分隔选项；可选 `lined` 划线效果。
+- `::ui-write[id][附加项]…` 插入行内填空框：`set <number>` 设初值；`R <bit> <down> <up>` 限制实数范围和小数位数；`len <down> <up>` 限制文本长度。`new` 独占一行；`name <name>` 需与 `new` 同用；`faster` 需同时有 `R` 和 `new`，显示滑块；`merge` 需与 `new` 同用，并且不能有正文夹在前一个 `new` 输入框之间。
+- `<<id>>` 可输出填空值或选择 / 下拉框从 1 开始的编号；多选时输出逗号分隔的编号。`<<id-number>>` 返回对应选项是否选中（`1` / `0`），其中 `number` 从 `1` 开始。
+- 行内 `<IF:条件,内容>` 仅在条件成立时显示内容；块级 `::IF[条件] … ::IF_END` 可包住任意 Markdown，支持嵌套。条件允许引用上述值，支持算术、比较、位运算与常见 KaTeX 运算符；公式可以写 `$<number> \le <Ti>$`。
+- 所有控件的值会在文内联动，修改选择或输入后条件内容、含引用的 Markdown 与 KaTeX 公式会立即更新；复制为洛谷或基本 Markdown 会将输入降级为空白栏，将选择 / 条件降级为静态内容。
+
+### 交互图（ui-graph，#83）
+
+使用 `::begin_ui-graph` 与 `::end_ui-graph` 绘制节点和带权边；`[dag]` 可添加有向箭头。边上引用的节点会自动创建，未提供坐标时由布局自动安排：
+
+~~~markdown
+::begin_ui-graph[dag]
+point A 0 0
+point B 100 30
+point C 60 -50
+A B 5
+A C 2
+B C 1
+::end_ui-graph
+~~~
+
+- `point ID` 声明节点；`point ID X Y` 提供节点坐标。也可直接写边 `s t w x y`：`s` 是起点、`t` 是终点、`w` 是可选权重、`x y` 是可选的终点坐标；两个坐标需同时提供。显式 `point ID X Y` 坐标优先于边记录中的坐标。
+- 站内编辑文章时，点图上方的「调整模式」并拖动节点，松开后坐标会保存回对应图块的 Markdown 源码；一般阅读与 VS Code 预览不会显示编辑控件。
+- 复制为洛谷或基本 Markdown 时，交互图会降级为节点、边及权重清单。
 
 ### 文章开头排版指令（字体与背景）
 

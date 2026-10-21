@@ -21,6 +21,100 @@
     ],
     "description": "Markdown 语法拓展：可拖拽缩放的直角坐标系 ::begin_ui-ccs … ::end_ui-ccs"
   },
+  "交互选择框": {
+    "prefix": ["uichoose", "::begin_ui-choose"],
+    "body": [
+      "::begin_ui-choose[${1:meal}][${2:今天吃什么}][more ${3:1} ${4:1}]",
+      "[${5:A}]",
+      "${6:第一个选项内容}",
+      "[${7:B}]",
+      "${8:第二个选项内容}",
+      "$0",
+      "::end_ui-choose",
+      ""
+    ],
+    "description": "Markdown 语法拓展：具名单选 / 多选框"
+  },
+  "交互下拉框": {
+    "prefix": ["uiselect", "::begin_ui-select"],
+    "body": [
+      "::begin_ui-select[${1:fruit}][${2:search}]",
+      "${3:苹果}",
+      "${4:香蕉}",
+      "$0",
+      "::end_ui-select",
+      ""
+    ],
+    "description": "Markdown 语法拓展：行内下拉框，可选搜索与数量限制"
+  },
+  "交互是否框": {
+    "prefix": ["uiif", "::begin_ui-if"],
+    "body": [
+      "::begin_ui-if[${1:tasks}][${2:lined}]",
+      "${3:第一个勾选项}",
+      "::nex",
+      "${4:第二个勾选项}",
+      "$0",
+      "::end_ui-if",
+      ""
+    ],
+    "description": "Markdown 语法拓展：多项是 / 否勾选框"
+  },
+  "行内实数填空框": {
+    "prefix": ["uiwrite", "::ui-write"],
+    "body": "::ui-write[${1:number}][R ${2:0} ${3:1} ${4:4}]$0",
+    "description": "Markdown 语法拓展：带小数位数和范围限制的行内实数输入"
+  },
+  "新行文本填空框": {
+    "prefix": "uiwritenew",
+    "body": [
+      "::ui-write[${1:Name}][len ${2:2} ${3:12}][new][name ${4:姓名}]",
+      "$0"
+    ],
+    "description": "Markdown 语法拓展：独占一行、限制长度并显示标题的文本输入"
+  },
+  "新行数值滑块": {
+    "prefix": "uiwriterange",
+    "body": [
+      "::ui-write[${1:Ti}][R ${2:0} ${3:0} ${4:3}][set ${5:1}][new][name ${6:数值}][faster]",
+      "$0"
+    ],
+    "description": "Markdown 语法拓展：独占一行的实数范围滑块"
+  },
+  "合并到上一行的填空框": {
+    "prefix": "uiwritemerge",
+    "body": "::ui-write[${1:Right}][R ${2:0} ${3:0} ${4:10}][new][name ${5:右值}][merge]$0",
+    "description": "Markdown 语法拓展：与紧邻的 new 填空框共享一行"
+  },
+  "交互图": {
+    "prefix": ["uigraph", "::begin_ui-graph"],
+    "body": [
+      "::begin_ui-graph[${1:dag}]",
+      "point A 0 0",
+      "point B 100 30",
+      "A B ${2:5}",
+      "$0",
+      "::end_ui-graph",
+      ""
+    ],
+    "description": "Markdown 语法拓展：有向 / 无向交互图；博客文章编辑器可调整并保存坐标"
+  },
+  "行内条件显示": {
+    "prefix": ["uicond", "<IF:"],
+    "body": "<IF:${1:1 == 1},${2:条件成立时显示}>$0",
+    "description": "Markdown 语法拓展：行内公式条件显示"
+  },
+  "块级条件显示": {
+    "prefix": ["uicondblock", "::IF"],
+    "body": [
+      "::IF[${1:1 == 1}]",
+      "${2:条件成立时显示的完整 Markdown}",
+      "$0",
+      "::IF_END",
+      ""
+    ],
+    "description": "Markdown 语法拓展：完整 Markdown 条件块"
+  },
   "展示框变量 · 整数": {
     "prefix": "varz",
     "body": "${1:a}:Z=${2:0}[${3:-10},${4:10},${5:1}]",

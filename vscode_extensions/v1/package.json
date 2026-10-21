@@ -1,8 +1,8 @@
 {
   "name": "starlog-markdown",
   "displayName": "Markdown 语法拓展",
-  "description": "直接复用博客的 Markdown 渲染组件与样式：交互展示框、交互直角坐标系、折叠框、合并表格、KaTeX 公式与代码高亮，在 VS Code 内置预览中获得同款效果。",
-  "version": "2.2.0",
+  "description": "直接复用博客的 Markdown 渲染组件与样式：交互展示框、填空输入、选择/下拉/是非控件、条件显示、直角坐标系、交互图、折叠框、合并表格、KaTeX 公式与代码高亮，在 VS Code 内置预览中获得同款效果。",
+  "version": "2.3.0",
   "publisher": "lrbkdgw",
   "license": "MIT",
   "engines": {

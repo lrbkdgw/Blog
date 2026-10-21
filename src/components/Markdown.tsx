@@ -1,4 +1,4 @@
-import { Children, cloneElement, createElement, isValidElement, memo, useCallback, useMemo, useState } from 'react'
+import { Children, cloneElement, createElement, isValidElement, memo, useCallback, useContext, useMemo, useState } from 'react'
 import type { HTMLAttributes, ReactNode } from 'react'
 import katex from 'katex'
 import ReactMarkdown from 'react-markdown'
@@ -12,6 +12,12 @@ import rehypeHighlight from 'rehype-highlight'
 import rehypeSlug from 'rehype-slug'
 import { ShowBox } from './ShowBox'
 import { CoordinatePlane } from './CoordinatePlane'
+import { CoordinateGraph } from './CoordinateGraph'
+import { UiChoiceWidget } from './UiChoiceWidget'
+import { UiWriteWidget } from './UiWriteWidget'
+import { UiSyntaxProvider, UiSyntaxContext, useUiSyntaxContext } from '../lib/uiSyntaxContext'
+import { evaluateUiCondition, formatUiReference, resolveUiMathReferences } from '../lib/uiChoices'
+import { parseUiWriteConfig, parseUiWriteLine, parseUiWriteToken, type UiWriteToken } from '../lib/uiWrite'
 import { resolvePendingImageSrc } from '../lib/updateQueue'
 import {
   EMPTY_ARTICLE_DIRECTIVES,
@@ -67,6 +73,26 @@ const sanitizeSchema: SanitizeOptions = {
       'dataUiCcs',
       'dataCcsTitle',
       'dataCcsContent',
+      'dataUiWidget',
+      'dataUiId',
+      'dataUiTitle',
+      'dataUiExtra',
+      'dataUiContent',
+      'dataUiGraph',
+      'dataGraphExtra',
+      'dataGraphContent',
+      'dataUiRef',
+      'dataUiIfInline',
+      'dataUiIfContent',
+      'dataUiIfBlock',
+      'dataUiMath',
+      'dataUiMathDisplay',
+      'dataUiWrite',
+      'dataUiWriteOptions',
+      'dataUiWriteNew',
+      'dataUiWriteMerge',
+      'dataUiWriteGrouped',
+      'dataUiWriteRow',
     ],
     details: [...(defaultSchema.attributes?.details ?? []), 'open'],
   },
@@ -172,7 +198,13 @@ function Heading({
 type RehypeNode = {
   type?: string
   tagName?: string
+  value?: string
   properties?: Record<string, unknown>
+  data?: {
+    hName?: string
+    hProperties?: Record<string, unknown>
+    hChildren?: RehypeNode[]
+  }
   children?: RehypeNode[]
   position?: { start?: { line?: number }; end?: { line?: number } }
 }
@@ -277,6 +309,236 @@ function rehypeInheritPositions() {
   }
 }
 
+/** Math containing live `<<id>>` references is rendered by a React component so it can update with its widget. */
+function remarkUiDynamicMath() {
+  return function markDynamicMathPlugin() {
+    return (tree: RehypeNode) => {
+      const walk = (node: RehypeNode) => {
+        for (const child of node.children || []) walk(child)
+        if ((node.type === 'inlineMath' || node.type === 'math') && typeof node.value === 'string') {
+          if (!/(?:<<[\p{L}\p{N}_.-]+>>|<[\p{L}_][\p{L}\p{N}_.-]*>)/u.test(node.value)) return
+          const display = node.type === 'math'
+          node.data = {
+            ...node.data,
+            hName: display ? 'div' : 'span',
+            hProperties: {
+              'data-ui-math': encodeURIComponent(node.value),
+              'data-ui-math-display': display ? 'true' : 'false',
+            },
+            hChildren: [],
+          }
+        }
+      }
+      walk(tree)
+    }
+  }
+}
+
+function inlineReferenceAt(source: string, index: number): { id: string; end: number } | null {
+  const remainder = source.slice(index)
+  const double = remainder.match(/^<<([\p{L}\p{N}_.-]+)>>/u)
+  if (double) return { id: double[1], end: index + double[0].length }
+  return null
+}
+
+function findInlineIfComma(source: string, start: number): number {
+  let inMath = false
+  let round = 0
+  let square = 0
+  let curly = 0
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === '$' && source[index - 1] !== '\\') {
+      inMath = !inMath
+      continue
+    }
+    const reference = inlineReferenceAt(source, index)
+    if (reference) {
+      index = reference.end - 1
+      continue
+    }
+    if (char === '<') {
+      const variable = source.slice(index).match(/^<[\p{L}_][\p{L}\p{N}_.-]*>/u)
+      if (variable) {
+        index += variable[0].length - 1
+        continue
+      }
+    }
+    if (inMath) continue
+    if (char === '(') round += 1
+    else if (char === ')') round = Math.max(0, round - 1)
+    else if (char === '[') square += 1
+    else if (char === ']') square = Math.max(0, square - 1)
+    else if (char === '{') curly += 1
+    else if (char === '}') curly = Math.max(0, curly - 1)
+    else if (char === ',' && round === 0 && square === 0 && curly === 0) return index
+  }
+  return -1
+}
+
+function findInlineIfEnd(source: string, start: number): number {
+  let inMath = false
+  for (let index = start; index < source.length; index += 1) {
+    if (source[index] === '`') {
+      let count = 1
+      while (source[index + count] === '`') count += 1
+      const marker = '`'.repeat(count)
+      const close = source.indexOf(marker, index + count)
+      if (close < 0) return -1
+      index = close + count - 1
+      continue
+    }
+    const char = source[index]
+    if (char === '$' && source[index - 1] !== '\\') {
+      inMath = !inMath
+      continue
+    }
+    const reference = inlineReferenceAt(source, index)
+    if (reference) {
+      index = reference.end - 1
+      continue
+    }
+    if (char === '<') {
+      const tag = source.slice(index).match(/^<\/?[A-Za-z][^>]*>/)
+      if (tag) {
+        index += tag[0].length - 1
+        continue
+      }
+      const variable = source.slice(index).match(/^<[\p{L}_][\p{L}\p{N}_.-]*>/u)
+      if (variable) {
+        index += variable[0].length - 1
+        continue
+      }
+    }
+    if (char === '>' && !inMath) return index
+  }
+  return -1
+}
+
+function findMarkdownBlockEnd(
+  lines: string[],
+  start: number,
+  isEnd: (line: string) => boolean,
+): number {
+  let fence: { marker: string; length: number } | null = null
+  for (let index = start; index < lines.length; index += 1) {
+    const marker = lines[index].match(/^\s*(`{3,}|~{3,})/)
+    if (marker) {
+      if (!fence) fence = { marker: marker[1][0], length: marker[1].length }
+      else if (fence.marker === marker[1][0] && marker[1].length >= fence.length) fence = null
+      continue
+    }
+    if (!fence && isEnd(lines[index])) return index
+  }
+  return -1
+}
+
+function findConditionalBlockEnd(lines: string[], start: number): number {
+  let depth = 1
+  return findMarkdownBlockEnd(lines, start, (line) => {
+    if (/^\s*::IF\[[\s\S]*\]\s*$/i.test(line)) {
+      depth += 1
+      return false
+    }
+    if (/^\s*::IF_END\s*$/i.test(line)) {
+      depth -= 1
+      return depth === 0
+    }
+    return false
+  })
+}
+
+function uiWriteMarker(token: UiWriteToken, grouped = false): string {
+  const config = parseUiWriteConfig(token.id, token.options)
+  return `<span data-ui-write="true" data-ui-id="${encodeURIComponent(token.id)}" data-ui-write-options="${encodeURIComponent(JSON.stringify(token.options))}" data-ui-write-new="${config.newLine}" data-ui-write-merge="${config.merge}" data-ui-write-grouped="${grouped}"></span>`
+}
+
+function inlineUiWriteMergeRow(line: string, first: UiWriteToken): { html: string; end: number } | null {
+  const firstConfig = parseUiWriteConfig(first.id, first.options)
+  if (!firstConfig.newLine || firstConfig.merge) return null
+
+  const row: UiWriteToken[] = [first]
+  let cursor = first.end
+  while (cursor < line.length) {
+    const whitespace = line.slice(cursor).match(/^[ \t]+/)?.[0] ?? ''
+    if (!whitespace) break
+    const next = parseUiWriteToken(line, cursor + whitespace.length)
+    if (!next) break
+    const config = parseUiWriteConfig(next.id, next.options)
+    if (!config.newLine || !config.merge) break
+    row.push(next)
+    cursor = next.end
+  }
+  if (row.length < 2) return null
+  return {
+    html: `<span data-ui-write-row="true">${row.map((token) => uiWriteMarker(token, true)).join('')}</span>`,
+    end: cursor,
+  }
+}
+
+/** Replace inline widget references while leaving code spans and TeX for their own renderers. */
+function transformInlineUiTokens(line: string): string {
+  let output = ''
+  for (let index = 0; index < line.length;) {
+    if (line[index] === '`') {
+      let count = 1
+      while (line[index + count] === '`') count += 1
+      const marker = '`'.repeat(count)
+      const end = line.indexOf(marker, index + count)
+      if (end < 0) {
+        output += line.slice(index)
+        break
+      }
+      output += line.slice(index, end + count)
+      index = end + count
+      continue
+    }
+    if (line[index] === '$' && line[index - 1] !== '\\') {
+      const marker = line[index + 1] === '$' ? '$$' : '$'
+      const end = line.indexOf(marker, index + marker.length)
+      if (end < 0) {
+        output += line.slice(index)
+        break
+      }
+      output += line.slice(index, end + marker.length)
+      index = end + marker.length
+      continue
+    }
+    const uiWrite = parseUiWriteToken(line, index)
+    if (uiWrite) {
+      const mergeRow = inlineUiWriteMergeRow(line, uiWrite)
+      if (mergeRow) {
+        output += mergeRow.html
+        index = mergeRow.end
+      } else {
+        output += uiWriteMarker(uiWrite)
+        index = uiWrite.end
+      }
+      continue
+    }
+    if (line.slice(index, index + 4).toLowerCase() === '<if:') {
+      const comma = findInlineIfComma(line, index + 4)
+      const end = comma >= 0 ? findInlineIfEnd(line, comma + 1) : -1
+      if (comma >= 0 && end >= 0) {
+        const expression = line.slice(index + 4, comma).trim()
+        const content = line.slice(comma + 1, end)
+        output += `<span data-ui-if-inline="${encodeURIComponent(expression)}" data-ui-if-content="${encodeURIComponent(content)}"></span>`
+        index = end + 1
+        continue
+      }
+    }
+    const reference = inlineReferenceAt(line, index)
+    if (reference) {
+      output += `<span data-ui-ref="${encodeURIComponent(reference.id)}"></span>`
+      index = reference.end
+      continue
+    }
+    output += line[index]
+    index += 1
+  }
+  return output
+}
+
 export interface PreprocessedMarkdown {
   text: string
   /**
@@ -378,6 +640,118 @@ export function preprocessMarkdownDetailed(
       }
     }
 
+    // Graph widget (issue #83): edges create their endpoint nodes automatically.
+    const graphMatch = line.match(/^\s*::begin_ui-graph(?:\[([^\]]*)\])?\s*$/i)
+    if (graphMatch) {
+      const end = findMarkdownBlockEnd(lines, i + 1, (candidate) => /^\s*::end_ui-graph\s*$/i.test(candidate))
+      const body = end >= 0 ? lines.slice(i + 1, end) : []
+      if (end >= 0) {
+        push(
+          `<div data-ui-graph="true" data-graph-extra="${encodeURIComponent(graphMatch[1] ?? '')}" data-graph-content="${encodeURIComponent(body.join('\n'))}"></div>`,
+          i,
+        )
+        push('', i)
+        i = end
+        continue
+      }
+    }
+
+    // Choice / dropdown / yes-no controls (issue #82): keep full Markdown bodies in encoded data attributes.
+    const chooseMatch = line.match(/^\s*::begin_ui-choose\[([^\]]*)\]\[([^\]]*)\](?:\[([^\]]*)\])?\s*$/i)
+    if (chooseMatch) {
+      const end = findMarkdownBlockEnd(lines, i + 1, (candidate) => /^\s*::end_ui-choose\s*$/i.test(candidate))
+      const body = end >= 0 ? lines.slice(i + 1, end) : []
+      if (end >= 0) {
+        push(
+          `<div data-ui-widget="choose" data-ui-id="${encodeURIComponent(chooseMatch[1])}" data-ui-title="${encodeURIComponent(chooseMatch[2])}" data-ui-extra="${encodeURIComponent(chooseMatch[3] ?? '')}" data-ui-content="${encodeURIComponent(body.join('\n'))}"></div>`,
+          i,
+        )
+        push('', i)
+        i = end
+        continue
+      }
+    }
+
+    const selectMatch = line.match(/^\s*::begin_ui-select\[([^\]]*)\](?:\[([^\]]*)\])?\s*$/i)
+    if (selectMatch) {
+      const end = findMarkdownBlockEnd(lines, i + 1, (candidate) => /^\s*::end_ui-select\s*$/i.test(candidate))
+      const body = end >= 0 ? lines.slice(i + 1, end) : []
+      if (end >= 0) {
+        push(
+          `<span data-ui-widget="select" data-ui-id="${encodeURIComponent(selectMatch[1])}" data-ui-title="${encodeURIComponent(selectMatch[1])}" data-ui-extra="${encodeURIComponent(selectMatch[2] ?? '')}" data-ui-content="${encodeURIComponent(body.join('\n'))}"></span>`,
+          i,
+        )
+        i = end
+        continue
+      }
+    }
+
+    const uiIfMatch = line.match(/^\s*::begin_ui-if\[([^\]]*)\](?:\[([^\]]*)\])?\s*$/i)
+    if (uiIfMatch) {
+      const end = findMarkdownBlockEnd(lines, i + 1, (candidate) => /^\s*::end_ui-if\s*$/i.test(candidate))
+      const body = end >= 0 ? lines.slice(i + 1, end) : []
+      if (end >= 0) {
+        push(
+          `<div data-ui-widget="if" data-ui-id="${encodeURIComponent(uiIfMatch[1])}" data-ui-title="${encodeURIComponent(uiIfMatch[1])}" data-ui-extra="${encodeURIComponent(uiIfMatch[2] ?? '')}" data-ui-content="${encodeURIComponent(body.join('\n'))}"></div>`,
+          i,
+        )
+        push('', i)
+        i = end
+        continue
+      }
+    }
+
+    // Standalone new inputs can share one row when later directives explicitly request `merge`.
+    const writeLineToken = parseUiWriteLine(line)
+    if (writeLineToken) {
+      const writeConfig = parseUiWriteConfig(writeLineToken.id, writeLineToken.options)
+      if (writeConfig.newLine && !writeConfig.merge) {
+        const row: Array<{ token: UiWriteToken; line: number }> = [{ token: writeLineToken, line: i }]
+        let scan = i + 1
+        let end = i
+        while (scan < lines.length) {
+          if (lines[scan].trim() === '') {
+            scan += 1
+            continue
+          }
+          const nextToken = parseUiWriteLine(lines[scan])
+          if (!nextToken) break
+          const nextConfig = parseUiWriteConfig(nextToken.id, nextToken.options)
+          if (!nextConfig.newLine || !nextConfig.merge) break
+          row.push({ token: nextToken, line: scan })
+          end = scan
+          scan += 1
+        }
+        if (row.length > 1) {
+          const controls = row.map(({ token }) => uiWriteMarker(token, true)).join('')
+          push(`<div data-ui-write-row="true">${controls}</div>`, i)
+          push('', end)
+          i = end
+          continue
+        }
+      }
+      if (writeConfig.newLine) {
+        push(uiWriteMarker(writeLineToken), i)
+        push('', i)
+        continue
+      }
+    }
+
+    // Conditional arbitrary Markdown block. Nested ::IF blocks are balanced before capturing.
+    const conditionBlockMatch = line.match(/^\s*::IF\[([\s\S]*)\]\s*$/i)
+    if (conditionBlockMatch) {
+      const end = findConditionalBlockEnd(lines, i + 1)
+      if (end >= 0) {
+        push(
+          `<div data-ui-if-block="${encodeURIComponent(conditionBlockMatch[1])}" data-ui-if-content="${encodeURIComponent(lines.slice(i + 1, end).join('\n'))}"></div>`,
+          i,
+        )
+        push('', i)
+        i = end
+        continue
+      }
+    }
+
     // ::cute-table{tuack} 或 :::cute-table{tuack}
     const tuackMatch = line.match(/^ *(?:::+|:::+)(?:cute-table)\s*\{([^}]+)\}\s*$/i)
     if (tuackMatch) {
@@ -391,7 +765,7 @@ export function preprocessMarkdownDetailed(
         j < lines.length &&
         (lines[j].trim().startsWith('|') || lines[j].trim().includes('|'))
       ) {
-        push(lines[j], j)
+        push(transformInlineUiTokens(lines[j]), j)
         j++
       }
       push('', i)
@@ -444,7 +818,7 @@ export function preprocessMarkdownDetailed(
       continue
     }
 
-    push(line, i)
+    push(transformInlineUiTokens(line), i)
   }
 
   while (stack.pop()) {
@@ -470,7 +844,7 @@ function decodeShowAttribute(value: string | undefined): string {
   }
 }
 
-function renderMathInText(text: string): ReactNode {
+function renderMathInText(text: string, values: Record<string, import('../lib/uiChoices').UiStateValue> = {}): ReactNode {
   if (!text) return null
   // 匹配 $$display$$ 与 $inline$
   const parts: ReactNode[] = []
@@ -484,7 +858,10 @@ function renderMathInText(text: string): ReactNode {
     }
     const rawFormula = match[0]
     const isDisplay = rawFormula.startsWith('$$')
-    const formula = isDisplay ? rawFormula.slice(2, -2) : rawFormula.slice(1, -1)
+    const formula = resolveUiMathReferences(
+      isDisplay ? rawFormula.slice(2, -2) : rawFormula.slice(1, -1),
+      values,
+    )
     try {
       const html = katex.renderToString(formula, {
         displayMode: isDisplay,
@@ -508,6 +885,96 @@ function renderMathInText(text: string): ReactNode {
   }
 
   return parts.length > 0 ? parts : text
+}
+
+function DynamicMath({ formula, display }: { formula: string; display: boolean }) {
+  const syntax = useUiSyntaxContext()
+  const resolved = resolveUiMathReferences(formula, syntax?.values ?? {})
+  let html = ''
+  try {
+    html = katex.renderToString(resolved, {
+      displayMode: display,
+      throwOnError: false,
+      strict: false,
+      output: 'htmlAndMathml',
+    })
+  } catch {
+    html = ''
+  }
+  if (!html) return <span className="text-rose-500" title="公式无法渲染">公式错误</span>
+  return display ? (
+    <div className="my-3 overflow-x-auto text-center" dangerouslySetInnerHTML={{ __html: html }} />
+  ) : (
+    <span className="inline-block align-middle" dangerouslySetInnerHTML={{ __html: html }} />
+  )
+}
+
+function UiReference({ id }: { id: string }) {
+  const syntax = useUiSyntaxContext()
+  return <>{formatUiReference(id, syntax?.values ?? {})}</>
+}
+
+function UiInlineCondition({
+  expression,
+  content,
+  urlTransform,
+}: {
+  expression: string
+  content: string
+  urlTransform?: UrlTransform
+}) {
+  const syntax = useUiSyntaxContext()
+  if (!evaluateUiCondition(expression, syntax?.values ?? {})) return null
+  return <InlineMarkdown content={content} urlTransform={urlTransform} />
+}
+
+/** Render inline conditional content as full Markdown without introducing a nested paragraph. */
+function InlineMarkdown({ content, urlTransform }: { content: string; urlTransform?: UrlTransform }) {
+  const components = useMemo(() => ({
+    ...buildComponents(noSourceLine, urlTransform),
+    p: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  }), [urlTransform])
+  return (
+    <ReactMarkdown
+      urlTransform={urlTransform}
+      remarkPlugins={[remarkGfm, remarkMath, remarkUiDynamicMath()]}
+      rehypePlugins={[
+        rehypeRaw,
+        [rehypeSanitize, sanitizeSchema],
+        rehypeRemoveHeadingIds(),
+        [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
+        [rehypeHighlight, { detect: true, ignoreMissing: true }],
+      ]}
+      components={components}
+    >
+      {transformInlineUiTokens(content)}
+    </ReactMarkdown>
+  )
+}
+
+function UiConditionalBlock({
+  expression,
+  content,
+  sourceLine,
+  urlTransform,
+}: {
+  expression: string
+  content: string
+  sourceLine?: number
+  urlTransform?: UrlTransform
+}) {
+  const syntax = useUiSyntaxContext()
+  if (!evaluateUiCondition(expression, syntax?.values ?? {})) return null
+  return (
+    <div className="ui-if-content" data-source-line={sourceLine}>
+      <Markdown
+        content={content}
+        headingAnchors={false}
+        urlTransform={urlTransform}
+        applyDirectives={false}
+      />
+    </div>
+  )
 }
 
 function CalloutSummary({
@@ -686,6 +1153,10 @@ interface MarkdownProps {
    * 既不执行也不会被吞掉（issue #59）。
    */
   applyDirectives?: boolean
+  /** Enable the in-preview graph adjustment control (used by the editor only). */
+  allowGraphAdjust?: boolean
+  /** Persist graph-node drags back into the source Markdown. */
+  onGraphBodyChange?: (sourceLine: number, nextBody: string) => void
 }
 
 type SourceLineResolver = (node: unknown) => number | undefined
@@ -694,6 +1165,36 @@ type SourceLineResolver = (node: unknown) => number | undefined
 const noSourceLine: SourceLineResolver = () => undefined
 
 /** 直接透传的块级标签（双栏同步时作为候选锚点）。 */
+type UiDataAttributes = {
+  'data-show-box'?: string
+  'data-show-title'?: string
+  'data-show-vars'?: string
+  'data-show-content'?: string
+  'data-ui-ccs'?: string
+  'data-ccs-title'?: string
+  'data-ccs-content'?: string
+  'data-ui-widget'?: string
+  'data-ui-id'?: string
+  'data-ui-title'?: string
+  'data-ui-extra'?: string
+  'data-ui-content'?: string
+  'data-ui-graph'?: string
+  'data-graph-extra'?: string
+  'data-graph-content'?: string
+  'data-ui-ref'?: string
+  'data-ui-if-inline'?: string
+  'data-ui-if-content'?: string
+  'data-ui-if-block'?: string
+  'data-ui-math'?: string
+  'data-ui-math-display'?: string
+  'data-ui-write'?: string
+  'data-ui-write-options'?: string
+  'data-ui-write-new'?: string
+  'data-ui-write-merge'?: string
+  'data-ui-write-grouped'?: string
+  'data-ui-write-row'?: string
+}
+
 const MARKER_TAGS = [
   'p',
   'h1',
@@ -709,7 +1210,12 @@ const MARKER_TAGS = [
   'details',
 ] as const
 
-function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTransform) {
+function buildComponents(
+  marker: SourceLineResolver | null,
+  urlTransform?: UrlTransform,
+  allowGraphAdjust = false,
+  onGraphBodyChange?: (sourceLine: number, nextBody: string) => void,
+) {
   const toSourceLine: SourceLineResolver = marker ?? noSourceLine
   const passthrough = (tag: string) => {
     return function MarkerBlock({ node, ...rest }: { node?: unknown } & Record<string, unknown>) {
@@ -784,15 +1290,75 @@ function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTr
         {children}
       </SmartTable>
     ),
-    div: ({ node, children, ...props }: { node?: unknown; children?: ReactNode }) => {
-      const attributes = props as React.HTMLAttributes<HTMLDivElement> & {
-        'data-show-box'?: string
-        'data-show-title'?: string
-        'data-show-vars'?: string
-        'data-show-content'?: string
-        'data-ui-ccs'?: string
-        'data-ccs-title'?: string
-        'data-ccs-content'?: string
+    span: ({ node, children, ...props }: HTMLAttributes<HTMLSpanElement> & UiDataAttributes & { node?: unknown }) => {
+      const attributes = props as unknown as Record<string, string | undefined>
+      if (attributes['data-ui-write-row'] === 'true') {
+        return (
+          <span className="ui-write-row not-prose mx-1 inline-flex max-w-full flex-wrap items-center gap-3 align-middle" data-source-line={toSourceLine(node)}>
+            {children}
+          </span>
+        )
+      }
+      if (attributes['data-ui-ref']) {
+        return <UiReference id={decodeShowAttribute(attributes['data-ui-ref'])} />
+      }
+      if (attributes['data-ui-math']) {
+        return (
+          <DynamicMath
+            formula={decodeShowAttribute(attributes['data-ui-math'])}
+            display={attributes['data-ui-math-display'] === 'true'}
+          />
+        )
+      }
+      if (attributes['data-ui-write']) {
+        return (
+          <UiWriteWidget
+            id={decodeShowAttribute(attributes['data-ui-id'])}
+            optionsJson={decodeShowAttribute(attributes['data-ui-write-options']) || '[]'}
+            grouped={attributes['data-ui-write-grouped'] === 'true'}
+            sourceLine={toSourceLine(node)}
+          />
+        )
+      }
+      if (attributes['data-ui-if-inline']) {
+        return (
+          <UiInlineCondition
+            expression={decodeShowAttribute(attributes['data-ui-if-inline'])}
+            content={decodeShowAttribute(attributes['data-ui-if-content'])}
+            urlTransform={urlTransform}
+          />
+        )
+      }
+      if (attributes['data-ui-widget'] === 'select') {
+        return (
+          <UiChoiceWidget
+            kind="select"
+            id={decodeShowAttribute(attributes['data-ui-id'])}
+            title={decodeShowAttribute(attributes['data-ui-title'])}
+            extra={decodeShowAttribute(attributes['data-ui-extra'])}
+            body={decodeShowAttribute(attributes['data-ui-content'])}
+            sourceLine={toSourceLine(node)}
+          />
+        )
+      }
+      return <span {...props} data-source-line={toSourceLine(node)}>{children}</span>
+    },
+    div: ({ node, children, ...props }: HTMLAttributes<HTMLDivElement> & UiDataAttributes & { node?: unknown }) => {
+      const attributes = props as unknown as Record<string, string | undefined>
+      if (attributes['data-ui-write-row'] === 'true') {
+        return (
+          <div className="ui-write-row not-prose my-2 flex flex-wrap items-center gap-3" data-source-line={toSourceLine(node)}>
+            {children}
+          </div>
+        )
+      }
+      if (attributes['data-ui-math']) {
+        return (
+          <DynamicMath
+            formula={decodeShowAttribute(attributes['data-ui-math'])}
+            display={attributes['data-ui-math-display'] === 'true'}
+          />
+        )
       }
       if (attributes['data-show-box'] === 'true') {
         return (
@@ -814,44 +1380,85 @@ function buildComponents(marker: SourceLineResolver | null, urlTransform?: UrlTr
           />
         )
       }
+      if (attributes['data-ui-graph'] === 'true') {
+        return (
+          <CoordinateGraph
+            body={decodeShowAttribute(attributes['data-graph-content'])}
+            extra={decodeShowAttribute(attributes['data-graph-extra'])}
+            sourceLine={toSourceLine(node)}
+            allowAdjust={allowGraphAdjust}
+            onSourceChange={onGraphBodyChange}
+          />
+        )
+      }
+      if (attributes['data-ui-widget'] === 'choose' || attributes['data-ui-widget'] === 'if') {
+        return (
+          <UiChoiceWidget
+            kind={attributes['data-ui-widget']}
+            id={decodeShowAttribute(attributes['data-ui-id'])}
+            title={decodeShowAttribute(attributes['data-ui-title'])}
+            extra={decodeShowAttribute(attributes['data-ui-extra'])}
+            body={decodeShowAttribute(attributes['data-ui-content'])}
+            sourceLine={toSourceLine(node)}
+          />
+        )
+      }
+      if (attributes['data-ui-if-block']) {
+        return (
+          <UiConditionalBlock
+            expression={decodeShowAttribute(attributes['data-ui-if-block'])}
+            content={decodeShowAttribute(attributes['data-ui-if-content'])}
+            sourceLine={toSourceLine(node)}
+            urlTransform={urlTransform}
+          />
+        )
+      }
       return <div {...props} data-source-line={toSourceLine(node)}>{children}</div>
     },
     summary: ({ node, ...props }: { node?: unknown } & HTMLAttributes<HTMLElement>) => (
       <CalloutSummary {...props} sourceLine={toSourceLine(node)} />
     ),
     ...(marker
-      ? Object.fromEntries(MARKER_TAGS.map((tag) => [tag, passthrough(tag)]))
+      ? Object.fromEntries(MARKER_TAGS.filter((tag) => tag !== 'span').map((tag) => [tag, passthrough(tag)]))
       : {}),
   }
 }
 
-export const Markdown = memo(function Markdown({
+const MarkdownRenderer = memo(function MarkdownRenderer({
   content,
   headingAnchors = true,
   sourceLineMarkers = false,
   urlTransform,
   applyDirectives = true,
+  allowGraphAdjust = false,
+  onGraphBodyChange,
 }: MarkdownProps) {
   const processed = useMemo(
     () => preprocessMarkdownDetailed(content, { articleDirectives: applyDirectives }),
     [content, applyDirectives],
   )
+  const needsSourcePositions = sourceLineMarkers || Boolean(onGraphBodyChange)
 
   const toSourceLine = useCallback<SourceLineResolver>(
     (node) => {
-      if (!sourceLineMarkers) return undefined
+      if (!needsSourcePositions) return undefined
       const position = (node as { position?: { start?: { line?: number } } } | undefined)?.position
       const processedLine = position?.start?.line
       if (typeof processedLine !== 'number') return undefined
       const sourceIndex = processed.lineMap[processedLine - 1]
       return sourceIndex === undefined ? undefined : sourceIndex + 1
     },
-    [sourceLineMarkers, processed.lineMap],
+    [needsSourcePositions, processed.lineMap],
   )
 
   const components = useMemo(
-    () => buildComponents(sourceLineMarkers ? toSourceLine : noSourceLine, urlTransform),
-    [sourceLineMarkers, toSourceLine, urlTransform],
+    () => buildComponents(
+      needsSourcePositions ? toSourceLine : noSourceLine,
+      urlTransform,
+      allowGraphAdjust,
+      onGraphBodyChange,
+    ),
+    [needsSourcePositions, toSourceLine, urlTransform, allowGraphAdjust, onGraphBodyChange],
   )
 
   return (
@@ -861,7 +1468,7 @@ export const Markdown = memo(function Markdown({
     >
       <ReactMarkdown
         urlTransform={urlTransform}
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath, remarkUiDynamicMath()]}
         rehypePlugins={[
           rehypeRaw,
           [rehypeSanitize, sanitizeSchema],
@@ -871,12 +1478,22 @@ export const Markdown = memo(function Markdown({
           ...(sourceLineMarkers ? [rehypeMarkBlockMath()] : []),
           [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
           [rehypeHighlight, { detect: true, ignoreMissing: true }],
-          ...(sourceLineMarkers ? [rehypeInheritPositions()] : []),
+          ...(needsSourcePositions ? [rehypeInheritPositions()] : []),
         ]}
         components={components}
       >
         {processed.text}
       </ReactMarkdown>
     </div>
+  )
+})
+
+export const Markdown = memo(function Markdown(props: MarkdownProps) {
+  const parentSyntax = useContext(UiSyntaxContext)
+  if (parentSyntax) return <MarkdownRenderer {...props} />
+  return (
+    <UiSyntaxProvider resetKey={props.content}>
+      <MarkdownRenderer {...props} />
+    </UiSyntaxProvider>
   )
 })

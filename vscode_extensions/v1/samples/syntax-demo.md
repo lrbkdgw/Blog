@@ -115,3 +115,63 @@ create_line:(-3,-2),(0,1),(3,-1),[color=red];
 create_line:(7*x^2+6*x+90*x^3);
 ::end_ui-ccs
 
+## 7. 填空框、选择控件与条件显示
+
+`ui-write` 默认紧跟所在句子显示；`new` 会独占一行，`name` 与 `faster` 的使用限制见 README。`merge` 输入框必须紧跟前一个 `new` 输入框（中间可以有空行，但不能有其它正文）。
+
+今天吃了 ::ui-write[number][R 0 1 4] 根香蕉。
+
+::ui-write[Name][len 2 12][new][name 姓名]
+::ui-write[Ti][R 0 0 3][set 1][new][name 已经吃的香蕉][faster]
+
+::ui-write[Left][R 0 0 10][new][name 左值]
+::ui-write[Right][R 0 0 10][new][name 右值][merge]
+
+### 选择与下拉
+
+::begin_ui-choose[meal][今天吃什么][more 1 2]
+[A]
+**香蕉**好吃！$\texttt{Yum}$
+[B]
+苹果也不错。
+[X]
+都不吃！
+::end_ui-choose
+
+当前选择编号：<<meal>>；第一项是否选中：<<meal-1>>。
+<IF:<<meal-1>> == 1,**选中了香蕉**，行内条件也支持 $x^2$。>
+
+::begin_ui-select[fruit][more 1 2 search]
+苹果
+香蕉
+蓝莓
+::end_ui-select
+
+下拉框当前选择：<<fruit>>。
+
+### 是 / 否清单与条件块
+
+::begin_ui-if[tasks][lined]
+吃完早餐
+::nex
+喝一杯水
+::nex
+收拾餐具
+::end_ui-if
+
+::IF[<<tasks-1>> == 1]
+已完成第一项清单。这里可以使用 **完整 Markdown**、列表和数学公式：$a^2+b^2=c^2$。
+::IF_END
+
+<IF:$<number> \le <Ti>$,**当前输入满足第一个条件。**> <IF:$<number> \leq 2 \times <Ti>$,**当前输入满足第二个条件。**>
+
+## 8. 交互图（ui-graph）
+
+边会自动创建端点。边格式为 `起点 终点 [权重 [x y]]`；若提供 `x y`，它们指定**终点**的坐标。缺少坐标的点自动布局；博客文章编辑器的调整模式可以拖动节点并把坐标保存到 Markdown。
+
+::begin_ui-graph[dag]
+s t 3 0 0
+t u 2 100 30
+u v
+::end_ui-graph
+

@@ -1,15 +1,15 @@
 # Markdown 语法拓展 · VS Code 插件
 
-安装后，在 **VS Code 内置 Markdown 预览**中使用与本仓库博客相同的正文渲染：同一份 React 组件、Markdown 插件链、KaTeX、代码高亮、交互展示框和 Tailwind 样式，而不是另写一套近似实现。
+安装后，在 **VS Code 内置 Markdown 预览**中使用与本仓库博客相同的正文渲染：同一份 React 组件、Markdown 插件链、KaTeX、代码高亮、交互展示框、填空输入、交互选择 / 条件显示、交互图和 Tailwind 样式，而不是另写一套近似实现。
 
-当前版本：**2.2.0**。目录 `v1/` 与扩展 ID `lrbkdgw.starlog-markdown` 保留以兼容旧版；插件展示名称、设置标题、命令分类均为 **Markdown 语法拓展**。
+当前版本：**2.3.0**。目录 `v1/` 与扩展 ID `lrbkdgw.starlog-markdown` 保留以兼容旧版；插件展示名称、设置标题、命令分类均为 **Markdown 语法拓展**。
 
 ## 安装与使用
 
 在仓库根目录执行：
 
 ```bash
-code --install-extension vscode_extensions/v1/starlog-markdown-2.2.0.vsix --force
+code --install-extension vscode_extensions/v1/starlog-markdown-2.3.0.vsix --force
 ```
 
 也可以在扩展侧边栏的 `…` 菜单选择 **从 VSIX 安装…**，安装上面的文件。升级后按 VS Code 的提示重新加载窗口，并重新打开预览。
@@ -41,6 +41,8 @@ VS Code **Settings** 中搜索 `@ext:lrbkdgw.starlog-markdown` 或「渐变」�
 | Markdown、GFM、公式、高亮、折叠框、智能表格、代码复制按钮、标题锚点 | `src/components/Markdown.tsx` |
 | 展示框布局、数字框 / 滑动条 / 文本框及实时重渲染 | `src/components/ShowBox.tsx` |
 | 可交互直角坐标系（描点 / 折线 / 函数曲线 / 拖拽缩放） | `src/components/CoordinatePlane.tsx`、`src/lib/uiCcs.ts` |
+| 交互选择 / 下拉 / 是非控件、输入框、条件显示与共享值状态 | `src/components/UiChoiceWidget.tsx`、`src/components/UiWriteWidget.tsx`、`src/lib/uiChoices.ts`、`src/lib/uiWrite.ts`、`src/lib/uiSyntaxContext.tsx` |
+| 交互图渲染与坐标解析 | `src/components/CoordinateGraph.tsx`、`src/lib/uiGraph.ts` |
 | 变量解析、映射、表达式与取整 | `src/lib/showBox.ts` |
 | 复制为洛谷 / 基本 Markdown | `src/lib/markdownSource.ts` |
 | 文首排版指令（`::set-font` / `::set-code-font` / `::set-background`）的解析与字体栈 | `src/lib/articleDirectives.ts`、`src/lib/fontStacks.ts` |
@@ -68,6 +70,13 @@ VS Code **Settings** 中搜索 `@ext:lrbkdgw.starlog-markdown` 或「渐变」�
 | --- | --- |
 | `::show_begin{标题}{变量定义}` … `::show_end` | 交互展示框 |
 | `::begin_ui-ccs` … `::end_ui-ccs` | 可拖拽平移、滚轮缩放的二维直角坐标系（`create_point` / `create_line`） |
+| `::begin_ui-choose[id][名称][附加项]` … `::end_ui-choose` | 具名单选 / 多选框；以 `[选项名]` 分节，选项可包含完整 Markdown / KaTeX |
+| `::begin_ui-select[id][附加项]` … `::end_ui-select` | 行内下拉选择框；每行一项，支持 `more 下限 上限` 与 `search` |
+| `::begin_ui-if[id][附加项]` … `::end_ui-if` | 多项是 / 否勾选框；用 `::nex` 分隔选项，`lined` 添加选中划线动画 |
+| `::ui-write[id][附加项]…` | 行内或独占新行的文本 / 实数输入框；支持范围、小数位数、滑块和合并布局 |
+| `<<id>>` / `<<id-number>>` | 输出输入值或 1-based 选择编号；带序号引用返回该选项的 `1` / `0` 状态 |
+| `<IF:条件,内容>` / `::IF[条件]…::IF_END` | 根据引用值与简单数学 / KaTeX 条件渲染行内或完整 Markdown 块 |
+| `::begin_ui-graph[dag]` … `::end_ui-graph` | 交互带权图；边自动创建顶点，博客文章编辑器可拖拽并保存节点坐标 |
 | `*&show(变量)*&` | 输出当前变量值 |
 | `*&hs(表达式)*&` | 计算只含 `+ - * / ^ ()` 与数值变量的式子 |
 | `&*floor(数值,位数)&*` / `&*ceil(数值,位数)&*` | 按位数向下 / 向上取整，兼容旧写法 `*&floor(…)*&` |
@@ -96,6 +105,47 @@ int a = *&show(a)*&;
 ::show_end
 ````
 
+### 填空、选择与条件显示
+
+`::ui-write` 可以直接插入正文；限制项各写在自己的方括号中：
+
+- `[set 数值]` 设置初始值；`[R 小数位数 下限 上限]` 接受指定范围内的实数，并限制小数位数；`[len 下限 上限]` 限制文本长度。
+- `[new]` 让输入框独占一行；`[name 标题]` 要与 `new` 一起使用；`[faster]` 必须同时有 `R` 和 `new`，改用滑块。
+- `[merge]` 必须与 `new` 一起使用，并紧跟在一个未带 `merge` 的 `new` 输入框之后；两者之间可以有空行，但不能有其它正文。连续的 `merge` 输入框会继续并入同一行。
+
+```markdown
+吃了 ::ui-write[number][R 0 1 4] 根香蕉！
+
+::ui-write[Name][len 2 12][new][name 姓名]
+::ui-write[Ti][R 0 0 3][set 1][new][name 已经吃的香蕉][faster]
+
+::ui-write[Left][R 0 0 10][new][name 左值]
+::ui-write[Right][R 0 0 10][new][name 右值][merge]
+```
+
+`<<id>>` 可读取填空框的当前值，也可读取选择 / 下拉框的 1-based 选项编号；`<<id-number>>` 读取对应选项是否选中（`1` / `0`）。条件支持四则运算、位运算、比较，以及 `\le` / `\leq` / `\times` 等常用 KaTeX 运算符；成立时的行内内容保留 Markdown 和 KaTeX：
+
+```markdown
+<<number>> 根香蕉，当前选择编号：<<fruit>>，第一项是否选中：<<fruit-1>>。
+<IF:$<number> \le <Ti>$,**吃得不多** $x^2$>
+
+::IF[<number> \leq 2 \times <Ti>]
+条件成立时显示完整 Markdown：**恭喜！**
+::IF_END
+```
+
+### 交互图
+
+边端点会自动创建顶点；可用 `point id x y` 显式放置节点，也可以不提供坐标并使用自动布局。边格式为 `起点 终点 [权重 [x y]]`，其中 `x y` 是**终点**坐标；`[dag]` 显示有向箭头。博客文章编辑器的「调整模式」支持拖动节点，并把新坐标写回 Markdown 的 `point` 行。
+
+```markdown
+::begin_ui-graph[dag]
+s t 3 0 0
+t u 2 100 30
+u v
+::end_ui-graph
+```
+
 ## 命令与片段
 
 命令面板中的分类统一为 **Markdown 语法拓展**：
@@ -108,7 +158,7 @@ int a = *&show(a)*&;
 
 旧的 `starlog.*` 命令 ID 和设置键保留，原有快捷键无需修改。
 
-代码片段包括 `show`、`varz`、`varq`、`vars`、`show(`、`hs(`、`floor(`、`ceil(`、`map`、`callout`、`tuack`、`setfont`、`setcodefont`、`setbackground`。
+代码片段包括 `show`、`varz`、`varq`、`vars`、`uichoose`、`uiselect`、`uiif`、`uiwrite`、`uigraph`、`uicond`、`uicondblock`、`callout`、`tuack`、`setfont`、`setcodefont` 与 `setbackground`。
 
 ## Markdown Preview Enhanced（可选，静态兼容）
 
@@ -116,7 +166,7 @@ int a = *&show(a)*&;
 
 为兼容已有工作流，保留 MPE 的安装 / 移除命令：它们会写入全局 `~/.crossnote` 或当前工作区 `.crossnote` 的单表达式 `parser.js`、合并 `style.less`，并开启扩展表格语法。其它解析器会在覆盖前备份，原有样式保留。
 
-该路线只按变量默认值静态展开展示框，不保证与博客的完整视觉效果一致。自动安装提示默认关闭，安装本插件不会擅自修改 MPE 配置。
+该路线按变量默认值静态展开展示框，并将选择 / 填空 / 条件 / 交互图降级为可读的 Markdown 列表、空白栏、条件说明和边列表；不会执行交互逻辑，视觉效果也不保证与博客完全一致。自动安装提示默认关闭，安装本插件不会擅自修改 MPE 配置。
 
 ## 开发与验证
 
@@ -129,7 +179,7 @@ npm ci --prefix vscode_extensions/v1
 npm run build                              # 博客类型检查与生产构建
 npm --prefix vscode_extensions/v1 run typecheck
 npm run extension:test                     # 构建 + DOM / CSS / jsdom / 主进程 / MPE 回归
-npm run extension:package                  # 构建并生成 starlog-markdown-2.1.0.vsix
+npm run extension:package                  # 构建并生成 starlog-markdown-2.3.0.vsix
 npm --prefix vscode_extensions/v1 run watch # 监听共享源码、样式、Tailwind 配置与 MPE 源码
 ```
 

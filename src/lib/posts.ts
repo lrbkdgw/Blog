@@ -1,5 +1,6 @@
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter'
 import { stripArticleDirectives } from './articleDirectives'
+import { stripInlineUiConditionContent } from './markdownSource'
 import { STORAGE_KEYS } from './config'
 import { hiddenSeedSlugs } from './offlineLibrary'
 import { OFFLINE } from './runtime'
@@ -49,11 +50,90 @@ export function today(): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
+function findMarkdownBlockEnd(
+  lines: string[],
+  start: number,
+  isEnd: (line: string) => boolean,
+): number {
+  let fence: MarkdownFence | null = null
+  for (let index = start; index < lines.length; index += 1) {
+    const marker = parseFence(lines[index])
+    if (marker) {
+      if (!fence) fence = marker
+      else if (fence.marker === marker.marker && marker.length >= fence.length) fence = null
+      continue
+    }
+    if (!fence && isEnd(lines[index])) return index
+  }
+  return -1
+}
+
+function findConditionalBlockEnd(lines: string[], start: number): number {
+  let depth = 1
+  return findMarkdownBlockEnd(lines, start, (line) => {
+    if (/^\s*::IF\[[\s\S]*\]\s*$/i.test(line)) {
+      depth += 1
+      return false
+    }
+    if (/^\s*::IF_END\s*$/i.test(line)) {
+      depth -= 1
+      return depth === 0
+    }
+    return false
+  })
+}
+
+function stripFencedCode(markdown: string): string {
+  const lines = markdown.split('\n')
+  const output: string[] = []
+  let fence: MarkdownFence | null = null
+  for (const line of lines) {
+    const marker = parseFence(line)
+    if (marker) {
+      if (!fence) fence = marker
+      else if (fence.marker === marker.marker && marker.length >= fence.length) fence = null
+      output.push(' ')
+    } else {
+      output.push(fence ? ' ' : line)
+    }
+  }
+  return output.join('\n')
+}
+
+function stripUiConditionalBlocks(markdown: string): string {
+  const lines = markdown.split('\n')
+  const output: string[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!/^\s*::IF\[[\s\S]*\]\s*$/i.test(lines[index])) {
+      output.push(lines[index])
+      continue
+    }
+    const end = findConditionalBlockEnd(lines, index + 1)
+    if (end >= 0) {
+      output.push(' ')
+      index = end
+    } else {
+      output.push(lines[index])
+    }
+  }
+  return output.join('\n')
+}
+
 /** 去掉 Markdown 标记，用于摘要与字数统计 */
 export function stripMarkdown(md: string): string {
-  return md
-    .replace(/```[\s\S]*?```/g, ' ')
+  const withoutFencedCode = stripFencedCode(md)
+  const withoutConditionalBlocks = stripUiConditionalBlocks(withoutFencedCode)
+  return withoutConditionalBlocks
     .replace(/::begin_ui-ccs[\s\S]*?::end_ui-ccs/gi, ' ')
+    .replace(/::begin_ui-graph(?:\[[^\]]*\])?[\s\S]*?::end_ui-graph/gi, ' ')
+    .replace(/::begin_ui-choose\[[^\]]*\]\[[^\]]*\](?:\[[^\]]*\])?[\s\S]*?::end_ui-choose/gi, ' ')
+    .replace(/::begin_ui-select\[[^\]]*\](?:\[[^\]]*\])?[\s\S]*?::end_ui-select/gi, ' ')
+    .replace(/::begin_ui-if\[[^\]]*\](?:\[[^\]]*\])?[\s\S]*?::end_ui-if/gi, ' ')
+    .replace(/::ui-write(?:\[[^\]]*\])+/gi, ' ')
+    .replace(/<<[\p{L}\p{N}_.-]+>>/gu, ' ')
+    .split('\n')
+    .map(stripInlineUiConditionContent)
+    .join('\n')
     .replace(/`[^`]*`/g, ' ')
     .replace(/\$\$[\s\S]*?\$\$/g, ' ')
     .replace(/\$[^$\n]*\$/g, ' ')
@@ -476,9 +556,8 @@ export function extractToc(md: string): TocItem[] {
     // 展示框与直角坐标系内容由独立组件渲染，不参与正文标题锚点计数，也不进入目录。
     const showStart = line.match(/^\s*::show_begin\{([^}]*)\}\{([\s\S]*)\}\s*$/i)
     if (showStart) {
-      let end = index + 1
-      while (end < lines.length && !/^\s*::show_end\s*$/i.test(lines[end])) end += 1
-      if (end < lines.length) {
+      const end = findMarkdownBlockEnd(lines, index + 1, (candidate) => /^\s*::show_end\s*$/i.test(candidate))
+      if (end >= 0) {
         index = end
         continue
       }
@@ -486,9 +565,27 @@ export function extractToc(md: string): TocItem[] {
 
     const ccsStart = line.match(/^\s*::begin_ui-ccs(?:\{[^}]*\})?\s*$/i)
     if (ccsStart) {
-      let end = index + 1
-      while (end < lines.length && !/^\s*::end_ui-ccs\s*$/i.test(lines[end])) end += 1
-      if (end < lines.length) {
+      const end = findMarkdownBlockEnd(lines, index + 1, (candidate) => /^\s*::end_ui-ccs\s*$/i.test(candidate))
+      if (end >= 0) {
+        index = end
+        continue
+      }
+    }
+
+    const uiBlockStart = line.match(/^\s*::begin_ui-(graph|choose|select|if)\b/i)
+    if (uiBlockStart) {
+      const kind = uiBlockStart[1]
+      const close = new RegExp(`^\\s*::end_ui-${kind}\\s*$`, 'i')
+      const end = findMarkdownBlockEnd(lines, index + 1, (candidate) => close.test(candidate))
+      if (end >= 0) {
+        index = end
+        continue
+      }
+    }
+
+    if (/^\s*::IF\[[\s\S]*\]\s*$/i.test(line)) {
+      const end = findConditionalBlockEnd(lines, index + 1)
+      if (end >= 0) {
         index = end
         continue
       }

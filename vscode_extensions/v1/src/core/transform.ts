@@ -13,6 +13,7 @@ import {
   type ShowVariable,
 } from './showBox'
 import { stripArticleDirectives } from './articleDirectives'
+import { convertUiChoicesToMarkdown, convertUiGraphToMarkdown } from './sourceConvert'
 import { renderStaticUiCcsSvg } from './uiCcs'
 
 export interface TransformOptions {
@@ -169,6 +170,9 @@ function mapOutsideFences(markdown: string, mapper: (line: string) => string): s
  */
 export function transformMarkdown(markdown: string, options: TransformOptions = {}): string {
   if (!markdown) return ''
+  // MPE 不加载博客的 React 运行时：复用博客源码转换器，把交互控件、条件与图
+  // 降级为可读的静态 Markdown（不执行用户公式，也不显示原始指令）。
+  markdown = convertUiChoicesToMarkdown(convertUiGraphToMarkdown(markdown))
   // 文首排版指令（::set-font[…] 等）不是正文：MPE 无法执行它们，与博客一致直接移除，
   // 避免指令原文出现在静态预览里（内置预览则由博客 Markdown 组件完整处理）。
   markdown = stripArticleDirectives(markdown)

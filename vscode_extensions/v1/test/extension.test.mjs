@@ -24,6 +24,129 @@ for (const [index, source] of corpus.entries()) {
   })
 }
 
+test('预处理与同一 Markdown 组件渲染选择、下拉、是否、条件块、动态公式和图', () => {
+  const source = [
+    '::begin_ui-choose[meal][吃什么][more 1 2]',
+    '[A]',
+    '苹果',
+    '[B]',
+    '香蕉',
+    '::end_ui-choose',
+    '',
+    '编号：<<meal>>',
+    '<IF:1 == 1,条件显示>',
+    '',
+    '::begin_ui-select[fruit][search]',
+    '苹果',
+    '香蕉',
+    '::end_ui-select',
+    '',
+    '::begin_ui-if[tasks][lined]',
+    '读题',
+    '::nex',
+    '检查',
+    '::end_ui-if',
+    '',
+    '::IF[1 == 1]',
+    '块条件内容',
+    '::IF_END',
+    '',
+    '$x_{<<fruit>>}$',
+    '',
+    '::begin_ui-graph[dag]',
+    'A B 5 10 20',
+    '::end_ui-graph',
+  ].join('\n')
+  const processed = core.preprocessMarkdownDetailed(source)
+  assert.match(processed.text, /data-ui-widget="choose"/)
+  assert.match(processed.text, /data-ui-widget="select"/)
+  assert.match(processed.text, /data-ui-widget="if"/)
+  assert.match(processed.text, /data-ui-if-inline=/)
+  assert.match(processed.text, /data-ui-if-block=/)
+  assert.match(processed.text, /data-ui-graph="true"/)
+
+  const doc = documentOf(core.renderReference(source))
+  assert.equal(doc.querySelectorAll('.ui-choose-box input[type="checkbox"]').length, 2)
+  assert.equal(doc.querySelector('.ui-choose-box input:checked')?.getAttribute('aria-label'), 'meal-1')
+  assert.ok(doc.querySelector('.ui-select-widget select'))
+  assert.equal(doc.querySelectorAll('.ui-if-box input[type="checkbox"]').length, 2)
+  assert.match(doc.querySelector('.ui-if-content')?.textContent ?? '', /块条件内容/)
+  assert.ok(doc.querySelector('.ui-graph-box [data-graph-node="A"]'))
+  assert.ok(doc.querySelector('.ui-graph-box [data-graph-node="B"]'))
+  assert.equal(doc.querySelector('.katex annotation')?.textContent, 'x_{0}')
+  assert.equal(doc.querySelector('.ui-graph-box')?.getAttribute('data-source-line'), '28')
+})
+
+test('行内条件正确保留代码跨度、比较符号与 HTML Markdown', () => {
+  const doc = documentOf(render('起始 <IF:1 == 1,`x > y` 与 <strong>HTML</strong>> 结束'))
+  assert.equal(doc.querySelector('code')?.textContent, 'x > y')
+  assert.match(doc.body.textContent ?? '', /起始 x > y 与 HTML 结束/)
+})
+
+test('选择项与块条件内的 fenced Markdown 不会提前关闭语法块', () => {
+  const source = [
+    '::begin_ui-choose[fenced][代码题]',
+    '[A]',
+    '```markdown',
+    '[not-an-option]',
+    '::end_ui-choose',
+    '```',
+    '**选项内容** $x^2$',
+    '[B]',
+    '第二项',
+    '::end_ui-choose',
+    '',
+    '::IF[1 == 1]',
+    '```markdown',
+    '::IF_END',
+    '```',
+    '**块条件内容**',
+    '::IF_END',
+  ].join('\n')
+  const doc = documentOf(render(source))
+  assert.equal(doc.querySelectorAll('.ui-choose-box input[type="radio"]').length, 2)
+  assert.match(doc.querySelector('.ui-choose-box')?.textContent ?? '', /::end_ui-choose/)
+  assert.match(doc.querySelector('.ui-if-content')?.textContent ?? '', /::IF_END/)
+  assert.match(doc.querySelector('.ui-if-content')?.textContent ?? '', /块条件内容/)
+  assert.equal(doc.querySelector('.katex-error'), null)
+})
+
+test('ui-write 输入框按 R / len / new / name / faster / merge 规则服务端渲染', () => {
+  const source = [
+    '内联输入 ::ui-write[number][R 0 1 4] 根香蕉。',
+    '',
+    '::ui-write[Name][len 2 4][new][name 姓名]',
+    '',
+    '::ui-write[left][R 0 0 10][new][name 左值]',
+    '',
+    '::ui-write[right][R 0 0 10][new][name 右值][merge]',
+    '',
+    '::ui-write[Ti][R 0 0 3][set 1][new][name 已经吃的香蕉][faster]',
+    '同排： ::ui-write[inline-left][R 0 0 4][new] ::ui-write[inline-right][R 0 0 4][new][merge]。',
+    '',
+    '<IF:$<number> \\le <Ti>$,**条件成立** $x^2$>',
+  ].join('\n')
+  const processed = core.preprocessMarkdownDetailed(source)
+  assert.match(processed.text, /data-ui-write-row="true"/)
+  assert.match(processed.text, /data-ui-write-options=/)
+  const doc = documentOf(render(source))
+  const number = doc.querySelector('input[data-ui-write-input="number"]')
+  const text = doc.querySelector('input[data-ui-write-input="Name"]')
+  const slider = doc.querySelector('input[data-ui-write-input="Ti"]')
+  assert.equal(number?.type, 'number')
+  assert.equal(number?.min, '1')
+  assert.equal(number?.max, '4')
+  assert.equal(text?.type, 'text')
+  assert.equal(text?.minLength, 2)
+  assert.equal(text?.maxLength, 4)
+  assert.equal(slider?.type, 'range')
+  assert.equal(slider?.value, '1')
+  assert.equal(doc.querySelector('.ui-write-row')?.querySelectorAll('[data-ui-write-input]').length, 2)
+  assert.equal(doc.querySelectorAll('.ui-write-row').length, 2) // 独占新行与同段内的 merge 都支持。
+  assert.equal(doc.querySelector('.ui-write-error'), null)
+  assert.equal(doc.querySelector('.katex-error'), null)
+})
+
 test('公式、代码高亮、博客复制按钮与数学折叠标题都由同一组件渲染', () => {
   const doc = documentOf(render(corpus[1] + '\n\n:::info[标题 $x^2$]{open}\n内容\n:::'))
   assert.ok(doc.querySelector('.katex-display .katex'))
@@ -107,6 +230,57 @@ test('MPE 保留为自包含、单表达式的静态兼容模式', async () => {
   assert.match(output, /starlog-showbox-vars/)
   assert.doesNotMatch(output, /type="range"/)
   assert.match(output, /\| 甲 \|\s+\|/)
+
+  const controls = await parser.onWillParseMarkdown([
+    '填空 ::ui-write[count]。',
+    '',
+    '::begin_ui-select[meal]',
+    '早餐',
+    '晚餐',
+    '::end_ui-select',
+    '',
+    '::begin_ui-graph[dag]',
+    'A B 3',
+    '::end_ui-graph',
+  ].join('\n'))
+  assert.match(controls, /填空 ________。/)
+  assert.match(controls, /- \[ \] 早餐/)
+  assert.match(controls, /A → B（权重 3）/)
+  assert.doesNotMatch(controls, /::ui-write|::begin_ui-select|::begin_ui-graph/)
+})
+
+test('MPE 把选择、填空、条件与交互图安全降级为静态 Markdown', () => {
+  const source = [
+    '今天吃了 ::ui-write[count][R 0 0 9] 个。',
+    '',
+    '::begin_ui-select[meal][search]',
+    '早餐',
+    '晚餐',
+    '::end_ui-select',
+    '',
+    '<IF:<meal> == 1,**选择早餐**>',
+    '',
+    '::IF[<count> > 0]',
+    '已输入数量：<<count>>',
+    '::IF_END',
+    '',
+    '::begin_ui-graph[dag]',
+    'A B 3',
+    '::end_ui-graph',
+    '',
+    '```markdown',
+    '::ui-write[example]',
+    '```',
+  ].join('\n')
+  const output = core.transformMarkdown(source)
+  assert.match(output, /今天吃了 ________ 个/)
+  assert.match(output, /- \[ \] 早餐/)
+  assert.match(output, /当 <meal> == 1 成立时：\*\*选择早餐\*\*/)
+  assert.match(output, /条件成立时/)
+  assert.match(output, /已输入数量：【count】/)
+  assert.match(output, /A → B（权重 3）/)
+  assert.doesNotMatch(output, /::begin_ui-select|::end_ui-select|::begin_ui-graph|::end_ui-graph|::IF_END/)
+  assert.match(output, /```markdown\n::ui-write\[example\]\n```/)
 })
 
 test('源码降级直接复用博客实现', () => {

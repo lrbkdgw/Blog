@@ -11,6 +11,7 @@ import { Archive,
   Download,
   Eye,
   GitPullRequest,
+  GitFork,
   Github,
   Heading2,
   Image as ImageIcon,
@@ -32,6 +33,7 @@ import { Archive,
   SlidersHorizontal,
   Strikethrough,
   Table2,
+  TextCursorInput,
   Trash2,
   Upload,
 } from 'lucide-react'
@@ -74,6 +76,7 @@ import { setAnimatedSceneOverride } from '../lib/animatedBackground'
 import { warmFontFamilies } from '../lib/font'
 import { focusWithoutScroll, restoreCaret } from '../lib/caret'
 import { latexSymbolInsert, type LatexSymbol } from '../lib/latexSymbols'
+import { replaceUiGraphBodyAtLine } from '../lib/uiGraph'
 import { handleEditorKey, insertBlock, toggleLinePrefix, toggleWrap } from '../lib/editor'
 import type { EditAction } from '../lib/editor'
 import { useEditorScrollSync } from '../lib/editorSettings'
@@ -492,6 +495,11 @@ export default function Editor() {
 
   const markDirty = () => setDirty(true)
 
+  const updateGraphBody = useCallback((sourceLine: number, nextBody: string) => {
+    setContent((previous) => replaceUiGraphBodyAtLine(previous, sourceLine, nextBody))
+    setDirty(true)
+  }, [])
+
   /* ------------------------------ 工具栏操作 ------------------------------ */
   const applyAction = (action: EditAction | null) => {
     if (!action) return
@@ -601,6 +609,12 @@ export default function Editor() {
         ),
     },
     {
+      icon: TextCursorInput,
+      title: '填空框',
+      run: () =>
+        withSelection((v, s, e) => insertBlock(v, s, e, '::ui-write[Number][R 0 1 4]')),
+    },
+    {
       icon: Axis3d,
       title: '直角坐标系',
       run: () =>
@@ -610,6 +624,19 @@ export default function Editor() {
             s,
             e,
             '::begin_ui-ccs\ncreate_point:(0,0);\ncreate_line:(-2,-1),(2,3),[color=red];\ncreate_line:(7*x^2+6*x+90*x^3);\n::end_ui-ccs\n',
+          ),
+        ),
+    },
+    {
+      icon: GitFork,
+      title: '图（支持调整节点坐标）',
+      run: () =>
+        withSelection((v, s, e) =>
+          insertBlock(
+            v,
+            s,
+            e,
+            '::begin_ui-graph[dag]\npoint A\npoint B\npoint C\nA B 5\nA C 2\nB C 1\n::end_ui-graph\n',
           ),
         ),
     },
@@ -1526,7 +1553,12 @@ export default function Editor() {
                     {title || '未命名文章'}
                   </h1>
                 )}
-                <Markdown content={deferredContent} sourceLineMarkers={view === 'split'} />
+                <Markdown
+                  content={deferredContent}
+                  sourceLineMarkers={view === 'split'}
+                  allowGraphAdjust
+                  onGraphBodyChange={updateGraphBody}
+                />
               </div>
             )}
           </div>

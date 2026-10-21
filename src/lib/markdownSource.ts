@@ -6,12 +6,48 @@ import {
   renderShowContent,
 } from './showBox'
 import { formatCoordinateValue, parseUiCcs } from './uiCcs'
+import { parseUiChoiceConfig, type UiWidgetKind } from './uiChoices'
+import { parseUiWriteConfig, parseUiWriteToken } from './uiWrite'
+import { parseUiGraph } from './uiGraph'
 
 export type MarkdownCopyTarget = 'direct' | 'luogu' | 'basic'
 
 function fenceMarker(line: string): string | null {
   const match = line.match(/^\s*(`{3,}|~{3,})/)
   return match ? match[1][0] : null
+}
+
+function findMarkdownBlockEnd(
+  lines: string[],
+  start: number,
+  isEnd: (line: string) => boolean,
+): number {
+  let fence: { marker: string; length: number } | null = null
+  for (let index = start; index < lines.length; index += 1) {
+    const marker = lines[index].match(/^\s*(`{3,}|~{3,})/)
+    if (marker) {
+      if (!fence) fence = { marker: marker[1][0], length: marker[1].length }
+      else if (fence.marker === marker[1][0] && marker[1].length >= fence.length) fence = null
+      continue
+    }
+    if (!fence && isEnd(lines[index])) return index
+  }
+  return -1
+}
+
+function findConditionalBlockEnd(lines: string[], start: number): number {
+  let depth = 1
+  return findMarkdownBlockEnd(lines, start, (line) => {
+    if (/^\s*::IF\[[\s\S]*\]\s*$/i.test(line)) {
+      depth += 1
+      return false
+    }
+    if (/^\s*::IF_END\s*$/i.test(line)) {
+      depth -= 1
+      return depth === 0
+    }
+    return false
+  })
 }
 
 function escapePlainMarkdown(value: string): string {
@@ -305,14 +341,349 @@ export function convertUiCcsToMarkdown(markdown: string): string {
   return output.join('\n')
 }
 
+/** Render custom graph blocks as a readable, static list for Markdown copy targets. */
+export function convertUiGraphToMarkdown(markdown: string): string {
+  const lines = markdown.split('\n')
+  const output: string[] = []
+  let fence: string | null = null
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    const marker = fenceMarker(line)
+    if (marker) {
+      if (!fence) fence = marker
+      else if (fence === marker) fence = null
+      output.push(line)
+      continue
+    }
+    if (fence) {
+      output.push(line)
+      continue
+    }
+
+    const start = line.match(/^\s*::begin_ui-graph(?:\[([^\]]*)\])?\s*$/i)
+    if (!start) {
+      output.push(line)
+      continue
+    }
+    const end = findMarkdownBlockEnd(lines, index + 1, (candidate) => /^\s*::end_ui-graph\s*$/i.test(candidate))
+    const body = end >= 0 ? lines.slice(index + 1, end) : []
+    if (end < 0) {
+      output.push(line)
+      continue
+    }
+
+    const graph = parseUiGraph(body.join('\n'), start[1] ?? '')
+    output.push('**图**')
+    if (graph.nodes.length) output.push(`- 节点：${graph.nodes.map((node) => `\`${node.id}\``).join('、')}`)
+    for (const edge of graph.edges) {
+      const arrow = graph.directed ? ' → ' : ' — '
+      output.push(`- ${edge.from}${arrow}${edge.to}${edge.weight === undefined ? '' : `（权重 ${edge.weight}）`}`)
+    }
+    for (const error of graph.errors) output.push(`- 解析提示：${error}`)
+    if (graph.nodes.length === 0 && graph.edges.length === 0) output.push('- （空图）')
+    output.push('')
+    index = end
+  }
+  return output.join('\n')
+}
+
+function convertInlineUiWrites(line: string): string {
+  let output = ''
+  for (let index = 0; index < line.length;) {
+    if (line[index] === '`') {
+      let count = 1
+      while (line[index + count] === '`') count += 1
+      const marker = '`'.repeat(count)
+      const end = line.indexOf(marker, index + count)
+      if (end < 0) {
+        output += line.slice(index)
+        break
+      }
+      output += line.slice(index, end + count)
+      index = end + count
+      continue
+    }
+    if (line[index] === '$' && line[index - 1] !== '\\') {
+      const marker = line[index + 1] === '$' ? '$$' : '$'
+      const end = line.indexOf(marker, index + marker.length)
+      if (end < 0) {
+        output += line.slice(index)
+        break
+      }
+      output += line.slice(index, end + marker.length)
+      index = end + marker.length
+      continue
+    }
+    const token = parseUiWriteToken(line, index)
+    if (token) {
+      const config = parseUiWriteConfig(token.id, token.options)
+      const placeholder = config.name ? `**${config.name}**：________` : '________'
+      output += config.newLine ? `\n\n${placeholder}\n\n` : placeholder
+      index = token.end
+      continue
+    }
+    output += line[index]
+    index += 1
+  }
+  return output
+}
+
+function inlineUiReference(source: string, index: number): string | null {
+  const remainder = source.slice(index)
+  const double = remainder.match(/^<<[\p{L}\p{N}_.-]+>>/u)
+  if (double) return double[0]
+  const single = remainder.match(/^<[\p{L}_][\p{L}\p{N}_.-]*>/u)
+  return single?.[0] ?? null
+}
+
+function findInlineConditionComma(source: string, start: number): number {
+  let inMath = false
+  let round = 0
+  let square = 0
+  let curly = 0
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === '$' && source[index - 1] !== '\\') {
+      inMath = !inMath
+      continue
+    }
+    const reference = inlineUiReference(source, index)
+    if (reference) {
+      index += reference.length - 1
+      continue
+    }
+    if (inMath) continue
+    if (char === '(') round += 1
+    else if (char === ')') round = Math.max(0, round - 1)
+    else if (char === '[') square += 1
+    else if (char === ']') square = Math.max(0, square - 1)
+    else if (char === '{') curly += 1
+    else if (char === '}') curly = Math.max(0, curly - 1)
+    else if (char === ',' && round === 0 && square === 0 && curly === 0) return index
+  }
+  return -1
+}
+
+function findInlineConditionEnd(source: string, start: number): number {
+  let inMath = false
+  for (let index = start; index < source.length; index += 1) {
+    if (source[index] === '`') {
+      let count = 1
+      while (source[index + count] === '`') count += 1
+      const marker = '`'.repeat(count)
+      const close = source.indexOf(marker, index + count)
+      if (close < 0) return -1
+      index = close + count - 1
+      continue
+    }
+    const char = source[index]
+    if (char === '$' && source[index - 1] !== '\\') {
+      inMath = !inMath
+      continue
+    }
+    const reference = inlineUiReference(source, index)
+    if (reference) {
+      index += reference.length - 1
+      continue
+    }
+    if (char === '<') {
+      const tag = source.slice(index).match(/^<\/?[A-Za-z][^>]*>/)
+      if (tag) {
+        index += tag[0].length - 1
+        continue
+      }
+    }
+    if (char === '>' && !inMath) return index
+  }
+  return -1
+}
+
+export function stripInlineUiConditionContent(line: string): string {
+  let output = ''
+  for (let index = 0; index < line.length;) {
+    if (line[index] === '`') {
+      let count = 1
+      while (line[index + count] === '`') count += 1
+      const marker = '`'.repeat(count)
+      const end = line.indexOf(marker, index + count)
+      if (end < 0) {
+        output += line.slice(index)
+        break
+      }
+      output += line.slice(index, end + count)
+      index = end + count
+      continue
+    }
+    if (line.slice(index, index + 4).toLowerCase() === '<if:') {
+      const comma = findInlineConditionComma(line, index + 4)
+      const end = comma >= 0 ? findInlineConditionEnd(line, comma + 1) : -1
+      if (comma >= 0 && end >= 0) {
+        output += ' '
+        index = end + 1
+        continue
+      }
+    }
+    output += line[index]
+    index += 1
+  }
+  return output
+}
+
+function convertInlineUiConditions(line: string): string {
+  let output = ''
+  for (let index = 0; index < line.length;) {
+    if (line[index] === '`') {
+      let count = 1
+      while (line[index + count] === '`') count += 1
+      const marker = '`'.repeat(count)
+      const end = line.indexOf(marker, index + count)
+      if (end < 0) {
+        output += line.slice(index)
+        break
+      }
+      output += line.slice(index, end + count)
+      index = end + count
+      continue
+    }
+    if (line.slice(index, index + 4).toLowerCase() === '<if:') {
+      const comma = findInlineConditionComma(line, index + 4)
+      const end = comma >= 0 ? findInlineConditionEnd(line, comma + 1) : -1
+      if (comma >= 0 && end >= 0) {
+        const expression = line.slice(index + 4, comma).trim()
+        const body = line.slice(comma + 1, end).trim()
+        output += `（当 ${expression} 成立时：${body}）`
+        index = end + 1
+        continue
+      }
+    }
+    output += line[index]
+    index += 1
+  }
+  return output
+}
+
+function convertInlineUiReferences(line: string): string {
+  let output = ''
+  for (let index = 0; index < line.length;) {
+    if (line[index] === '`') {
+      let count = 1
+      while (line[index + count] === '`') count += 1
+      const marker = '`'.repeat(count)
+      const end = line.indexOf(marker, index + count)
+      if (end < 0) {
+        output += line.slice(index)
+        break
+      }
+      output += line.slice(index, end + count)
+      index = end + count
+      continue
+    }
+    const reference = line.slice(index).match(/^<<([\p{L}\p{N}_.-]+)>>/u)
+    if (reference) {
+      output += `【${reference[1]}】`
+      index += reference[0].length
+      continue
+    }
+    output += line[index]
+    index += 1
+  }
+  return output
+}
+
+function convertInlineTokensForCopy(line: string): string {
+  return convertInlineUiReferences(convertInlineUiConditions(convertInlineUiWrites(line)))
+}
+
 /**
- * direct：原样源码；luogu：移除 Blog 专属语法（展示框、直角坐标系与文首排版指令 ::set-font 等，
- * 洛谷不认识这些指令，留着只会变成正文杂质）；basic：再移除洛谷扩展。
+ * Replace interactive choice widgets and conditionals with readable static Markdown.
+ * Live values have no meaning outside the site, so inline references become labels.
+ */
+export function convertUiChoicesToMarkdown(markdown: string): string {
+  const lines = markdown.split('\n')
+  const output: string[] = []
+  let fence: string | null = null
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    const marker = fenceMarker(line)
+    if (marker) {
+      if (!fence) fence = marker
+      else if (fence === marker) fence = null
+      output.push(line)
+      continue
+    }
+    if (fence) {
+      output.push(line)
+      continue
+    }
+
+    const condition = line.match(/^\s*::IF\[([\s\S]*)\]\s*$/i)
+    if (condition) {
+      const end = findConditionalBlockEnd(lines, index + 1)
+      const body = end >= 0 ? lines.slice(index + 1, end) : []
+      if (end >= 0) {
+        output.push(`> **条件成立时（${condition[1].trim()}）：**`)
+        output.push('>')
+        for (const bodyLine of body) {
+          const convertedLine = convertInlineTokensForCopy(bodyLine)
+          output.push(convertedLine ? `> ${convertedLine}` : '>')
+        }
+        output.push('')
+        index = end
+        continue
+      }
+    }
+
+    const blockMatch = line.match(/^\s*::begin_ui-(choose|select|if)\[([^\]]*)\](?:\[([^\]]*)\])?(?:\[([^\]]*)\])?\s*$/i)
+    if (blockMatch) {
+      const kind = blockMatch[1].toLowerCase() as UiWidgetKind
+      const id = blockMatch[2]
+      const title = kind === 'choose' ? blockMatch[3] ?? '' : id
+      const extra = kind === 'choose' ? blockMatch[4] ?? '' : blockMatch[3] ?? ''
+      const close = new RegExp(`^\\s*::end_ui-${kind}\\s*$`, 'i')
+      const end = findMarkdownBlockEnd(lines, index + 1, (candidate) => close.test(candidate))
+      const body = end >= 0 ? lines.slice(index + 1, end) : []
+      if (end >= 0) {
+        const config = parseUiChoiceConfig(kind, id, title, extra, body.join('\n'))
+        output.push(`**${title || (kind === 'if' ? '是否选择' : kind === 'select' ? '下拉选择' : '选择框')}**`)
+        if (kind === 'choose') {
+          for (const option of config.options) {
+            output.push(`- [ ] **${option.label}**`)
+            if (option.content) {
+              output.push(...option.content.split('\n').map((part) => {
+                const convertedPart = convertInlineTokensForCopy(part)
+                return convertedPart ? `  ${convertedPart}` : '  '
+              }))
+            }
+          }
+        } else {
+          for (const option of config.options) output.push(`- [ ] ${convertInlineTokensForCopy(option.content)}`)
+        }
+        output.push('')
+        index = end
+        continue
+      }
+    }
+
+    output.push(convertInlineTokensForCopy(line))
+  }
+
+  return output.join('\n')
+}
+
+/**
+ * direct：原样源码；luogu：移除 Blog 专属语法（展示框、图表与文首排版指令），
+ * 洛谷不认识这些指令，留着只会变成正文杂质；basic：再移除洛谷扩展。
  */
 export function convertMarkdownForCopy(markdown: string, target: MarkdownCopyTarget): string {
   if (target === 'direct') return markdown
-  const withoutBlogExtensions = convertUiCcsToMarkdown(
-    convertShowBoxesToMarkdown(stripArticleDirectives(markdown)),
+  const withoutBlogExtensions = convertUiChoicesToMarkdown(
+    convertUiGraphToMarkdown(
+      convertUiCcsToMarkdown(
+        convertShowBoxesToMarkdown(stripArticleDirectives(markdown)),
+      ),
+    ),
   )
   if (target === 'luogu') return withoutBlogExtensions
   return convertLuoguExtensionsToMarkdown(expandMergedTableCells(withoutBlogExtensions))

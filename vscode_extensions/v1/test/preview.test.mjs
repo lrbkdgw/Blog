@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { close, preview, render, setInput, settle, update } from './helpers.mjs'
+import { JSDOM } from 'jsdom'
+import { close, core, preview, render, setInput, settle, update } from './helpers.mjs'
 
 const interactive = [
   '## 正文',
@@ -207,6 +208,170 @@ test('延迟插入原生预览正文也能挂载；原生模型消失时清理 R
   assert.equal(document.querySelectorAll('.markdown-extension-host').length, 1)
   assert.ok(document.querySelector('input[type="range"]'))
   assert.deepEqual(errors, [])
+})
+
+test('choose/select/yes-no 联动显示 1-based 值、inline/block 条件与动态 KaTeX', async (t) => {
+  const source = [
+    '::begin_ui-choose[meals][可多选][more 1 2]',
+    '[A]',
+    '苹果',
+    '[B]',
+    '香蕉',
+    '::end_ui-choose',
+    '',
+    '选择编号：<<fruit>>',
+    '<IF:<<fruit>> >= 2,**已选第二项！** $x^2$>',
+    '',
+    '::begin_ui-select[fruit][search]',
+    '苹果',
+    '香蕉',
+    '::end_ui-select',
+    '',
+    '::begin_ui-if[tasks][lined]',
+    '阅读题目',
+    '::nex',
+    '检查答案',
+    '::end_ui-if',
+    '',
+    '::IF[<<tasks-1>> == 1]',
+    '**已完成阅读。**',
+    '::IF_END',
+    '',
+    '$x_{<<fruit>>}$',
+  ].join('\n')
+  const { dom, document, errors } = await preview(source)
+  t.after(() => close(dom))
+
+  const choose = document.querySelector('.ui-choose-box')
+  const dropdown = document.querySelector('.ui-select-widget select')
+  const checklist = document.querySelector('.ui-if-box')
+  assert.ok(choose && dropdown && checklist)
+  assert.equal(choose.querySelectorAll('input[type="checkbox"]').length, 2)
+  assert.equal(choose.querySelectorAll('input[type="checkbox"]:checked').length, 1)
+  assert.ok(document.querySelector('.ui-select-widget input[type="search"]'))
+  assert.equal(document.querySelector('.ui-if-content'), null)
+  assert.equal(document.querySelector('.ui-choose-box input[type="checkbox"]:checked').getAttribute('aria-label'), 'meals-1')
+
+  dropdown.value = '2'
+  dropdown.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+  await settle()
+  assert.match(document.querySelector('.markdown-extension-mount').textContent, /选择编号：2/)
+  assert.match(document.querySelector('.markdown-extension-mount').textContent, /已选第二项/)
+  assert.equal([...document.querySelectorAll('strong')].find((node) => node.textContent === '已选第二项！')?.textContent, '已选第二项！')
+  assert.ok([...document.querySelectorAll('.katex annotation')].some((node) => node.textContent === 'x^2'))
+  assert.equal([...document.querySelectorAll('.katex annotation')].find((node) => node.textContent.startsWith('x_{'))?.textContent, 'x_{2}')
+
+  await setInput(dom, document.querySelector('.ui-select-widget input[type="search"]'), 'Ban')
+  assert.equal([...dropdown.options].filter((option) => option.value !== '').map((option) => option.textContent).join(','), '香蕉')
+
+  const mealOptions = choose.querySelectorAll('input[type="checkbox"]')
+  mealOptions[1].click()
+  await settle()
+  assert.equal(choose.querySelectorAll('input[type="checkbox"]:checked').length, 2)
+  checklist.querySelector('input[type="checkbox"]').click()
+  await settle()
+  assert.equal(document.querySelector('.ui-if-content strong')?.textContent, '已完成阅读。')
+  assert.match(checklist.querySelector('label span.relative').className, /line-through/)
+  assert.deepEqual(errors, [])
+})
+
+test('ui-write 数字 / 文本 / 滑块输入更新引用与条件 Markdown，merge 控件同排渲染', async (t) => {
+  const source = [
+    '吃了 ::ui-write[number][R 0 1 4] 根香蕉。',
+    '',
+    '::ui-write[Name][len 2 8][new][name 姓名]',
+    '',
+    '::ui-write[Left][R 0 0 10][new][name 左值]',
+    '',
+    '::ui-write[Right][R 0 0 10][new][name 右值][merge]',
+    '',
+    '::ui-write[Ti][R 0 0 3][set 1][new][name Ti][faster]',
+    '',
+    '当前值：<<number>>，姓名：<<Name>>。',
+    '<IF:$<number> \\le <Ti>$,**条件成立** $x^2$>',
+  ].join('\n')
+  const { dom, document, errors } = await preview(source)
+  t.after(() => close(dom))
+
+  const number = document.querySelector('input[data-ui-write-input="number"]')
+  const name = document.querySelector('input[data-ui-write-input="Name"]')
+  const slider = document.querySelector('input[data-ui-write-input="Ti"]')
+  assert.ok(number && name && slider)
+  assert.equal(number.type, 'number')
+  assert.equal(name.type, 'text')
+  assert.equal(slider.type, 'range')
+  assert.equal(document.querySelector('.ui-write-row')?.querySelectorAll('[data-ui-write-input]').length, 2)
+  assert.equal([...document.querySelectorAll('strong')].some((node) => node.textContent === '条件成立'), false)
+
+  await setInput(dom, number, '2')
+  await setInput(dom, name, '小明')
+  await setInput(dom, slider, '3')
+  const text = document.querySelector('.markdown-extension-mount').textContent
+  assert.match(text, /当前值：2，姓名：小明/)
+  assert.equal([...document.querySelectorAll('strong')].find((node) => node.textContent === '条件成立')?.textContent, '条件成立')
+  assert.ok([...document.querySelectorAll('.katex annotation')].some((node) => node.textContent === 'x^2'))
+  assert.deepEqual(errors, [])
+})
+
+test('文章编辑器图调整模式拖动节点并把序列化坐标回写到原图源码', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="mount"></div></body></html>', {
+    pretendToBeVisual: true,
+    url: 'https://editor.test/',
+  })
+  const globals = ['window', 'document', 'Element', 'HTMLElement', 'Node', 'IS_REACT_ACT_ENVIRONMENT']
+  const previous = new Map(globals.map((key) => [key, { exists: key in globalThis, value: globalThis[key] }]))
+  globalThis.window = dom.window
+  globalThis.document = dom.window.document
+  globalThis.Element = dom.window.Element
+  globalThis.HTMLElement = dom.window.HTMLElement
+  globalThis.Node = dom.window.Node
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+  let root
+  const changes = []
+  try {
+    root = core.mountCoordinateGraphForTest(
+      document.querySelector('#mount'),
+      'point A 0 0\npoint B 100 0\nA B 5',
+      7,
+      (line, body) => changes.push({ line, body }),
+    )
+    await settle()
+    const box = document.querySelector('.ui-graph-box')
+    const svg = box.querySelector('svg')
+    const button = box.querySelector('button[aria-pressed]')
+    assert.ok(button && svg)
+    button.click()
+    await settle()
+    const node = box.querySelector('[data-graph-node="A"]')
+    const [startX, startY] = node.getAttribute('transform').match(/translate\(([-\d.]+) ([-\d.]+)\)/).slice(1).map(Number)
+    const pointer = (type, target, x, y) => {
+      const event = new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y })
+      Object.defineProperty(event, 'pointerId', { value: 1 })
+      target.dispatchEvent(event)
+    }
+    pointer('pointerdown', node, startX, startY)
+    await settle()
+    pointer('pointermove', svg, startX + 50, startY - 30)
+    await settle()
+    pointer('pointerup', svg, startX + 50, startY - 30)
+    await settle()
+
+    assert.equal(changes.length, 1)
+    assert.equal(changes[0].line, 7)
+    assert.match(changes[0].body, /^point A [\d.-]+ [\d.-]+/)
+    assert.match(changes[0].body, /^point B 100 0/m)
+    assert.match(changes[0].body, /A B 5/)
+    assert.ok(Number(node.getAttribute('data-graph-x')) > 0)
+    assert.ok(Number(node.getAttribute('data-graph-y')) > 0)
+  } finally {
+    if (root) root.unmount()
+    dom.window.close()
+    for (const [key, state] of previous) {
+      if (state.exists) globalThis[key] = state.value
+      else delete globalThis[key]
+    }
+  }
 })
 
 test('直角坐标系 ui-ccs 极简无上下栏、未悬浮不显示点坐标、悬浮端点/交点显示坐标并支持拖拽缩放与展示框联动', async (t) => {

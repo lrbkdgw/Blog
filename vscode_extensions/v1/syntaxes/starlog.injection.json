@@ -6,6 +6,8 @@
     { "include": "#show-begin" },
     { "include": "#show-end" },
     { "include": "#ui-ccs" },
+    { "include": "#ui-graph" },
+    { "include": "#ui-choice" },
     { "include": "#callout-open" },
     { "include": "#callout-close" },
     { "include": "#article-directives" },
@@ -40,6 +42,41 @@
         { "match": "-?\\d+(?:\\.\\d+)?", "name": "constant.numeric.starlog.markdown" },
         { "match": "[+\\-*/^=]", "name": "keyword.operator.starlog.markdown" },
         { "match": "[,;()]", "name": "punctuation.separator.starlog.markdown" }
+      ]
+    },
+    "ui-graph": {
+      "name": "meta.starlog.uigraph.markdown",
+      "begin": "(?i)^\\s*(::begin_ui-graph)(?:\\[([^\\]]*)\\])?\\s*$",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.starlog.markdown" },
+        "2": { "name": "keyword.other.starlog.markdown" }
+      },
+      "end": "(?i)^\\s*(::end_ui-graph)\\s*$",
+      "endCaptures": {
+        "1": { "name": "keyword.control.starlog.markdown" }
+      },
+      "patterns": [
+        { "match": "(?i)\\b(point|node|dag)\\b", "name": "keyword.control.starlog.markdown" },
+        { "match": "(?:->|--)", "name": "keyword.operator.starlog.markdown" },
+        { "match": "-?\\d+(?:\\.\\d+)?", "name": "constant.numeric.starlog.markdown" },
+        { "match": "[,;]", "name": "punctuation.separator.starlog.markdown" }
+      ]
+    },
+    "ui-choice": {
+      "name": "meta.starlog.uichoice.markdown",
+      "begin": "(?i)^\\s*(::begin_ui-(choose|select|if))(?=\\[)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.starlog.markdown" },
+        "2": { "name": "entity.name.section.starlog.markdown" }
+      },
+      "end": "(?i)^\\s*(::end_ui-(?:choose|select|if))\\s*$",
+      "endCaptures": {
+        "1": { "name": "keyword.control.starlog.markdown" }
+      },
+      "patterns": [
+        { "match": "\\[[^\\]]*\\]", "name": "entity.name.section.starlog.markdown" },
+        { "match": "(?i)\\b(more|search|lined)\\b", "name": "keyword.other.starlog.markdown" },
+        { "match": "(?i)^\\s*(::nex)\\s*$", "name": "keyword.control.starlog.markdown" }
       ]
     },
     "show-begin": {
@@ -119,6 +156,49 @@
     },
     "inline-tokens": {
       "patterns": [
+        {
+          "name": "meta.starlog.uiwrite.markdown",
+          "match": "(?i)(::ui-write)((?:\\[[^\\]]*\\])+)",
+          "captures": {
+            "1": { "name": "keyword.control.starlog.markdown" },
+            "2": { "name": "meta.group.starlog.markdown" }
+          }
+        },
+        {
+          "name": "meta.starlog.condition.markdown",
+          "match": "(?i)(<IF:)([^,>]+)(,)([^>]*)(>)",
+          "captures": {
+            "1": { "name": "keyword.control.starlog.markdown" },
+            "2": { "name": "meta.embedded.expression.starlog" },
+            "3": { "name": "punctuation.separator.starlog.markdown" },
+            "4": { "name": "string.unquoted.starlog.markdown" },
+            "5": { "name": "keyword.control.starlog.markdown" }
+          }
+        },
+        {
+          "name": "meta.starlog.reference.markdown",
+          "match": "(<<)([^>]+)(>>)",
+          "captures": {
+            "1": { "name": "punctuation.definition.starlog.markdown" },
+            "2": { "name": "variable.other.starlog.markdown" },
+            "3": { "name": "punctuation.definition.starlog.markdown" }
+          }
+        },
+        {
+          "match": "(?i)^\\s*(::IF)(\\[)([^\\]]+)(\\])\\s*$",
+          "captures": {
+            "1": { "name": "keyword.control.starlog.markdown" },
+            "2": { "name": "punctuation.definition.starlog.markdown" },
+            "3": { "name": "meta.embedded.expression.starlog" },
+            "4": { "name": "punctuation.definition.starlog.markdown" }
+          }
+        },
+        {
+          "match": "(?i)^\\s*(::IF_END)\\s*$",
+          "captures": {
+            "1": { "name": "keyword.control.starlog.markdown" }
+          }
+        },
         {
           "name": "meta.starlog.mapping.markdown",
           "match": "(\\*&)([^:*&{}()\\s]+)(:)(\\{)([^{}]*)(\\})(\\*&)",
