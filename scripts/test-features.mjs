@@ -26,6 +26,8 @@ async function importTsModule(entryPath) {
 }
 
 const weatherMod = await importTsModule('src/components/WeatherBackdrops.ts')
+const backdropMod = await importTsModule('src/components/AnimatedBackdrop.tsx')
+const bgSpecMod = await importTsModule('src/lib/animatedBackground.ts')
 const headerYieldMod = await importTsModule('src/lib/headerYield.ts')
 const uiCcsMod = await importTsModule('src/lib/uiCcs.ts')
 const uiWidgetsMod = await importTsModule('src/lib/uiWidgets.ts')
@@ -774,4 +776,89 @@ test('Issue #83：ui-graph 自动创建未声明节点、dag 有向箭头、重�
     Object.assign(globalThis, prevGlobals)
   }
 })
+
+test('五大唯美动态背景（樱花 / 粒子星链 / 雪花 / 暴雨 / 竹林）：全员 60fps、明暗双色调热切换、参数兼容与中央阅读净空保护', () => {
+  const expectedParams = {
+    sakura: ['count', 'speed', 'wind', 'size', 'bokeh'],
+    network: ['density', 'link', 'speed', 'glow', 'pulse'],
+    snow: ['count', 'speed', 'wind', 'size', 'swirl'],
+    rain: ['count', 'speed', 'wind', 'mist', 'lightning'],
+    bamboo: ['density', 'wind', 'speed', 'mist', 'light'],
+  }
+
+  assert.equal(bgSpecMod.SCENES.length, 5)
+  for (const spec of bgSpecMod.SCENES) {
+    assert.deepEqual(
+      spec.params.map((p) => p.key),
+      expectedParams[spec.id],
+      `场景 ${spec.id} 参数键名必须完全向后兼容`,
+    )
+  }
+
+  const prevDocument = globalThis.document
+  globalThis.document = {
+    documentElement: {},
+    createElement() {
+      const c = {
+        width: 1,
+        height: 1,
+        getContext() {
+          const ctx = makeMock2dContext(null, null)
+          ctx.canvas = c
+          return ctx
+        },
+      }
+      return c
+    },
+  }
+
+  try {
+    for (const sceneId of ['sakura', 'network', 'snow', 'rain', 'bamboo']) {
+      for (const initialDark of [false, true]) {
+        const renderer = backdropMod.createRenderer(sceneId, initialDark)
+        assert.equal(renderer.fps, 60, `场景 ${sceneId} 应运行于 60fps 丝滑帧率`)
+
+        // 先 configure 后 setup，验证粒子数按真实视口面积重建而非卡在 0×0 下限
+        const spec = bgSpecMod.SCENES.find((s) => s.id === sceneId)
+        const defaults = Object.fromEntries(spec.params.map((p) => [p.key, p.default]))
+        renderer.configure(defaults)
+        renderer.setup(1440, 900)
+        if (renderer.pointer) renderer.pointer(1020, 320)
+
+        for (let i = 0; i < 30; i += 1) renderer.step(1 / 60)
+
+        const strokes = []
+        const draws = []
+        const ctx = makeMock2dContext(strokes, draws)
+        renderer.draw(ctx)
+        assert.ok(draws.length > 15, `场景 ${sceneId} (${initialDark ? 'dark' : 'light'}) 绘制贴图数应充足，实际 ${draws.length}`)
+        for (const d of draws) {
+          assert.ok(Number.isFinite(d.tx) && Number.isFinite(d.ty), `场景 ${sceneId} 贴图坐标必须全部有限合法`)
+        }
+
+        // 竹林专项：验证两侧竹影成林、中央正文阅读区 [0.22w, 0.78w] 无前景竖直竹竿穿过文字
+        if (sceneId === 'bamboo') {
+          const culmBlits = draws.filter((d) => d.sw === 240 && d.sh === 760)
+          assert.ok(culmBlits.length >= 16, `竹林应绘制足够多株分节翠竹贴图，实际 ${culmBlits.length}`)
+          for (const c of culmBlits) {
+            assert.ok(
+              c.tx <= 1440 * 0.2 || c.tx >= 1440 * 0.8,
+              `竹竿根部位置 ${c.tx.toFixed(1)} 不得侵入中央正文阅读区 [288, 1152]`,
+            )
+          }
+        }
+
+        // 热切换明暗模式并继续步进绘制，验证零报错平滑过渡
+        renderer.setTone?.(!initialDark)
+        for (let i = 0; i < 15; i += 1) renderer.step(1 / 60)
+        draws.length = 0
+        renderer.draw(ctx)
+        assert.ok(draws.length > 15, `场景 ${sceneId} 切换明暗模式后绘制正常`)
+      }
+    }
+  } finally {
+    globalThis.document = prevDocument
+  }
+})
+
 
