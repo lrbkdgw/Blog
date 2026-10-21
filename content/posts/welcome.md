@@ -2,7 +2,7 @@
 title: "Welcome"
 date: "2026-10-21"
 updated: "2026-10-21"
-summary: "欢迎来到 lrbkdgw's Blog！ 这个 Blog 的所有内容均由 AI 开发，并且增加了很多功能！ 项目托管在 Cloudflare Pages 和 Github Pages，但目前主要维护 Cloudflare Pages 的页面…"
+summary: "Hello World！"
 pinned: true
 ---
 

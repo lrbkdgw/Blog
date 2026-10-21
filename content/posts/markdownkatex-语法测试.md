@@ -1,9 +1,8 @@
 ---
 title: "Markdown&KaTeX 语法测试"
 date: "2026-10-04"
-updated: "2026-10-05"
+updated: "2026-10-21"
 summary: "-"
-tags: ["Test"]
 ---
 
 #### 表格和合并
@@ -56,4 +55,3 @@ Write article and upd it to github.
 $$
 \prod_{1 \leq i \leq n} \sum_{1 \leq j \leq m} \gcd(a_i,a_j) \bmod (10^9+7) 
 $$
-

@@ -1,10 +1,8 @@
 ---
 title: "你好，这是一个能在线写作的静态博客"
 date: "2025-09-20"
-updated: "2026-10-05"
+updated: "2026-10-21"
 summary: "介绍这个博客是怎么在没有后端的情况下，做到登录、在线编辑和一键发布的。"
-tags: ["公告"]
-pinned: true
 ---
 
 GitHub Pages 是纯静态托管——没有服务器、没有数据库、没有接口。那么「登录」和「在线编辑」到底是怎么实现的？
@@ -63,4 +61,3 @@ const modules = import.meta.glob('/content/posts/**/*.md', {
 Fork 这个仓库，改掉 `src/lib/config.ts` 里的站点信息与 `githubConfig`，推送到 `main`，等 Actions 跑完就有自己的博客了。
 
 > 写作这件事，最重要的从来不是工具。但一个顺手的工具，确实能让人更愿意开始写。
-
