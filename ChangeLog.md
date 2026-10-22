@@ -1,5 +1,44 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-22 · 新增顶栏「百宝箱」页签与独占全屏极简「回声洞」模块（#93）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+- **Issue #93（添加功能：百宝箱 & 回声洞）及补充说明**：
+  1. 在顶部导航栏新增 **百宝箱** 页签，当前包含 **“回声洞”** 模块，点击后进入独立页面，不断点击页面即可切换显示回声内容。
+  2. **独占全屏极简交互**：回声洞页面完全独占全屏（隐藏顶栏、底栏与一切多余控件，页面无任何多余按键），底部**仅保留一条独立的不显眼的横线和一个发送按钮**。
+  3. **内容来源与频率识别规则**：
+     - 任何人在底部横线上输入内容并发送后保存到仓库 **GitHub Discussions**；按发送时间升序严格执行「每小时最多 3 条、每天最多 10 条，超出时仅识别每小时发送的前 3 条或每天发送的前 10 条，仓库贡献者不受限制」；
+     - **hitokoto** 一言。
+
+### 调整
+
+- **顶栏、百宝箱与用户背景层（`src/components/Layout.tsx`、`src/lib/background.tsx`、`src/pages/Toolbox.tsx`、`src/App.tsx`）**：
+  - 顶部导航栏新增 `百宝箱`（`/toolbox`）页签，桌面与移动端菜单同步生效，页面接入 `data-yield-list` 顶栏防冲突机制；
+  - `Toolbox.tsx` 当前仅展示「回声洞」模块卡片，点击进入 `/toolbox/echo`；
+  - `Layout.tsx` 在 `/toolbox/echo` 下自动隐藏 `<Header>`、`<Footer>` 与全局搜索弹窗，将全屏背景装饰与动态背景置于正序 `z-0` 图层（忽略文章级临时 `::set-background` 覆盖，始终展示用户自己选择的配色主题、明暗模式、自定义渐变与动态背景），并放开登录态外观偏好恢复限制。
+- **回声洞全屏页面、双 Pass GPU 骨灰消散退场、逐字浮现、去重轮播与数据层（`src/pages/EchoCave.tsx`、`src/lib/echoAsh.ts`、`src/styles/index.css`、`src/lib/echoCave.ts`、`src/lib/config.ts`、`functions/api/echo.ts`）**：
+  - 点击切换或发送新回声时，**上一句先以双 Pass GPU 骨灰消散特效退场，再显示下一句**：`echoAsh.ts` 融合开源项目 `vanilla-disintegrate`（双 Pass WebGL2 底图与点精灵交接架构）、`Burn-My-Windows`（`snap.frag` / `incinerate.frag` 多倍频二维 FBM 分形裂解前缘与边缘钙化色移思路）以及 Google 2019 Thanos Snap（`@wellwind/thanos-snap` 多层空间加权像素尘云）：
+    1. **Pass 1（原位真实 DOM 分形遮罩层，`0.000px` 零瞬移零停顿）**：退场期间保留浏览器原位排版的真实 DOM 节点不动（彻底根除 Canvas `fillText` 对中文标点挤压 `text-spacing-trim`、出处行与非整数 DPI 造成的向右瞬移），通过预烘焙三倍频 `fbm2D` 分形透明遮罩在点击第 1 帧即无延迟由左向右蚕食擦除；
+    2. **Pass 2（代数锁相同步的数万级 1px 亚像素 GPU 粒子流线与轻柔雾化）**：粒子采样精确补偿 `TextMetrics` 标点留白、`fontBoundingBoxAscent` 基线、画布 `getBoundingClientRect` 比例与逐字 `<span>` 出处测量，剥离阈值与 DOM 遮罩边缘代数严格同步，在 `1750ms` 周期内沿 FBM 旋流微风向右上轻盈飘散雾化；待舞台净空（`960ms`）后再挂载下一句（连点支持 `2.8x` 加速残灰并立即切换）；
+  - 新句子以单一原子状态 `{ item, seq, shown, exiting }` + CSS `@keyframes echo-char-reveal` `animation-fill-mode: both` 逐字阶梯浮现，切换首帧同步归零且绝不回退，并消除首屏异步请求中途顶替当前句子的闪现问题；
+  - 页面底部固定居中一条极简细横线（透明单下边框 `<input>`）与单个**箭头发送按钮**（`ArrowRight`），全页无任何其他按钮、卡片、徽章或计数器；
+  - 根治重复内容问题：`fetchHitokotoOne` 携带唯一防缓存参数与 `cache: 'no-store'` 并以 380ms 节流串行预取避免 `v1.hitokoto.cn` 并发限流与缓存复用；引入 `createEchoDeck` 洗牌袋与近期展示去重历史（Discussions 留言按轮次与最小间隔穿插，36 条精选兜底语料无放回洗牌）；
+  - 使用公开 GitHub REST API 读取仓库 Discussions 与贡献者列表（未登录访客同样可直接听到全部已识别的 Discussions 回声），写入时支持已登录 GitHub GraphQL 直写、同源 Cloudflare Pages Function（`functions/api/echo.ts`）匿名中继以及未登录草稿暂存自动续发；
+  - `filterRecognizedEchoes` 按时间升序精确识别每名非贡献者每小时前 3 条与每天前 10 条回声，对仓库拥有者、`OWNER`/`MEMBER`/`COLLABORATOR`/`CONTRIBUTOR` 及仓库提交贡献者完全放开限制；
+  - 离线构建期彻底置空 `api.github.com` 与 `v1.hitokoto.cn` 端点并同步加入 `scripts/verify-offline.mjs` 禁联网自检。
+
+### 验证
+
+- `scripts/test-features.mjs` 新增回声洞限流识别规则测试、30 次连续点击零重复洗牌测试，以及 React + MemoryRouter 全屏 DOM 回归测试（验证用户所选动态背景正常挂载、文字逐字浮现、`/toolbox/echo` 无 `<header>` / `<footer>`、全页 `<button>` 严格仅有一个箭头发送按钮、`<input>` 严格仅有一条底部横线、发送保存立即回显）。
+- 已重新构建并自检离线单文件版 `offline/index.html`，并通过 `npm test`、`npm --prefix vscode_extensions/v1 run typecheck` 与 `npm run build` 全量验证。
+
 ## 2026-10-21 · 图论画布边权改为纯数字标注（#91）并同步重建离线单文件版
 
 | 模型信息 | |

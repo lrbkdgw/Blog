@@ -873,3 +873,39 @@ details[open] .callout-chevron {
   background-size: 100% 1.55px;
 }
 
+@keyframes echo-char-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.echo-char {
+  opacity: 0;
+  animation-name: echo-char-reveal;
+  animation-duration: 220ms;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+  will-change: opacity;
+}
+
+.echo-from {
+  opacity: 0;
+  animation-name: echo-char-reveal;
+  animation-duration: 340ms;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+  will-change: opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .echo-char,
+  .echo-from {
+    opacity: 1;
+    animation: none;
+  }
+}
+
+

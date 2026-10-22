@@ -19,6 +19,9 @@ async function importTsModule(entryPath) {
     format: 'esm',
     platform: 'browser',
     target: 'es2022',
+    define: {
+      __STARLOG_OFFLINE__: 'false',
+    },
   })
   const code = result.outputFiles[0].text
   const dataUrl = `data:text/javascript;base64,${Buffer.from(code, 'utf8').toString('base64')}`
@@ -32,13 +35,19 @@ const uiWidgetsMod = await importTsModule('src/lib/uiWidgets.ts')
 const uiGraphMod = await importTsModule('src/lib/uiGraph.ts')
 const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
+const echoCaveMod = await importTsModule('src/lib/echoCave.ts')
+const echoAshMod = await importTsModule('src/lib/echoAsh.ts')
 
 function makeMock2dContext(strokeSink, drawSink) {
   const stack = []
+  let textBitmap = null
   return {
     canvas: { width: 1280, height: 720 },
     fillStyle: '',
     strokeStyle: '',
+    font: '16px serif',
+    textAlign: 'left',
+    textBaseline: 'alphabetic',
     lineWidth: 1,
     lineCap: 'butt',
     globalAlpha: 1,
@@ -50,8 +59,56 @@ function makeMock2dContext(strokeSink, drawSink) {
     _rot: 0,
     createLinearGradient: () => ({ addColorStop() {} }),
     createRadialGradient: () => ({ addColorStop() {} }),
+    createPattern: () => ({}),
     createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    measureText: (str) => ({
+      width: String(str).length * 18,
+      fontBoundingBoxAscent: 18,
+      fontBoundingBoxDescent: 4,
+      actualBoundingBoxAscent: 17,
+      actualBoundingBoxDescent: 4,
+    }),
+    fillText(str, x, y) {
+      const w = 640
+      const h = 240
+      if (!textBitmap) textBitmap = new Uint8ClampedArray(w * h * 4)
+      const chars = Array.from(String(str))
+      const alphaByte = Math.max(40, Math.min(255, Math.round(this.globalAlpha * 255)))
+      for (let c = 0; c < chars.length; c++) {
+        const bx = Math.round(x + c * 18)
+        const by = Math.round(y - 14)
+        for (let dy = 0; dy < 12; dy += 2) {
+          for (let dx = 0; dx < 12; dx += 2) {
+            const px = bx + dx
+            const py = by + dy
+            if (px >= 0 && px < w && py >= 0 && py < h) {
+              textBitmap[(py * w + px) * 4 + 3] = alphaByte
+            }
+          }
+        }
+      }
+    },
+    getImageData(sx, sy, sw, sh) {
+      const out = new Uint8ClampedArray(sw * sh * 4)
+      if (textBitmap) {
+        const srcW = 640
+        const srcH = 240
+        for (let py = 0; py < sh && sy + py < srcH; py++) {
+          for (let px = 0; px < sw && sx + px < srcW; px++) {
+            const a = textBitmap[((sy + py) * srcW + (sx + px)) * 4 + 3]
+            if (a > 0) out[(py * sw + px) * 4 + 3] = a
+          }
+        }
+      }
+      return { width: sw, height: sh, data: out }
+    },
+    createImageData(sw, sh) {
+      return { width: sw, height: sh, data: new Uint8ClampedArray(sw * sh * 4) }
+    },
     putImageData() {},
+    setTransform() {},
+    bezierCurveTo() {},
+    quadraticCurveTo() {},
     clearRect() {},
     fillRect() {},
     drawImage(img, x, y, w, h) {
@@ -242,6 +299,7 @@ test('全站所有路由页面与悬浮门户组件均已接入顶部防冲突�
     'src/pages/PostPage.tsx',
     'src/pages/Archive.tsx',
     'src/pages/TagsPage.tsx',
+    'src/pages/Toolbox.tsx',
     'src/pages/About.tsx',
     'src/pages/SettingsPage.tsx',
     'src/pages/Admin.tsx',
@@ -775,7 +833,7 @@ test('Issue #83：ui-graph 自动创建未声明节点、dag 有向箭头、重�
 
     const writeField = container.querySelector('[data-ui-id="CleanSingle"]')
     assert.ok(writeField, '应渲染独立行 ui-write 字段')
-    assert.doesNotMatch(writeField.className, /\bborder\b/, '单行输入框外层容器不应再有包裹边框盒')
+    assert.doesNotMatch(writeField.className, /\bborder\b/, '单行输入框外层容器不应再有包裹边框框')
 
     reactRoot.unmount()
     await new Promise((r) => setTimeout(r, 30))
@@ -784,4 +842,711 @@ test('Issue #83：ui-graph 自动创建未声明节点、dag 有向箭头、重�
     Object.assign(globalThis, prevGlobals)
   }
 })
+
+test('回声洞（#93）：严格识别每小时前 3 条 / 每天前 10 条，仓库贡献者不受限制', () => {
+  const { filterRecognizedEchoes } = echoCaveMod
+  const t0 = Date.parse('2026-10-22T08:00:00Z')
+  const min = 60_000
+  const hour = 3_600_000
+
+  // 1) 普通访客同一小时发送 5 条（故意乱序输入）：严格只识别按时间最早的前 3 条
+  const burstComments = [
+    { id: 'c4', body: '第 4 条（应忽略）', createdAt: new Date(t0 + 40 * min).toISOString(), authorLogin: 'visitor_a', authorAssociation: 'NONE' },
+    { id: 'c2', body: '第 2 条', createdAt: new Date(t0 + 15 * min).toISOString(), authorLogin: 'visitor_a', authorAssociation: 'NONE' },
+    { id: 'c5', body: '第 5 条（应忽略）', createdAt: new Date(t0 + 50 * min).toISOString(), authorLogin: 'visitor_a', authorAssociation: 'NONE' },
+    { id: 'c1', body: '第 1 条', createdAt: new Date(t0 + 5 * min).toISOString(), authorLogin: 'visitor_a', authorAssociation: 'NONE' },
+    { id: 'c3', body: '第 3 条', createdAt: new Date(t0 + 25 * min).toISOString(), authorLogin: 'visitor_a', authorAssociation: 'NONE' },
+  ]
+  const recognizedHour = filterRecognizedEchoes(burstComments, { repoOwner: 'lrbkdgw' })
+  assert.deepEqual(
+    recognizedHour.map((item) => item.text),
+    ['第 1 条', '第 2 条', '第 3 条'],
+    '同一小时超出 3 条时应仅识别最早发送的前 3 条',
+  )
+
+  // 2) 普通访客一天内分 4 个独立小时共发送 12 条（每小时 3 条）：严格只识别当天前 10 条
+  const dailyComments = []
+  for (let h = 0; h < 4; h++) {
+    for (let k = 0; k < 3; k++) {
+      const idx = h * 3 + k + 1
+      dailyComments.push({
+        id: `d${idx}`,
+        body: `当日第 ${idx} 条`,
+        createdAt: new Date(t0 + h * 2 * hour + k * 10 * min).toISOString(),
+        authorLogin: 'visitor_b',
+        authorAssociation: 'NONE',
+      })
+    }
+  }
+  const recognizedDay = filterRecognizedEchoes(dailyComments, { repoOwner: 'lrbkdgw' })
+  assert.equal(recognizedDay.length, 10, '24 小时内最多识别前 10 条')
+  assert.equal(recognizedDay[9].text, '当日第 10 条')
+
+  // 3) 仓库贡献者（OWNER / CONTRIBUTOR / contributorLogins 列表）完全不受限制
+  const contributorComments = Array.from({ length: 15 }, (_, i) => ({
+    id: `owner-${i + 1}`,
+    body: `贡献者回声 ${i + 1}`,
+    createdAt: new Date(t0 + i * min).toISOString(),
+    authorLogin: 'commit_helper',
+    authorAssociation: 'NONE',
+  }))
+  const recognizedContributor = filterRecognizedEchoes(contributorComments, {
+    repoOwner: 'lrbkdgw',
+    contributorLogins: new Set(['commit_helper']),
+  })
+  assert.equal(recognizedContributor.length, 15, '仓库贡献者发送任意条均应全部识别')
+
+    // 4) 经匿名中继写入（即使 GitHub 令牌账号为 OWNER）仍按匿名访客严格限制每小时 3 条
+    const relayedComments = Array.from({ length: 5 }, (_, i) => ({
+      id: `relay-${i + 1}`,
+      body: `匿名留言 ${i + 1}\n\n<${'!--'} echo-sender:anon:abcdef012345 -->`,
+      createdAt: new Date(t0 + i * 5 * min).toISOString(),
+      authorLogin: 'lrbkdgw',
+      authorAssociation: 'OWNER',
+    }))
+    const recognizedRelay = filterRecognizedEchoes(relayedComments, { repoOwner: 'lrbkdgw' })
+    assert.deepEqual(
+      recognizedRelay.map((item) => item.text),
+      ['匿名留言 1', '匿名留言 2', '匿名留言 3'],
+      '匿名中继访客仍受每小时前 3 条识别限制且不泄露 HTML 标记',
+    )
+
+    // 5) 无重复轮播选择器：即使 Discussions 只有 1 条留言且一言偶发返回重复文本，连续点击 30 次严格零重复
+    const deck = echoCaveMod.createEchoDeck()
+    deck.setDiscussionEchoes([
+      { id: 'disc-only-1', text: '唯一一条社区留言', source: 'discussion' },
+    ])
+    assert.equal(deck.pushHitokoto({ id: 'h1', text: '重复缓存一言', source: 'hitokoto' }), true)
+    assert.equal(deck.pushHitokoto({ id: 'h2', text: '重复缓存一言', source: 'hitokoto' }), false)
+
+    const picked30 = []
+    let prevText
+    for (let i = 0; i < 30; i++) {
+      const next = deck.next(prevText)
+      picked30.push(next.text)
+      prevText = next.text
+    }
+    assert.equal(
+      new Set(picked30).size,
+      30,
+      `连续点击 30 次不应出现任何重复内容，实际去重数：${new Set(picked30).size}`,
+    )
+})
+
+test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景、逐字出现、箭头发送按钮与无多余按键交互', async () => {
+  const harnessEntry = join(root, 'node_modules/.cache/echo-cave-test-harness.tsx')
+  const { mkdirSync, writeFileSync } = await import('node:fs')
+  mkdirSync(dirname(harnessEntry), { recursive: true })
+  writeFileSync(
+    harnessEntry,
+    `
+      import React from 'react'
+      import { createRoot } from 'react-dom/client'
+      import { MemoryRouter } from 'react-router-dom'
+      import { ThemeProvider } from '../../src/lib/theme'
+      import { BackgroundProvider } from '../../src/lib/background'
+      import { AuthProvider } from '../../src/lib/auth'
+      import { ToastProvider } from '../../src/components/Toast'
+      import { setAnimatedScene, setAnimatedSceneOverride } from '../../src/lib/animatedBackground'
+      import App from '../../src/App'
+      export {
+        React,
+        createRoot,
+        MemoryRouter,
+        ThemeProvider,
+        BackgroundProvider,
+        AuthProvider,
+        ToastProvider,
+        setAnimatedScene,
+        setAnimatedSceneOverride,
+        App,
+      }
+    `,
+    'utf8',
+  )
+
+  const bundled = await build({
+    entryPoints: [harnessEntry],
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    plugins: [
+      {
+        name: 'vite-raw-md',
+        setup(b) {
+          b.onResolve({ filter: /\?raw$/ }, (args) => ({
+            path: join(root, args.path.replace(/^\//, '').replace(/\?raw$/, '')),
+          }))
+        },
+      },
+    ],
+    loader: {
+      '.jpg': 'dataurl',
+      '.png': 'dataurl',
+      '.svg': 'dataurl',
+      '.md': 'text',
+    },
+    define: {
+      'process.env.NODE_ENV': '"production"',
+      __STARLOG_OFFLINE__: 'false',
+    },
+  })
+  const { pathToFileURL } = await import('node:url')
+  const bundlePath = join(dirname(harnessEntry), 'echo-cave-test-bundle.mjs')
+  writeFileSync(bundlePath, bundled.outputFiles[0].text, 'utf8')
+  const {
+    React,
+    createRoot,
+    MemoryRouter,
+    ThemeProvider,
+    BackgroundProvider,
+    AuthProvider,
+    ToastProvider,
+    setAnimatedScene,
+    setAnimatedSceneOverride,
+    App,
+  } = await import(pathToFileURL(bundlePath).href)
+
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+    url: 'https://blog-apa.pages.dev/',
+    pretendToBeVisual: true,
+  })
+
+  const savedComments = [
+    {
+      id: 101,
+      node_id: 'DC_101',
+      body: '来自 Discussions 的第一声回响',
+      created_at: '2026-10-22T06:00:00Z',
+      author_association: 'NONE',
+      user: { login: 'alice' },
+    },
+  ]
+  let hitokotoSeq = 0
+
+  const prevGlobals = {
+    window: globalThis.window,
+    document: globalThis.document,
+    localStorage: globalThis.localStorage,
+    sessionStorage: globalThis.sessionStorage,
+    HTMLElement: globalThis.HTMLElement,
+    SVGElement: globalThis.SVGElement,
+    Node: globalThis.Node,
+    MutationObserver: globalThis.MutationObserver,
+    ResizeObserver: globalThis.ResizeObserver,
+    matchMedia: globalThis.matchMedia,
+    requestAnimationFrame: globalThis.requestAnimationFrame,
+    cancelAnimationFrame: globalThis.cancelAnimationFrame,
+    fetch: globalThis.fetch,
+    DOMParser: globalThis.DOMParser,
+    CustomEvent: globalThis.CustomEvent,
+    Event: globalThis.Event,
+  }
+
+  globalThis.window = dom.window
+  globalThis.document = dom.window.document
+  globalThis.localStorage = dom.window.localStorage
+  globalThis.sessionStorage = dom.window.sessionStorage
+  globalThis.HTMLElement = dom.window.HTMLElement
+  globalThis.SVGElement = dom.window.SVGElement
+  globalThis.Node = dom.window.Node
+  globalThis.MutationObserver = dom.window.MutationObserver
+  globalThis.DOMParser = dom.window.DOMParser
+  globalThis.CustomEvent = dom.window.CustomEvent
+  globalThis.Event = dom.window.Event
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  dom.window.matchMedia = () => ({
+    matches: false,
+    addListener() {},
+    removeListener() {},
+    addEventListener() {},
+    removeEventListener() {},
+  })
+  globalThis.matchMedia = dom.window.matchMedia
+  dom.window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16)
+  dom.window.cancelAnimationFrame = (id) => clearTimeout(id)
+  globalThis.requestAnimationFrame = dom.window.requestAnimationFrame
+  globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame
+  dom.window.scrollTo = () => {}
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input)
+    if (url.includes('/discussions?')) {
+      return new Response(
+        JSON.stringify([{ number: 99, node_id: 'D_99', title: '回声洞', body: '' }]),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    if (url.includes('/contributors?')) {
+      return new Response(JSON.stringify([{ login: 'lrbkdgw' }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (url.includes('/discussions/99/comments')) {
+      return new Response(JSON.stringify(savedComments), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (url.includes('hitokoto.cn')) {
+      hitokotoSeq += 1
+      return new Response(
+        JSON.stringify({
+          id: hitokotoSeq,
+          hitokoto: `一言测试语句 #${hitokotoSeq}`,
+          from: '星野集',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    if (url === '/api/echo' && init?.method === 'POST') {
+      const payload = JSON.parse(String(init.body || '{}'))
+      return new Response(
+        JSON.stringify({
+          comment: {
+            id: 'DC_NEW_1',
+            body: payload.text,
+            createdAt: new Date().toISOString(),
+            authorLogin: null,
+            authorAssociation: 'NONE',
+          },
+          recognized: true,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    return new Response('{}', { status: 404 })
+  }
+
+  const container = dom.window.document.getElementById('root')
+  const reactRoot = createRoot(container)
+  dom.window.HTMLCanvasElement.prototype.getContext = (kind) =>
+    kind === '2d' ? makeMock2dContext([], []) : null
+
+  try {
+    // 模拟用户在设置页选择了动态背景「樱花」，即便此前某篇文章留下 ::set-background[0] 覆盖，回声洞也必须展示用户自己选择的背景
+    setAnimatedScene('sakura')
+    setAnimatedSceneOverride('none')
+
+    reactRoot.render(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ['/toolbox'] },
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(
+            AuthProvider,
+            null,
+            React.createElement(
+              BackgroundProvider,
+              null,
+              React.createElement(ToastProvider, null, React.createElement(App)),
+            ),
+          ),
+        ),
+      ),
+    )
+
+    await new Promise((r) => setTimeout(r, 120))
+
+    // 1) 顶栏存在「百宝箱」页签，页面中仅展示「回声洞」模块入口
+    const header = container.querySelector('header.site-header')
+    assert.ok(header, '/toolbox 页面应正常渲染顶部导航栏')
+    assert.match(header.textContent || '', /百宝箱/, '顶部导航栏应包含「百宝箱」页签')
+
+    const echoLink = container.querySelector('a[href="/toolbox/echo"]')
+    assert.ok(echoLink, '百宝箱页面应包含指向 /toolbox/echo 的「回声洞」入口')
+    assert.match(echoLink.textContent || '', /回声洞/)
+
+    // 2) 点击进入回声洞：完全独占全屏，展示用户选择的背景，没有任何多余按键，底部只有一条横线和一个箭头发送按钮
+    echoLink.click()
+    await new Promise((r) => setTimeout(r, 120))
+
+    assert.equal(container.querySelectorAll('header').length, 0, '回声洞页面不应渲染顶栏 <header>')
+    assert.equal(container.querySelectorAll('footer').length, 0, '回声洞页面不应渲染底栏 <footer>')
+    assert.ok(container.querySelector('canvas'), '回声洞页面应完整渲染用户选择的动态背景画布（忽略文章级覆盖）')
+
+    const fullscreenRoot = container.querySelector('[data-echo-cave-fullscreen]')
+    assert.ok(fullscreenRoot, '应渲染独占全屏的回声洞容器')
+    assert.match(fullscreenRoot.className, /\bbg-transparent\b/, '全屏容器应透明透出用户所选背景')
+
+    const allButtons = [...container.querySelectorAll('button')]
+    assert.equal(allButtons.length, 1, '整个回声洞页面必须严格只有一个发送按钮，没有任何其他按键')
+    assert.ok(allButtons[0].querySelector('svg'), '发送按钮应为箭头图标')
+    assert.equal(allButtons[0].textContent?.trim(), '', '箭头发送按钮不应残留多余文字')
+
+    const allInputs = [...container.querySelectorAll('input')]
+    assert.equal(allInputs.length, 1, '底部必须只有一条独立输入横线')
+    assert.match(allInputs[0].className, /\bborder-b\b/, '输入控件应为底部横线样式')
+    assert.match(allInputs[0].className, /\bborder-0\b/, '输入控件不应有四周边框盒')
+
+    // 3) 验证 v2 双通道消散引擎（FBM 分形侵蚀场 + WebGL2 双 Pass GPU 着色器管线 + Canvas2D 28 层 Thanos Dust 兜底）
+    const sampleN = echoAshMod.fbm2D(1.25, 2.75, 42, 3)
+    assert.ok(sampleN >= 0 && sampleN <= 1, `fbm2D 应归一化在 [0,1]，实际 ${sampleN}`)
+    const sampleN2 = echoAshMod.fbm2D(1.26, 2.75, 42, 3)
+    assert.ok(Math.abs(sampleN - sampleN2) < 0.05, 'fbm2D 相邻采样应保持平滑连续以形成丝带状风场')
+
+    // 验证 40,000+ 亚像素墨点自动按 32,768 安全分片、左->右有机侵蚀阈值单调性与右上扬升风场向量
+    const syntheticW = 400
+    const syntheticH = 120
+    const syntheticPixels = new Uint8ClampedArray(syntheticW * syntheticH * 4)
+    for (let i = 0; i < 40_000; i += 1) {
+      syntheticPixels[i * 4] = 24
+      syntheticPixels[i * 4 + 1] = 24
+      syntheticPixels[i * 4 + 2] = 27
+      syntheticPixels[i * 4 + 3] = 255
+    }
+    const field = echoAshMod.buildAshParticleField(syntheticPixels, syntheticW, syntheticH, 2, 2026)
+    assert.equal(field.blockSize, 1, '常规与长句墨点均应保持 1px 亚像素级精细颗粒度')
+    assert.equal(field.particleCount, 40_000, '所有可见墨点纹素均应无遗漏转换为独立微粒')
+    assert.equal(field.chunks.length, 2, '超过 32,768 微粒时应按 Safari Metal 安全上限自动分片')
+    assert.equal(field.chunks[0].count, 32_768)
+    assert.equal(field.chunks[1].count, 7_232)
+    assert.ok(
+      field.thresholdMap[syntheticW - 1] > field.thresholdMap[0],
+      '侵蚀阈值图应保持从左向右推进的自然风向梯度',
+    )
+    assert.ok(field.chunks[0].data[3] > 0 && field.chunks[0].data[4] < 0, '粒子流线速度场应向右上方自然飘升')
+
+    // 验证 WebGL2 双 Pass GPU 着色器管线（GLSL 全部 attribute / uniform 严格对齐、首帧 progress===0 零接缝交接与零显存泄漏）
+    {
+      const glCanvas = dom.window.document.createElement('canvas')
+      const livePrograms = new Set()
+      const liveShaders = new Set()
+      const liveBuffers = new Set()
+      const liveVaos = new Set()
+      const liveTextures = new Set()
+      const progressHistory = []
+      const drawCalls = []
+      let lostCalled = false
+      let idSeq = 1
+
+      glCanvas.getContext = (kind) => {
+        if (kind !== 'webgl2') return null
+        return {
+          VERTEX_SHADER: 0x8b31,
+          FRAGMENT_SHADER: 0x8b30,
+          COMPILE_STATUS: 0x8b81,
+          LINK_STATUS: 0x8b82,
+          ARRAY_BUFFER: 0x8892,
+          STATIC_DRAW: 0x88e4,
+          FLOAT: 0x1406,
+          BLEND: 0x0be2,
+          ONE: 1,
+          ONE_MINUS_SRC_ALPHA: 0x0303,
+          COLOR_BUFFER_BIT: 0x4000,
+          TEXTURE0: 0x84c0,
+          TEXTURE1: 0x84c1,
+          TEXTURE_2D: 0x0de1,
+          TEXTURE_WRAP_S: 0x2802,
+          TEXTURE_WRAP_T: 0x2803,
+          TEXTURE_MIN_FILTER: 0x2801,
+          TEXTURE_MAG_FILTER: 0x2800,
+          CLAMP_TO_EDGE: 0x812f,
+          LINEAR: 0x2601,
+          NEAREST: 0x2600,
+          UNPACK_PREMULTIPLY_ALPHA_WEBGL: 0x9241,
+          UNPACK_ALIGNMENT: 0x0cf5,
+          RGBA: 0x1908,
+          R8: 0x8229,
+          RED: 0x1903,
+          UNSIGNED_BYTE: 0x1401,
+          TRIANGLE_STRIP: 0x0005,
+          POINTS: 0x0000,
+          createShader(type) {
+            const sh = { id: idSeq++, type, src: '' }
+            liveShaders.add(sh)
+            return sh
+          },
+          shaderSource(sh, src) {
+            sh.src = src
+          },
+          compileShader(sh) {
+            assert.match(sh.src, /^#version 300 es/, 'WebGL2 着色器必须声明 #version 300 es')
+          },
+          getShaderParameter() {
+            return true
+          },
+          deleteShader(sh) {
+            liveShaders.delete(sh)
+          },
+          createProgram() {
+            const prog = { id: idSeq++, shaders: [] }
+            livePrograms.add(prog)
+            return prog
+          },
+          attachShader(prog, sh) {
+            prog.shaders.push(sh.src)
+          },
+          linkProgram() {},
+          getProgramParameter() {
+            return true
+          },
+          deleteProgram(prog) {
+            livePrograms.delete(prog)
+          },
+          getUniformLocation(prog, name) {
+            const combined = prog.shaders.join('\n')
+            assert.ok(
+              new RegExp(`uniform\\s+\\w+\\s+${name}\\b`).test(combined),
+              `着色器未声明 uniform "${name}"`,
+            )
+            return { name }
+          },
+          createVertexArray() {
+            const vao = { id: idSeq++ }
+            liveVaos.add(vao)
+            return vao
+          },
+          deleteVertexArray(vao) {
+            liveVaos.delete(vao)
+          },
+          bindVertexArray() {},
+          createBuffer() {
+            const buf = { id: idSeq++ }
+            liveBuffers.add(buf)
+            return buf
+          },
+          deleteBuffer(buf) {
+            liveBuffers.delete(buf)
+          },
+          bindBuffer() {},
+          bufferData() {},
+          enableVertexAttribArray() {},
+          vertexAttribPointer(_idx, size, _type, _norm, stride, offset) {
+            if (stride > 0) {
+              assert.equal(stride, 36, '粒子交错顶点缓冲步长必须严格为 9 * 4 = 36 字节')
+              assert.ok(offset + size * 4 <= 36, '顶点属性偏移不得越界')
+            }
+          },
+          createTexture() {
+            const tex = { id: idSeq++ }
+            liveTextures.add(tex)
+            return tex
+          },
+          deleteTexture(tex) {
+            liveTextures.delete(tex)
+          },
+          activeTexture() {},
+          bindTexture() {},
+          texParameteri() {},
+          pixelStorei() {},
+          texImage2D() {},
+          enable() {},
+          blendFunc() {},
+          viewport() {},
+          clearColor() {},
+          clear() {},
+          useProgram() {},
+          uniform1f(loc, v) {
+            if (loc?.name === 'u_progress') progressHistory.push(v)
+          },
+          uniform1i() {},
+          uniform2f() {},
+          uniform3f() {},
+          drawArrays(mode, _first, count) {
+            drawCalls.push({ mode, count })
+          },
+          getExtension(name) {
+            return name === 'WEBGL_lose_context' ? { loseContext: () => { lostCalled = true } } : null
+          },
+        }
+      }
+
+      const glCtrl = echoAshMod.attachEchoAshCanvas(glCanvas)
+      assert.equal(glCtrl.backend, 'webgl2', '支持 WebGL2 时应自动启用 GPU 粒子着色器后端')
+      assert.equal(liveShaders.size, 0, '链接完成后临时 Shader 对象应立即释放')
+      assert.equal(livePrograms.size, 1, '应编译 GPU 粒子流线着色器程序（底图直接由原 DOM 分形遮罩零位移承载）')
+
+      await new Promise((r) => setTimeout(r, 1150))
+      const liveSentenceEl = fullscreenRoot.querySelector('[data-echo-sentence]')
+      assert.ok(liveSentenceEl, '首句 DOM 节点应已就绪可供 GPU 快照测试')
+      const spawned = glCtrl.disintegrateFromElement(liveSentenceEl)
+      assert.ok(spawned > 50, `WebGL2 后端应生成充足亚像素粒子，实际 ${spawned}`)
+      assert.equal(progressHistory[0], 0, '首帧 u_progress 必须严格等于 0 以实现原字迹 100% 零接缝交接')
+      assert.equal(
+        liveSentenceEl.style.maskPosition,
+        '100.000% 0%',
+        '首帧原 DOM 遮罩位置必须为 100% 满不透明，彻底杜绝首帧任何像素瞬移',
+      )
+      assert.ok(drawCalls.some((d) => d.mode === 0x0000 && d.count === spawned), '应执行 GPU POINTS 亚像素粒子绘制')
+
+      glCtrl.destroy()
+      assert.equal(liveSentenceEl.style.maskPosition, '', 'destroy() 后应彻底还原原 DOM 节点遮罩样式')
+      assert.equal(liveTextures.size, 0, 'destroy() 后所有 GPU 纹理必须零泄漏释放')
+      assert.equal(liveBuffers.size, 0, 'destroy() 后所有 GPU 缓冲必须零泄漏释放')
+      assert.equal(liveVaos.size, 0, 'destroy() 后所有 VAO 必须零泄漏释放')
+      assert.equal(livePrograms.size, 0, 'destroy() 后所有 GPU Program 必须零泄漏释放')
+      assert.equal(lostCalled, true, 'destroy() 后应主动归还 WebGL 上下文')
+    }
+
+    const ashCanvas = fullscreenRoot.querySelector('canvas[data-echo-ash-canvas]')
+    assert.ok(ashCanvas, '回声洞应挂载全屏骨灰消散粒子画布')
+
+    const reverseFlips = []
+    const prematureMountFlashes = []
+    const antiFlashObserver = new dom.window.MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (
+          m.type === 'attributes' &&
+          m.attributeName === 'data-char-shown' &&
+          m.oldValue === 'true' &&
+          m.target.getAttribute('data-char-shown') === 'false'
+        ) {
+          reverseFlips.push(m.target.textContent)
+        }
+        if (m.type === 'childList') {
+          for (const node of m.addedNodes) {
+            if (node.nodeType === 1 && node.matches?.('[data-echo-sentence]')) {
+              const shownOnMount = node.querySelectorAll('[data-char-shown="true"]').length
+              if (shownOnMount > 0) {
+                prematureMountFlashes.push(shownOnMount)
+              }
+            }
+          }
+        }
+      }
+    })
+    antiFlashObserver.observe(fullscreenRoot, {
+      attributes: true,
+      attributeOldValue: true,
+      childList: true,
+      subtree: true,
+    })
+
+    const firstSentenceText = fullscreenRoot.querySelector('p')?.textContent?.trim()
+    assert.ok(firstSentenceText, '首句应正常显示')
+    assert.equal(
+      fullscreenRoot.querySelectorAll('[data-char-shown="true"]').length,
+      fullscreenRoot.querySelectorAll('[data-char-shown]').length,
+      '首句应在点击前已完整显现',
+    )
+
+    // 点击切换到下一句：阶段一（0 ~ ASH_EXIT_STAGE_MS）原句 DOM 保持原位零瞬移并经分形遮罩左->右蚕食化灰，下一句尚未登场
+    fullscreenRoot.click()
+    await Promise.resolve()
+    const exitingWrap = fullscreenRoot.querySelector('[data-echo-exiting="true"]')
+    assert.ok(exitingWrap, '点击后应立即进入骨灰消散退场阶段（data-echo-exiting="true"）')
+    const exitingSentence = fullscreenRoot.querySelector('[data-echo-sentence]')
+    assert.ok(exitingSentence, '退场期间原 DOM 节点保持原位挂载并通过遮罩擦除，彻底根绝 Canvas 重绘造成的向右瞬移')
+    assert.equal(
+      exitingSentence.querySelector('p')?.textContent?.trim(),
+      firstSentenceText,
+      '退场阶段舞台上仍为正在蚕食退场的上一句，下一句绝不应提前出现',
+    )
+    assert.equal(exitingSentence.style.maskPosition, '100.000% 0%', '点击首帧原句遮罩为 100% 无损原位显示')
+    assert.equal(ashCanvas.dataset.ashActive, 'true', '点击瞬间骨灰粒子画布应立即激活飞出细灰')
+    assert.ok(
+      Number(ashCanvas.dataset.ashParticles || '0') > 50,
+      `应从上一句采样生成充足的骨灰粒子，实际粒子数：${ashCanvas.dataset.ashParticles}`,
+    )
+
+    // 退场中途（200ms）：分形遮罩已无延迟向左推进蚕食原句，且下一句仍未提前登场
+    await new Promise((r) => setTimeout(r, 200))
+    assert.notEqual(
+      exitingSentence.style.maskPosition,
+      '100.000% 0%',
+      '点击后应立即开始推进分形遮罩消散，无任何停顿等待',
+    )
+    assert.equal(
+      fullscreenRoot.querySelector('[data-echo-exiting]')?.getAttribute('data-echo-exiting'),
+      'true',
+      '骨灰消散退场尚未结束时不应提前显示下一句',
+    )
+
+    // 阶段二：等待骨灰消散下场完成（ASH_EXIT_STAGE_MS），下一句正式登场并从第 1 字起逐字浮现
+    await new Promise((r) => setTimeout(r, echoAshMod.ASH_EXIT_STAGE_MS - 200 + 35))
+    assert.equal(fullscreenRoot.querySelector('[data-echo-exiting]')?.getAttribute('data-echo-exiting'), 'false')
+    const secondSentenceText = fullscreenRoot.querySelector('p')?.textContent?.trim()
+    assert.ok(secondSentenceText && secondSentenceText !== firstSentenceText, '退场完成后应切换显示全新的下一句')
+    const allSpansInitial = fullscreenRoot.querySelectorAll('[data-char-shown]')
+    const shownInitial = fullscreenRoot.querySelectorAll('[data-char-shown="true"]')
+    assert.ok(allSpansInitial.length > 2, '回声句子应拆分为独立字符节点以逐字显现')
+    assert.ok(
+      shownInitial.length >= 1 && shownInitial.length < allSpansInitial.length,
+      `下一句登场初期应处于逐字浮现过程中（已显 ${shownInitial.length} / 总计 ${allSpansInitial.length}）`,
+    )
+    await new Promise((r) => setTimeout(r, 1150))
+    assert.equal(
+      fullscreenRoot.querySelectorAll('[data-char-shown="true"]').length,
+      fullscreenRoot.querySelectorAll('[data-char-shown]').length,
+      '逐字动画结束后整句字符应全部显现',
+    )
+
+    // 验证连续切换 12 句（含快速连点加速残灰立即呈上下一句）：严格无重复、无首帧闪现、无回退消失
+    const clickedHistory = []
+    for (let i = 0; i < 12; i++) {
+      // 第 1 击触发当前句化灰退场，紧接第 2 击验证快速连点可加速残灰并立即呈上下一句
+      fullscreenRoot.click()
+      await Promise.resolve()
+      fullscreenRoot.click()
+      await Promise.resolve()
+      assert.equal(
+        fullscreenRoot.querySelectorAll('[data-char-shown="true"]').length,
+        0,
+        `第 ${i + 1} 次切换新句挂载首帧必须严格从 0 字开始显现`,
+      )
+      await new Promise((r) => setTimeout(r, 30))
+      clickedHistory.push(fullscreenRoot.querySelector('p')?.textContent?.trim())
+    }
+    assert.equal(
+      new Set(clickedHistory).size,
+      clickedHistory.length,
+      `连续切换 12 句不应出现任何重复句子，实际序列：${JSON.stringify(clickedHistory)}`,
+    )
+    assert.equal(
+      prematureMountFlashes.length,
+      0,
+      `新句子挂载首帧不应有任何字符提前显现，实际异常：${JSON.stringify(prematureMountFlashes)}`,
+    )
+    assert.equal(
+      reverseFlips.length,
+      0,
+      `任何字符显现后绝不应回退消失（true -> false），实际异常：${JSON.stringify(reverseFlips)}`,
+    )
+    antiFlashObserver.disconnect()
+
+    // 4) 在底部横线输入内容并点击箭头按钮：同样先让旧句化灰下场，再逐字浮现刚发送的新回声
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      dom.window.HTMLInputElement.prototype,
+      'value',
+    ).set
+    allInputs[0]._valueTracker?.setValue('')
+    nativeInputValueSetter.call(allInputs[0], '今晚的风很轻')
+    allInputs[0].dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    allInputs[0].dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 25))
+
+    allButtons[0].click()
+    await new Promise((r) => setTimeout(r, 60))
+
+    assert.equal(allInputs[0].value, '', '发送成功后底部横线应清空')
+    assert.equal(ashCanvas.dataset.ashActive, 'true', '发送新回声时上一句同样应先化灰消散退场')
+    await new Promise((r) => setTimeout(r, echoAshMod.ASH_EXIT_STAGE_MS + 40))
+    assert.equal(
+      fullscreenRoot.querySelector('p')?.textContent?.trim(),
+      '今晚的风很轻',
+      '上一句化灰下场后应显示刚写入 Discussions 的回声',
+    )
+    assert.equal(
+      container.querySelectorAll('button').length,
+      1,
+      '发送成功后全页仍应严格保持仅有一个发送按钮',
+    )
+  } finally {
+    reactRoot.unmount()
+    await new Promise((r) => setTimeout(r, 35))
+    dom.window.close()
+    Object.assign(globalThis, prevGlobals)
+  }
+})
+
 
