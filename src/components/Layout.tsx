@@ -33,8 +33,6 @@ const NAV = [
   { to: '/', label: '首页', end: true },
   { to: '/archive', label: '归档' },
   { to: '/tags', label: '标签' },
-  // 百宝箱（issue #93）：站内小工具集合；子页面 /toolbox/… 下此页签保持高亮
-  { to: '/toolbox', label: '百宝箱' },
   { to: '/about', label: '帮助' },
 ]
 
@@ -171,14 +169,14 @@ function Header({ onSearch }: { onSearch: () => void }) {
       <div className="container-page flex h-16 items-center gap-3">
         <Logo />
 
-        <nav className="ml-1 hidden items-center gap-0.5 md:flex lg:ml-3 lg:gap-1">
+        <nav className="ml-3 hidden items-center gap-1 md:flex">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.end}
               className={({ isActive }) =>
-                `relative whitespace-nowrap rounded-lg px-2 py-1.5 text-sm font-medium transition lg:px-3 ${
+                `relative rounded-lg px-3 py-1.5 text-sm font-medium transition ${
                   isActive
                     ? 'text-brand-600 dark:text-brand-300 dark:[text-shadow:0_1px_12px_rgba(0,0,0,0.65)]'
                     : 'text-ink-500 hover:text-ink-900 dark:text-ink-200/95 dark:hover:text-white dark:[text-shadow:0_1px_12px_rgba(0,0,0,0.65)]'
@@ -189,7 +187,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
                 <>
                   {item.label}
                   {isActive && (
-                    <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-brand-400 to-indigo-500 lg:inset-x-3" />
+                    <span className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-brand-400 to-indigo-500" />
                   )}
                 </>
               )}

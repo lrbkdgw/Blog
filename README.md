@@ -29,7 +29,6 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 📐 **直角坐标系** | `::begin_ui-ccs … ::end_ui-ccs` 语法支持描点、多点折线与函数曲线（如 `create_line:(7*x^2+6*x+90*x^3);`），可拖拽平移、滚轮/双指缩放预览整个平面（issue #76） |
 | 🕸️ **图论画布** | `::begin_ui-graph[<附加项>] … ::end_ui-graph` 延续直角坐标系同款视觉与拖拽平移/滚轮缩放交互，支持 `dag` 有向边、可选边权与坐标、未声明端点自动创建，并在站内编辑器中支持**「调整模式」**可视化拖拽节点并直接写回 Markdown 源码保存（issue #83） |
 | 📄 **文章排版指令** | 文首 `::set-font` / `::set-code-font` / `::set-background` 强制本文的字体与动态背景，仅在阅读本文时生效 |
-| 🧰 **百宝箱 · 回声洞** | 顶部新增「百宝箱」页签，内有「回声洞」：不断点击即可随机听一句访客留言或 hitokoto 一言；任何人在页面下方横线上留一句即保存到 GitHub Discussions，非贡献者每小时只识别前 3 条、每天前 10 条，仓库贡献者不限（issue #93） |
 | 📱 **响应式** | 手机 / 平板 / 桌面均已适配，支持打印样式 |
 | 🧭 **全透明页头 + 全站防冲突让路** | 页头不铺底色、不加毛玻璃、不描边、不投影，背景原样透出；**全站所有页面**滚进顶栏前在页头下沿下方提前沿多控制点 Hermite S 曲线柔和消融（`src/lib/headerYield.ts`，含深色模式感知明度伽马补偿），字不与导航打架、背景一像素不动（issue #53 / #63 / #71 / #78） |
 | 📴 **离线单文件版** | 整站打包成一个 HTML，**完全不联网**也能阅读与写作（含加密文章、本机版本历史）；要回线上用「文章包」导入（见「📴 离线版」） |
@@ -482,29 +481,6 @@ $\texttt{吃}$！
 字体通过作用域 CSS 变量 + 容器 `font-family` 局部生效，背景经
 `src/lib/animatedBackground.ts` 的内存级 `setAnimatedSceneOverride` 临时覆盖 Layout 的背景层。
 
-## 🧰 百宝箱与回声洞
-
-顶部导航的**百宝箱**页签（`/toolbox`）收纳文章之外的站内小工具（issue #93）。目前有 1 个模块：
-
-### 回声洞（`/toolbox/echo-cave`）
-
-一个「点一下、听一句」的小页面：不断点击洞壁（或「听一声回响」按钮，支持回车 / 空格），就会轮流传回随机的一句话，来源有二：
-
-| 来源 | 说明 |
-| --- | --- |
-| 💬 **访客回声** | 任何登录的 GitHub 用户在页面**下方的横线上**输入一句话发送，即公开保存到 GitHub Discussions 的固定帖 `[回声洞] 百宝箱回声洞` 中（一条回声 = 一条评论，靠隐藏标记 `starlog-echo-cave` 找回，帖子在第一次有人留声时自动创建）；也可以直接在该讨论帖下留言留声 |
-| ✨ **hitokoto 一言** | 公开接口 `https://v1.hitokoto.cn` 返回的随机一句话（附出处），无需登录；页面会预取并按「访客回声为主、每约 3 声穿插 1 声一言」混排，取不到时自动改听已有回声 |
-
-规则与实现要点：
-
-- **频率限制在「识别」侧执行**：每位非仓库贡献者作者，每个自然时只识别**最先发出的 3 条**、每个自然日只识别**最先发出的 10 条**（按读者本地时间分桶，两个上限同时生效）；超出的回声即使存在于 Discussions，也不会在站内被听到。发送时站内会按同一口径预先检查额度并显示「本小时 x/3 · 今天 y/10」。
-- **仓库贡献者不受限制**：口径为 GitHub 评论身份（`authorAssociation` 为 `OWNER` / `MEMBER` / `COLLABORATOR` / `CONTRIBUTOR`），本人额度另以仓库贡献者名单与推送权限校验（`checkIsRepoContributor`）。回声下方会为贡献者标注「贡献者」。
-- 单条最多 **200 字、纯文本展示**：直接到 GitHub 发的 Markdown 评论会被剥成一句纯文本并按上限截断；被维护者在 GitHub 上**最小化隐藏**（minimized）的评论永远不会被识别，删除则彻底消失——这就是回声洞的内容管理方式。
-- 展示使用**洗牌袋**（一袋之内不重复、换袋时不与上一声重复）；回声池为空、未登录或接口失败时，依次回退到一言与内置的「洞中旧声」，点击永远有回音。
-- 未登录访客可以一直听一言；要听 / 留访客回声需 GitHub 登录（Discussions 的 GraphQL 接口要求授权，与评论区一致）。
-- 代码分工：规则与混排在 `src/lib/echoCave.ts`（可单测），Discussions 读写在 `src/lib/github.ts`（`loadEchoCaveEntries` / `createEchoCaveDiscussion` / `addEchoCaveEntry`），页面在 `src/pages/Toolbox.tsx` 与 `src/pages/EchoCave.tsx`，参数（分类、帖子标题、3 / 10 上限与 200 字）在 `src/lib/config.ts` 的 `echoCaveConfig`。
-- **离线版**：百宝箱照常可进，但回声洞完全不联网——不读 Discussions、不调一言（端点常量按既有约定在离线构建里置空，`scripts/verify-offline.mjs` 额外硬检查产物里不出现 `v1.hitokoto.cn`），只回响保存在本机的句子（`starlog:echo-cave-local`）与「洞中旧声」。
-
 ## 🕓 历史版本与加密文章
 
 每次通过编辑器发布文章都会创建一个 Git commit，因此无需额外数据库即可保存完整历史。文章页“历史”按钮会列出该 Markdown 文件的每次提交，并可为任一版本**修改版本名称**（优先于提交信息显示，即更新该 Git 记录展示的名字）。修改名称会**加入待更新队列**，统一更新后保存到 GitHub 对应文章旁的 `content/posts/{slug}.versions.json`，构建后所有访客可见；未更新前名称先记录在本浏览器立即生效。同一文章的多次改名合并为一条队列条目，恢复默认（留空保存）会删除对应名称，删除文章时该名称文件也会一并清理。查看某个历史版本后点“编辑”时，若现有文章（含内容）完全一致就进入对应编辑页，否则会新建一份已填充该历史内容的本地草稿。
@@ -563,9 +539,8 @@ $\texttt{吃}$！
 │   │   ├── themes.ts              # 配色主题元数据（真实色卡在 styles/index.css）
 │   │   ├── articleDirectives.ts   # 文首排版指令 ::set-font / ::set-code-font / ::set-background
 │   │   ├── latexSymbols.ts        # LaTeX 符号目录（别名搜索，编辑器与 VS Code 插件共用）
-│   │   ├── echoCave.ts            # 百宝箱回声洞：3/时·10/日识别限流、文本清洗、洗牌袋与一言解析
 │   │   └── fontStacks.ts          # 默认字体栈（字体偏好与文章指令共用）
-│   ├── pages/                     # 首页 / 文章 / 归档 / 标签 / 百宝箱与回声洞 / 关于 / 登录 / 后台 / 编辑器
+│   ├── pages/                     # 首页 / 文章 / 归档 / 标签 / 关于 / 登录 / 后台 / 编辑器
 │   ├── styles/index.css           # Tailwind + 代码高亮 + 排版细节
 │   ├── App.tsx                    # 路由
 │   └── main.tsx                   # 入口
@@ -591,9 +566,8 @@ $\texttt{吃}$！
 - 本地构建：`npm run build:offline`（= `vite build --config vite.offline.config.ts` + 产物自检），
   想用浏览器先验证：`npm run preview:offline`；
 - 自检是**硬性**的：多余文件、残留相对引用、KaTeX 字体缺失、某篇文章没进包、内联脚本语法被破坏，
-  以及——`api.github.com` / `/graphql` / `login/device/code` / `fonts.googleapis.com` / OAuth Client ID /
-  `v1.hitokoto.cn`（回声洞的一言接口）任一字符串出现在产物里——都会让构建直接失败。
-  也就是说「离线版不联网」不是承诺，是可检查的事实。
+  以及——`api.github.com` / `/graphql` / `login/device/code` / `fonts.googleapis.com` / OAuth Client ID
+  任一字符串出现在产物里——都会让构建直接失败。也就是说「离线版不联网」不是承诺，是可检查的事实。
 
 ### 支持范围
 
@@ -604,7 +578,6 @@ $\texttt{吃}$！
 | ✅ 字体 | **只用本机已安装的字体**：不请求 Google Fonts，也不注入云端 `@font-face`；本机没有的字体名按默认字体栈显示 |
 | ✅ 写作 | 新建 / 编辑 / 自动保存 / 加密文章（浏览器 WebCrypto 本机加解密）/ 本机版本历史与差异对比 |
 | ✅ 评论 | 变成「本机笔记」：只写在这台设备上，任何情况下都不会提交到远端 |
-| 🧰 百宝箱 | 可以进，回声洞只回响本机留下的句子与内置句；不读 GitHub Discussions、不请求 hitokoto 一言 |
 | 📤 带走 | 编辑器里的「保存到在线网站的本地文章」或「管理 → 离线文章包 → 导出」生成 `*.starlog-import.json`；在线上站点「管理 → 离线文章包 → 导入离线文章包」选它，即写入该站点的本地文章列表 |
 | ❌ 没有 | GitHub 登录与授权、远程仓库读写、在线评论、PR 审批、远端 Git 历史版本、云端字体同步、远程图片加载、待更新队列提交 |
 
@@ -704,9 +677,6 @@ GitHub 的授权端点（`github.com/login/*`）不返回 CORS 头，浏览器�
 
 **评论保存在哪里？**
 每篇文章的评论会写入目标仓库的 GitHub Discussions（默认使用 `General` 分类），不再只存在当前浏览器。访客使用 GitHub 登录后即可加载、发表和按 GitHub 权限删除评论；目标仓库需要开启 Discussions。旧版本遗留的本机评论会继续显示迁移提示，但不会自动上传。
-
-**回声洞的内容保存在哪里？为什么我发的听不到？**
-百宝箱「回声洞」里访客留下的每一句都是 GitHub Discussions 固定帖 `[回声洞] 百宝箱回声洞` 下的一条公开评论（离线版例外：只存本机）。站内只「识别」每位非仓库贡献者每小时最先发出的 3 条、每天最先发出的 10 条，超出部分不会被展示；被维护者最小化隐藏或删除的回声也不会出现。要在站内听到访客回声需先 GitHub 登录，未登录时只能听 hitokoto 一言。详见「🧰 百宝箱与回声洞」一节。
 
 ---
 

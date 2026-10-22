@@ -1,43 +1,5 @@
 # 更新日志 · ChangeLog
 
-## 2026-10-21 · 顶部新增「百宝箱」页签与「回声洞」模块（#93）并同步重建离线单文件版
-
-| 模型信息 | |
-| --- | --- |
-| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
-| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
-| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
-
-### 背景
-
-- **Issue #93（添加功能）**：在顶部添加**百宝箱**页签；百宝箱中目前只有「回声洞」模块，点击进入单独页面，不断点击可以显示内容。显示内容来源有两处：①任何人在回声洞页面下方的横线上输入并发送的内容，保存到 GitHub Discussions——每小时最多 3 条、每天最多 10 条，超出时只识别每小时 / 每天最先发出的前 3 / 10 条，仓库贡献者不受限制；②hitokoto 一言。
-
-### 新增
-
-- **百宝箱页与顶部页签**（`src/pages/Toolbox.tsx`、`src/components/Layout.tsx`、`src/App.tsx`）：
-  - 顶部导航（桌面与移动菜单共用 `NAV`）在「标签」与「帮助」之间新增「百宝箱」页签，子页面下保持高亮；帮助页顶部同步加了一枚「百宝箱」快捷入口；
-  - 百宝箱页 `/toolbox` 以卡片列出站内小工具（`TOOLS` 数组驱动，后续加模块只需加一项与一条路由），目前含「回声洞」一张卡片，写明数据来源（GitHub Discussions / hitokoto 一言）；新路由 `/toolbox` 与 `/toolbox/echo-cave` 均按既有约定接入 `data-yield-list` 顶栏防冲突让位。
-- **回声洞页**（`src/pages/EchoCave.tsx`、`src/styles/index.css`）：
-  - 点击洞壁任意处（或「听一声回响 / 再听一声」按钮，回车 / 空格可用）即传回下一声：访客回声用洗牌袋轮播（一袋不重复、换袋不与上一声重复），hitokoto 一言按节奏穿插（回声池为空时全听一言、只有 1 条时交替、多条时每 3 声 1 声一言），并对下一条一言做预取缓冲；任一来源失败时自动回退到其它来源或内置「洞中旧声」，点击永不落空；
-  - 每声标注来源（访客回声 = 作者、相对时间与 GitHub 原文链接，贡献者带「贡献者」徽标；一言 = `《出处》 · 作者`），洞口有声波涟漪动画（`echo-ring`，`prefers-reduced-motion` 下静止）与已听计数、识别池说明、刷新与 Discussions 入口；
-  - 页面下方是一条「横线留言」：单行下划线输入框（`.echo-line-input`，200 字上限与字数提示）+ 发送按钮；登录用户发送后写入 GitHub Discussions 并立即听到自己的这一声，未登录显示登录引导（仍可一直听一言），表单下方实时显示额度（本小时 x/3 · 今天 y/10 或贡献者豁免说明）。
-- **回声规则与 Discussions 存储**（`src/lib/echoCave.ts`、`src/lib/github.ts`、`src/lib/config.ts`）：
-  - 配置集中到 `echoCaveConfig`（Discussions 分类 `General`、帖子标题 `[回声洞] 百宝箱回声洞`、每小时 3 / 每天 10 / 200 字上限）；全部回声共用一个固定讨论帖（一条回声 = 一条评论），靠隐藏标记 `starlog-echo-cave` 找回，首次有人留声时由 `createEchoCaveDiscussion` 自动建帖，读写分别为 `loadEchoCaveEntries` / `addEchoCaveEntry`，内部复用了文章评论已有的仓库与分类查询（`getDiscussionRepository` 增加分类参数、按标记查帖抽为 `findDiscussionByMarker`，评论查询新增 `isMinimized` 字段，原评论行为不变）；
-  - **频率限制在「识别」（展示）侧执行**：`filterRecognizedEchoes` 按读者本地时间把回声分进自然时 / 自然日桶，每位非贡献者作者每时只留最先的 3 条、每日只留最先的 10 条（两限同时生效），直接绕到 GitHub 刷屏也不会被听到；发送侧以同一口径用 `getEchoSendQuota` 预先拦截并提示原因；
-  - **仓库贡献者豁免**口径：评论自带的 `authorAssociation ∈ {OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR}`，当前用户另可经新增的 `checkIsRepoContributor` 以「仓库所有者 / 有推送权限 / 在贡献者名单内」判定；
-  - 纯文本化：直接写在 GitHub 的 Markdown 评论经 `toEchoPlainText` 剥掉图片、链接、代码块、HTML 与标记并按 200 字截断，被维护者最小化（minimized）的内容永不识别且不占作者名额——在 GitHub 上隐藏 / 删除评论即是回声洞的管理手段；
-  - hitokoto 在 `echoCave.ts` 按既有离线约定实现：端点常量 `OFFLINE ? '' : 'https://v1.hitokoto.cn'` + `OFFLINE / hasNetwork()` 双重拦截，返回经 `parseHitokoto` 校验，并整理出处。
-- **离线版本机模式**：离线版不读 Discussions、不调一言（`scripts/verify-offline.mjs` 的禁用串新增 `v1.hitokoto.cn` 硬检查），百宝箱与回声洞可照常进入，只回响本机保存的句子（新增存储键 `starlog:echo-cave-local`，与评论的「本机笔记」同理）与内置「洞中旧声」。
-
-### 文档
-
-- `README.md`：功能表新增「百宝箱 · 回声洞」行，新增「🧰 百宝箱与回声洞」整节（来源、限流口径、管理方式、代码分工与离线行为），目录结构补 `echoCave.ts`、离线自检与支持范围补一言端点与百宝箱说明，FAQ 新增「回声洞的内容保存在哪里？」一则；`content/about.md`（帮助页）内容组织表补百宝箱一行、使用指南新增「百宝箱与回声洞」小节。
-
-### 验证
-
-- `scripts/test-features.mjs` 新增第 6 组用例「Issue #93」：构造跨时跨日的多用户回声流，逐条断言只识别每时前 3 条 / 每日前 10 条与次日重置，贡献者（身份标记 / 所有者）全部豁免，被隐藏回声不出现且不占名额，发送额度的时限优先于日限、洗牌袋一袋不重复与换袋不接重复、一言穿插节奏、Markdown 清洗与 200 字截断、一言解析与出处整理，并以源码断言锁定导航页签、两条路由、一言端点的离线置空写法与自检禁用串；两组新页面同时加入全站顶栏让位文件清单。
-- `node --test scripts/test-features.mjs`（7 项）、`npm run extension:test`、`npm --prefix vscode_extensions/v1 run typecheck`、`npm run build` 全部通过；`npm run build:offline` 通过自检（13 篇内置文章、无任何在线端点，含一言），并将 `dist-offline/index.html` 同步到 `offline/index.html`。
-
 ## 2026-10-21 · 图论画布边权改为纯数字标注（#91）并同步重建离线单文件版
 
 | 模型信息 | |
