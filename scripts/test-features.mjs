@@ -102,6 +102,9 @@ function makeMock2dContext(strokeSink, drawSink) {
       }
       return { width: sw, height: sh, data: out }
     },
+    createImageData(sw, sh) {
+      return { width: sw, height: sh, data: new Uint8ClampedArray(sw * sh * 4) }
+    },
     putImageData() {},
     setTransform() {},
     bezierCurveTo() {},
@@ -1124,7 +1127,8 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
 
   const container = dom.window.document.getElementById('root')
   const reactRoot = createRoot(container)
-  dom.window.HTMLCanvasElement.prototype.getContext = () => makeMock2dContext([], [])
+  dom.window.HTMLCanvasElement.prototype.getContext = (kind) =>
+    kind === '2d' ? makeMock2dContext([], []) : null
 
   try {
     // 模拟用户在设置页选择了动态背景「樱花」，即便此前某篇文章留下 ::set-background[0] 覆盖，回声洞也必须展示用户自己选择的背景
@@ -1184,11 +1188,200 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
     assert.match(allInputs[0].className, /\bborder-b\b/, '输入控件应为底部横线样式')
     assert.match(allInputs[0].className, /\bborder-0\b/, '输入控件不应有四周边框盒')
 
-    // 3) 验证骨灰消散退场特效（先让上一句化灰下场、舞台清空后再逐字浮现下一句）、零闪现/零回退回归断言与连续 12 句无重复
-    const lightPalette = echoAshMod.buildAshPalette({ r: 30, g: 41, b: 59 })
-    const darkPalette = echoAshMod.buildAshPalette({ r: 241, g: 245, b: 249 })
-    assert.equal(lightPalette.length, 20)
-    assert.equal(darkPalette.length, 20)
+    // 3) 验证 v2 双通道消散引擎（FBM 分形侵蚀场 + WebGL2 双 Pass GPU 着色器管线 + Canvas2D 28 层 Thanos Dust 兜底）
+    const sampleN = echoAshMod.fbm2D(1.25, 2.75, 42, 3)
+    assert.ok(sampleN >= 0 && sampleN <= 1, `fbm2D 应归一化在 [0,1]，实际 ${sampleN}`)
+    const sampleN2 = echoAshMod.fbm2D(1.26, 2.75, 42, 3)
+    assert.ok(Math.abs(sampleN - sampleN2) < 0.05, 'fbm2D 相邻采样应保持平滑连续以形成丝带状风场')
+
+    // 验证 40,000+ 亚像素墨点自动按 32,768 安全分片、左->右有机侵蚀阈值单调性与右上扬升风场向量
+    const syntheticW = 400
+    const syntheticH = 120
+    const syntheticPixels = new Uint8ClampedArray(syntheticW * syntheticH * 4)
+    for (let i = 0; i < 40_000; i += 1) {
+      syntheticPixels[i * 4] = 24
+      syntheticPixels[i * 4 + 1] = 24
+      syntheticPixels[i * 4 + 2] = 27
+      syntheticPixels[i * 4 + 3] = 255
+    }
+    const field = echoAshMod.buildAshParticleField(syntheticPixels, syntheticW, syntheticH, 2, 2026)
+    assert.equal(field.blockSize, 1, '常规与长句墨点均应保持 1px 亚像素级精细颗粒度')
+    assert.equal(field.particleCount, 40_000, '所有可见墨点纹素均应无遗漏转换为独立微粒')
+    assert.equal(field.chunks.length, 2, '超过 32,768 微粒时应按 Safari Metal 安全上限自动分片')
+    assert.equal(field.chunks[0].count, 32_768)
+    assert.equal(field.chunks[1].count, 7_232)
+    assert.ok(
+      field.thresholdMap[syntheticW - 1] > field.thresholdMap[0],
+      '侵蚀阈值图应保持从左向右推进的自然风向梯度',
+    )
+    assert.ok(field.chunks[0].data[3] > 0 && field.chunks[0].data[4] < 0, '粒子流线速度场应向右上方自然飘升')
+
+    // 验证 WebGL2 双 Pass GPU 着色器管线（GLSL 全部 attribute / uniform 严格对齐、首帧 progress===0 零接缝交接与零显存泄漏）
+    {
+      const glCanvas = dom.window.document.createElement('canvas')
+      const livePrograms = new Set()
+      const liveShaders = new Set()
+      const liveBuffers = new Set()
+      const liveVaos = new Set()
+      const liveTextures = new Set()
+      const progressHistory = []
+      const drawCalls = []
+      let lostCalled = false
+      let idSeq = 1
+
+      glCanvas.getContext = (kind) => {
+        if (kind !== 'webgl2') return null
+        return {
+          VERTEX_SHADER: 0x8b31,
+          FRAGMENT_SHADER: 0x8b30,
+          COMPILE_STATUS: 0x8b81,
+          LINK_STATUS: 0x8b82,
+          ARRAY_BUFFER: 0x8892,
+          STATIC_DRAW: 0x88e4,
+          FLOAT: 0x1406,
+          BLEND: 0x0be2,
+          ONE: 1,
+          ONE_MINUS_SRC_ALPHA: 0x0303,
+          COLOR_BUFFER_BIT: 0x4000,
+          TEXTURE0: 0x84c0,
+          TEXTURE1: 0x84c1,
+          TEXTURE_2D: 0x0de1,
+          TEXTURE_WRAP_S: 0x2802,
+          TEXTURE_WRAP_T: 0x2803,
+          TEXTURE_MIN_FILTER: 0x2801,
+          TEXTURE_MAG_FILTER: 0x2800,
+          CLAMP_TO_EDGE: 0x812f,
+          LINEAR: 0x2601,
+          NEAREST: 0x2600,
+          UNPACK_PREMULTIPLY_ALPHA_WEBGL: 0x9241,
+          UNPACK_ALIGNMENT: 0x0cf5,
+          RGBA: 0x1908,
+          R8: 0x8229,
+          RED: 0x1903,
+          UNSIGNED_BYTE: 0x1401,
+          TRIANGLE_STRIP: 0x0005,
+          POINTS: 0x0000,
+          createShader(type) {
+            const sh = { id: idSeq++, type, src: '' }
+            liveShaders.add(sh)
+            return sh
+          },
+          shaderSource(sh, src) {
+            sh.src = src
+          },
+          compileShader(sh) {
+            assert.match(sh.src, /^#version 300 es/, 'WebGL2 着色器必须声明 #version 300 es')
+          },
+          getShaderParameter() {
+            return true
+          },
+          deleteShader(sh) {
+            liveShaders.delete(sh)
+          },
+          createProgram() {
+            const prog = { id: idSeq++, shaders: [] }
+            livePrograms.add(prog)
+            return prog
+          },
+          attachShader(prog, sh) {
+            prog.shaders.push(sh.src)
+          },
+          linkProgram() {},
+          getProgramParameter() {
+            return true
+          },
+          deleteProgram(prog) {
+            livePrograms.delete(prog)
+          },
+          getUniformLocation(prog, name) {
+            const combined = prog.shaders.join('\n')
+            assert.ok(
+              new RegExp(`uniform\\s+\\w+\\s+${name}\\b`).test(combined),
+              `着色器未声明 uniform "${name}"`,
+            )
+            return { name }
+          },
+          createVertexArray() {
+            const vao = { id: idSeq++ }
+            liveVaos.add(vao)
+            return vao
+          },
+          deleteVertexArray(vao) {
+            liveVaos.delete(vao)
+          },
+          bindVertexArray() {},
+          createBuffer() {
+            const buf = { id: idSeq++ }
+            liveBuffers.add(buf)
+            return buf
+          },
+          deleteBuffer(buf) {
+            liveBuffers.delete(buf)
+          },
+          bindBuffer() {},
+          bufferData() {},
+          enableVertexAttribArray() {},
+          vertexAttribPointer(_idx, size, _type, _norm, stride, offset) {
+            if (stride > 0) {
+              assert.equal(stride, 36, '粒子交错顶点缓冲步长必须严格为 9 * 4 = 36 字节')
+              assert.ok(offset + size * 4 <= 36, '顶点属性偏移不得越界')
+            }
+          },
+          createTexture() {
+            const tex = { id: idSeq++ }
+            liveTextures.add(tex)
+            return tex
+          },
+          deleteTexture(tex) {
+            liveTextures.delete(tex)
+          },
+          activeTexture() {},
+          bindTexture() {},
+          texParameteri() {},
+          pixelStorei() {},
+          texImage2D() {},
+          enable() {},
+          blendFunc() {},
+          viewport() {},
+          clearColor() {},
+          clear() {},
+          useProgram() {},
+          uniform1f(loc, v) {
+            if (loc?.name === 'u_progress') progressHistory.push(v)
+          },
+          uniform1i() {},
+          uniform2f() {},
+          uniform3f() {},
+          drawArrays(mode, _first, count) {
+            drawCalls.push({ mode, count })
+          },
+          getExtension(name) {
+            return name === 'WEBGL_lose_context' ? { loseContext: () => { lostCalled = true } } : null
+          },
+        }
+      }
+
+      const glCtrl = echoAshMod.attachEchoAshCanvas(glCanvas)
+      assert.equal(glCtrl.backend, 'webgl2', '支持 WebGL2 时应自动启用 GPU 双 Pass 着色器后端')
+      assert.equal(liveShaders.size, 0, '链接完成后临时 Shader 对象应立即释放')
+      assert.equal(livePrograms.size, 2, '应编译 Base Pass 与 Particle Pass 两个 GPU 程序')
+
+      await new Promise((r) => setTimeout(r, 1150))
+      const liveSentenceEl = fullscreenRoot.querySelector('[data-echo-sentence]')
+      assert.ok(liveSentenceEl, '首句 DOM 节点应已就绪可供 GPU 快照测试')
+      const spawned = glCtrl.disintegrateFromElement(liveSentenceEl)
+      assert.ok(spawned > 50, `WebGL2 后端应生成充足亚像素粒子，实际 ${spawned}`)
+      assert.equal(progressHistory[0], 0, '首帧 u_progress 必须严格等于 0 以实现原字迹 100% 零接缝交接')
+      assert.ok(drawCalls.some((d) => d.mode === 0x0005 && d.count === 4), '应执行 Pass 1 完整清晰底图 TRIANGLE_STRIP 绘制')
+      assert.ok(drawCalls.some((d) => d.mode === 0x0000 && d.count === spawned), '应执行 Pass 2 GPU POINTS 粒子绘制')
+
+      glCtrl.destroy()
+      assert.equal(liveTextures.size, 0, 'destroy() 后所有 GPU 纹理必须零泄漏释放')
+      assert.equal(liveBuffers.size, 0, 'destroy() 后所有 GPU 缓冲必须零泄漏释放')
+      assert.equal(liveVaos.size, 0, 'destroy() 后所有 VAO 必须零泄漏释放')
+      assert.equal(livePrograms.size, 0, 'destroy() 后所有 GPU Program 必须零泄漏释放')
+      assert.equal(lostCalled, true, 'destroy() 后应主动归还 WebGL 上下文')
+    }
 
     const ashCanvas = fullscreenRoot.querySelector('canvas[data-echo-ash-canvas]')
     assert.ok(ashCanvas, '回声洞应挂载全屏骨灰消散粒子画布')
@@ -1224,8 +1417,6 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       subtree: true,
     })
 
-    // 先等待首句 100% 全部显现（模拟用户看完上一整句后再点击切换的场景）
-    await new Promise((r) => setTimeout(r, 1150))
     const firstSentenceText = fullscreenRoot.querySelector('p')?.textContent?.trim()
     assert.ok(firstSentenceText, '首句应正常显示')
     assert.equal(
