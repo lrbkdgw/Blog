@@ -33,6 +33,7 @@ const NAV = [
   { to: '/', label: '首页', end: true },
   { to: '/archive', label: '归档' },
   { to: '/tags', label: '标签' },
+  { to: '/toolbox', label: '百宝箱' },
   { to: '/about', label: '帮助' },
 ]
 
@@ -395,6 +396,7 @@ function OfflineBadge() {
 export function Layout() {
   const [searchOpen, setSearchOpen] = useState(false)
   const { pathname, search } = useLocation()
+  const isFullscreen = /^\/toolbox\/echo(?:\/|$)/.test(pathname)
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
@@ -410,6 +412,7 @@ export function Layout() {
   useEffect(() => installHeaderYield(), [])
 
   useEffect(() => {
+    if (isFullscreen) return
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
@@ -422,7 +425,7 @@ export function Layout() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [isFullscreen])
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -438,12 +441,12 @@ export function Layout() {
         <AnimatedBackdropLayer />
       </div>
 
-      <Header onSearch={() => setSearchOpen(true)} />
+      {!isFullscreen && <Header onSearch={() => setSearchOpen(true)} />}
       <main className="flex-1">
         <Outlet />
       </main>
-      <Footer />
-      <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
+      {!isFullscreen && <Footer />}
+      {!isFullscreen && <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />}
     </div>
   )
 }

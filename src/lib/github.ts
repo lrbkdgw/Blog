@@ -99,7 +99,7 @@ interface GraphqlResponse<T> {
   errors?: { message?: string; type?: string }[]
 }
 
-async function githubGraphql<T>(
+export async function githubGraphql<T>(
   query: string,
   variables: Record<string, unknown>,
   token = getToken(),

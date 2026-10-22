@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react'
@@ -28,7 +28,16 @@ const styles: Record<ToastKind, { icon: ReactNode; ring: string }> = {
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([])
   const seq = useRef(0)
+  const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
   const navigate = useNavigate()
+
+  useEffect(() => {
+    const active = timers.current
+    return () => {
+      active.forEach(clearTimeout)
+      active.clear()
+    }
+  }, [])
 
   const remove = useCallback((id: number) => setItems((prev) => prev.filter((t) => t.id !== id)), [])
 
@@ -36,7 +45,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     (message, kind = 'info', action) => {
       const id = ++seq.current
       setItems((prev) => [...prev.slice(-3), { id, kind, message, action }])
-      setTimeout(() => remove(id), kind === 'error' ? 7000 : 4200)
+      const timer = setTimeout(() => {
+        timers.current.delete(timer)
+        remove(id)
+      }, kind === 'error' ? 7000 : 4200)
+      timers.current.add(timer)
     },
     [remove],
   )

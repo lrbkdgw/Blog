@@ -6,6 +6,8 @@ import Home from './pages/Home'
 const PostPage = lazy(() => import('./pages/PostPage'))
 const Archive = lazy(() => import('./pages/Archive'))
 const TagsPage = lazy(() => import('./pages/TagsPage'))
+const Toolbox = lazy(() => import('./pages/Toolbox'))
+const EchoCave = lazy(() => import('./pages/EchoCave'))
 const About = lazy(() => import('./pages/About'))
 const Login = lazy(() => import('./pages/Login'))
 const Admin = lazy(() => import('./pages/Admin'))
@@ -31,6 +33,8 @@ export default function App() {
           <Route path="archive" element={<Archive />} />
           <Route path="tags" element={<TagsPage />} />
           <Route path="tags/:tag" element={<TagsPage />} />
+          <Route path="toolbox" element={<Toolbox />} />
+          <Route path="toolbox/echo" element={<EchoCave />} />
           <Route path="about" element={<About />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="login" element={<Login />} />

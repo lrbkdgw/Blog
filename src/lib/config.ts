@@ -75,6 +75,13 @@ export const commentsConfig = {
   titlePrefix: '[文章评论]',
 }
 
+export const echoCaveConfig = {
+  /** GitHub Discussions 中用于保存回声洞留言的分类。 */
+  category: 'General',
+  /** 回声洞专属讨论标题。 */
+  title: '回声洞',
+}
+
 export const oauthConfig = {
   /**
    * OAuth App 的 Client ID。

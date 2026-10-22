@@ -1,5 +1,40 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-22 · 新增顶栏「百宝箱」页签与独占全屏极简「回声洞」模块（#93）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+- **Issue #93（添加功能：百宝箱 & 回声洞）及补充说明**：
+  1. 在顶部导航栏新增 **百宝箱** 页签，当前包含 **“回声洞”** 模块，点击后进入独立页面，不断点击页面即可切换显示回声内容。
+  2. **独占全屏极简交互**：回声洞页面完全独占全屏（隐藏顶栏、底栏与一切多余控件，页面无任何多余按键），底部**仅保留一条独立的不显眼的横线和一个发送按钮**。
+  3. **内容来源与频率识别规则**：
+     - 任何人在底部横线上输入内容并发送后保存到仓库 **GitHub Discussions**；按发送时间升序严格执行「每小时最多 3 条、每天最多 10 条，超出时仅识别每小时发送的前 3 条或每天发送的前 10 条，仓库贡献者不受限制」；
+     - **hitokoto** 一言。
+
+### 调整
+
+- **顶栏与百宝箱页（`src/components/Layout.tsx`、`src/pages/Toolbox.tsx`、`src/App.tsx`）**：
+  - 顶部导航栏新增 `百宝箱`（`/toolbox`）页签，桌面与移动端菜单同步生效，页面接入 `data-yield-list` 顶栏防冲突机制；
+  - `Toolbox.tsx` 当前仅展示「回声洞」模块卡片，点击进入 `/toolbox/echo`；
+  - `Layout.tsx` 在 `/toolbox/echo` 下自动隐藏 `<Header>`、`<Footer>` 与全局搜索弹窗，仅保留全屏背景装饰层与动态背景，使回声洞完全独占 `100dvh` 全屏视口。
+- **回声洞全屏页面与数据层（`src/pages/EchoCave.tsx`、`src/lib/echoCave.ts`、`src/lib/config.ts`、`functions/api/echo.ts`）**：
+  - 页面中心纯文字展示回声内容，点击屏幕任意区域（含文字区域，禁止蓝色选区闪烁）即刻无阻塞切换下一句，混合轮播 GitHub Discussions 已识别回声与后台预取的 `hitokoto` 一言；
+  - 页面底部固定居中一条极简细横线（透明单下边框 `<input>`）与单个 `发送` 按钮，全页无任何其他按钮、卡片、徽章或计数器；
+  - 使用公开 GitHub REST API 读取仓库 Discussions 与贡献者列表（未登录访客同样可直接听到全部已识别的 Discussions 回声），写入时支持已登录 GitHub GraphQL 直写、同源 Cloudflare Pages Function（`functions/api/echo.ts`）匿名中继以及未登录草稿暂存自动续发；
+  - `filterRecognizedEchoes` 按时间升序精确识别每名非贡献者每小时前 3 条与每天前 10 条回声，对仓库拥有者、`OWNER`/`MEMBER`/`COLLABORATOR`/`CONTRIBUTOR` 及仓库提交贡献者完全放开限制；
+  - 离线构建期彻底置空 `api.github.com` 与 `v1.hitokoto.cn` 端点并同步加入 `scripts/verify-offline.mjs` 禁联网自检。
+
+### 验证
+
+- `scripts/test-features.mjs` 新增回声洞限流识别规则测试（每小时前 3 条、每天前 10 条、乱序输入、仓库贡献者豁免、匿名中继计频）以及 React + MemoryRouter 全屏 DOM 回归测试（验证 `/toolbox/echo` 无 `<header>` / `<footer>`、全页 `<button>` 数量严格等于 `1`、`<input>` 数量严格等于 `1`、连续点击切换与发送保存）。
+- 已重新构建并自检离线单文件版 `offline/index.html`，并通过 `npm test`、`npm --prefix vscode_extensions/v1 run typecheck` 与 `npm run build` 全量验证。
+
 ## 2026-10-21 · 图论画布边权改为纯数字标注（#91）并同步重建离线单文件版
 
 | 模型信息 | |

@@ -19,6 +19,9 @@ async function importTsModule(entryPath) {
     format: 'esm',
     platform: 'browser',
     target: 'es2022',
+    define: {
+      __STARLOG_OFFLINE__: 'false',
+    },
   })
   const code = result.outputFiles[0].text
   const dataUrl = `data:text/javascript;base64,${Buffer.from(code, 'utf8').toString('base64')}`
@@ -32,6 +35,7 @@ const uiWidgetsMod = await importTsModule('src/lib/uiWidgets.ts')
 const uiGraphMod = await importTsModule('src/lib/uiGraph.ts')
 const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
+const echoCaveMod = await importTsModule('src/lib/echoCave.ts')
 
 function makeMock2dContext(strokeSink, drawSink) {
   const stack = []
@@ -242,6 +246,7 @@ test('全站所有路由页面与悬浮门户组件均已接入顶部防冲突�
     'src/pages/PostPage.tsx',
     'src/pages/Archive.tsx',
     'src/pages/TagsPage.tsx',
+    'src/pages/Toolbox.tsx',
     'src/pages/About.tsx',
     'src/pages/SettingsPage.tsx',
     'src/pages/Admin.tsx',
@@ -775,7 +780,7 @@ test('Issue #83：ui-graph 自动创建未声明节点、dag 有向箭头、重�
 
     const writeField = container.querySelector('[data-ui-id="CleanSingle"]')
     assert.ok(writeField, '应渲染独立行 ui-write 字段')
-    assert.doesNotMatch(writeField.className, /\bborder\b/, '单行输入框外层容器不应再有包裹边框盒')
+    assert.doesNotMatch(writeField.className, /\bborder\b/, '单行输入框外层容器不应再有包裹边框框')
 
     reactRoot.unmount()
     await new Promise((r) => setTimeout(r, 30))
@@ -784,4 +789,332 @@ test('Issue #83：ui-graph 自动创建未声明节点、dag 有向箭头、重�
     Object.assign(globalThis, prevGlobals)
   }
 })
+
+test('回声洞（#93）：严格识别每小时前 3 条 / 每天前 10 条，仓库贡献者不受限制', () => {
+  const { filterRecognizedEchoes } = echoCaveMod
+  const t0 = Date.parse('2026-10-22T08:00:00Z')
+  const min = 60_000
+  const hour = 3_600_000
+
+  // 1) 普通访客同一小时发送 5 条（故意乱序输入）：严格只识别按时间最早的前 3 条
+  const burstComments = [
+    { id: 'c4', body: '第 4 条（应忽略）', createdAt: new Date(t0 + 40 * min).toISOString(), authorLogin: 'visitor_a', authorAssociation: 'NONE' },
+    { id: 'c2', body: '第 2 条', createdAt: new Date(t0 + 15 * min).toISOString(), authorLogin: 'visitor_a', authorAssociation: 'NONE' },
+    { id: 'c5', body: '第 5 条（应忽略）', createdAt: new Date(t0 + 50 * min).toISOString(), authorLogin: 'visitor_a', authorAssociation: 'NONE' },
+    { id: 'c1', body: '第 1 条', createdAt: new Date(t0 + 5 * min).toISOString(), authorLogin: 'visitor_a', authorAssociation: 'NONE' },
+    { id: 'c3', body: '第 3 条', createdAt: new Date(t0 + 25 * min).toISOString(), authorLogin: 'visitor_a', authorAssociation: 'NONE' },
+  ]
+  const recognizedHour = filterRecognizedEchoes(burstComments, { repoOwner: 'lrbkdgw' })
+  assert.deepEqual(
+    recognizedHour.map((item) => item.text),
+    ['第 1 条', '第 2 条', '第 3 条'],
+    '同一小时超出 3 条时应仅识别最早发送的前 3 条',
+  )
+
+  // 2) 普通访客一天内分 4 个独立小时共发送 12 条（每小时 3 条）：严格只识别当天前 10 条
+  const dailyComments = []
+  for (let h = 0; h < 4; h++) {
+    for (let k = 0; k < 3; k++) {
+      const idx = h * 3 + k + 1
+      dailyComments.push({
+        id: `d${idx}`,
+        body: `当日第 ${idx} 条`,
+        createdAt: new Date(t0 + h * 2 * hour + k * 10 * min).toISOString(),
+        authorLogin: 'visitor_b',
+        authorAssociation: 'NONE',
+      })
+    }
+  }
+  const recognizedDay = filterRecognizedEchoes(dailyComments, { repoOwner: 'lrbkdgw' })
+  assert.equal(recognizedDay.length, 10, '24 小时内最多识别前 10 条')
+  assert.equal(recognizedDay[9].text, '当日第 10 条')
+
+  // 3) 仓库贡献者（OWNER / CONTRIBUTOR / contributorLogins 列表）完全不受限制
+  const contributorComments = Array.from({ length: 15 }, (_, i) => ({
+    id: `owner-${i + 1}`,
+    body: `贡献者回声 ${i + 1}`,
+    createdAt: new Date(t0 + i * min).toISOString(),
+    authorLogin: 'commit_helper',
+    authorAssociation: 'NONE',
+  }))
+  const recognizedContributor = filterRecognizedEchoes(contributorComments, {
+    repoOwner: 'lrbkdgw',
+    contributorLogins: new Set(['commit_helper']),
+  })
+  assert.equal(recognizedContributor.length, 15, '仓库贡献者发送任意条均应全部识别')
+
+  // 4) 经匿名中继写入（即使 GitHub 令牌账号为 OWNER）仍按匿名访客严格限制每小时 3 条
+  const relayedComments = Array.from({ length: 5 }, (_, i) => ({
+    id: `relay-${i + 1}`,
+    body: `匿名留言 ${i + 1}\n\n<${'!--'} echo-sender:anon:abcdef012345 -->`,
+    createdAt: new Date(t0 + i * 5 * min).toISOString(),
+    authorLogin: 'lrbkdgw',
+    authorAssociation: 'OWNER',
+  }))
+  const recognizedRelay = filterRecognizedEchoes(relayedComments, { repoOwner: 'lrbkdgw' })
+  assert.deepEqual(
+    recognizedRelay.map((item) => item.text),
+    ['匿名留言 1', '匿名留言 2', '匿名留言 3'],
+    '匿名中继访客仍受每小时前 3 条识别限制且不泄露 HTML 标记',
+  )
+})
+
+test('百宝箱与全屏极简回声洞（#93）：顶栏页签、独占全屏无多余按键、底部单横线与发送按钮交互', async () => {
+  const harnessEntry = join(root, 'node_modules/.cache/echo-cave-test-harness.tsx')
+  const { mkdirSync, writeFileSync } = await import('node:fs')
+  mkdirSync(dirname(harnessEntry), { recursive: true })
+  writeFileSync(
+    harnessEntry,
+    `
+      import React from 'react'
+      import { createRoot } from 'react-dom/client'
+      import { MemoryRouter } from 'react-router-dom'
+      import { ThemeProvider } from '../../src/lib/theme'
+      import { AuthProvider } from '../../src/lib/auth'
+      import { ToastProvider } from '../../src/components/Toast'
+      import App from '../../src/App'
+      export { React, createRoot, MemoryRouter, ThemeProvider, AuthProvider, ToastProvider, App }
+    `,
+    'utf8',
+  )
+
+  const bundled = await build({
+    entryPoints: [harnessEntry],
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    plugins: [
+      {
+        name: 'vite-raw-md',
+        setup(b) {
+          b.onResolve({ filter: /\?raw$/ }, (args) => ({
+            path: join(root, args.path.replace(/^\//, '').replace(/\?raw$/, '')),
+          }))
+        },
+      },
+    ],
+    loader: {
+      '.jpg': 'dataurl',
+      '.png': 'dataurl',
+      '.svg': 'dataurl',
+      '.md': 'text',
+    },
+    define: {
+      'process.env.NODE_ENV': '"production"',
+      __STARLOG_OFFLINE__: 'false',
+    },
+  })
+  const modUrl = `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text, 'utf8').toString('base64')}`
+  const { React, createRoot, MemoryRouter, ThemeProvider, AuthProvider, ToastProvider, App } =
+    await import(modUrl)
+
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+    url: 'https://blog-apa.pages.dev/',
+    pretendToBeVisual: true,
+  })
+
+  const savedComments = [
+    {
+      id: 101,
+      node_id: 'DC_101',
+      body: '来自 Discussions 的第一声回响',
+      created_at: '2026-10-22T06:00:00Z',
+      author_association: 'NONE',
+      user: { login: 'alice' },
+    },
+  ]
+  let hitokotoSeq = 0
+
+  const prevGlobals = {
+    window: globalThis.window,
+    document: globalThis.document,
+    localStorage: globalThis.localStorage,
+    sessionStorage: globalThis.sessionStorage,
+    HTMLElement: globalThis.HTMLElement,
+    SVGElement: globalThis.SVGElement,
+    Node: globalThis.Node,
+    MutationObserver: globalThis.MutationObserver,
+    ResizeObserver: globalThis.ResizeObserver,
+    matchMedia: globalThis.matchMedia,
+    requestAnimationFrame: globalThis.requestAnimationFrame,
+    cancelAnimationFrame: globalThis.cancelAnimationFrame,
+    fetch: globalThis.fetch,
+    DOMParser: globalThis.DOMParser,
+  }
+
+  globalThis.window = dom.window
+  globalThis.document = dom.window.document
+  globalThis.localStorage = dom.window.localStorage
+  globalThis.sessionStorage = dom.window.sessionStorage
+  globalThis.HTMLElement = dom.window.HTMLElement
+  globalThis.SVGElement = dom.window.SVGElement
+  globalThis.Node = dom.window.Node
+  globalThis.MutationObserver = dom.window.MutationObserver
+  globalThis.DOMParser = dom.window.DOMParser
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  dom.window.matchMedia = () => ({
+    matches: false,
+    addListener() {},
+    removeListener() {},
+    addEventListener() {},
+    removeEventListener() {},
+  })
+  globalThis.matchMedia = dom.window.matchMedia
+  globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0)
+  globalThis.cancelAnimationFrame = (id) => clearTimeout(id)
+  dom.window.scrollTo = () => {}
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input)
+    if (url.includes('/discussions?')) {
+      return new Response(
+        JSON.stringify([{ number: 99, node_id: 'D_99', title: '回声洞', body: '' }]),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    if (url.includes('/contributors?')) {
+      return new Response(JSON.stringify([{ login: 'lrbkdgw' }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (url.includes('/discussions/99/comments')) {
+      return new Response(JSON.stringify(savedComments), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (url.includes('hitokoto.cn')) {
+      hitokotoSeq += 1
+      return new Response(
+        JSON.stringify({
+          id: hitokotoSeq,
+          hitokoto: `一言测试语句 #${hitokotoSeq}`,
+          from: '星野集',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    if (url === '/api/echo' && init?.method === 'POST') {
+      const payload = JSON.parse(String(init.body || '{}'))
+      return new Response(
+        JSON.stringify({
+          comment: {
+            id: 'DC_NEW_1',
+            body: payload.text,
+            createdAt: new Date().toISOString(),
+            authorLogin: null,
+            authorAssociation: 'NONE',
+          },
+          recognized: true,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    return new Response('{}', { status: 404 })
+  }
+
+  const container = dom.window.document.getElementById('root')
+  const reactRoot = createRoot(container)
+
+  try {
+    reactRoot.render(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ['/toolbox'] },
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(
+            AuthProvider,
+            null,
+            React.createElement(ToastProvider, null, React.createElement(App)),
+          ),
+        ),
+      ),
+    )
+
+    await new Promise((r) => setTimeout(r, 120))
+
+    // 1) 顶栏存在「百宝箱」页签，页面中仅展示「回声洞」模块入口
+    const header = container.querySelector('header.site-header')
+    assert.ok(header, '/toolbox 页面应正常渲染顶部导航栏')
+    assert.match(header.textContent || '', /百宝箱/, '顶部导航栏应包含「百宝箱」页签')
+
+    const echoLink = container.querySelector('a[href="/toolbox/echo"]')
+    assert.ok(echoLink, '百宝箱页面应包含指向 /toolbox/echo 的「回声洞」入口')
+    assert.match(echoLink.textContent || '', /回声洞/)
+
+    // 2) 点击进入回声洞：完全独占全屏，没有任何多余按键，底部只有一条横线和一个发送按钮
+    echoLink.click()
+    await new Promise((r) => setTimeout(r, 120))
+
+    assert.equal(container.querySelectorAll('header').length, 0, '回声洞页面不应渲染顶栏 <header>')
+    assert.equal(container.querySelectorAll('footer').length, 0, '回声洞页面不应渲染底栏 <footer>')
+
+    const fullscreenRoot = container.querySelector('[data-echo-cave-fullscreen]')
+    assert.ok(fullscreenRoot, '应渲染独占全屏的回声洞容器')
+
+    const allButtons = [...container.querySelectorAll('button')]
+    assert.equal(allButtons.length, 1, '整个回声洞页面必须严格只有一个发送按钮，没有任何其他按键')
+    assert.equal(allButtons[0].textContent?.trim(), '发送')
+
+    const allInputs = [...container.querySelectorAll('input')]
+    assert.equal(allInputs.length, 1, '底部必须只有一条独立输入横线')
+    assert.match(allInputs[0].className, /\bborder-b\b/, '输入控件应为底部横线样式')
+    assert.match(allInputs[0].className, /\bborder-0\b/, '输入控件不应有四周边框盒')
+
+    // 3) 连续点击全屏区域，验证不断切换显示 Discussions 与 hitokoto 内容
+    const seenTexts = new Set()
+    for (let i = 0; i < 8; i++) {
+      fullscreenRoot.click()
+      await new Promise((r) => setTimeout(r, 25))
+      seenTexts.add(fullscreenRoot.querySelector('p')?.textContent?.trim())
+    }
+    assert.ok(seenTexts.size >= 2, '不断点击屏幕应切换显示不同回声内容')
+    assert.ok(
+      [...seenTexts].some((t) => t?.includes('来自 Discussions 的第一声回响') || t?.includes('一言测试语句')),
+      '显示内容应覆盖 GitHub Discussions 或 hitokoto 来源',
+    )
+
+    // 4) 在底部横线输入内容并点击发送按钮，验证写入 Discussions 并立即回显
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      dom.window.HTMLInputElement.prototype,
+      'value',
+    ).set
+    allInputs[0]._valueTracker?.setValue('')
+    nativeInputValueSetter.call(allInputs[0], '今晚的风很轻')
+    allInputs[0].dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    allInputs[0].dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 25))
+
+    allButtons[0].click()
+    await new Promise((r) => setTimeout(r, 60))
+
+    assert.equal(allInputs[0].value, '', '发送成功后底部横线应清空')
+    assert.equal(
+      fullscreenRoot.querySelector('p')?.textContent?.trim(),
+      '今晚的风很轻',
+      '发送成功后应立即显示刚写入 Discussions 的回声',
+    )
+    assert.equal(
+      container.querySelectorAll('button').length,
+      1,
+      '发送成功后全页仍应严格保持仅有一个发送按钮',
+    )
+
+    reactRoot.unmount()
+    await new Promise((r) => setTimeout(r, 30))
+  } finally {
+    dom.window.close()
+    Object.assign(globalThis, prevGlobals)
+  }
+})
+
 

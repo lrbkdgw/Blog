@@ -157,6 +157,7 @@ if (markdownFiles.length === 0) {
 const FORBIDDEN = [
   ['GitHub API 端点', 'api.github.com'],
   ['GitHub GraphQL', '/graphql'],
+  ['一言 API（hitokoto）', 'hitokoto.cn'],
   ['OAuth Device Flow', 'login/device/code'],
   ['OAuth 令牌交换', 'login/oauth/access_token'],
   ['云端字体（Google Fonts）', 'fonts.googleapis.com'],
