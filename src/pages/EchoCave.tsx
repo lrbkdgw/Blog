@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
 import { useAuth } from '../lib/auth'
@@ -18,6 +18,7 @@ import {
 
 const TARGET_HITOKOTO_BUFFER = 8
 const HITOKOTO_PACE_MS = 380
+const INITIAL_SETTLE_MS = 140
 
 interface GraphemeSegmenter {
   segment(input: string): Iterable<{ segment: string }>
@@ -34,6 +35,57 @@ function splitGraphemes(text: string): string[] {
   return Array.from(text)
 }
 
+function computeStepMs(charCount: number): number {
+  if (charCount <= 1) return 26
+  return Math.max(22, Math.min(46, Math.round(920 / charCount)))
+}
+
+interface EchoDisplayState {
+  item: EchoItem | null
+  seq: number
+  shown: number
+}
+
+interface EchoSentenceProps {
+  item: EchoItem
+  shown: number
+}
+
+const EchoSentence = memo(function EchoSentence({ item, shown }: EchoSentenceProps) {
+  const graphemes = useMemo(() => splitGraphemes(item.text), [item.text])
+  const stepMs = useMemo(() => computeStepMs(graphemes.length), [graphemes.length])
+  const allRevealed = graphemes.length > 0 && shown >= graphemes.length
+
+  return (
+    <div
+      data-echo-sentence
+      className="pointer-events-none flex max-w-2xl flex-col items-center text-center"
+    >
+      <p className="font-serif text-lg leading-loose tracking-wide text-ink-800 sm:text-2xl dark:text-ink-100">
+        {graphemes.map((ch, idx) => (
+          <span
+            key={idx}
+            data-char-shown={idx < shown ? 'true' : 'false'}
+            style={{ animationDelay: `${idx * stepMs}ms` }}
+            className="echo-char inline"
+          >
+            {ch}
+          </span>
+        ))}
+      </p>
+      {item.from && (
+        <p
+          data-from-shown={allRevealed ? 'true' : 'false'}
+          style={{ animationDelay: `${graphemes.length * stepMs + 80}ms` }}
+          className="echo-from mt-4 text-xs tracking-wider text-ink-400/75 dark:text-ink-500"
+        >
+          —— {item.from}
+        </p>
+      )}
+    </div>
+  )
+})
+
 export default function EchoCave() {
   const navigate = useNavigate()
   const toast = useToast()
@@ -44,98 +96,119 @@ export default function EchoCave() {
     deckRef.current = createEchoDeck()
   }
 
-  const [current, setCurrent] = useState<EchoItem>(() => deckRef.current!.next())
-  const [turn, setTurn] = useState(0)
-  const [visibleChars, setVisibleChars] = useState(0)
+  // 单一原子状态保存 { item, seq, shown }：每次切换新句子时在同一提交帧将 shown 归零，杜绝上一句 shown 残留导致新句瞬间闪现再消失
+  const [display, setDisplay] = useState<EchoDisplayState>({
+    item: null,
+    seq: 0,
+    shown: 0,
+  })
   const [draft, setDraft] = useState(() => readPendingEchoDraft())
   const [sending, setSending] = useState(false)
 
   const discussionNodeIdRef = useRef<string | null>(null)
   const rawCommentsRef = useRef<RawEchoComment[]>([])
   const contributorLoginsRef = useRef<Set<string>>(new Set())
-  const userClickedRef = useRef(false)
   const autoSentPendingRef = useRef(false)
   const sendingLockRef = useRef(false)
   const pumpingRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const graphemes = useMemo(() => splitGraphemes(current.text), [current.text])
-  const allRevealed = visibleChars >= graphemes.length
+  const latestItemRef = useRef<EchoItem | null>(null)
+  latestItemRef.current = display.item
 
-  // 逐字出现动画：每次切换新句子时从第 1 字依次浮现，整句排好后柔和浮现出处
+  // 同步推进 data-char-shown（严格单调 0 -> 1 -> 2 -> ... -> total，仅随 seq 重置，绝不倒退）
   useEffect(() => {
-    const total = graphemes.length
-    if (total === 0) {
-      setVisibleChars(0)
-      return
-    }
-    setVisibleChars(1)
-    if (total === 1) return
+    const targetSeq = display.seq
+    const item = latestItemRef.current
+    if (!item) return
+    const total = splitGraphemes(item.text).length
+    if (total === 0) return
 
-    const stepMs = Math.max(22, Math.min(46, Math.round(920 / total)))
-    let shown = 1
-    const timer = setInterval(() => {
-      shown += 1
-      setVisibleChars(shown)
-      if (shown >= total) {
-        clearInterval(timer)
-      }
-    }, stepMs)
+    const stepMs = computeStepMs(total)
+    let count = 0
+    let intervalId: ReturnType<typeof setInterval> | null = null
 
-    return () => clearInterval(timer)
-  }, [graphemes, turn])
-
-  // 节流串行补充一言队列，避免瞬间并发请求触发 v1.hitokoto.cn QPS 限流或命中缓存重复
-  const pumpHitokotoBuffer = useCallback((signal?: AbortSignal) => {
-    if (pumpingRef.current) return
-    const deck = deckRef.current!
-    if (deck.hitokotoBufferedCount() >= TARGET_HITOKOTO_BUFFER) return
-
-    pumpingRef.current = true
-    const run = async () => {
-      let consecutiveFailures = 0
-      try {
-        while (!signal?.aborted && deck.hitokotoBufferedCount() < TARGET_HITOKOTO_BUFFER) {
-          const item = await fetchHitokotoOne(signal)
-          if (signal?.aborted) break
-          if (item) {
-            consecutiveFailures = 0
-            const added = deck.pushHitokoto(item)
-            if (added && !userClickedRef.current) {
-              setCurrent((prev) => {
-                if (prev.source !== 'builtin') return prev
-                const fresh = deck.next(prev.text)
-                return fresh
-              })
-            }
-          } else {
-            consecutiveFailures += 1
-            if (consecutiveFailures >= 3) break
-          }
-          await new Promise<void>((resolve) => {
-            const t = setTimeout(resolve, HITOKOTO_PACE_MS)
-            signal?.addEventListener(
-              'abort',
-              () => {
-                clearTimeout(t)
-                resolve()
-              },
-              { once: true },
-            )
-          })
+    const rafId = requestAnimationFrame(() => {
+      count = 1
+      setDisplay((prev) =>
+        prev.seq === targetSeq && prev.shown < 1 ? { ...prev, shown: 1 } : prev,
+      )
+      if (total <= 1) return
+      intervalId = setInterval(() => {
+        count += 1
+        const nextShown = Math.min(total, count)
+        setDisplay((prev) =>
+          prev.seq === targetSeq && prev.shown < nextShown ? { ...prev, shown: nextShown } : prev,
+        )
+        if (nextShown >= total && intervalId !== null) {
+          clearInterval(intervalId)
+          intervalId = null
         }
-      } finally {
-        pumpingRef.current = false
+      }, stepMs)
+    })
+
+    return () => {
+      cancelAnimationFrame(rafId)
+      if (intervalId !== null) {
+        clearInterval(intervalId)
       }
     }
-    void run()
-  }, [])
+  }, [display.seq])
+
+  // 节流串行补充一言缓冲队列，仅静默入队供后续点击读取，绝不中途覆盖屏幕上正在显示的句子
+  const pumpHitokotoBuffer = useCallback(
+    (signal?: AbortSignal, onFirstItem?: () => void) => {
+      if (pumpingRef.current) return
+      const deck = deckRef.current!
+      if (deck.hitokotoBufferedCount() >= TARGET_HITOKOTO_BUFFER) return
+
+      pumpingRef.current = true
+      let notifiedFirst = false
+      const run = async () => {
+        let consecutiveFailures = 0
+        try {
+          while (!signal?.aborted && deck.hitokotoBufferedCount() < TARGET_HITOKOTO_BUFFER) {
+            const item = await fetchHitokotoOne(signal)
+            if (signal?.aborted) break
+            if (item) {
+              consecutiveFailures = 0
+              const added = deck.pushHitokoto(item)
+              if (added && !notifiedFirst) {
+                notifiedFirst = true
+                onFirstItem?.()
+              }
+            } else {
+              consecutiveFailures += 1
+              if (consecutiveFailures >= 3) break
+            }
+            await new Promise<void>((resolve) => {
+              const t = setTimeout(resolve, HITOKOTO_PACE_MS)
+              signal?.addEventListener(
+                'abort',
+                () => {
+                  clearTimeout(t)
+                  resolve()
+                },
+                { once: true },
+              )
+            })
+          }
+        } finally {
+          pumpingRef.current = false
+        }
+      }
+      void run()
+    },
+    [],
+  )
 
   const handleAdvance = useCallback(() => {
-    userClickedRef.current = true
     const deck = deckRef.current!
-    setCurrent((prev) => deck.next(prev.text))
-    setTurn((n) => n + 1)
+    setDisplay((prev) => ({
+      item: deck.next(prev.item?.text),
+      seq: prev.seq + 1,
+      shown: 0,
+    }))
     if (deck.hitokotoBufferedCount() < TARGET_HITOKOTO_BUFFER) {
       pumpHitokotoBuffer()
     }
@@ -173,10 +246,12 @@ export default function EchoCave() {
 
         const mine = refreshed.find((item) => item.id === `discussion-${res.comment.id}`)
         if (mine && res.recognized) {
-          userClickedRef.current = true
           deck.markShown(mine)
-          setCurrent(mine)
-          setTurn((n) => n + 1)
+          setDisplay((prev) => ({
+            item: mine,
+            seq: prev.seq + 1,
+            shown: 0,
+          }))
         } else {
           toast('已写入 Discussions（每小时仅识别前 3 条、每天前 10 条）', 'info')
         }
@@ -190,9 +265,33 @@ export default function EchoCave() {
     [draft, ghUser?.login, navigate, toast],
   )
 
+  // 首次进入页面：最多等待 140ms 让 Discussions / 一言首个响应到位后直接呈现首句；一旦首句呈现，后续异步响应只入队、绝不中途顶替当前句子
   useEffect(() => {
     const controller = new AbortController()
-    pumpHitokotoBuffer(controller.signal)
+    const deck = deckRef.current!
+    let settled = false
+
+    const settleFirstEcho = (preferDiscussionLatest?: EchoItem) => {
+      if (settled || controller.signal.aborted) return
+      settled = true
+      setDisplay((prev) => {
+        if (prev.item !== null) return prev
+        if (preferDiscussionLatest) {
+          deck.markShown(preferDiscussionLatest)
+          return { item: preferDiscussionLatest, seq: prev.seq + 1, shown: 0 }
+        }
+        return { item: deck.next(), seq: prev.seq + 1, shown: 0 }
+      })
+    }
+
+    const fallbackTimer = setTimeout(() => {
+      settleFirstEcho()
+    }, INITIAL_SETTLE_MS)
+
+    pumpHitokotoBuffer(controller.signal, () => {
+      clearTimeout(fallbackTimer)
+      settleFirstEcho()
+    })
 
     loadEchoCaveSnapshot()
       .then((snap) => {
@@ -200,23 +299,20 @@ export default function EchoCave() {
         discussionNodeIdRef.current = snap.discussionNodeId
         rawCommentsRef.current = snap.rawComments
         contributorLoginsRef.current = snap.contributorLogins
-        const deck = deckRef.current!
         deck.setDiscussionEchoes(snap.echoes)
 
-        if (!userClickedRef.current && snap.echoes.length > 0) {
-          setCurrent((prev) => {
-            if (prev.source !== 'builtin') return prev
-            const latest = snap.echoes[snap.echoes.length - 1]
-            deck.markShown(latest)
-            return latest
-          })
-        }
+        clearTimeout(fallbackTimer)
+        const latest = snap.echoes.length > 0 ? snap.echoes[snap.echoes.length - 1] : undefined
+        settleFirstEcho(latest)
       })
       .catch(() => {
-        /* 网络不可达时静默使用一言与内置无重复洗牌语料 */
+        /* 网络不可达时由 fallbackTimer 或已缓冲的一言自然呈现首句 */
       })
 
-    return () => controller.abort()
+    return () => {
+      clearTimeout(fallbackTimer)
+      controller.abort()
+    }
   }, [pumpHitokotoBuffer])
 
   // 登录跳转返回后自动续发暂存的回声
@@ -259,33 +355,7 @@ export default function EchoCave() {
       onClick={handleAdvance}
       className="relative flex h-dvh w-full cursor-pointer select-none flex-col items-center justify-center overflow-hidden bg-transparent px-6 sm:px-12"
     >
-      <div
-        key={turn}
-        className="pointer-events-none flex max-w-2xl flex-col items-center text-center"
-      >
-        <p className="font-serif text-lg leading-loose tracking-wide text-ink-800 sm:text-2xl dark:text-ink-100">
-          {graphemes.map((ch, idx) => (
-            <span
-              key={idx}
-              data-char-shown={idx < visibleChars ? 'true' : 'false'}
-              className={`inline transition-opacity duration-200 ease-out ${
-                idx < visibleChars ? 'opacity-100' : 'opacity-0'
-              }`}
-            >
-              {ch}
-            </span>
-          ))}
-        </p>
-        {current.from && (
-          <p
-            className={`mt-4 text-xs tracking-wider text-ink-400/75 transition-opacity duration-300 dark:text-ink-500 ${
-              allRevealed ? 'opacity-100' : 'opacity-0'
-            }`}
-          >
-            —— {current.from}
-          </p>
-        )}
-      </div>
+      {display.item && <EchoSentence key={display.seq} item={display.item} shown={display.shown} />}
 
       <form
         onSubmit={handleSubmit}

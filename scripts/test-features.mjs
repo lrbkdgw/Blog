@@ -944,7 +944,9 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       __STARLOG_OFFLINE__: 'false',
     },
   })
-  const modUrl = `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text, 'utf8').toString('base64')}`
+  const { pathToFileURL } = await import('node:url')
+  const bundlePath = join(dirname(harnessEntry), 'echo-cave-test-bundle.mjs')
+  writeFileSync(bundlePath, bundled.outputFiles[0].text, 'utf8')
   const {
     React,
     createRoot,
@@ -956,7 +958,7 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
     setAnimatedScene,
     setAnimatedSceneOverride,
     App,
-  } = await import(modUrl)
+  } = await import(pathToFileURL(bundlePath).href)
 
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'https://blog-apa.pages.dev/',
@@ -1018,8 +1020,10 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
     removeEventListener() {},
   })
   globalThis.matchMedia = dom.window.matchMedia
-  globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0)
-  globalThis.cancelAnimationFrame = (id) => clearTimeout(id)
+  dom.window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16)
+  dom.window.cancelAnimationFrame = (id) => clearTimeout(id)
+  globalThis.requestAnimationFrame = dom.window.requestAnimationFrame
+  globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame
   dom.window.scrollTo = () => {}
 
   globalThis.fetch = async (input, init) => {
@@ -1134,9 +1138,56 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
     assert.match(allInputs[0].className, /\bborder-b\b/, '输入控件应为底部横线样式')
     assert.match(allInputs[0].className, /\bborder-0\b/, '输入控件不应有四周边框盒')
 
-    // 3) 验证逐字出现动画 + 连续点击 12 次严格无重复
+    // 3) 验证逐字出现动画、零闪现/零回退回归断言（MutationObserver 实时监控）+ 连续点击 12 次严格无重复
+    const reverseFlips = []
+    const prematureMountFlashes = []
+    const antiFlashObserver = new dom.window.MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (
+          m.type === 'attributes' &&
+          m.attributeName === 'data-char-shown' &&
+          m.oldValue === 'true' &&
+          m.target.getAttribute('data-char-shown') === 'false'
+        ) {
+          reverseFlips.push(m.target.textContent)
+        }
+        if (m.type === 'childList') {
+          for (const node of m.addedNodes) {
+            if (node.nodeType === 1 && node.matches?.('[data-echo-sentence]')) {
+              const shownOnMount = node.querySelectorAll('[data-char-shown="true"]').length
+              if (shownOnMount > 0) {
+                prematureMountFlashes.push(shownOnMount)
+              }
+            }
+          }
+        }
+      }
+    })
+    antiFlashObserver.observe(fullscreenRoot, {
+      attributes: true,
+      attributeOldValue: true,
+      childList: true,
+      subtree: true,
+    })
+
+    // 先等待首句 100% 全部显现（模拟用户看完上一整句后再点击切换的场景）
+    await new Promise((r) => setTimeout(r, 1150))
+    assert.equal(
+      fullscreenRoot.querySelectorAll('[data-char-shown="true"]').length,
+      fullscreenRoot.querySelectorAll('[data-char-shown]').length,
+      '首句应在点击前已完整显现',
+    )
+
+    // 点击切换到下一句：React 19 微任务提交首帧（任何定时器/动画帧触发之前）shown 必须严格为 0
     fullscreenRoot.click()
-    await new Promise((r) => setTimeout(r, 15))
+    await Promise.resolve()
+    assert.equal(
+      fullscreenRoot.querySelectorAll('[data-char-shown="true"]').length,
+      0,
+      '点击切换新句子首帧绝不能残留上一句的已显现字数',
+    )
+
+    await new Promise((r) => setTimeout(r, 35))
     const allSpansInitial = fullscreenRoot.querySelectorAll('[data-char-shown]')
     const shownInitial = fullscreenRoot.querySelectorAll('[data-char-shown="true"]')
     assert.ok(allSpansInitial.length > 2, '回声句子应拆分为独立字符节点以逐字显现')
@@ -1144,7 +1195,7 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       shownInitial.length >= 1 && shownInitial.length < allSpansInitial.length,
       `刚切换时应处于逐字浮现过程中（已显 ${shownInitial.length} / 总计 ${allSpansInitial.length}）`,
     )
-    await new Promise((r) => setTimeout(r, 980))
+    await new Promise((r) => setTimeout(r, 1150))
     assert.equal(
       fullscreenRoot.querySelectorAll('[data-char-shown="true"]').length,
       fullscreenRoot.querySelectorAll('[data-char-shown]').length,
@@ -1154,6 +1205,12 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
     const clickedHistory = []
     for (let i = 0; i < 12; i++) {
       fullscreenRoot.click()
+      await Promise.resolve()
+      assert.equal(
+        fullscreenRoot.querySelectorAll('[data-char-shown="true"]').length,
+        0,
+        `第 ${i + 1} 次连续点击的提交首帧同样必须严格从 0 字开始显现`,
+      )
       await new Promise((r) => setTimeout(r, 20))
       clickedHistory.push(fullscreenRoot.querySelector('p')?.textContent?.trim())
     }
@@ -1162,6 +1219,17 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       clickedHistory.length,
       `连续点击 12 次不应出现任何重复句子，实际序列：${JSON.stringify(clickedHistory)}`,
     )
+    assert.equal(
+      prematureMountFlashes.length,
+      0,
+      `新句子挂载首帧不应有任何字符提前显现，实际异常：${JSON.stringify(prematureMountFlashes)}`,
+    )
+    assert.equal(
+      reverseFlips.length,
+      0,
+      `任何字符显现后绝不应回退消失（true -> false），实际异常：${JSON.stringify(reverseFlips)}`,
+    )
+    antiFlashObserver.disconnect()
 
     // 4) 在底部横线输入内容并点击箭头按钮，验证写入 Discussions 并立即逐字回显
     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
@@ -1188,10 +1256,9 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       1,
       '发送成功后全页仍应严格保持仅有一个发送按钮',
     )
-
-    reactRoot.unmount()
-    await new Promise((r) => setTimeout(r, 30))
   } finally {
+    reactRoot.unmount()
+    await new Promise((r) => setTimeout(r, 35))
     dom.window.close()
     Object.assign(globalThis, prevGlobals)
   }
