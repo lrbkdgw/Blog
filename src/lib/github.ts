@@ -1,4 +1,4 @@
-import { commentsConfig, echoCaveConfig, githubConfig, oauthConfig, STORAGE_KEYS } from './config'
+import { commentsConfig, githubConfig, oauthConfig, STORAGE_KEYS } from './config'
 import { readPersonalSetting, writePersonalSetting } from './settingsStore'
 import { OFFLINE, OFFLINE_NO_NETWORK_HINT } from './runtime'
 
@@ -815,38 +815,6 @@ export async function closePublicationPR(
   })
 }
 
-/**
- * 判断某个用户是不是目标仓库的「贡献者」（issue #93 回声洞的限流豁免口径之一）。
- *
- * 仓库所有者、能直接推送的协作者（`checkUserRepoPermissions` 的 canPush），
- * 以及出现在仓库贡献者名单（曾经有提交被并入）里的用户都算贡献者。
- * 贡献者名单逐页拉取、找到即停，最多看 10 页（1000 人），足够覆盖本站规模；
- * 查询失败时按普通用户处理（仅影响豁免，不阻断使用）。
- */
-export async function checkIsRepoContributor(
-  username: string,
-  target = getRepoTarget(),
-): Promise<boolean> {
-  if (!username) return false
-  const me = username.toLowerCase()
-  if (me === target.owner.toLowerCase()) return true
-  try {
-    const perms = await checkUserRepoPermissions(username, target)
-    if (perms.canPush || perms.canAdmin) return true
-    for (let page = 1; page <= 10; page += 1) {
-      const contributors = await gh<{ login?: string }[]>(
-        `/repos/${target.owner}/${target.repo}/contributors?per_page=100&page=${page}&anon=0`,
-      )
-      if (!Array.isArray(contributors) || contributors.length === 0) break
-      if (contributors.some((item) => item.login?.toLowerCase() === me)) return true
-      if (contributors.length < 100) break
-    }
-  } catch {
-    // 名单拉不到时按普通用户处理
-  }
-  return false
-}
-
 /* -------------------------- GitHub Discussions 评论 ------------------------- */
 
 export interface BlogDiscussionComment {
@@ -858,8 +826,6 @@ export interface BlogDiscussionComment {
   viewerCanDelete: boolean
   viewerDidAuthor: boolean
   authorAssociation: string
-  /** 被维护者「最小化」（隐藏）的评论；回声洞据此过滤不当回声 */
-  isMinimized?: boolean
   author: {
     login: string
     avatarUrl: string
@@ -889,14 +855,8 @@ function discussionMarker(postSlug: string): string {
   return `<!-- starlog-comments:${encodeURIComponent(postSlug)} -->`
 }
 
-/** 百宝箱回声洞讨论帖的隐藏标记（issue #93）：与文章评论帖分开找回 */
-function echoDiscussionMarker(): string {
-  return '<!-- starlog-echo-cave -->'
-}
-
 async function getDiscussionRepository(
   target: RepoTarget,
-  categoryName: string = commentsConfig.category,
 ): Promise<{ repositoryId: string; categoryId: string }> {
   const data = await githubGraphql<{
     repository: {
@@ -922,10 +882,10 @@ async function getDiscussionRepository(
     throw new Error('目标仓库尚未开启 GitHub Discussions，请先在仓库 Settings → Features 中启用')
   }
   const category = repository.discussionCategories.nodes.find(
-    (item) => item.name.toLowerCase() === categoryName.toLowerCase(),
+    (item) => item.name.toLowerCase() === commentsConfig.category.toLowerCase(),
   )
   if (!category) {
-    throw new Error(`GitHub Discussions 中没有“${categoryName}”分类，请修改 config.ts 中对应的 category`)
+    throw new Error(`GitHub Discussions 中没有“${commentsConfig.category}”分类，请修改 commentsConfig.category`)
   }
   return { repositoryId: repository.id, categoryId: category.id }
 }
@@ -945,14 +905,7 @@ async function findBlogDiscussion(
   categoryId: string,
   target: RepoTarget,
 ): Promise<DiscussionNode | null> {
-  return findDiscussionByMarker(discussionMarker(postSlug), categoryId, target)
-}
-
-async function findDiscussionByMarker(
-  marker: string,
-  categoryId: string,
-  target: RepoTarget,
-): Promise<DiscussionNode | null> {
+  const marker = discussionMarker(postSlug)
   let after: string | null = null
   do {
     const data: {
@@ -980,7 +933,7 @@ async function findDiscussionByMarker(
               id number url body
               comments(first: 100) {
                 nodes {
-                  id body createdAt updatedAt url viewerCanDelete viewerDidAuthor authorAssociation isMinimized
+                  id body createdAt updatedAt url viewerCanDelete viewerDidAuthor authorAssociation
                   author { login avatarUrl url }
                 }
                 pageInfo { hasNextPage endCursor }
@@ -1029,7 +982,7 @@ async function loadRemainingDiscussionComments(
           discussion(number: $number) {
             comments(first: 100, after: $after) {
               nodes {
-                id body createdAt updatedAt url viewerCanDelete viewerDidAuthor authorAssociation isMinimized
+                id body createdAt updatedAt url viewerCanDelete viewerDidAuthor authorAssociation
                 author { login avatarUrl url }
               }
               pageInfo { hasNextPage endCursor }
@@ -1129,92 +1082,6 @@ export async function deleteBlogDiscussionComment(commentId: string): Promise<vo
     }`,
     { commentId },
   )
-}
-
-/* ------------------------- 百宝箱 · 回声洞（issue #93） ------------------------ */
-
-/**
- * 读取回声洞的全部回声（原始评论，**未做频率过滤**）。
- *
- * 全部回声共用同一个 Discussions 帖子；帖子还没被创建时 discussion 为 null、
- * comments 为空。频率限制的「只识别每小时前 3 条 / 每天前 10 条」在展示侧
- * 用 `echoCave.ts` 的 `filterRecognizedEchoes` 统一处理，发送侧的额度检查也
- * 需要这里返回的原始列表，因此这里不做任何过滤（连被最小化的也原样带出，
- * 是否展示由调用方决定）。
- */
-export async function loadEchoCaveEntries(
-  target = getRepoTarget(),
-): Promise<BlogCommentsResult> {
-  const repository = await getDiscussionRepository(target, echoCaveConfig.category)
-  const discussion = await findDiscussionByMarker(
-    echoDiscussionMarker(),
-    repository.categoryId,
-    target,
-  )
-  const comments = discussion ? await loadRemainingDiscussionComments(discussion, target) : []
-  return {
-    ...repository,
-    discussion: discussion
-      ? { id: discussion.id, number: discussion.number, url: discussion.url }
-      : null,
-    comments: comments.sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
-  }
-}
-
-/** 第一次有人留声时创建回声洞的固定讨论帖（之后所有回声都是它的评论）。 */
-export async function createEchoCaveDiscussion(
-  repositoryId: string,
-  categoryId: string,
-): Promise<BlogDiscussionThread> {
-  const body = [
-    '这里是博客「百宝箱 · 回声洞」收集访客回声的地方：每一条评论都是一句留给后来人的话，会在回声洞页面里被随机听到。',
-    '',
-    `也可以直接在本帖下留言留下一句回声（建议一句话、${echoCaveConfig.maxLength} 字以内）。每位非仓库贡献者每小时只识别最先发出的 ${echoCaveConfig.hourlyLimit} 条、每天只识别最先发出的 ${echoCaveConfig.dailyLimit} 条，超出部分不会在站内展示；不当内容可由维护者最小化隐藏或删除。`,
-    '',
-    echoDiscussionMarker(),
-  ].join('\n')
-  const data = await githubGraphql<{
-    createDiscussion: { discussion: BlogDiscussionThread | null }
-  }>(
-    `mutation CreateEchoCaveDiscussion(
-      $repositoryId: ID!
-      $categoryId: ID!
-      $title: String!
-      $body: String!
-    ) {
-      createDiscussion(input: {
-        repositoryId: $repositoryId
-        categoryId: $categoryId
-        title: $title
-        body: $body
-      }) {
-        discussion { id number url }
-      }
-    }`,
-    { repositoryId, categoryId, title: echoCaveConfig.title, body },
-  )
-  if (!data.createDiscussion.discussion) throw new Error('无法创建回声洞对应的 GitHub Discussion')
-  return data.createDiscussion.discussion
-}
-
-/** 向回声洞留下一句回声（即给固定讨论帖追加一条评论），并返回新评论的 id / 地址。 */
-export async function addEchoCaveEntry(
-  discussionId: string,
-  body: string,
-): Promise<{ id: string; url: string }> {
-  const data = await githubGraphql<{
-    addDiscussionComment: { comment: { id: string; url: string } | null }
-  }>(
-    `mutation AddEchoCaveEntry($discussionId: ID!, $body: String!) {
-      addDiscussionComment(input: { discussionId: $discussionId, body: $body }) {
-        comment { id url }
-      }
-    }`,
-    { discussionId, body },
-  )
-  const comment = data.addDiscussionComment.comment
-  if (!comment) throw new Error('回声发送失败，请稍后重试')
-  return comment
 }
 
 /* ---------------------------- 账号外观偏好 ---------------------------- */

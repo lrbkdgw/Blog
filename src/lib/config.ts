@@ -75,27 +75,6 @@ export const commentsConfig = {
   titlePrefix: '[文章评论]',
 }
 
-/**
- * 百宝箱 · 回声洞（issue #93）。
- *
- * 所有访客留下的「回声」都保存在 GitHub Discussions 里**同一个**讨论帖的评论中
- * （一条回声 = 一条评论），靠正文里的隐藏标记 `starlog-echo-cave` 找回这个帖子，
- * 与文章评论的 `[文章评论]` 帖子互不干扰。分类默认与文章评论共用 `General`，
- * 也可以在 Discussions 里新建一个分类后把名字改到这里。
- */
-export const echoCaveConfig = {
-  /** GitHub Discussions 中用于保存回声的分类。 */
-  category: 'General',
-  /** 回声洞讨论帖的标题（第一次有人留下回声时自动创建）。 */
-  title: '[回声洞] 百宝箱回声洞',
-  /** 每位非仓库贡献者每小时最多被识别的回声数（超出部分不展示）。 */
-  hourlyLimit: 3,
-  /** 每位非仓库贡献者每天最多被识别的回声数（超出部分不展示）。 */
-  dailyLimit: 10,
-  /** 单条回声的最大字数（站内输入与识别口径一致）。 */
-  maxLength: 200,
-}
-
 export const oauthConfig = {
   /**
    * OAuth App 的 Client ID。
@@ -142,8 +121,6 @@ export const STORAGE_KEYS = {
   ghUser: 'starlog:gh-user',
   ghRepo: 'starlog:gh-repo',
   drafts: 'starlog:drafts',
-  /** 百宝箱回声洞在离线版（无网络）时保存在本机的回声列表 */
-  echoCaveLocal: 'starlog:echo-cave-local',
   /** 离线版：被删除的内置文章 slug 列表（删除只在本机生效，故记录墓碑） */
   offlineHidden: 'starlog:offline-hidden',
   /** 离线版：每篇文章的本机历史版本快照 */
