@@ -1,19 +1,27 @@
 /**
- * Echo Cave — Zero-Shift Hybrid DOM-Mask + GPU WebGL2 Bone-Ash Disintegration Engine (v3)
+ * Echo Cave — Zero-Shift Hybrid DOM-Mask + GPU WebGL2 Mist-Dissipation Engine (v4)
  *
- * Combines three proven open-source disintegration techniques with zero Frame-0 shift:
+ * The goal is ink evaporating into drifting mist — NOT a sand/grain particle burst.
+ * Every visual parameter below is tuned against an offline replica of this exact
+ * particle field + shader math (rendered frame-by-frame) to kill the "particulate" look:
  * 1. Live DOM Ragged FBM Alpha-Mask Pass 1:
  *    Keeps the real browser-rendered DOM `<div data-echo-sentence>` in its exact layout position
  *    (`0.000px` displacement across every font, CJK punctuation trim rule, scrollbar width, and
- *    HiDPI zoom level) while sweeping a pre-baked multi-octave `fbm2D` ragged alpha mask across
- *    `mask-position` on the GPU compositor with zero per-frame allocations and zero startup delay.
- * 2. `uvarov-frontend/vanilla-disintegrate` (MIT) + `Burn-My-Windows` (`snap.frag` math):
- *    WebGL2 sub-pixel `gl.POINTS` particle pass (chunked at `32,768` per VAO for Safari Metal)
- *    with algebraically locked `threshold(c, v)` matching the exact live DOM mask contour,
- *    streaming upward-and-right along coherent dual-harmonic FBM curl ribbons and softening into
- *    velvety bone-ash motes.
+ *    HiDPI zoom level) while sweeping a wide, soft multi-octave `fbm2D` alpha mask across
+ *    `mask-position` (each column melts over ~180ms instead of snapping off) plus a sub-pixel
+ *    `filter: blur()` ramp so the remaining ink visibly loosens before it lifts away.
+ * 2. WebGL2 `gl.POINTS` pass (chunked at `32,768` per VAO for Safari Metal) with algebraically
+ *    locked `threshold(c, v)` matching the live DOM mask contour. Neighbouring texels share a
+ *    smooth multi-scale FBM wind field (no per-texel random scatter, no outlier "wisp" grains),
+ *    ease out of the glyph with zero initial velocity (smootherstep travel + late Buoyancy),
+ *    and each point inflates into a large, soft Gaussian puff whose peak alpha falls with the
+ *    inverse square of its diameter — thousands of overlapping puffs form one continuous,
+ *    thinning mist ribbon instead of visible specks. A ~90ms birth ramp makes puffs take over
+ *    only as the DOM mask underneath finishes fading, so the erosion front never double-inks.
  * 3. Google Search 2019 "Thanos Snap" (`@wellwind/thanos-snap`, MIT):
- *    28-layer spatially weighted `ImageData` pixel-cloud Canvas 2D fallback when WebGL2 is absent.
+ *    28-layer spatially weighted `ImageData` pixel-cloud Canvas 2D fallback when WebGL2 is
+ *    absent, re-weighted toward coherent patches and drawn with a growing blur so it also
+ *    reads as mist rather than pixel dust.
  */
 
 export interface EchoAshController {
@@ -32,33 +40,35 @@ export interface EchoAshController {
 }
 
 /**
- * Stage handoff duration (ms): at `960ms` (`progress ≈ 0.55` of `1750ms`), 100% of the live DOM
- * text has been cleanly eroded away (`MAX_THRESHOLD = 0.48` completes at `840ms`) and the center
- * baseline is open for the next sentence's character-by-character reveal while upper-air ash wisps
- * finish floating and dissolving across `960ms..1750ms`.
+ * Stage handoff duration (ms): at `960ms` (`progress ≈ 0.468` of `2050ms`), 100% of the live DOM
+ * text has been cleanly eroded away (`MAX_THRESHOLD = 0.43` completes at `882ms`) and the center
+ * baseline is open for the next sentence's character-by-character reveal while the mist ribbon
+ * finishes drifting up and thinning out across `960ms..2050ms`.
  */
 export const ASH_EXIT_STAGE_MS = 960;
 
-const TOTAL_BURST_MS = 1750;
+const TOTAL_BURST_MS = 2050;
 const PARTICLE_BUDGET = 96_000;
 const PARTICLES_PER_BUFFER = 32_768; // Avoids Safari Metal large gl.POINTS draw glitch
 const PARTICLE_STRIDE = 9; // [srcX, srcY, threshold, velX, velY, diffX, diffY, swirl, phase]
-const PARTICLE_LIFE = 0.52;
+const PARTICLE_LIFE = 0.57;
 const MIN_THRESHOLD = 0.002;
-const MAX_THRESHOLD = 1 - PARTICLE_LIFE; // 0.48
-const TRANSITION_BAND = 0.012;
+const MAX_THRESHOLD = 1 - PARTICLE_LIFE; // 0.43
+const TRANSITION_BAND = 0.02;
 const CANVAS2D_LAYERS = 28;
 
 // Algebraically coupled `mask-size: 300% 100%` sweep constants:
 // For `mask-size: 300% 100%` and `mask-position: (p * 100)% 0%`, normalized element column `c ∈ [0,1]`
 // samples mask UV `u(c, p) = (c + 2 * p) / 3`.
-// - At `p = 1.0` (`t = 0ms`): `u ∈ [0.6667, 1.0]` -> strictly > `MASK_EDGE_CENTER + MASK_EDGE_AMP + MASK_SOFT` (`0.664`) -> 100% opaque!
-// - At `p = MASK_P_END` (`0.27`): `u ∈ [0.18, 0.5133]` -> strictly < `MASK_EDGE_CENTER - MASK_EDGE_AMP - MASK_SOFT` (`0.572`) -> 0% opaque!
+// The edge is recentered to `0.59` so `MASK_SOFT` can widen to `0.05` (each column now melts over
+// ~21% of the sweep ≈ 180ms — a cloudy erosion front, not a crisp fracture line) while keeping:
+// - At `p = 1.0` (`t = 0ms`): `u ∈ [0.6667, 1.0]` -> strictly > `MASK_EDGE_CENTER + MASK_EDGE_AMP + MASK_SOFT + grain` (`0.664`) -> 100% opaque!
+// - At `p = MASK_P_END` (`0.27`): `u ∈ [0.18, 0.5133]` -> strictly < `MASK_EDGE_CENTER - MASK_EDGE_AMP - MASK_SOFT - grain` (`0.516`) -> 0% opaque!
 const MASK_P_END = 0.27;
 const MASK_P_SPAN = 1 - MASK_P_END; // 0.73
-const MASK_EDGE_CENTER = 0.618;
-const MASK_EDGE_AMP = 0.024;
-const MASK_SOFT = 0.022;
+const MASK_EDGE_CENTER = 0.59;
+const MASK_EDGE_AMP = 0.02;
+const MASK_SOFT = 0.05;
 const MASK_TEX_W = 384;
 const MASK_TEX_H = 96;
 
@@ -152,9 +162,9 @@ function smoothstepJS(edge0: number, edge1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** Compute ragged fractal mask edge `u_edge(v) ∈ [0.594, 0.642]` shared by DOM mask & GPU particles. */
+/** Compute ragged fractal mask edge `u_edge(v) ∈ [0.57, 0.61]` shared by DOM mask & GPU particles. */
 function maskEdgeAtRow(vNorm: number): number {
-  const n = fbm2D(3.7, vNorm * 5.2, 2067, 3);
+  const n = fbm2D(3.7, vNorm * 4.4, 2067, 3);
   return MASK_EDGE_CENTER - MASK_EDGE_AMP * clamp((n - 0.5) * 2.2, -1, 1);
 }
 
@@ -177,8 +187,9 @@ function getFractalWipeMaskUrl(doc: Document): string {
       const edgeBase = maskEdgeAtRow(v);
       for (let x = 0; x < MASK_TEX_W; x += 1) {
         const u = (x + 0.5) / MASK_TEX_W;
-        // High-frequency organic flake grain right along the fracture band
-        const grain = (fbm2D(u * 46, v * 14, 913, 2) - 0.5) * 0.016;
+        // Low-frequency cloudy undulation along the melt band (kept <= ±0.004 so the
+        // Frame-0 / fully-eroded opacity guarantees above hold at every texel)
+        const grain = (fbm2D(u * 20, v * 7, 913, 3) - 0.5) * 0.008;
         const alpha = smoothstepJS(-MASK_SOFT, MASK_SOFT, u - (edgeBase + grain));
         const idx = (y * MASK_TEX_W + x) * 4;
         data[idx] = 255;
@@ -232,6 +243,11 @@ function applyDomErosionMask(el: HTMLElement, maskUrl: string, progress: number)
   }
   st.webkitMaskPosition = pos;
   st.maskPosition = pos;
+  // Sub-pixel blur ramp (0px at Frame 0 -> ~1.15px as the sweep completes): the ink that
+  // has not lifted yet visibly loosens/softens instead of staying razor-sharp up to a hard
+  // fracture line. `filter` never affects layout, so the zero-shift guarantee is preserved.
+  const blurPx = Math.min(1.15, sweepT * sweepT * 1.6);
+  st.filter = blurPx > 0.03 ? `blur(${blurPx.toFixed(2)}px)` : '';
 }
 
 function clearDomErosionMask(el: HTMLElement | null) {
@@ -250,6 +266,7 @@ function clearDomErosionMask(el: HTMLElement | null) {
   st.maskRepeat = '';
   st.webkitMaskPosition = '';
   st.maskPosition = '';
+  st.filter = '';
 }
 
 // ============================================================================
@@ -416,9 +433,11 @@ function captureSnapshot(
   }
 
   const darkInk = lumAcc / runs.length < 0.5;
+  // Slightly paler than v3: dissipated mist should sit closer to the background than
+  // the ink it came from, otherwise every puff keeps grain-like contrast.
   const ashColor: [number, number, number] = darkInk
-    ? [86 / 255, 82 / 255, 76 / 255]
-    : [224 / 255, 220 / 255, 212 / 255];
+    ? [104 / 255, 99 / 255, 92 / 255]
+    : [216 / 255, 211 / 255, 202 / 255];
 
   const pixelLeft = Math.floor((minX - canvasLeftCss) * scaleX);
   const pixelTop = Math.floor((minY - canvasTopCss) * scaleY);
@@ -590,7 +609,9 @@ export function buildAshParticleField(
       const col = (x + blockSize * 0.5) / texW;
 
       // Exact algebraic solution matching `applyDomErosionMask`: `(col + 2 * p) / 3 === uEdgeRow`
-      const microGrain = (hash2DInt(bx, by, seed + 7919) - 0.5) * 0.02;
+      // Detach-time jitter comes from smooth value noise (~55px features), never a per-texel
+      // hash — salt-and-pepper detach timing is what made the front look like bursting sand.
+      const microGrain = (valueNoise2D(x * 0.018 + 7.3, y * 0.018 + 2.9, seed + 7919) - 0.5) * 0.02;
       const pDetach = clamp((3 * (uEdgeRow + microGrain) - col) * 0.5, MASK_P_END, 1);
       const sweepNorm = clamp((1 - pDetach) / MASK_P_SPAN, 0, 1);
       const threshold = MIN_THRESHOLD + sweepNorm * (MAX_THRESHOLD - MIN_THRESHOLD);
@@ -599,26 +620,29 @@ export function buildAshParticleField(
       thresholdMap[bIdx] = Math.round(threshold * 255);
       if (visibleBlocks[bIdx] === 0) continue;
 
-      // Lively yet graceful rising wind ribbons (~135 CSS px/s) + gentle late dispersion
-      const sA = fbm2D(x * 0.013 + 11.3, y * 0.013 + 4.7, seed + 101, 3);
-      const sB = fbm2D(x * 0.025 + 31.7, y * 0.025 + 9.2, seed + 211, 3);
-      const r1 = hash2DInt(bx, by, seed + 1301);
-      const r2 = hash2DInt(bx, by, seed + 2713);
-      const r3 = hash2DInt(bx, by, seed + 4099);
-      const r4 = hash2DInt(bx, by, seed + 5657);
-      const wisp = r4 > 0.88 ? 1 : 0;
+      // Multi-scale coherent wind field. Every term is a smooth function of position —
+      // neighbouring texels always travel together like one sheet of vapour, while the
+      // ~22px-scale terms (`sD`/`sE`) still shear individual strokes apart over the
+      // lifetime so glyphs smear into wisps instead of floating away as readable ghosts.
+      // (v3 gave each texel an independent random diffusion direction/magnitude plus a
+      // 12% population of fast outlier grains — the main source of the "sand blast" look.)
+      const sA = fbm2D(x * 0.0075 + 11.3, y * 0.0075 + 4.7, seed + 101, 3);
+      const sB = fbm2D(x * 0.018 + 31.7, y * 0.018 + 9.2, seed + 211, 3);
+      const sC = fbm2D(x * 0.016 + 53.1, y * 0.016 + 17.4, seed + 307, 2);
+      const sD = fbm2D(x * 0.045 + 71.9, y * 0.045 + 23.3, seed + 401, 2);
+      const sE = fbm2D(x * 0.045 + 5.1, y * 0.045 + 47.7, seed + 503, 2);
 
-      const gust = 1 + wisp * 0.38;
-      const velX = (84 + sA * 124) * dpr * gust;
-      const velY = (-50 - sB * 102) * dpr * gust;
+      const velX = (50 + sA * 42 + sC * 18 + (sD - 0.5) * 34) * dpr;
+      // Upper rows lift slightly faster (Buoyancy shear across the glyph body).
+      const velY = (-18 - sB * 50 - (1 - row) * 12 + (sE - 0.5) * 26) * dpr;
 
-      const diffAng = r1 * Math.PI * 2;
-      const diffMag = (14 + r2 * 42) * dpr * (1 + wisp * 0.48);
+      const diffAng = sC * Math.PI * 2;
+      const diffMag = (10 + sB * 34) * dpr;
       const diffX = Math.cos(diffAng) * diffMag;
-      const diffY = Math.sin(diffAng) * diffMag * 0.72;
+      const diffY = Math.sin(diffAng) * diffMag * 0.7;
 
-      const swirl = (12 + sB * 22) * dpr;
-      const phase = sA * Math.PI * 3.1 + (r3 - 0.5) * 0.48;
+      const swirl = (8 + sC * 16) * dpr;
+      const phase = sA * Math.PI * 2 + sC * 1.7;
 
       const chunkIdx = Math.floor(globalIdx / PARTICLES_PER_BUFFER);
       const slotOffset = (globalIdx % PARTICLES_PER_BUFFER) * PARTICLE_STRIDE;
@@ -688,31 +712,47 @@ void main() {
   }
 
   float local = clamp(raw_local, 0.0, 1.0);
-  float travel_t = mix(smoothstep(0.0, 1.0, local), 1.0 - pow(1.0 - local, 1.6), 0.52);
-  float spread_t = pow(local, 1.7);
-  float env = sin(local * 2.890265) * 0.85;
-  float w1 = sin(local * 6.2 + a_phase);
-  float w2 = cos(local * 11.4 + a_phase * 1.61);
+  // Smootherstep travel: zero velocity at detach (material is still part of the glyph,
+  // it loosens first, then the wind takes it) and again at death (drag as it mixes
+  // with still air). v3's curve had ~0.83 initial slope — grains popped off at speed.
+  float travel_t = local * local * local * (local * (local * 6.0 - 15.0) + 10.0);
+  float spread_t = pow(local, 1.5);
+  // One slow sway (plus a faint overtone) whose amplitude grows as material frees
+  // itself — no high-frequency per-grain vibration.
+  float sway_env = pow(local, 1.3);
+  float sway = sin(local * 3.6 + a_phase) + sin(local * 7.3 + a_phase * 1.7) * 0.35;
 
   vec2 perp = vec2(-a_velocity.y, a_velocity.x) / max(length(a_velocity), 0.001);
   vec2 drift = a_velocity * travel_t
-             + perp * (w1 * a_swirl + w2 * a_swirl * 0.25) * env
+             + perp * sway * a_swirl * sway_env
              + a_diffusion * spread_t
-             + vec2(0.0, -38.0 * u_dpr * local * local);
+             + vec2(0.0, -30.0 * u_dpr * pow(local, 1.6));
 
-  float softness = smoothstep(0.02, 0.24, local);
-  float point_scale = mix(1.0, 2.35, softness);
+  float softness = smoothstep(0.0, 0.08, local);
+  // Each texel inflates into a broad vapour puff (up to ~31x the block, capped at
+  // 17 CSS px diameter). At this size thousands of puffs overlap into one continuous
+  // mist sheet — the individual points stop being perceptible as particles.
+  float point_scale = mix(1.0, 31.0, sqrt(local));
+  float size_cap = max(u_block_size * 2.0, 17.0 * u_dpr);
+  float point_size = max(u_block_size, min(u_block_size * point_scale, size_cap));
+  float eff_scale = point_size / max(u_block_size, 0.001);
   vec2 center = u_source_offset + a_origin + vec2(u_block_size * 0.5) + drift;
   vec2 clip = center / u_canvas_size * 2.0 - 1.0;
 
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-  gl_PointSize = max(1.0, u_block_size * point_scale);
+  gl_PointSize = point_size;
 
   v_uv_origin = a_origin / u_source_size;
   v_uv_size = vec2(u_block_size) / u_source_size;
-  float fade = 1.0 - smoothstep(0.24, 1.0, local);
-  float energy_norm = mix(1.0, 0.54, softness);
-  v_alpha = activation * fade * energy_norm;
+  // Birth ramp: puffs only reach full contribution ~90ms after detach, once the DOM
+  // mask below them has finished fading — otherwise DOM ink + puff ink stack into a
+  // dark bold blob travelling along the erosion front.
+  float birth = smoothstep(0.0, 0.09, local);
+  float fade = pow(1.0 - local, 1.15);
+  // Energy conservation: peak alpha falls with the inverse square of puff diameter,
+  // so expanding vapour thins out instead of mushrooming into a solid blob.
+  float density = min(1.0, 4.0 / (eff_scale * eff_scale));
+  v_alpha = activation * birth * fade * density;
   v_local = local;
   v_softness = softness;
 }
@@ -737,9 +777,10 @@ void main() {
     return;
   }
   vec2 centered = gl_PointCoord - vec2(0.5);
-  float dist = length(centered);
-  float radial = 1.0 - smoothstep(0.16, 0.5, dist);
-  float mask = mix(1.0, radial, v_softness);
+  float r2 = dot(centered, centered) * 4.0;
+  // Pure Gaussian puff from birth (no hard square/disc phase — hard sprite edges are
+  // what the eye reads as "grains"); the kernel only widens as the puff ages.
+  float mask = exp(-mix(5.5, 3.6, v_softness) * r2);
   if (mask <= 0.002) {
     out_color = vec4(0.0);
     return;
@@ -753,7 +794,10 @@ void main() {
   }
 
   vec3 straight_rgb = tex.rgb / max(tex.a, 0.0001);
-  float ash_mix = clamp(0.26 + smoothstep(0.0, 0.34, v_local) * 0.66, 0.0, 0.92);
+  // Ink colour at birth (seamless takeover from the glyph), paling into ash-grey
+  // vapour over the first ~40% of the lifetime. v3 jumped 26% toward ash instantly,
+  // which made every detaching texel flash a different colour from its neighbours.
+  float ash_mix = smoothstep(0.0, 0.42, v_local) * 0.9;
   vec3 tinted = mix(straight_rgb, u_ash_color, ash_mix);
   float final_a = v_alpha * mask;
   out_color = vec4(tinted * tex.a, tex.a) * final_a;
@@ -856,16 +900,19 @@ function createCanvas2DLayerBurst(
       particleCount += 1;
 
       const col = x / texW;
-      const organic = fbm2D(x * 0.02, y * 0.024, seed + 37, 2);
+      const organic = fbm2D(x * 0.012, y * 0.014, seed + 37, 2);
       for (let rep = 0; rep < 2; rep += 1) {
         const jitter = hash2DInt(x + rep * 991, y, seed + 613);
-        const weighted = clamp((2 * col + organic * 0.7 + jitter * 0.6) / 3.3, 0, 0.9999);
+        // Neighbouring pixels should land in neighbouring layers (coherent cloudy
+        // patches); v3's heavy per-pixel jitter sprinkled every layer evenly with
+        // isolated dots, which read as static/noise once the layers separated.
+        const weighted = clamp((2 * col + organic * 1.15 + jitter * 0.22) / 3.37, 0, 0.9999);
         const bucket = Math.min(CANVAS2D_LAYERS - 1, Math.floor(weighted * CANVAS2D_LAYERS));
         const dst = layerArrays[bucket];
         dst[pIdx] = Math.round(pixels[pIdx] * 0.52 + ashColor[0] * 255 * 0.48);
         dst[pIdx + 1] = Math.round(pixels[pIdx + 1] * 0.52 + ashColor[1] * 255 * 0.48);
         dst[pIdx + 2] = Math.round(pixels[pIdx + 2] * 0.52 + ashColor[2] * 255 * 0.48);
-        dst[pIdx + 3] = Math.round(a * 0.72);
+        dst[pIdx + 3] = Math.round(a * 0.6);
       }
     }
   }
@@ -886,14 +933,16 @@ function createCanvas2DLayerBurst(
     }
     const rA = hash2DInt(i, 11, seed + 71);
     const rB = hash2DInt(i, 29, seed + 193);
-    const angle = -0.78 + (rA - 0.5) * 0.52;
-    const dist = (86 + rB * 112) * scaleX;
+    // Gentler, more aligned layer drift: wide angular scatter + large rotations made
+    // the fallback look like exploding debris rather than one wind-borne mist.
+    const angle = -0.62 + (rA - 0.5) * 0.3;
+    const dist = (64 + rB * 76) * scaleX;
     return {
       canvas: c,
       delayNorm: (i / CANVAS2D_LAYERS) * MAX_THRESHOLD,
       dx: Math.cos(angle) * dist,
       dy: Math.sin(angle) * dist - 22 * scaleX,
-      rot: ((rA - 0.5) * 14 * Math.PI) / 180,
+      rot: ((rA - 0.5) * 10 * Math.PI) / 180,
     };
   });
 
@@ -1091,11 +1140,22 @@ export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshControlle
         for (const layer of b.layers) {
           if (progress < layer.delayNorm) continue;
           const local = clamp((progress - layer.delayNorm) / PARTICLE_LIFE, 0, 1);
-          const alpha = (1 - local * local) * smoothstepJS(0, 0.08, local);
+          const alpha = Math.pow(1 - local, 1.3) * smoothstepJS(0, 0.1, local) * 0.92;
           if (alpha <= 0.005) continue;
-          const ease = 1 - Math.pow(1 - local, 1.75);
+          // Smoothstep travel — same zero-velocity lift-off as the WebGL2 path,
+          // instead of layers instantly shooting off the glyph.
+          const ease = local * local * (3 - 2 * local);
           ctx2d.save();
           ctx2d.globalAlpha = alpha;
+          // Growing blur melts each layer's isolated pixels into cloud. `filter` is
+          // part of the saved/restored drawing state; engines without support
+          // (older Safari) silently ignore the assignment.
+          const blurPx = local * local * 5;
+          try {
+            ctx2d.filter = blurPx > 0.2 ? `blur(${blurPx.toFixed(1)}px)` : 'none';
+          } catch {
+            // Mock/legacy contexts without a settable `filter` property
+          }
           ctx2d.translate(cx + layer.dx * ease, cy + layer.dy * ease);
           ctx2d.rotate(layer.rot * ease);
           ctx2d.drawImage(layer.canvas, -b.texW * 0.5, -b.texH * 0.5);
