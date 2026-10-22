@@ -1,7 +1,7 @@
 ---
 title: "OI 十月计划"
 date: "2026-10-19"
-updated: "2026-10-20"
+updated: "2026-10-22"
 summary: "-"
 tags: ["OI"]
 ---
@@ -38,4 +38,10 @@ WQS 二分还没写完，明天补
 **成果**
 
 - https://blog-apa.pages.dev/posts/oi-dp-skill-1
+
+### 10/21~24
+
+- 打模拟赛。
+- 学习 SA 和 SAM。
+- 做一些杂题。
 
