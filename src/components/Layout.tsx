@@ -344,12 +344,12 @@ function Footer() {
   )
 }
 
-function AnimatedBackdropLayer() {
+function AnimatedBackdropLayer({ ignoreOverride = false }: { ignoreOverride?: boolean }) {
   const pref = useAnimatedBackground()
   // 文章开头的 ::set-background[<id>]（issue #59）可在阅读本文时临时强制场景，
-  // 参数仍用读者为该场景保存（或默认）的值；离开文章后覆盖被清除，恢复个人偏好。
+  // 参数仍用读者为该场景保存（或默认）的值；回声洞等独立全屏页始终使用用户自己选择的背景。
   const override = useAnimatedSceneOverride()
-  const scene = override ?? pref.scene
+  const scene = ignoreOverride ? pref.scene : (override ?? pref.scene)
   if (scene === 'none') return null
   return <AnimatedBackdrop scene={scene} values={getSceneValues(pref, scene)} />
 }
@@ -428,24 +428,28 @@ export function Layout() {
   }, [isFullscreen])
 
   return (
-    <div className="flex min-h-screen flex-col">
-      {/* 背景装饰 */}
-      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+    <div className="relative flex min-h-screen flex-col">
+      {/* 背景装饰：正序 z-0 图层确保任何 stacking context 下都不会被 body 底色遮挡 */}
+      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
         <div className="site-background-glow-primary absolute -left-40 -top-40 h-[32rem] w-[32rem] animate-float rounded-full blur-[110px]" />
         <div
           className="site-background-glow-secondary absolute -right-32 top-40 h-[26rem] w-[26rem] animate-float rounded-full blur-[110px]"
           style={{ animationDelay: '-4s' }}
         />
         <div className="site-background-hairline absolute inset-x-0 top-0 h-px" />
-        {/* 动态背景（樱花 / 粒子星链）：放在最后，覆盖上面的光斑与渐变 */}
-        <AnimatedBackdropLayer />
+        {/* 动态背景（樱花 / 粒子星链 / 雪花 / 暴雨 / 竹林）：回声洞始终沿用用户自己选择的背景 */}
+        <AnimatedBackdropLayer ignoreOverride={isFullscreen} />
       </div>
 
       {!isFullscreen && <Header onSearch={() => setSearchOpen(true)} />}
-      <main className="flex-1">
+      <main className="relative z-10 flex-1">
         <Outlet />
       </main>
-      {!isFullscreen && <Footer />}
+      {!isFullscreen && (
+        <div className="relative z-10">
+          <Footer />
+        </div>
+      )}
       {!isFullscreen && <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />}
     </div>
   )

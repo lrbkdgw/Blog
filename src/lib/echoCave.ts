@@ -67,7 +67,210 @@ export const FALLBACK_ECHOES: EchoItem[] = [
   { id: 'builtin-4', text: '愿你在漫长的旅途里，始终保有一方安静的回声。', source: 'builtin' },
   { id: 'builtin-5', text: '万物皆有裂痕，那是光照进来的地方。', source: 'builtin' },
   { id: 'builtin-6', text: '夜色温柔，不妨停下来听一听远处的回响。', source: 'builtin' },
+  { id: 'builtin-7', text: '吹灭读书灯，一身都是月。', source: 'builtin' },
+  { id: 'builtin-8', text: '醉后不知天在水，满船清梦压星河。', source: 'builtin' },
+  { id: 'builtin-9', text: '山中何事？松花酿酒，春水煎茶。', source: 'builtin' },
+  { id: 'builtin-10', text: '行到水穷处，坐看云起时。', source: 'builtin' },
+  { id: 'builtin-11', text: '落霞与孤鹜齐飞，秋水共长天一色。', source: 'builtin' },
+  { id: 'builtin-12', text: '长风破浪会有时，直挂云帆济沧海。', source: 'builtin' },
+  { id: 'builtin-13', text: '莫听穿林打叶声，何妨吟啸且徐行。', source: 'builtin' },
+  { id: 'builtin-14', text: '晚来天欲雪，能饮一杯无？', source: 'builtin' },
+  { id: 'builtin-15', text: '海上生明月，天涯共此时。', source: 'builtin' },
+  { id: 'builtin-16', text: '明月松间照，清泉石上流。', source: 'builtin' },
+  { id: 'builtin-17', text: '人间有味是清欢。', source: 'builtin' },
+  { id: 'builtin-18', text: '青山一道同云雨，明月何曾是两乡。', source: 'builtin' },
+  { id: 'builtin-19', text: '山高月小，水落石出。', source: 'builtin' },
+  { id: 'builtin-20', text: '清风徐来，水波不兴。', source: 'builtin' },
+  { id: 'builtin-21', text: '惟江上之清风，与山间之明月，耳得之而为声，目遇之而成色。', source: 'builtin' },
+  { id: 'builtin-22', text: '纵一苇之所如，凌万顷之茫然。', source: 'builtin' },
+  { id: 'builtin-23', text: '云销雨霁，彩彻区明。', source: 'builtin' },
+  { id: 'builtin-24', text: '星垂平野阔，月涌大江流。', source: 'builtin' },
+  { id: 'builtin-25', text: '微风摇庭树，细雪下帘隙。', source: 'builtin' },
+  { id: 'builtin-26', text: '绿蚁新醅酒，红泥小火炉。', source: 'builtin' },
+  { id: 'builtin-27', text: '春水碧于天，画船听雨眠。', source: 'builtin' },
+  { id: 'builtin-28', text: '疏影横斜水清浅，暗香浮动月黄昏。', source: 'builtin' },
+  { id: 'builtin-29', text: '接天莲叶无穷碧，映日荷花别样红。', source: 'builtin' },
+  { id: 'builtin-30', text: '小舟从此逝，江海寄余生。', source: 'builtin' },
+  { id: 'builtin-31', text: '一蓑烟雨任平生。', source: 'builtin' },
+  { id: 'builtin-32', text: '回首向来萧瑟处，归去，也无风雨也无晴。', source: 'builtin' },
+  { id: 'builtin-33', text: '纸上得来终觉浅，绝知此事要躬行。', source: 'builtin' },
+  { id: 'builtin-34', text: '正是江南好风景，落花时节又逢君。', source: 'builtin' },
+  { id: 'builtin-35', text: '随风潜入夜，润物细无声。', source: 'builtin' },
+  { id: 'builtin-36', text: '此时相望不相闻，愿逐月华流照君。', source: 'builtin' },
 ]
+
+function normalizeEchoKey(text: string): string {
+  return text.trim().replace(/\s+/g, ' ')
+}
+
+function shuffleInPlace<T>(items: T[]): T[] {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[items[i], items[j]] = [items[j], items[i]]
+  }
+  return items
+}
+
+/**
+ * 无重复轮播选择器：
+ * 1. 对 incoming hitokoto 做全局文本去重（过滤重复缓存响应）；
+ * 2. 对 GitHub Discussions 留言按轮次洗牌，每轮每条最多出现一次，且在留言较少时按冷却间隔穿插，绝不每隔一两次点击就重复；
+ * 3. 对内置兜底语料同样采用无放回洗牌袋，离线/弱网连续点击 36 次零重复；
+ * 4. 维护最近展示窗口，杜绝 A -> B -> A 式的短期复现。
+ */
+export interface EchoDeckController {
+  setDiscussionEchoes(items: EchoItem[]): void
+  pushHitokoto(item: EchoItem): boolean
+  hitokotoBufferedCount(): number
+  next(currentText?: string): EchoItem
+  markShown(item: EchoItem): void
+}
+
+export function createEchoDeck(fallbackPool: EchoItem[] = FALLBACK_ECHOES): EchoDeckController {
+  let discussionPool: EchoItem[] = []
+  let discussionDeck: EchoItem[] = []
+  const hitokotoQueue: EchoItem[] = []
+  const seenHitokotoKeys = new Set<string>()
+  let builtinDeck: EchoItem[] = []
+  const recentKeys: string[] = []
+  let stepsSinceLastDiscussion = 999
+
+  const rememberShown = (text: string) => {
+    const key = normalizeEchoKey(text)
+    if (!key) return
+    const existingIdx = recentKeys.indexOf(key)
+    if (existingIdx >= 0) recentKeys.splice(existingIdx, 1)
+    recentKeys.push(key)
+    const maxHistory = Math.max(12, fallbackPool.length - 2 + discussionPool.length)
+    while (recentKeys.length > maxHistory) {
+      recentKeys.shift()
+    }
+  }
+
+  const refillBuiltinDeck = () => {
+    builtinDeck = shuffleInPlace([...fallbackPool])
+  }
+
+  const pullUniqueFromQueue = (
+    queue: EchoItem[],
+    disallowed: Set<string>,
+  ): EchoItem | null => {
+    const idx = queue.findIndex((item) => !disallowed.has(normalizeEchoKey(item.text)))
+    if (idx >= 0) {
+      const [picked] = queue.splice(idx, 1)
+      return picked
+    }
+    return null
+  }
+
+  return {
+    setDiscussionEchoes(items: EchoItem[]) {
+      // 同一讨论下若不同人发了完全相同的文字，合并去重避免同轮重复展示同一句话
+      const seen = new Set<string>()
+      discussionPool = []
+      for (const item of items) {
+        const key = normalizeEchoKey(item.text)
+        if (!key || seen.has(key)) continue
+        seen.add(key)
+        discussionPool.push(item)
+      }
+      const recentSet = new Set(recentKeys)
+      discussionDeck = shuffleInPlace(
+        discussionPool.filter((item) => !recentSet.has(normalizeEchoKey(item.text))),
+      )
+    },
+
+    pushHitokoto(item: EchoItem): boolean {
+      const key = normalizeEchoKey(item.text)
+      if (!key || seenHitokotoKeys.has(key)) return false
+      seenHitokotoKeys.add(key)
+      // 防止超长会话无限增长，保留最近 300 条一言去重指纹
+      if (seenHitokotoKeys.size > 300) {
+        const oldest = seenHitokotoKeys.values().next().value
+        if (oldest !== undefined) seenHitokotoKeys.delete(oldest)
+      }
+      hitokotoQueue.push(item)
+      return true
+    },
+
+    hitokotoBufferedCount(): number {
+      return hitokotoQueue.length
+    },
+
+    markShown(item: EchoItem) {
+      rememberShown(item.text)
+      if (item.source === 'discussion') {
+        stepsSinceLastDiscussion = 0
+      } else {
+        stepsSinceLastDiscussion += 1
+      }
+    },
+
+    next(currentText?: string): EchoItem {
+      if (currentText) rememberShown(currentText)
+      const disallowed = new Set(recentKeys)
+
+      // 仅当本轮仍有未展示过的 Discussions 留言且满足自然间隔时抽取，避免留言少时反复刷出同一条
+      const minGap = discussionPool.length <= 2 ? 3 : discussionPool.length <= 5 ? 2 : 1
+      if (discussionPool.length > 0 && discussionDeck.length === 0) {
+        // 只有当该条留言已离开近期记忆窗口后才允许进入新一轮
+        const eligible = discussionPool.filter((item) => !disallowed.has(normalizeEchoKey(item.text)))
+        if (eligible.length > 0) {
+          discussionDeck = shuffleInPlace(eligible)
+        }
+      }
+
+      if (discussionDeck.length > 0 && stepsSinceLastDiscussion >= minGap) {
+        const pickedDisc = pullUniqueFromQueue(discussionDeck, disallowed)
+        if (pickedDisc) {
+          stepsSinceLastDiscussion = 0
+          rememberShown(pickedDisc.text)
+          return pickedDisc
+        }
+      }
+
+      // 优先展示全新未见过的一言（hitokoto）
+      const pickedHitokoto = pullUniqueFromQueue(hitokotoQueue, disallowed)
+      if (pickedHitokoto) {
+        stepsSinceLastDiscussion += 1
+        rememberShown(pickedHitokoto.text)
+        return pickedHitokoto
+      }
+
+      // 若本轮仍有尚未展示过的 Discussions 留言，直接补位展示（绝不重复）
+      if (discussionDeck.length > 0) {
+        const fallbackDisc = pullUniqueFromQueue(discussionDeck, disallowed)
+        if (fallbackDisc) {
+          stepsSinceLastDiscussion = 0
+          rememberShown(fallbackDisc.text)
+          return fallbackDisc
+        }
+      }
+
+      // 离线或一言接口限流/未返回时，从 36 条精选无放回洗牌袋抽取
+      if (builtinDeck.length === 0) refillBuiltinDeck()
+      let pickedBuiltin = pullUniqueFromQueue(builtinDeck, disallowed)
+      if (!pickedBuiltin) {
+        // 全部语料均已完整看过一遍：开启全新一轮，仅排除紧邻上一句
+        recentKeys.length = 0
+        if (currentText) recentKeys.push(normalizeEchoKey(currentText))
+        refillBuiltinDeck()
+        if (discussionPool.length > 0) {
+          discussionDeck = shuffleInPlace([...discussionPool])
+        }
+        pickedBuiltin = pullUniqueFromQueue(
+          builtinDeck,
+          new Set(currentText ? [normalizeEchoKey(currentText)] : []),
+        )
+      }
+
+      const finalPick = pickedBuiltin ?? fallbackPool[0]
+      stepsSinceLastDiscussion += 1
+      rememberShown(finalPick.text)
+      return finalPick
+    },
+  }
+}
 
 /** 提取匿名中继发送者标记并清洗评论正文 */
 export function parseEchoCommentBody(rawBody: string): {
@@ -256,6 +459,7 @@ async function fetchPublicGithubJson<T>(path: string): Promise<T | null> {
   const token = getToken()
   const doFetch = (withToken: boolean) =>
     fetch(`${API}${path}`, {
+      cache: 'no-store',
       headers: {
         Accept: 'application/vnd.github+json',
         ...(withToken && token ? { Authorization: `Bearer ${token}` } : {}),
@@ -522,16 +726,20 @@ interface HitokotoResponse {
   from_who?: string | null
 }
 
-/** 拉取一条一言（hitokoto） */
+let hitokotoReqSeq = 0
+
+/** 拉取一条一言（hitokoto），附带唯一防缓存参数与 cache: 'no-store' 杜绝并发请求命中同一缓存响应 */
 export async function fetchHitokotoOne(signal?: AbortSignal): Promise<EchoItem | null> {
   if (OFFLINE || !HITOKOTO_API) return null
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 4500)
   const onExternalAbort = () => controller.abort()
   signal?.addEventListener('abort', onExternalAbort, { once: true })
+  const nonce = `${Date.now().toString(36)}-${(++hitokotoReqSeq).toString(36)}`
 
   try {
-    const res = await fetch(`${HITOKOTO_API}/?encode=json`, {
+    const res = await fetch(`${HITOKOTO_API}/?encode=json&_=${nonce}`, {
+      cache: 'no-store',
       signal: controller.signal,
     })
     if (!res.ok) return null
@@ -542,7 +750,7 @@ export async function fetchHitokotoOne(signal?: AbortSignal): Promise<EchoItem |
       Boolean,
     )
     return {
-      id: `hitokoto-${data.uuid || data.id || Math.random().toString(36).slice(2)}`,
+      id: `hitokoto-${data.uuid || data.id || nonce}`,
       text,
       from: originParts.length > 0 ? originParts.join(' ') : undefined,
       source: 'hitokoto',

@@ -54,8 +54,12 @@ function makeMock2dContext(strokeSink, drawSink) {
     _rot: 0,
     createLinearGradient: () => ({ addColorStop() {} }),
     createRadialGradient: () => ({ addColorStop() {} }),
+    createPattern: () => ({}),
     createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
     putImageData() {},
+    setTransform() {},
+    bezierCurveTo() {},
+    quadraticCurveTo() {},
     clearRect() {},
     fillRect() {},
     drawImage(img, x, y, w, h) {
@@ -843,23 +847,44 @@ test('回声洞（#93）：严格识别每小时前 3 条 / 每天前 10 条，�
   })
   assert.equal(recognizedContributor.length, 15, '仓库贡献者发送任意条均应全部识别')
 
-  // 4) 经匿名中继写入（即使 GitHub 令牌账号为 OWNER）仍按匿名访客严格限制每小时 3 条
-  const relayedComments = Array.from({ length: 5 }, (_, i) => ({
-    id: `relay-${i + 1}`,
-    body: `匿名留言 ${i + 1}\n\n<${'!--'} echo-sender:anon:abcdef012345 -->`,
-    createdAt: new Date(t0 + i * 5 * min).toISOString(),
-    authorLogin: 'lrbkdgw',
-    authorAssociation: 'OWNER',
-  }))
-  const recognizedRelay = filterRecognizedEchoes(relayedComments, { repoOwner: 'lrbkdgw' })
-  assert.deepEqual(
-    recognizedRelay.map((item) => item.text),
-    ['匿名留言 1', '匿名留言 2', '匿名留言 3'],
-    '匿名中继访客仍受每小时前 3 条识别限制且不泄露 HTML 标记',
-  )
+    // 4) 经匿名中继写入（即使 GitHub 令牌账号为 OWNER）仍按匿名访客严格限制每小时 3 条
+    const relayedComments = Array.from({ length: 5 }, (_, i) => ({
+      id: `relay-${i + 1}`,
+      body: `匿名留言 ${i + 1}\n\n<${'!--'} echo-sender:anon:abcdef012345 -->`,
+      createdAt: new Date(t0 + i * 5 * min).toISOString(),
+      authorLogin: 'lrbkdgw',
+      authorAssociation: 'OWNER',
+    }))
+    const recognizedRelay = filterRecognizedEchoes(relayedComments, { repoOwner: 'lrbkdgw' })
+    assert.deepEqual(
+      recognizedRelay.map((item) => item.text),
+      ['匿名留言 1', '匿名留言 2', '匿名留言 3'],
+      '匿名中继访客仍受每小时前 3 条识别限制且不泄露 HTML 标记',
+    )
+
+    // 5) 无重复轮播选择器：即使 Discussions 只有 1 条留言且一言偶发返回重复文本，连续点击 30 次严格零重复
+    const deck = echoCaveMod.createEchoDeck()
+    deck.setDiscussionEchoes([
+      { id: 'disc-only-1', text: '唯一一条社区留言', source: 'discussion' },
+    ])
+    assert.equal(deck.pushHitokoto({ id: 'h1', text: '重复缓存一言', source: 'hitokoto' }), true)
+    assert.equal(deck.pushHitokoto({ id: 'h2', text: '重复缓存一言', source: 'hitokoto' }), false)
+
+    const picked30 = []
+    let prevText
+    for (let i = 0; i < 30; i++) {
+      const next = deck.next(prevText)
+      picked30.push(next.text)
+      prevText = next.text
+    }
+    assert.equal(
+      new Set(picked30).size,
+      30,
+      `连续点击 30 次不应出现任何重复内容，实际去重数：${new Set(picked30).size}`,
+    )
 })
 
-test('百宝箱与全屏极简回声洞（#93）：顶栏页签、独占全屏无多余按键、底部单横线与发送按钮交互', async () => {
+test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景、逐字出现、箭头发送按钮与无多余按键交互', async () => {
   const harnessEntry = join(root, 'node_modules/.cache/echo-cave-test-harness.tsx')
   const { mkdirSync, writeFileSync } = await import('node:fs')
   mkdirSync(dirname(harnessEntry), { recursive: true })
@@ -870,10 +895,23 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、独占全屏�
       import { createRoot } from 'react-dom/client'
       import { MemoryRouter } from 'react-router-dom'
       import { ThemeProvider } from '../../src/lib/theme'
+      import { BackgroundProvider } from '../../src/lib/background'
       import { AuthProvider } from '../../src/lib/auth'
       import { ToastProvider } from '../../src/components/Toast'
+      import { setAnimatedScene, setAnimatedSceneOverride } from '../../src/lib/animatedBackground'
       import App from '../../src/App'
-      export { React, createRoot, MemoryRouter, ThemeProvider, AuthProvider, ToastProvider, App }
+      export {
+        React,
+        createRoot,
+        MemoryRouter,
+        ThemeProvider,
+        BackgroundProvider,
+        AuthProvider,
+        ToastProvider,
+        setAnimatedScene,
+        setAnimatedSceneOverride,
+        App,
+      }
     `,
     'utf8',
   )
@@ -907,8 +945,18 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、独占全屏�
     },
   })
   const modUrl = `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text, 'utf8').toString('base64')}`
-  const { React, createRoot, MemoryRouter, ThemeProvider, AuthProvider, ToastProvider, App } =
-    await import(modUrl)
+  const {
+    React,
+    createRoot,
+    MemoryRouter,
+    ThemeProvider,
+    BackgroundProvider,
+    AuthProvider,
+    ToastProvider,
+    setAnimatedScene,
+    setAnimatedSceneOverride,
+    App,
+  } = await import(modUrl)
 
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'https://blog-apa.pages.dev/',
@@ -942,6 +990,8 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、独占全屏�
     cancelAnimationFrame: globalThis.cancelAnimationFrame,
     fetch: globalThis.fetch,
     DOMParser: globalThis.DOMParser,
+    CustomEvent: globalThis.CustomEvent,
+    Event: globalThis.Event,
   }
 
   globalThis.window = dom.window
@@ -953,6 +1003,8 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、独占全屏�
   globalThis.Node = dom.window.Node
   globalThis.MutationObserver = dom.window.MutationObserver
   globalThis.DOMParser = dom.window.DOMParser
+  globalThis.CustomEvent = dom.window.CustomEvent
+  globalThis.Event = dom.window.Event
   globalThis.ResizeObserver = class {
     observe() {}
     unobserve() {}
@@ -1022,8 +1074,13 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、独占全屏�
 
   const container = dom.window.document.getElementById('root')
   const reactRoot = createRoot(container)
+  dom.window.HTMLCanvasElement.prototype.getContext = () => makeMock2dContext([], [])
 
   try {
+    // 模拟用户在设置页选择了动态背景「樱花」，即便此前某篇文章留下 ::set-background[0] 覆盖，回声洞也必须展示用户自己选择的背景
+    setAnimatedScene('sakura')
+    setAnimatedSceneOverride('none')
+
     reactRoot.render(
       React.createElement(
         MemoryRouter,
@@ -1034,7 +1091,11 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、独占全屏�
           React.createElement(
             AuthProvider,
             null,
-            React.createElement(ToastProvider, null, React.createElement(App)),
+            React.createElement(
+              BackgroundProvider,
+              null,
+              React.createElement(ToastProvider, null, React.createElement(App)),
+            ),
           ),
         ),
       ),
@@ -1051,39 +1112,58 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、独占全屏�
     assert.ok(echoLink, '百宝箱页面应包含指向 /toolbox/echo 的「回声洞」入口')
     assert.match(echoLink.textContent || '', /回声洞/)
 
-    // 2) 点击进入回声洞：完全独占全屏，没有任何多余按键，底部只有一条横线和一个发送按钮
+    // 2) 点击进入回声洞：完全独占全屏，展示用户选择的背景，没有任何多余按键，底部只有一条横线和一个箭头发送按钮
     echoLink.click()
     await new Promise((r) => setTimeout(r, 120))
 
     assert.equal(container.querySelectorAll('header').length, 0, '回声洞页面不应渲染顶栏 <header>')
     assert.equal(container.querySelectorAll('footer').length, 0, '回声洞页面不应渲染底栏 <footer>')
+    assert.ok(container.querySelector('canvas'), '回声洞页面应完整渲染用户选择的动态背景画布（忽略文章级覆盖）')
 
     const fullscreenRoot = container.querySelector('[data-echo-cave-fullscreen]')
     assert.ok(fullscreenRoot, '应渲染独占全屏的回声洞容器')
+    assert.match(fullscreenRoot.className, /\bbg-transparent\b/, '全屏容器应透明透出用户所选背景')
 
     const allButtons = [...container.querySelectorAll('button')]
     assert.equal(allButtons.length, 1, '整个回声洞页面必须严格只有一个发送按钮，没有任何其他按键')
-    assert.equal(allButtons[0].textContent?.trim(), '发送')
+    assert.ok(allButtons[0].querySelector('svg'), '发送按钮应为箭头图标')
+    assert.equal(allButtons[0].textContent?.trim(), '', '箭头发送按钮不应残留多余文字')
 
     const allInputs = [...container.querySelectorAll('input')]
     assert.equal(allInputs.length, 1, '底部必须只有一条独立输入横线')
     assert.match(allInputs[0].className, /\bborder-b\b/, '输入控件应为底部横线样式')
     assert.match(allInputs[0].className, /\bborder-0\b/, '输入控件不应有四周边框盒')
 
-    // 3) 连续点击全屏区域，验证不断切换显示 Discussions 与 hitokoto 内容
-    const seenTexts = new Set()
-    for (let i = 0; i < 8; i++) {
-      fullscreenRoot.click()
-      await new Promise((r) => setTimeout(r, 25))
-      seenTexts.add(fullscreenRoot.querySelector('p')?.textContent?.trim())
-    }
-    assert.ok(seenTexts.size >= 2, '不断点击屏幕应切换显示不同回声内容')
+    // 3) 验证逐字出现动画 + 连续点击 12 次严格无重复
+    fullscreenRoot.click()
+    await new Promise((r) => setTimeout(r, 15))
+    const allSpansInitial = fullscreenRoot.querySelectorAll('[data-char-shown]')
+    const shownInitial = fullscreenRoot.querySelectorAll('[data-char-shown="true"]')
+    assert.ok(allSpansInitial.length > 2, '回声句子应拆分为独立字符节点以逐字显现')
     assert.ok(
-      [...seenTexts].some((t) => t?.includes('来自 Discussions 的第一声回响') || t?.includes('一言测试语句')),
-      '显示内容应覆盖 GitHub Discussions 或 hitokoto 来源',
+      shownInitial.length >= 1 && shownInitial.length < allSpansInitial.length,
+      `刚切换时应处于逐字浮现过程中（已显 ${shownInitial.length} / 总计 ${allSpansInitial.length}）`,
+    )
+    await new Promise((r) => setTimeout(r, 980))
+    assert.equal(
+      fullscreenRoot.querySelectorAll('[data-char-shown="true"]').length,
+      fullscreenRoot.querySelectorAll('[data-char-shown]').length,
+      '逐字动画结束后整句字符应全部显现',
     )
 
-    // 4) 在底部横线输入内容并点击发送按钮，验证写入 Discussions 并立即回显
+    const clickedHistory = []
+    for (let i = 0; i < 12; i++) {
+      fullscreenRoot.click()
+      await new Promise((r) => setTimeout(r, 20))
+      clickedHistory.push(fullscreenRoot.querySelector('p')?.textContent?.trim())
+    }
+    assert.equal(
+      new Set(clickedHistory).size,
+      clickedHistory.length,
+      `连续点击 12 次不应出现任何重复句子，实际序列：${JSON.stringify(clickedHistory)}`,
+    )
+
+    // 4) 在底部横线输入内容并点击箭头按钮，验证写入 Discussions 并立即逐字回显
     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
       dom.window.HTMLInputElement.prototype,
       'value',

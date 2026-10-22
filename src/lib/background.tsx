@@ -240,7 +240,7 @@ export function BackgroundProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (authLoading || !canPublish || !ghUser) {
+    if (authLoading || !ghUser) {
       accountRef.current = ''
       if (!authLoading) setAccountSync('idle')
       return

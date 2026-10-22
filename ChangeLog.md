@@ -19,20 +19,21 @@
 
 ### 调整
 
-- **顶栏与百宝箱页（`src/components/Layout.tsx`、`src/pages/Toolbox.tsx`、`src/App.tsx`）**：
+- **顶栏、百宝箱与用户背景层（`src/components/Layout.tsx`、`src/lib/background.tsx`、`src/pages/Toolbox.tsx`、`src/App.tsx`）**：
   - 顶部导航栏新增 `百宝箱`（`/toolbox`）页签，桌面与移动端菜单同步生效，页面接入 `data-yield-list` 顶栏防冲突机制；
   - `Toolbox.tsx` 当前仅展示「回声洞」模块卡片，点击进入 `/toolbox/echo`；
-  - `Layout.tsx` 在 `/toolbox/echo` 下自动隐藏 `<Header>`、`<Footer>` 与全局搜索弹窗，仅保留全屏背景装饰层与动态背景，使回声洞完全独占 `100dvh` 全屏视口。
-- **回声洞全屏页面与数据层（`src/pages/EchoCave.tsx`、`src/lib/echoCave.ts`、`src/lib/config.ts`、`functions/api/echo.ts`）**：
-  - 页面中心纯文字展示回声内容，点击屏幕任意区域（含文字区域，禁止蓝色选区闪烁）即刻无阻塞切换下一句，混合轮播 GitHub Discussions 已识别回声与后台预取的 `hitokoto` 一言；
-  - 页面底部固定居中一条极简细横线（透明单下边框 `<input>`）与单个 `发送` 按钮，全页无任何其他按钮、卡片、徽章或计数器；
+  - `Layout.tsx` 在 `/toolbox/echo` 下自动隐藏 `<Header>`、`<Footer>` 与全局搜索弹窗，将全屏背景装饰与动态背景置于正序 `z-0` 图层（忽略文章级临时 `::set-background` 覆盖，始终展示用户自己选择的配色主题、明暗模式、自定义渐变与动态背景），并放开登录态外观偏好恢复限制。
+- **回声洞全屏页面、逐字浮现、去重轮播与数据层（`src/pages/EchoCave.tsx`、`src/lib/echoCave.ts`、`src/lib/config.ts`、`functions/api/echo.ts`）**：
+  - 页面中心纯文字**逐字出现**（按字素切分逐字柔和显现，整句浮现完毕后再淡入出处，无居中换行跳动），点击屏幕任意区域即刻无阻塞切换下一句；
+  - 页面底部固定居中一条极简细横线（透明单下边框 `<input>`）与单个**箭头发送按钮**（`ArrowRight`），全页无任何其他按钮、卡片、徽章或计数器；
+  - 根治重复内容问题：`fetchHitokotoOne` 携带唯一防缓存参数与 `cache: 'no-store'` 并以 380ms 节流串行预取避免 `v1.hitokoto.cn` 并发限流与缓存复用；引入 `createEchoDeck` 洗牌袋与近期展示去重历史（Discussions 留言按轮次与最小间隔穿插，36 条精选兜底语料无放回洗牌）；
   - 使用公开 GitHub REST API 读取仓库 Discussions 与贡献者列表（未登录访客同样可直接听到全部已识别的 Discussions 回声），写入时支持已登录 GitHub GraphQL 直写、同源 Cloudflare Pages Function（`functions/api/echo.ts`）匿名中继以及未登录草稿暂存自动续发；
   - `filterRecognizedEchoes` 按时间升序精确识别每名非贡献者每小时前 3 条与每天前 10 条回声，对仓库拥有者、`OWNER`/`MEMBER`/`COLLABORATOR`/`CONTRIBUTOR` 及仓库提交贡献者完全放开限制；
   - 离线构建期彻底置空 `api.github.com` 与 `v1.hitokoto.cn` 端点并同步加入 `scripts/verify-offline.mjs` 禁联网自检。
 
 ### 验证
 
-- `scripts/test-features.mjs` 新增回声洞限流识别规则测试（每小时前 3 条、每天前 10 条、乱序输入、仓库贡献者豁免、匿名中继计频）以及 React + MemoryRouter 全屏 DOM 回归测试（验证 `/toolbox/echo` 无 `<header>` / `<footer>`、全页 `<button>` 数量严格等于 `1`、`<input>` 数量严格等于 `1`、连续点击切换与发送保存）。
+- `scripts/test-features.mjs` 新增回声洞限流识别规则测试、30 次连续点击零重复洗牌测试，以及 React + MemoryRouter 全屏 DOM 回归测试（验证用户所选动态背景正常挂载、文字逐字浮现、`/toolbox/echo` 无 `<header>` / `<footer>`、全页 `<button>` 严格仅有一个箭头发送按钮、`<input>` 严格仅有一条底部横线、发送保存立即回显）。
 - 已重新构建并自检离线单文件版 `offline/index.html`，并通过 `npm test`、`npm --prefix vscode_extensions/v1 run typecheck` 与 `npm run build` 全量验证。
 
 ## 2026-10-21 · 图论画布边权改为纯数字标注（#91）并同步重建离线单文件版
