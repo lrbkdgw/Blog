@@ -59,6 +59,10 @@ interface EchoSentenceProps {
 
 const EchoSentence = memo(function EchoSentence({ item, shown }: EchoSentenceProps) {
   const graphemes = useMemo(() => splitGraphemes(item.text), [item.text])
+  const fromGraphemes = useMemo(
+    () => (item.from ? splitGraphemes(`—— ${item.from}`) : []),
+    [item.from],
+  )
   const stepMs = useMemo(() => computeStepMs(graphemes.length), [graphemes.length])
   const allRevealed = graphemes.length > 0 && shown >= graphemes.length
 
@@ -85,7 +89,11 @@ const EchoSentence = memo(function EchoSentence({ item, shown }: EchoSentencePro
           style={{ animationDelay: `${graphemes.length * stepMs + 80}ms` }}
           className="echo-from mt-4 text-xs tracking-wider text-ink-400/75 dark:text-ink-500"
         >
-          —— {item.from}
+          {fromGraphemes.map((ch, idx) => (
+            <span key={idx} data-from-char className="inline">
+              {ch}
+            </span>
+          ))}
         </p>
       )}
     </div>
@@ -161,7 +169,7 @@ export default function EchoCave() {
     const rafId = requestAnimationFrame(() => {
       count = 1
       setDisplay((prev) =>
-        prev.seq === targetSeq && prev.item !== null && prev.shown < 1
+        prev.seq === targetSeq && !prev.exiting && prev.item !== null && prev.shown < 1
           ? { ...prev, shown: 1 }
           : prev,
       )
@@ -170,7 +178,7 @@ export default function EchoCave() {
         count += 1
         const nextShown = Math.min(total, count)
         setDisplay((prev) =>
-          prev.seq === targetSeq && prev.item !== null && prev.shown < nextShown
+          prev.seq === targetSeq && !prev.exiting && prev.item !== null && prev.shown < nextShown
             ? { ...prev, shown: nextShown }
             : prev,
         )
@@ -273,10 +281,9 @@ export default function EchoCave() {
 
       if (particleCount > 0) {
         pendingNextRef.current = nextItem
+        // 退场期间保留原 DOM 节点原位不动并由 CSS 分形遮罩逐帧左→右蚕食，彻底根绝首帧任何像素偏移
         setDisplay((prev) => ({
-          item: null,
-          seq: prev.seq + 1,
-          shown: 0,
+          ...prev,
           exiting: true,
         }))
         exitTimerRef.current = setTimeout(() => {
@@ -455,7 +462,11 @@ export default function EchoCave() {
         className="pointer-events-none fixed inset-0 z-20 h-full w-full"
       />
 
-      <div ref={sentenceWrapRef} className="pointer-events-none flex items-center justify-center">
+      <div
+        ref={sentenceWrapRef}
+        data-echo-exiting={display.exiting ? 'true' : 'false'}
+        className="pointer-events-none flex items-center justify-center"
+      >
         {display.item && <EchoSentence key={display.seq} item={display.item} shown={display.shown} />}
       </div>
 

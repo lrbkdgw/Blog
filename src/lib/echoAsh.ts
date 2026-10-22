@@ -1,51 +1,69 @@
 /**
- * Echo Cave — Poetic Bone-Ash Disintegration Engine (v2)
+ * Echo Cave — Zero-Shift Hybrid DOM-Mask + GPU WebGL2 Bone-Ash Disintegration Engine (v3)
  *
- * Synthesizes techniques from three proven open-source disintegration implementations:
- * 1. `uvarov-frontend/vanilla-disintegrate` (MIT):
- *    Two-pass WebGL2 GPU architecture — Pass 1 renders the 100% razor-sharp hardware-grid-aligned
- *    source glyph texture masked by an R8 threshold map; Pass 2 renders tens of thousands of
- *    individual instanced point-sprite texels detaching seamlessly along the exact `smoothstep` edge.
- * 2. `Schneegans/Burn-My-Windows` (`snap.frag` & `incinerate.frag` math concepts):
- *    Multi-octave 2D Fractal Brownian Motion (`fbm2D`) organic fracture fronts + narrow calcined
- *    ash rim along the active crumbling edge + sparse buoyant micro-wisps.
+ * Combines three proven open-source disintegration techniques with zero Frame-0 shift:
+ * 1. Live DOM Ragged FBM Alpha-Mask Pass 1:
+ *    Keeps the real browser-rendered DOM `<div data-echo-sentence>` in its exact layout position
+ *    (`0.000px` displacement across every font, CJK punctuation trim rule, scrollbar width, and
+ *    HiDPI zoom level) while sweeping a pre-baked multi-octave `fbm2D` ragged alpha mask across
+ *    `mask-position` on the GPU compositor with zero per-frame allocations and zero startup delay.
+ * 2. `uvarov-frontend/vanilla-disintegrate` (MIT) + `Burn-My-Windows` (`snap.frag` math):
+ *    WebGL2 sub-pixel `gl.POINTS` particle pass (chunked at `32,768` per VAO for Safari Metal)
+ *    with algebraically locked `threshold(c, v)` matching the exact live DOM mask contour,
+ *    streaming upward-and-right along coherent dual-harmonic FBM curl ribbons and softening into
+ *    velvety bone-ash motes.
  * 3. Google Search 2019 "Thanos Snap" (`@wellwind/thanos-snap`, MIT):
- *    28-layer spatially weighted `ImageData` pixel-cloud Canvas 2D fallback renderer for environments
- *    where WebGL2 is unavailable.
+ *    28-layer spatially weighted `ImageData` pixel-cloud Canvas 2D fallback when WebGL2 is absent.
  */
 
 export interface EchoAshController {
-  /** Capture currently visible glyphs in `element`, spawn an ash-disintegration exit burst, and return spawned particle count. */
+  /** Synchronously lock onto `element` with zero pixel shift, start erosion + ash burst, and return particle count. */
   disintegrateFromElement(element: HTMLElement): number;
-  /** Accelerate active bursts when the user clicks again mid-transition. */
+  /** Accelerate active bursts & immediately clear live DOM masks on rapid multi-click. */
   accelerate(): void;
-  /** Clear all active bursts immediately. */
+  /** Clear all active bursts and clean up any active DOM mask styles immediately. */
   clear(): void;
-  /** Approximate number of active airborne ash grains/texels currently alive. */
+  /** Approximate number of active airborne ash grains currently alive. */
   readonly activeCount: number;
   /** Active rendering backend identifier (`'webgl2'` or `'canvas2d-layers'`). */
   readonly backend: 'webgl2' | 'canvas2d-layers';
-  /** Release GPU resources, listeners, and animation frames. */
+  /** Release GPU resources, listeners, masks, and animation frames. */
   destroy(): void;
 }
 
 /**
- * Stage handoff duration (ms): at `1480ms` (`progress ≈ 0.56` of `2650ms`), 100% of Pass 1 strokes
- * (`MAX_THRESHOLD = 0.48`) have gently peeled off and floated clear above the center baseline into
- * unhurried rising ash ribbons, freeing the stage for the next sentence's character-by-character
- * reveal while upper-air wisps continue drifting lazily across `1480ms..2650ms`.
+ * Stage handoff duration (ms): at `960ms` (`progress ≈ 0.55` of `1750ms`), 100% of the live DOM
+ * text has been cleanly eroded away (`MAX_THRESHOLD = 0.48` completes at `840ms`) and the center
+ * baseline is open for the next sentence's character-by-character reveal while upper-air ash wisps
+ * finish floating and dissolving across `960ms..1750ms`.
  */
-export const ASH_EXIT_STAGE_MS = 1480;
+export const ASH_EXIT_STAGE_MS = 960;
 
-const TOTAL_BURST_MS = 2650;
+const TOTAL_BURST_MS = 1750;
 const PARTICLE_BUDGET = 96_000;
 const PARTICLES_PER_BUFFER = 32_768; // Avoids Safari Metal large gl.POINTS draw glitch
 const PARTICLE_STRIDE = 9; // [srcX, srcY, threshold, velX, velY, diffX, diffY, swirl, phase]
 const PARTICLE_LIFE = 0.52;
-const MIN_THRESHOLD = 0.01;
+const MIN_THRESHOLD = 0.002;
 const MAX_THRESHOLD = 1 - PARTICLE_LIFE; // 0.48
-const TRANSITION_BAND = 0.014;
+const TRANSITION_BAND = 0.012;
 const CANVAS2D_LAYERS = 28;
+
+// Algebraically coupled `mask-size: 300% 100%` sweep constants:
+// For `mask-size: 300% 100%` and `mask-position: (p * 100)% 0%`, normalized element column `c ∈ [0,1]`
+// samples mask UV `u(c, p) = (c + 2 * p) / 3`.
+// - At `p = 1.0` (`t = 0ms`): `u ∈ [0.6667, 1.0]` -> strictly > `MASK_EDGE_CENTER + MASK_EDGE_AMP + MASK_SOFT` (`0.664`) -> 100% opaque!
+// - At `p = MASK_P_END` (`0.27`): `u ∈ [0.18, 0.5133]` -> strictly < `MASK_EDGE_CENTER - MASK_EDGE_AMP - MASK_SOFT` (`0.572`) -> 0% opaque!
+const MASK_P_END = 0.27;
+const MASK_P_SPAN = 1 - MASK_P_END; // 0.73
+const MASK_EDGE_CENTER = 0.618;
+const MASK_EDGE_AMP = 0.024;
+const MASK_SOFT = 0.022;
+const MASK_TEX_W = 384;
+const MASK_TEX_H = 96;
+
+const OPENING_FULLWIDTH_PUNCT = /^[“‘《〈「『（【〔〖［｛]$/;
+const MIDDLE_DOT_PUNCT = /^[·•]$/;
 
 interface GlyphRun {
   char: string;
@@ -66,11 +84,12 @@ interface SnapshotCaptureResult {
   pixels: Uint8ClampedArray;
   texW: number;
   texH: number;
-  offsetX: number; // physical px on viewport canvas
-  offsetY: number; // physical px on viewport canvas
-  dpr: number;
+  offsetX: number; // physical px relative to canvas top-left
+  offsetY: number; // physical px relative to canvas top-left
+  scaleX: number;
+  scaleY: number;
   darkInk: boolean;
-  ashColor: [number, number, number]; // normalized [0..1] RGB
+  ashColor: [number, number, number];
 }
 
 export interface AshParticleField {
@@ -81,6 +100,8 @@ export interface AshParticleField {
   chunks: Array<{ data: Float32Array; count: number }>;
   particleCount: number;
 }
+
+const maskUrlCache = new WeakMap<Document, string>();
 
 // ============================================================================
 // Deterministic Fast 2D Value Noise + Multi-Octave FBM
@@ -126,8 +147,113 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+function smoothstepJS(edge0: number, edge1: number, x: number): number {
+  const t = clamp((x - edge0) / Math.max(edge1 - edge0, 1e-5), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+/** Compute ragged fractal mask edge `u_edge(v) ∈ [0.594, 0.642]` shared by DOM mask & GPU particles. */
+function maskEdgeAtRow(vNorm: number): number {
+  const n = fbm2D(3.7, vNorm * 5.2, 2067, 3);
+  return MASK_EDGE_CENTER - MASK_EDGE_AMP * clamp((n - 0.5) * 2.2, -1, 1);
+}
+
+function getFractalWipeMaskUrl(doc: Document): string {
+  const cached = maskUrlCache.get(doc);
+  if (cached !== undefined) return cached;
+
+  const c = doc.createElement('canvas');
+  c.width = MASK_TEX_W;
+  c.height = MASK_TEX_H;
+  const ctx = c.getContext('2d');
+  if (!ctx) return '';
+
+  let url = '';
+  try {
+    const img = ctx.createImageData(MASK_TEX_W, MASK_TEX_H);
+    const data = img.data;
+    for (let y = 0; y < MASK_TEX_H; y += 1) {
+      const v = (y + 0.5) / MASK_TEX_H;
+      const edgeBase = maskEdgeAtRow(v);
+      for (let x = 0; x < MASK_TEX_W; x += 1) {
+        const u = (x + 0.5) / MASK_TEX_W;
+        // High-frequency organic flake grain right along the fracture band
+        const grain = (fbm2D(u * 46, v * 14, 913, 2) - 0.5) * 0.016;
+        const alpha = smoothstepJS(-MASK_SOFT, MASK_SOFT, u - (edgeBase + grain));
+        const idx = (y * MASK_TEX_W + x) * 4;
+        data[idx] = 255;
+        data[idx + 1] = 255;
+        data[idx + 2] = 255;
+        data[idx + 3] = Math.round(alpha * 255);
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    url = c.toDataURL('image/png');
+  } catch {
+    url = '';
+  }
+  c.width = 0;
+  c.height = 0;
+  maskUrlCache.set(doc, url);
+  return url;
+}
+
+function applyDomErosionMask(el: HTMLElement, maskUrl: string, progress: number) {
+  const sweepT = clamp(progress / MAX_THRESHOLD, 0, 1);
+  const p = 1 - sweepT * MASK_P_SPAN;
+  const pos = `${(p * 100).toFixed(3)}% 0%`;
+  const st = el.style as CSSStyleDeclaration & {
+    webkitMaskImage?: string;
+    webkitMaskSize?: string;
+    webkitMaskRepeat?: string;
+    webkitMaskPosition?: string;
+  };
+  if (maskUrl && maskUrl.startsWith('data:image/')) {
+    const imgVal = `url("${maskUrl}")`;
+    if (st.maskImage !== imgVal) {
+      st.webkitMaskImage = imgVal;
+      st.maskImage = imgVal;
+      st.webkitMaskSize = '300% 100%';
+      st.maskSize = '300% 100%';
+      st.webkitMaskRepeat = 'no-repeat';
+      st.maskRepeat = 'no-repeat';
+    }
+  } else {
+    // Fallback pure-CSS compositor linear-gradient mask (e.g. JSDOM without PNG encoder)
+    const grad = 'linear-gradient(100deg, transparent 36%, rgba(0,0,0,0.45) 40%, #000 44%)';
+    if (st.maskImage !== grad) {
+      st.webkitMaskImage = grad;
+      st.maskImage = grad;
+      st.webkitMaskSize = '300% 100%';
+      st.maskSize = '300% 100%';
+      st.webkitMaskRepeat = 'no-repeat';
+      st.maskRepeat = 'no-repeat';
+    }
+  }
+  st.webkitMaskPosition = pos;
+  st.maskPosition = pos;
+}
+
+function clearDomErosionMask(el: HTMLElement | null) {
+  if (!el) return;
+  const st = el.style as CSSStyleDeclaration & {
+    webkitMaskImage?: string;
+    webkitMaskSize?: string;
+    webkitMaskRepeat?: string;
+    webkitMaskPosition?: string;
+  };
+  st.webkitMaskImage = '';
+  st.maskImage = '';
+  st.webkitMaskSize = '';
+  st.maskSize = '';
+  st.webkitMaskRepeat = '';
+  st.maskRepeat = '';
+  st.webkitMaskPosition = '';
+  st.maskPosition = '';
+}
+
 // ============================================================================
-// DOM Computed Style & Crisp Hardware-Aligned Snapshot Rasterizer
+// DOM Computed Style & Exact Sub-Pixel Stroke Sampler
 // ============================================================================
 
 function readComputedStyle(el: Element): CSSStyleDeclaration | null {
@@ -146,15 +272,16 @@ function parseCssColor(cssColor: string): { r: number; g: number; b: number; a: 
   };
 }
 
-function collectVisibleGlyphs(root: HTMLElement): { runs: GlyphRun[]; bounds: DOMRect } | null {
-  const rootRect = root.getBoundingClientRect();
+function collectVisibleGlyphs(root: HTMLElement): { runs: GlyphRun[]; rootRect: DOMRect } | null {
+  const rawRect = root.getBoundingClientRect();
   const rootStyle = readComputedStyle(root);
   if (!rootStyle) return null;
-  const fallbackWidth = rootRect.width > 0 ? rootRect.width : 360;
-  const fallbackHeight = rootRect.height > 0 ? rootRect.height : 56;
+
+  const fallbackWidth = rawRect.width > 0 ? rawRect.width : 360;
+  const fallbackHeight = rawRect.height > 0 ? rawRect.height : 56;
   const baseBounds =
-    rootRect.width > 0 && rootRect.height > 0
-      ? rootRect
+    rawRect.width > 0 && rawRect.height > 0
+      ? rawRect
       : ({
           left: 200,
           top: 260,
@@ -168,108 +295,116 @@ function collectVisibleGlyphs(root: HTMLElement): { runs: GlyphRun[]; bounds: DO
         } as DOMRect);
 
   const runs: GlyphRun[] = [];
-  const charSpans = root.querySelectorAll<HTMLElement>('[data-char-shown]');
   const rootOpacity = Number.parseFloat(rootStyle.opacity || '1');
   const effectiveRootAlpha = Number.isFinite(rootOpacity) ? rootOpacity : 1;
+  const defaultSize = Number.parseFloat(rootStyle.fontSize) || 24;
+  let cursorX = baseBounds.left;
 
-  if (charSpans.length > 0) {
-    let cursorX = baseBounds.left;
-    const defaultSize = Number.parseFloat(rootStyle.fontSize) || 24;
+  const charSpans = root.querySelectorAll<HTMLElement>('[data-char-shown]');
+  charSpans.forEach((span) => {
+    const ch = span.textContent ?? '';
+    if (!ch || /^\s+$/.test(ch)) {
+      cursorX += defaultSize * 0.45;
+      return;
+    }
+    const st = readComputedStyle(span) ?? rootStyle;
+    const computedOpacity = Number.parseFloat(st.opacity || '1');
+    let spanAlpha = Number.isFinite(computedOpacity) ? computedOpacity : 1;
+    if (spanAlpha <= 0 && span.dataset.charShown === 'true') {
+      spanAlpha = 1;
+    }
+    const totalAlpha = spanAlpha * effectiveRootAlpha;
+    if (totalAlpha <= 0.02) return;
 
-    charSpans.forEach((span) => {
-      const ch = span.textContent ?? '';
-      if (!ch || /^\s+$/.test(ch)) {
-        cursorX += defaultSize * 0.45;
-        return;
-      }
-      const st = readComputedStyle(span) ?? rootStyle;
-      const computedOpacity = Number.parseFloat(st.opacity || '1');
-      let spanAlpha = Number.isFinite(computedOpacity) ? computedOpacity : 1;
-      if (spanAlpha <= 0 && span.dataset.charShown === 'true') {
-        spanAlpha = 1;
-      }
-      const totalAlpha = spanAlpha * effectiveRootAlpha;
-      if (totalAlpha <= 0.02) return;
+    const fontSize = Number.parseFloat(st.fontSize) || defaultSize;
+    const font = `${st.fontStyle || 'normal'} ${st.fontWeight || '400'} ${fontSize}px ${st.fontFamily || 'serif'}`;
+    const col = parseCssColor(st.color);
+    const r = span.getBoundingClientRect();
+    const hasLayout = r.width > 0 && r.height > 0;
+    const width = hasLayout ? r.width : fontSize;
+    const height = hasLayout ? r.height : fontSize * 1.25;
+    const left = hasLayout ? r.left : cursorX;
+    const top = hasLayout ? r.top : baseBounds.top;
+    cursorX = left + width;
 
-      const fontSize = Number.parseFloat(st.fontSize) || defaultSize;
-      const font = `${st.fontStyle || 'normal'} ${st.fontWeight || '400'} ${fontSize}px ${st.fontFamily || 'serif'}`;
-      const col = parseCssColor(st.color);
-      const r = span.getBoundingClientRect();
-      const hasLayout = r.width > 0 && r.height > 0;
-      const width = hasLayout ? r.width : fontSize;
-      const height = hasLayout ? r.height : fontSize * 1.25;
-      const left = hasLayout ? r.left : cursorX;
-      const top = hasLayout ? r.top : baseBounds.top;
-      cursorX = left + width;
-
-      runs.push({
-        char: ch,
-        left,
-        top,
-        width,
-        height,
-        font,
-        fontSize,
-        r: col.r,
-        g: col.g,
-        b: col.b,
-        alpha: Math.min(1, totalAlpha * col.a),
-      });
+    runs.push({
+      char: ch,
+      left,
+      top,
+      width,
+      height,
+      font,
+      fontSize,
+      r: col.r,
+      g: col.g,
+      b: col.b,
+      alpha: Math.min(1, totalAlpha * col.a),
     });
+  });
 
-    const fromEl = root.querySelector<HTMLElement>('.echo-from');
-    if (fromEl) {
-      const fst = readComputedStyle(fromEl) ?? rootStyle;
-      let fAlpha = Number.parseFloat(fst.opacity || '1');
-      if ((!Number.isFinite(fAlpha) || fAlpha <= 0) && fromEl.dataset.fromShown === 'true') {
-        fAlpha = 0.85;
-      }
-      if (Number.isFinite(fAlpha) && fAlpha * effectiveRootAlpha > 0.02) {
-        const text = (fromEl.textContent ?? '').trim();
-        if (text) {
-          const fontSize = Number.parseFloat(fst.fontSize) || 14;
-          const font = `${fst.fontStyle || 'normal'} ${fst.fontWeight || '400'} ${fontSize}px ${fst.fontFamily || 'serif'}`;
-          const col = parseCssColor(fst.color);
-          const fr = fromEl.getBoundingClientRect();
-          const fTotalWidth = text.length * fontSize * 0.92;
-          const startX = fr.width > 0 ? Math.max(fr.left, fr.right - fTotalWidth) : baseBounds.right - fTotalWidth;
-          const startY = fr.height > 0 ? fr.top : baseBounds.bottom - fontSize * 1.3;
-          let fx = startX;
-          for (const ch of Array.from(text)) {
-            if (!/\s/.test(ch)) {
-              runs.push({
-                char: ch,
-                left: fx,
-                top: startY,
-                width: fontSize,
-                height: fontSize * 1.2,
-                font,
-                fontSize,
-                r: col.r,
-                g: col.g,
-                b: col.b,
-                alpha: Math.min(1, fAlpha * effectiveRootAlpha * col.a),
-              });
-            }
-            fx += /[\u0000-\u007f]/.test(ch) ? fontSize * 0.56 : fontSize * 0.96;
-          }
-        }
-      }
+  // Collect exact per-character spans from `.echo-from` attribution line
+  const fromEl = root.querySelector<HTMLElement>('.echo-from');
+  if (fromEl) {
+    const fst = readComputedStyle(fromEl) ?? rootStyle;
+    let fAlpha = Number.parseFloat(fst.opacity || '1');
+    if ((!Number.isFinite(fAlpha) || fAlpha <= 0) && fromEl.dataset.fromShown === 'true') {
+      fAlpha = 0.85;
+    }
+    if (Number.isFinite(fAlpha) && fAlpha * effectiveRootAlpha > 0.02) {
+      const fSize = Number.parseFloat(fst.fontSize) || 12;
+      const fFont = `${fst.fontStyle || 'normal'} ${fst.fontWeight || '400'} ${fSize}px ${fst.fontFamily || 'sans-serif'}`;
+      const fCol = parseCssColor(fst.color);
+      const fromSpans = fromEl.querySelectorAll<HTMLElement>('[data-from-char]');
+      let fCursorX = baseBounds.left + baseBounds.width * 0.35;
+      const fr = fromEl.getBoundingClientRect();
+      const fallbackTop = fr.height > 0 ? fr.top : baseBounds.bottom - fSize * 1.3;
+
+      fromSpans.forEach((fSpan) => {
+        const ch = fSpan.textContent ?? '';
+        const sr = fSpan.getBoundingClientRect();
+        const hasLayout = sr.width > 0 && sr.height > 0;
+        const w = hasLayout ? sr.width : fSize * 0.8;
+        const h = hasLayout ? sr.height : fSize * 1.2;
+        const l = hasLayout ? sr.left : fCursorX;
+        const t = hasLayout ? sr.top : fallbackTop;
+        fCursorX = l + w;
+        if (!ch || /^\s+$/.test(ch)) return;
+        runs.push({
+          char: ch,
+          left: l,
+          top: t,
+          width: w,
+          height: h,
+          font: fFont,
+          fontSize: fSize,
+          r: fCol.r,
+          g: fCol.g,
+          b: fCol.b,
+          alpha: Math.min(1, fAlpha * effectiveRootAlpha * fCol.a),
+        });
+      });
     }
   }
 
-  return runs.length > 0 ? { runs, bounds: baseBounds } : null;
+  return runs.length > 0 ? { runs, rootRect: baseBounds } : null;
 }
 
-function captureSnapshot(doc: Document, root: HTMLElement, dpr: number): SnapshotCaptureResult | null {
+function captureSnapshot(
+  doc: Document,
+  root: HTMLElement,
+  canvasLeftCss: number,
+  canvasTopCss: number,
+  scaleX: number,
+  scaleY: number,
+): SnapshotCaptureResult | null {
   const collected = collectVisibleGlyphs(root);
   if (!collected) return null;
-  const { runs } = collected;
+  const { runs, rootRect } = collected;
 
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
+  let minX = rootRect.width > 0 ? rootRect.left : Infinity;
+  let minY = rootRect.height > 0 ? rootRect.top : Infinity;
+  let maxX = rootRect.width > 0 ? rootRect.right : -Infinity;
+  let maxY = rootRect.height > 0 ? rootRect.bottom : -Infinity;
   let lumAcc = 0;
 
   for (const g of runs) {
@@ -281,19 +416,14 @@ function captureSnapshot(doc: Document, root: HTMLElement, dpr: number): Snapsho
   }
 
   const darkInk = lumAcc / runs.length < 0.5;
-  // Poetic bone/incense ash target RGB:
-  // - Dark ink on light rice-paper -> warm charcoal-slate ash so plumes stay rich & visible against white paper
-  // - Pale ink on dark night sky -> luminous moonlit bone-ash
   const ashColor: [number, number, number] = darkInk
     ? [86 / 255, 82 / 255, 76 / 255]
     : [224 / 255, 220 / 255, 212 / 255];
 
-  const padCss = 6;
-  // Hardware device-pixel alignment prevents LINEAR/NEAREST sub-texel shift on Frame 0
-  const pixelLeft = Math.floor((minX - padCss) * dpr);
-  const pixelTop = Math.floor((minY - padCss) * dpr);
-  const pixelRight = Math.ceil((maxX + padCss) * dpr);
-  const pixelBottom = Math.ceil((maxY + padCss) * dpr);
+  const pixelLeft = Math.floor((minX - canvasLeftCss) * scaleX);
+  const pixelTop = Math.floor((minY - canvasTopCss) * scaleY);
+  const pixelRight = Math.ceil((maxX - canvasLeftCss) * scaleX);
+  const pixelBottom = Math.ceil((maxY - canvasTopCss) * scaleY);
 
   const texW = Math.max(2, Math.min(4096, pixelRight - pixelLeft));
   const texH = Math.max(2, Math.min(2048, pixelBottom - pixelTop));
@@ -306,17 +436,30 @@ function captureSnapshot(doc: Document, root: HTMLElement, dpr: number): Snapsho
 
   octx.clearRect(0, 0, texW, texH);
   octx.save();
-  octx.scale(dpr, dpr);
+  octx.scale(scaleX, scaleY);
   octx.textBaseline = 'alphabetic';
 
-  const originCssX = pixelLeft / dpr;
-  const originCssY = pixelTop / dpr;
+  const originCssX = pixelLeft / scaleX + canvasLeftCss;
+  const originCssY = pixelTop / scaleY + canvasTopCss;
 
   for (const g of runs) {
     octx.font = g.font;
     octx.fillStyle = `rgba(${g.r}, ${g.g}, ${g.b}, ${g.alpha})`;
-    const baselineOffset = g.height * 0.8 + (g.height - g.fontSize) * 0.12;
-    octx.fillText(g.char, g.left - originCssX, g.top - originCssY + baselineOffset);
+    const metrics = octx.measureText(g.char);
+    // Compensate Blink/WebKit CJK fullwidth opening punctuation trimming (`text-spacing-trim`)
+    let drawX = g.left - originCssX;
+    if (metrics.width > g.width + 1.5) {
+      if (OPENING_FULLWIDTH_PUNCT.test(g.char)) {
+        drawX -= metrics.width - g.width;
+      } else if (MIDDLE_DOT_PUNCT.test(g.char)) {
+        drawX -= (metrics.width - g.width) * 0.5;
+      }
+    }
+    const ascent =
+      typeof metrics.fontBoundingBoxAscent === 'number' && metrics.fontBoundingBoxAscent > 0
+        ? metrics.fontBoundingBoxAscent
+        : g.height * 0.8 + (g.height - g.fontSize) * 0.12;
+    octx.fillText(g.char, drawX, g.top - originCssY + ascent);
   }
   octx.restore();
 
@@ -339,14 +482,13 @@ function captureSnapshot(doc: Document, root: HTMLElement, dpr: number): Snapsho
     pixels = null;
   }
 
-  // Fallback synthetic glyph pixels for headless environments whose mock `fillText` is a no-op
   if (!pixels) {
     pixels = new Uint8ClampedArray(texW * texH * 4);
     for (const g of runs) {
-      const gx0 = clamp(Math.round((g.left - originCssX) * dpr), 0, texW - 1);
-      const gy0 = clamp(Math.round((g.top - originCssY) * dpr), 0, texH - 1);
-      const gw = Math.max(2, Math.round(g.width * dpr * 0.75));
-      const gh = Math.max(2, Math.round(g.height * dpr * 0.75));
+      const gx0 = clamp(Math.round((g.left - originCssX) * scaleX), 0, texW - 1);
+      const gy0 = clamp(Math.round((g.top - originCssY) * scaleY), 0, texH - 1);
+      const gw = Math.max(2, Math.round(g.width * scaleX * 0.75));
+      const gh = Math.max(2, Math.round(g.height * scaleY * 0.75));
       const aByte = Math.round(g.alpha * 255);
       for (let s = 0; s < 28; s += 1) {
         const px = clamp(gx0 + Math.floor(hash2DInt(s, gx0, 17) * gw), 0, texW - 1);
@@ -362,7 +504,7 @@ function captureSnapshot(doc: Document, root: HTMLElement, dpr: number): Snapsho
       const synth = new ImageData(new Uint8ClampedArray(pixels), texW, texH);
       octx.putImageData(synth, 0, 0);
     } catch {
-      // JSDOM without global ImageData constructor
+      // Headless environment without ImageData constructor
     }
   }
 
@@ -373,14 +515,15 @@ function captureSnapshot(doc: Document, root: HTMLElement, dpr: number): Snapsho
     texH,
     offsetX: pixelLeft,
     offsetY: pixelTop,
-    dpr,
+    scaleX,
+    scaleY,
     darkInk,
     ashColor,
   };
 }
 
 // ============================================================================
-// Shared Particle Field Builder (Used by WebGL2 & Direct Unit Verification)
+// Shared Particle Field Builder (Algebraically Locked to Live DOM Mask Contour)
 // ============================================================================
 
 export function buildAshParticleField(
@@ -390,7 +533,6 @@ export function buildAshParticleField(
   dpr: number,
   seed = 2026,
 ): AshParticleField {
-  // Count visible ink pixels first so typical sentences always get true 1px sub-pixel grains!
   let inkPixels = 0;
   for (let i = 3; i < pixels.length; i += 4) {
     if (pixels[i] > 4) inkPixels += 1;
@@ -436,28 +578,28 @@ export function buildAshParticleField(
     remaining -= count;
   }
 
-  // Populate in reverse scan order (prevents Safari Metal phantom strip bug on ascending rows)
   let globalIdx = particleCount - 1;
 
   for (let by = 0; by < thresholdHeight; by += 1) {
     const y = by * blockSize;
+    const row = (y + blockSize * 0.5) / texH;
+    const uEdgeRow = maskEdgeAtRow(row);
+
     for (let bx = 0; bx < thresholdWidth; bx += 1) {
       const x = bx * blockSize;
       const col = (x + blockSize * 0.5) / texW;
-      const row = (y + blockSize * 0.5) / texH;
 
-      // Multi-scale organic fracture contour: clean left->right sweep + irregular ragged stroke bays
-      const macro = fbm2D(x * 0.021, y * 0.025, seed + 41, 3);
-      const micro = hash2DInt(bx, by, seed + 7919);
-      const ordered = clamp(col * 0.9 + row * 0.1, 0, 1);
-      const raw = clamp(ordered * 0.78 + (macro - 0.5) * 0.3 + (micro - 0.5) * 0.05 + 0.09, 0, 1);
-      const threshold = MIN_THRESHOLD + raw * (MAX_THRESHOLD - MIN_THRESHOLD);
+      // Exact algebraic solution matching `applyDomErosionMask`: `(col + 2 * p) / 3 === uEdgeRow`
+      const microGrain = (hash2DInt(bx, by, seed + 7919) - 0.5) * 0.02;
+      const pDetach = clamp((3 * (uEdgeRow + microGrain) - col) * 0.5, MASK_P_END, 1);
+      const sweepNorm = clamp((1 - pDetach) / MASK_P_SPAN, 0, 1);
+      const threshold = MIN_THRESHOLD + sweepNorm * (MAX_THRESHOLD - MIN_THRESHOLD);
 
       const bIdx = by * thresholdWidth + bx;
       thresholdMap[bIdx] = Math.round(threshold * 255);
       if (visibleBlocks[bIdx] === 0) continue;
 
-      // Coherent fluid wind streamline ribbons + quadratic late-stage turbulent bloom + 12% fast wisps
+      // Lively yet graceful rising wind ribbons (~135 CSS px/s) + gentle late dispersion
       const sA = fbm2D(x * 0.013 + 11.3, y * 0.013 + 4.7, seed + 101, 3);
       const sB = fbm2D(x * 0.025 + 31.7, y * 0.025 + 9.2, seed + 211, 3);
       const r1 = hash2DInt(bx, by, seed + 1301);
@@ -466,17 +608,17 @@ export function buildAshParticleField(
       const r4 = hash2DInt(bx, by, seed + 5657);
       const wisp = r4 > 0.88 ? 1 : 0;
 
-      const gust = 1 + wisp * 0.36;
-      const velX = (62 + sA * 96) * dpr * gust;
-      const velY = (-38 - sB * 82) * dpr * gust;
+      const gust = 1 + wisp * 0.38;
+      const velX = (84 + sA * 124) * dpr * gust;
+      const velY = (-50 - sB * 102) * dpr * gust;
 
       const diffAng = r1 * Math.PI * 2;
-      const diffMag = (12 + r2 * 36) * dpr * (1 + wisp * 0.45);
+      const diffMag = (14 + r2 * 42) * dpr * (1 + wisp * 0.48);
       const diffX = Math.cos(diffAng) * diffMag;
       const diffY = Math.sin(diffAng) * diffMag * 0.72;
 
-      const swirl = (11 + sB * 20) * dpr;
-      const phase = sA * Math.PI * 3.0 + (r3 - 0.5) * 0.48;
+      const swirl = (12 + sB * 22) * dpr;
+      const phase = sA * Math.PI * 3.1 + (r3 - 0.5) * 0.48;
 
       const chunkIdx = Math.floor(globalIdx / PARTICLES_PER_BUFFER);
       const slotOffset = (globalIdx % PARTICLES_PER_BUFFER) * PARTICLE_STRIDE;
@@ -505,59 +647,8 @@ export function buildAshParticleField(
 }
 
 // ============================================================================
-// Primary Renderer: Two-Pass WebGL2 GPU Shader Engine
+// WebGL2 Sub-Pixel Airborne Particle Pass
 // ============================================================================
-
-const BASE_VERTEX_GLSL = `#version 300 es
-layout(location = 0) in vec2 a_position;
-
-uniform vec2 u_canvas_size;
-uniform vec2 u_source_offset;
-uniform vec2 u_source_size;
-
-out vec2 v_uv;
-
-void main() {
-  vec2 pixel = u_source_offset + a_position * u_source_size;
-  vec2 clip = pixel / u_canvas_size * 2.0 - 1.0;
-  gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-  v_uv = a_position;
-}
-`;
-
-const BASE_FRAGMENT_GLSL = `#version 300 es
-precision highp float;
-
-uniform sampler2D u_source;
-uniform sampler2D u_thresholds;
-uniform vec2 u_source_size;
-uniform float u_block_size;
-uniform float u_progress;
-uniform float u_transition;
-uniform vec3 u_ash_color;
-
-in vec2 v_uv;
-out vec4 out_color;
-
-void main() {
-  vec4 color = texture(u_source, v_uv);
-  if (color.a <= 0.002) {
-    out_color = vec4(0.0);
-    return;
-  }
-  ivec2 threshold_size = textureSize(u_thresholds, 0);
-  vec2 source_pixel = min(floor(v_uv * u_source_size), u_source_size - vec2(1.0));
-  ivec2 threshold_pixel = clamp(ivec2(source_pixel / u_block_size), ivec2(0), threshold_size - ivec2(1));
-  float threshold = texture(u_thresholds, (vec2(threshold_pixel) + 0.5) / vec2(threshold_size)).r;
-
-  float calcine = 1.0 - smoothstep(u_progress, u_progress + 0.034, threshold);
-  float intact = smoothstep(u_progress - u_transition, u_progress + u_transition, threshold);
-
-  vec3 straight_rgb = color.rgb / max(color.a, 0.0001);
-  vec3 tinted = mix(straight_rgb, u_ash_color, calcine * 0.62);
-  out_color = vec4(tinted * color.a, color.a) * intact;
-}
-`;
 
 const PARTICLE_VERTEX_GLSL = `#version 300 es
 layout(location = 0) in vec2 a_origin;
@@ -597,17 +688,17 @@ void main() {
   }
 
   float local = clamp(raw_local, 0.0, 1.0);
-  float travel_t = mix(smoothstep(0.0, 1.0, local), 1.0 - pow(1.0 - local, 1.45), 0.45);
-  float spread_t = pow(local, 1.75);
+  float travel_t = mix(smoothstep(0.0, 1.0, local), 1.0 - pow(1.0 - local, 1.6), 0.52);
+  float spread_t = pow(local, 1.7);
   float env = sin(local * 2.890265) * 0.85;
-  float w1 = sin(local * 5.2 + a_phase);
-  float w2 = cos(local * 9.7 + a_phase * 1.61);
+  float w1 = sin(local * 6.2 + a_phase);
+  float w2 = cos(local * 11.4 + a_phase * 1.61);
 
   vec2 perp = vec2(-a_velocity.y, a_velocity.x) / max(length(a_velocity), 0.001);
   vec2 drift = a_velocity * travel_t
              + perp * (w1 * a_swirl + w2 * a_swirl * 0.25) * env
              + a_diffusion * spread_t
-             + vec2(0.0, -30.0 * u_dpr * local * local);
+             + vec2(0.0, -38.0 * u_dpr * local * local);
 
   float softness = smoothstep(0.02, 0.24, local);
   float point_scale = mix(1.0, 2.35, softness);
@@ -662,7 +753,7 @@ void main() {
   }
 
   vec3 straight_rgb = tex.rgb / max(tex.a, 0.0001);
-  float ash_mix = clamp(0.24 + smoothstep(0.0, 0.36, v_local) * 0.68, 0.0, 0.92);
+  float ash_mix = clamp(0.26 + smoothstep(0.0, 0.34, v_local) * 0.66, 0.0, 0.92);
   vec3 tinted = mix(straight_rgb, u_ash_color, ash_mix);
   float final_a = v_alpha * mask;
   out_color = vec4(tinted * tex.a, tex.a) * final_a;
@@ -671,7 +762,6 @@ void main() {
 
 interface WebGLBurst {
   sourceTex: WebGLTexture;
-  thresholdTex: WebGLTexture;
   vaos: WebGLVertexArrayObject[];
   buffers: WebGLBuffer[];
   counts: number[];
@@ -683,6 +773,7 @@ interface WebGLBurst {
   blockSize: number;
   dpr: number;
   ashColor: [number, number, number];
+  domElement: HTMLElement | null;
   elapsedMs: number;
   speedScale: number;
 }
@@ -741,12 +832,18 @@ interface Canvas2DLayerBurst {
   texW: number;
   texH: number;
   particleCount: number;
+  domElement: HTMLElement | null;
   elapsedMs: number;
   speedScale: number;
 }
 
-function createCanvas2DLayerBurst(doc: Document, snap: SnapshotCaptureResult, seed: number): Canvas2DLayerBurst {
-  const { pixels, texW, texH, offsetX, offsetY, dpr, ashColor } = snap;
+function createCanvas2DLayerBurst(
+  doc: Document,
+  snap: SnapshotCaptureResult,
+  domElement: HTMLElement,
+  seed: number,
+): Canvas2DLayerBurst {
+  const { pixels, texW, texH, offsetX, offsetY, scaleX, ashColor } = snap;
   const layerArrays = Array.from({ length: CANVAS2D_LAYERS }, () => new Uint8ClampedArray(texW * texH * 4));
 
   let particleCount = 0;
@@ -760,16 +857,14 @@ function createCanvas2DLayerBurst(doc: Document, snap: SnapshotCaptureResult, se
 
       const col = x / texW;
       const organic = fbm2D(x * 0.02, y * 0.024, seed + 37, 2);
-      // Google 2019 Thanos Snap weighted pixel repetition (`repeat = 2`) for rich dusty density
       for (let rep = 0; rep < 2; rep += 1) {
         const jitter = hash2DInt(x + rep * 991, y, seed + 613);
         const weighted = clamp((2 * col + organic * 0.7 + jitter * 0.6) / 3.3, 0, 0.9999);
         const bucket = Math.min(CANVAS2D_LAYERS - 1, Math.floor(weighted * CANVAS2D_LAYERS));
         const dst = layerArrays[bucket];
-        // Blend 45% toward bone-ash tint for authentic dry-ash palette
-        dst[pIdx] = Math.round(pixels[pIdx] * 0.55 + ashColor[0] * 255 * 0.45);
-        dst[pIdx + 1] = Math.round(pixels[pIdx + 1] * 0.55 + ashColor[1] * 255 * 0.45);
-        dst[pIdx + 2] = Math.round(pixels[pIdx + 2] * 0.55 + ashColor[2] * 255 * 0.45);
+        dst[pIdx] = Math.round(pixels[pIdx] * 0.52 + ashColor[0] * 255 * 0.48);
+        dst[pIdx + 1] = Math.round(pixels[pIdx + 1] * 0.52 + ashColor[1] * 255 * 0.48);
+        dst[pIdx + 2] = Math.round(pixels[pIdx + 2] * 0.52 + ashColor[2] * 255 * 0.48);
         dst[pIdx + 3] = Math.round(a * 0.72);
       }
     }
@@ -792,13 +887,13 @@ function createCanvas2DLayerBurst(doc: Document, snap: SnapshotCaptureResult, se
     const rA = hash2DInt(i, 11, seed + 71);
     const rB = hash2DInt(i, 29, seed + 193);
     const angle = -0.78 + (rA - 0.5) * 0.52;
-    const dist = (68 + rB * 86) * dpr;
+    const dist = (86 + rB * 112) * scaleX;
     return {
       canvas: c,
       delayNorm: (i / CANVAS2D_LAYERS) * MAX_THRESHOLD,
       dx: Math.cos(angle) * dist,
-      dy: Math.sin(angle) * dist - 18 * dpr,
-      rot: ((rA - 0.5) * 12 * Math.PI) / 180,
+      dy: Math.sin(angle) * dist - 22 * scaleX,
+      rot: ((rA - 0.5) * 14 * Math.PI) / 180,
     };
   });
 
@@ -809,6 +904,7 @@ function createCanvas2DLayerBurst(doc: Document, snap: SnapshotCaptureResult, se
     texW,
     texH,
     particleCount,
+    domElement,
     elapsedMs: 0,
     speedScale: 1,
   };
@@ -821,16 +917,19 @@ function createCanvas2DLayerBurst(doc: Document, snap: SnapshotCaptureResult, se
 export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshController {
   const doc = canvas.ownerDocument;
   const win = doc.defaultView ?? window;
+  const fractalMaskUrl = getFractalWipeMaskUrl(doc);
 
   let destroyed = false;
   let rafId: number | null = null;
   let lastFrameMs = 0;
   let seedCounter = 2026;
-  let dpr = 1;
+  let canvasLeftCss = 0;
+  let canvasTopCss = 0;
+  let scaleX = 1;
+  let scaleY = 1;
   let physW = 1;
   let physH = 1;
 
-  // Attempt primary WebGL2 hardware-accelerated shader pipeline first
   let gl: WebGL2RenderingContext | null = null;
   try {
     gl = canvas.getContext('webgl2', {
@@ -845,29 +944,12 @@ export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshControlle
     gl = null;
   }
 
-  let baseProg: WebGLProgram | null = null;
   let partProg: WebGLProgram | null = null;
-  let quadVao: WebGLVertexArrayObject | null = null;
-  let quadBuf: WebGLBuffer | null = null;
-
   if (gl) {
-    baseProg = compileGLProgram(gl, BASE_VERTEX_GLSL, BASE_FRAGMENT_GLSL);
     partProg = compileGLProgram(gl, PARTICLE_VERTEX_GLSL, PARTICLE_FRAGMENT_GLSL);
-    quadVao = gl.createVertexArray();
-    quadBuf = gl.createBuffer();
-    if (!baseProg || !partProg || !quadVao || !quadBuf) {
-      if (baseProg) gl.deleteProgram(baseProg);
-      if (partProg) gl.deleteProgram(partProg);
-      if (quadVao) gl.deleteVertexArray(quadVao);
-      if (quadBuf) gl.deleteBuffer(quadBuf);
+    if (!partProg) {
       gl = null;
     } else {
-      gl.bindVertexArray(quadVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
-      gl.enableVertexAttribArray(0);
-      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-      gl.bindVertexArray(null);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     }
@@ -881,26 +963,32 @@ export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshControlle
   const c2dBursts: Canvas2DLayerBurst[] = [];
 
   const syncSize = () => {
-    dpr = Math.min(2, Math.max(1, win.devicePixelRatio || 1));
-    const cssW = Math.max(1, win.innerWidth || 1024);
-    const cssH = Math.max(1, win.innerHeight || 768);
-    const nextW = Math.round(cssW * dpr);
-    const nextH = Math.round(cssH * dpr);
+    const rawDpr = Math.min(2, Math.max(1, win.devicePixelRatio || 1));
+    const cRect = canvas.getBoundingClientRect();
+    canvasLeftCss = cRect.width > 0 ? cRect.left : 0;
+    canvasTopCss = cRect.height > 0 ? cRect.top : 0;
+    const cssW = Math.max(1, cRect.width > 0 ? cRect.width : win.innerWidth || 1024);
+    const cssH = Math.max(1, cRect.height > 0 ? cRect.height : win.innerHeight || 768);
+    const nextW = Math.max(1, Math.round(cssW * rawDpr));
+    const nextH = Math.max(1, Math.round(cssH * rawDpr));
     if (physW !== nextW || physH !== nextH || canvas.width !== nextW || canvas.height !== nextH) {
       physW = nextW;
       physH = nextH;
       canvas.width = physW;
       canvas.height = physH;
     }
+    scaleX = physW / cssW;
+    scaleY = physH / cssH;
   };
 
   syncSize();
   win.addEventListener('resize', syncSize, { passive: true });
 
   const disposeGLBurst = (b: WebGLBurst) => {
+    clearDomErosionMask(b.domElement);
+    b.domElement = null;
     if (!gl) return;
     gl.deleteTexture(b.sourceTex);
-    gl.deleteTexture(b.thresholdTex);
     for (const v of b.vaos) gl.deleteVertexArray(v);
     for (const buf of b.buffers) gl.deleteBuffer(buf);
   };
@@ -940,10 +1028,15 @@ export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshControlle
     lastFrameMs = now;
     const dtMs = clamp(rawDt, 0, 50);
 
-    if (gl && baseProg && partProg && quadVao) {
+    if (gl && partProg) {
       gl.viewport(0, 0, physW, physH);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.useProgram(partProg);
+      gl.uniform2f(gl.getUniformLocation(partProg, 'u_canvas_size'), physW, physH);
+      gl.uniform1f(gl.getUniformLocation(partProg, 'u_transition'), TRANSITION_BAND);
+      gl.uniform1f(gl.getUniformLocation(partProg, 'u_life'), PARTICLE_LIFE);
+      gl.uniform1i(gl.getUniformLocation(partProg, 'u_source'), 0);
 
       for (let i = glBursts.length - 1; i >= 0; i -= 1) {
         const b = glBursts[i];
@@ -955,39 +1048,19 @@ export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshControlle
           continue;
         }
 
-        // Pass 1: Crisp intact base bitmap with calcined organic fracture rim
-        gl.useProgram(baseProg);
-        gl.uniform2f(gl.getUniformLocation(baseProg, 'u_canvas_size'), physW, physH);
-        gl.uniform2f(gl.getUniformLocation(baseProg, 'u_source_offset'), b.offsetX, b.offsetY);
-        gl.uniform2f(gl.getUniformLocation(baseProg, 'u_source_size'), b.texW, b.texH);
-        gl.uniform1f(gl.getUniformLocation(baseProg, 'u_block_size'), b.blockSize);
-        gl.uniform1f(gl.getUniformLocation(baseProg, 'u_progress'), progress);
-        gl.uniform1f(gl.getUniformLocation(baseProg, 'u_transition'), TRANSITION_BAND);
-        gl.uniform3f(gl.getUniformLocation(baseProg, 'u_ash_color'), b.ashColor[0], b.ashColor[1], b.ashColor[2]);
+        // Update Pass 1 live DOM ragged erosion mask in exact lockstep with GPU particles
+        if (b.domElement && b.domElement.isConnected) {
+          applyDomErosionMask(b.domElement, fractalMaskUrl, progress);
+        }
 
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, b.sourceTex);
-        gl.uniform1i(gl.getUniformLocation(baseProg, 'u_source'), 0);
-
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, b.thresholdTex);
-        gl.uniform1i(gl.getUniformLocation(baseProg, 'u_thresholds'), 1);
-
-        gl.bindVertexArray(quadVao);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-        // Pass 2: Individual sub-pixel wind ribbons & soft rising ash motes
-        gl.useProgram(partProg);
-        gl.uniform2f(gl.getUniformLocation(partProg, 'u_canvas_size'), physW, physH);
         gl.uniform2f(gl.getUniformLocation(partProg, 'u_source_offset'), b.offsetX, b.offsetY);
         gl.uniform2f(gl.getUniformLocation(partProg, 'u_source_size'), b.texW, b.texH);
         gl.uniform1f(gl.getUniformLocation(partProg, 'u_block_size'), b.blockSize);
         gl.uniform1f(gl.getUniformLocation(partProg, 'u_dpr'), b.dpr);
         gl.uniform1f(gl.getUniformLocation(partProg, 'u_progress'), progress);
-        gl.uniform1f(gl.getUniformLocation(partProg, 'u_transition'), TRANSITION_BAND);
-        gl.uniform1f(gl.getUniformLocation(partProg, 'u_life'), PARTICLE_LIFE);
         gl.uniform3f(gl.getUniformLocation(partProg, 'u_ash_color'), b.ashColor[0], b.ashColor[1], b.ashColor[2]);
-        gl.uniform1i(gl.getUniformLocation(partProg, 'u_source'), 0);
 
         for (let c = 0; c < b.vaos.length; c += 1) {
           gl.bindVertexArray(b.vaos[c]);
@@ -1003,17 +1076,24 @@ export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshControlle
         b.elapsedMs += dtMs * b.speedScale;
         const progress = clamp(b.elapsedMs / TOTAL_BURST_MS, 0, 1);
         if (progress >= 1) {
+          clearDomErosionMask(b.domElement);
+          b.domElement = null;
           c2dBursts.splice(i, 1);
           continue;
+        }
+
+        if (b.domElement && b.domElement.isConnected) {
+          applyDomErosionMask(b.domElement, fractalMaskUrl, progress);
         }
 
         const cx = b.offsetX + b.texW * 0.5;
         const cy = b.offsetY + b.texH * 0.5;
         for (const layer of b.layers) {
+          if (progress < layer.delayNorm) continue;
           const local = clamp((progress - layer.delayNorm) / PARTICLE_LIFE, 0, 1);
-          const alpha = 1 - local * local;
+          const alpha = (1 - local * local) * smoothstepJS(0, 0.08, local);
           if (alpha <= 0.005) continue;
-          const ease = 1 - Math.pow(1 - local, 2);
+          const ease = 1 - Math.pow(1 - local, 1.75);
           ctx2d.save();
           ctx2d.globalAlpha = alpha;
           ctx2d.translate(cx + layer.dx * ease, cy + layer.dy * ease);
@@ -1040,22 +1120,17 @@ export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshControlle
       syncSize();
       seedCounter += 137;
 
-      const snap = captureSnapshot(doc, element, dpr);
+      const snap = captureSnapshot(doc, element, canvasLeftCss, canvasTopCss, scaleX, scaleY);
       if (!snap) return 0;
 
       let spawnedCount = 0;
 
-      if (gl && baseProg && partProg) {
-        const field = buildAshParticleField(snap.pixels, snap.texW, snap.texH, snap.dpr, seedCounter);
+      if (gl && partProg) {
+        const field = buildAshParticleField(snap.pixels, snap.texW, snap.texH, snap.scaleX, seedCounter);
         if (field.particleCount === 0) return 0;
 
         const sourceTex = gl.createTexture();
-        const thresholdTex = gl.createTexture();
-        if (!sourceTex || !thresholdTex) {
-          if (sourceTex) gl.deleteTexture(sourceTex);
-          if (thresholdTex) gl.deleteTexture(thresholdTex);
-          return 0;
-        }
+        if (!sourceTex) return 0;
 
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, sourceTex);
@@ -1066,26 +1141,6 @@ export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshControlle
         gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, snap.canvas);
         gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, thresholdTex);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-        gl.texImage2D(
-          gl.TEXTURE_2D,
-          0,
-          gl.R8,
-          field.thresholdWidth,
-          field.thresholdHeight,
-          0,
-          gl.RED,
-          gl.UNSIGNED_BYTE,
-          field.thresholdMap,
-        );
-        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
 
         const vaos: WebGLVertexArrayObject[] = [];
         const buffers: WebGLBuffer[] = [];
@@ -1122,7 +1177,6 @@ export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshControlle
         spawnedCount = field.particleCount;
         glBursts.push({
           sourceTex,
-          thresholdTex,
           vaos,
           buffers,
           counts,
@@ -1132,13 +1186,14 @@ export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshControlle
           offsetX: snap.offsetX,
           offsetY: snap.offsetY,
           blockSize: field.blockSize,
-          dpr: snap.dpr,
+          dpr: snap.scaleX,
           ashColor: snap.ashColor,
+          domElement: element,
           elapsedMs: 0,
           speedScale: 1,
         });
       } else if (ctx2d) {
-        const layerBurst = createCanvas2DLayerBurst(doc, snap, seedCounter);
+        const layerBurst = createCanvas2DLayerBurst(doc, snap, element, seedCounter);
         if (layerBurst.particleCount === 0) return 0;
         spawnedCount = layerBurst.particleCount;
         c2dBursts.push(layerBurst);
@@ -1146,11 +1201,10 @@ export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshControlle
         return 0;
       }
 
-      // Free temporary 2D snapshot canvas backing store immediately
       snap.canvas.width = 0;
       snap.canvas.height = 0;
 
-      // Render Frame 0 synchronously at exact `progress === 0` so handoff from DOM text is 100% seamless!
+      // Render Frame 0 synchronously at `progress === 0` (`maskPosition === '100.000% 0%'`, zero displacement!)
       const now0 = win.performance.now();
       if (rafId === null) {
         lastFrameMs = now0;
@@ -1161,13 +1215,22 @@ export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshControlle
     },
 
     accelerate() {
-      for (const b of glBursts) b.speedScale = Math.max(b.speedScale, 2.6);
-      for (const b of c2dBursts) b.speedScale = Math.max(b.speedScale, 2.6);
+      for (const b of glBursts) {
+        clearDomErosionMask(b.domElement);
+        b.domElement = null;
+        b.speedScale = Math.max(b.speedScale, 2.8);
+      }
+      for (const b of c2dBursts) {
+        clearDomErosionMask(b.domElement);
+        b.domElement = null;
+        b.speedScale = Math.max(b.speedScale, 2.8);
+      }
     },
 
     clear() {
       for (const b of glBursts) disposeGLBurst(b);
       glBursts.length = 0;
+      for (const b of c2dBursts) clearDomErosionMask(b.domElement);
       c2dBursts.length = 0;
       stopLoop();
       if (gl) {
@@ -1190,11 +1253,9 @@ export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshControlle
       win.removeEventListener('resize', syncSize);
       for (const b of glBursts) disposeGLBurst(b);
       glBursts.length = 0;
+      for (const b of c2dBursts) clearDomErosionMask(b.domElement);
       c2dBursts.length = 0;
       if (gl) {
-        if (quadVao) gl.deleteVertexArray(quadVao);
-        if (quadBuf) gl.deleteBuffer(quadBuf);
-        if (baseProg) gl.deleteProgram(baseProg);
         if (partProg) gl.deleteProgram(partProg);
         gl.getExtension('WEBGL_lose_context')?.loseContext();
       }

@@ -25,8 +25,8 @@
   - `Layout.tsx` 在 `/toolbox/echo` 下自动隐藏 `<Header>`、`<Footer>` 与全局搜索弹窗，将全屏背景装饰与动态背景置于正序 `z-0` 图层（忽略文章级临时 `::set-background` 覆盖，始终展示用户自己选择的配色主题、明暗模式、自定义渐变与动态背景），并放开登录态外观偏好恢复限制。
 - **回声洞全屏页面、双 Pass GPU 骨灰消散退场、逐字浮现、去重轮播与数据层（`src/pages/EchoCave.tsx`、`src/lib/echoAsh.ts`、`src/styles/index.css`、`src/lib/echoCave.ts`、`src/lib/config.ts`、`functions/api/echo.ts`）**：
   - 点击切换或发送新回声时，**上一句先以双 Pass GPU 骨灰消散特效退场，再显示下一句**：`echoAsh.ts` 融合开源项目 `vanilla-disintegrate`（双 Pass WebGL2 底图与点精灵交接架构）、`Burn-My-Windows`（`snap.frag` / `incinerate.frag` 多倍频二维 FBM 分形裂解前缘与边缘钙化色移思路）以及 Google 2019 Thanos Snap（`@wellwind/thanos-snap` 多层空间加权像素尘云）：
-    1. **Pass 1（硬件像素对齐完整原字底图）**：在侵蚀前缘到达前 100% 保留原生高 DPI 抗锯齿字形（零噪点、零跳变），仅在分形裂解边缘窄带内细腻干涸钙化为烟灰/骨灰色并经 `smoothstep` 无缝交接给粒子层；
-    2. **Pass 2（数万级 1px 亚像素 GPU 粒子流线与轻柔烟雾化）**：每个可见墨点纹素独立剥离，在 `2650ms` 悠长周期内以低初速轻缓离字、沿连续 FBM 流线微风向右上缓慢袅袅扬升并随距离渐次湍流雾化渐隐；在不支持 WebGL2 的环境下自动降级为 28 层加权 Thanos 像素云 Canvas 2D 引擎；待舞台净空（`1480ms`）后再挂载下一句（消散途中连点可 `2.6x` 加速残灰并立即呈上下一句）；
+    1. **Pass 1（原位真实 DOM 分形遮罩层，`0.000px` 零瞬移零停顿）**：退场期间保留浏览器原位排版的真实 DOM 节点不动（彻底根除 Canvas `fillText` 对中文标点挤压 `text-spacing-trim`、出处行与非整数 DPI 造成的向右瞬移），通过预烘焙三倍频 `fbm2D` 分形透明遮罩在点击第 1 帧即无延迟由左向右蚕食擦除；
+    2. **Pass 2（代数锁相同步的数万级 1px 亚像素 GPU 粒子流线与轻柔雾化）**：粒子采样精确补偿 `TextMetrics` 标点留白、`fontBoundingBoxAscent` 基线、画布 `getBoundingClientRect` 比例与逐字 `<span>` 出处测量，剥离阈值与 DOM 遮罩边缘代数严格同步，在 `1750ms` 周期内沿 FBM 旋流微风向右上轻盈飘散雾化；待舞台净空（`960ms`）后再挂载下一句（连点支持 `2.8x` 加速残灰并立即切换）；
   - 新句子以单一原子状态 `{ item, seq, shown, exiting }` + CSS `@keyframes echo-char-reveal` `animation-fill-mode: both` 逐字阶梯浮现，切换首帧同步归零且绝不回退，并消除首屏异步请求中途顶替当前句子的闪现问题；
   - 页面底部固定居中一条极简细横线（透明单下边框 `<input>`）与单个**箭头发送按钮**（`ArrowRight`），全页无任何其他按钮、卡片、徽章或计数器；
   - 根治重复内容问题：`fetchHitokotoOne` 携带唯一防缓存参数与 `cache: 'no-store'` 并以 380ms 节流串行预取避免 `v1.hitokoto.cn` 并发限流与缓存复用；引入 `createEchoDeck` 洗牌袋与近期展示去重历史（Discussions 留言按轮次与最小间隔穿插，36 条精选兜底语料无放回洗牌）；

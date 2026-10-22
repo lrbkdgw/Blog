@@ -1362,9 +1362,9 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       }
 
       const glCtrl = echoAshMod.attachEchoAshCanvas(glCanvas)
-      assert.equal(glCtrl.backend, 'webgl2', '支持 WebGL2 时应自动启用 GPU 双 Pass 着色器后端')
+      assert.equal(glCtrl.backend, 'webgl2', '支持 WebGL2 时应自动启用 GPU 粒子着色器后端')
       assert.equal(liveShaders.size, 0, '链接完成后临时 Shader 对象应立即释放')
-      assert.equal(livePrograms.size, 2, '应编译 Base Pass 与 Particle Pass 两个 GPU 程序')
+      assert.equal(livePrograms.size, 1, '应编译 GPU 粒子流线着色器程序（底图直接由原 DOM 分形遮罩零位移承载）')
 
       await new Promise((r) => setTimeout(r, 1150))
       const liveSentenceEl = fullscreenRoot.querySelector('[data-echo-sentence]')
@@ -1372,10 +1372,15 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       const spawned = glCtrl.disintegrateFromElement(liveSentenceEl)
       assert.ok(spawned > 50, `WebGL2 后端应生成充足亚像素粒子，实际 ${spawned}`)
       assert.equal(progressHistory[0], 0, '首帧 u_progress 必须严格等于 0 以实现原字迹 100% 零接缝交接')
-      assert.ok(drawCalls.some((d) => d.mode === 0x0005 && d.count === 4), '应执行 Pass 1 完整清晰底图 TRIANGLE_STRIP 绘制')
-      assert.ok(drawCalls.some((d) => d.mode === 0x0000 && d.count === spawned), '应执行 Pass 2 GPU POINTS 粒子绘制')
+      assert.equal(
+        liveSentenceEl.style.maskPosition,
+        '100.000% 0%',
+        '首帧原 DOM 遮罩位置必须为 100% 满不透明，彻底杜绝首帧任何像素瞬移',
+      )
+      assert.ok(drawCalls.some((d) => d.mode === 0x0000 && d.count === spawned), '应执行 GPU POINTS 亚像素粒子绘制')
 
       glCtrl.destroy()
+      assert.equal(liveSentenceEl.style.maskPosition, '', 'destroy() 后应彻底还原原 DOM 节点遮罩样式')
       assert.equal(liveTextures.size, 0, 'destroy() 后所有 GPU 纹理必须零泄漏释放')
       assert.equal(liveBuffers.size, 0, 'destroy() 后所有 GPU 缓冲必须零泄漏释放')
       assert.equal(liveVaos.size, 0, 'destroy() 后所有 VAO 必须零泄漏释放')
@@ -1425,30 +1430,41 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       '首句应在点击前已完整显现',
     )
 
-    // 点击切换到下一句：阶段一（0 ~ ASH_EXIT_STAGE_MS）上一句立即化为骨灰粒子退场，下一句尚未登场（舞台净空）
+    // 点击切换到下一句：阶段一（0 ~ ASH_EXIT_STAGE_MS）原句 DOM 保持原位零瞬移并经分形遮罩左->右蚕食化灰，下一句尚未登场
     fullscreenRoot.click()
     await Promise.resolve()
+    const exitingWrap = fullscreenRoot.querySelector('[data-echo-exiting="true"]')
+    assert.ok(exitingWrap, '点击后应立即进入骨灰消散退场阶段（data-echo-exiting="true"）')
+    const exitingSentence = fullscreenRoot.querySelector('[data-echo-sentence]')
+    assert.ok(exitingSentence, '退场期间原 DOM 节点保持原位挂载并通过遮罩擦除，彻底根绝 Canvas 重绘造成的向右瞬移')
     assert.equal(
-      fullscreenRoot.querySelector('[data-echo-sentence]'),
-      null,
-      '点击后上一句应先进入骨灰消散退场阶段，下一句在退场完成前不应提前出现',
+      exitingSentence.querySelector('p')?.textContent?.trim(),
+      firstSentenceText,
+      '退场阶段舞台上仍为正在蚕食退场的上一句，下一句绝不应提前出现',
     )
-    assert.equal(ashCanvas.dataset.ashActive, 'true', '点击瞬间骨灰粒子画布应立即激活接管原字迹')
+    assert.equal(exitingSentence.style.maskPosition, '100.000% 0%', '点击首帧原句遮罩为 100% 无损原位显示')
+    assert.equal(ashCanvas.dataset.ashActive, 'true', '点击瞬间骨灰粒子画布应立即激活飞出细灰')
     assert.ok(
       Number(ashCanvas.dataset.ashParticles || '0') > 50,
       `应从上一句采样生成充足的骨灰粒子，实际粒子数：${ashCanvas.dataset.ashParticles}`,
     )
 
-    // 退场中途（200ms）：骨灰仍在随风飘散，舞台依然保持净空未提前渲染下一句
+    // 退场中途（200ms）：分形遮罩已无延迟向左推进蚕食原句，且下一句仍未提前登场
     await new Promise((r) => setTimeout(r, 200))
+    assert.notEqual(
+      exitingSentence.style.maskPosition,
+      '100.000% 0%',
+      '点击后应立即开始推进分形遮罩消散，无任何停顿等待',
+    )
     assert.equal(
-      fullscreenRoot.querySelector('[data-echo-sentence]'),
-      null,
+      fullscreenRoot.querySelector('[data-echo-exiting]')?.getAttribute('data-echo-exiting'),
+      'true',
       '骨灰消散退场尚未结束时不应提前显示下一句',
     )
 
-    // 阶段二：等待骨灰消散下场完成（共 > 560ms），下一句正式登场并从第 1 字起逐字浮现
+    // 阶段二：等待骨灰消散下场完成（ASH_EXIT_STAGE_MS），下一句正式登场并从第 1 字起逐字浮现
     await new Promise((r) => setTimeout(r, echoAshMod.ASH_EXIT_STAGE_MS - 200 + 35))
+    assert.equal(fullscreenRoot.querySelector('[data-echo-exiting]')?.getAttribute('data-echo-exiting'), 'false')
     const secondSentenceText = fullscreenRoot.querySelector('p')?.textContent?.trim()
     assert.ok(secondSentenceText && secondSentenceText !== firstSentenceText, '退场完成后应切换显示全新的下一句')
     const allSpansInitial = fullscreenRoot.querySelectorAll('[data-char-shown]')
