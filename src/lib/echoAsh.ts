@@ -30,21 +30,21 @@ export interface EchoAshController {
 }
 
 /**
- * Stage handoff duration (ms): at `740ms` (`progress ≈ 0.685` of `1080ms`), 100% of Pass 1 strokes
- * have peeled off and lifted well above the center baseline into rising ash ribbons, freeing the
- * stage cleanly for the next sentence's character-by-character reveal while high-altitude wisps
- * finish dissolving smoothly across `740ms..1080ms`.
+ * Stage handoff duration (ms): at `1480ms` (`progress ≈ 0.56` of `2650ms`), 100% of Pass 1 strokes
+ * (`MAX_THRESHOLD = 0.48`) have gently peeled off and floated clear above the center baseline into
+ * unhurried rising ash ribbons, freeing the stage for the next sentence's character-by-character
+ * reveal while upper-air wisps continue drifting lazily across `1480ms..2650ms`.
  */
-export const ASH_EXIT_STAGE_MS = 740;
+export const ASH_EXIT_STAGE_MS = 1480;
 
-const TOTAL_BURST_MS = 1080;
+const TOTAL_BURST_MS = 2650;
 const PARTICLE_BUDGET = 96_000;
 const PARTICLES_PER_BUFFER = 32_768; // Avoids Safari Metal large gl.POINTS draw glitch
 const PARTICLE_STRIDE = 9; // [srcX, srcY, threshold, velX, velY, diffX, diffY, swirl, phase]
-const PARTICLE_LIFE = 0.42;
+const PARTICLE_LIFE = 0.52;
 const MIN_THRESHOLD = 0.01;
-const MAX_THRESHOLD = 1 - PARTICLE_LIFE; // 0.58
-const TRANSITION_BAND = 0.012;
+const MAX_THRESHOLD = 1 - PARTICLE_LIFE; // 0.48
+const TRANSITION_BAND = 0.014;
 const CANVAS2D_LAYERS = 28;
 
 interface GlyphRun {
@@ -466,17 +466,17 @@ export function buildAshParticleField(
       const r4 = hash2DInt(bx, by, seed + 5657);
       const wisp = r4 > 0.88 ? 1 : 0;
 
-      const gust = 1 + wisp * 0.42;
-      const velX = (115 + sA * 165) * dpr * gust;
-      const velY = (-52 - sB * 118) * dpr * gust;
+      const gust = 1 + wisp * 0.36;
+      const velX = (62 + sA * 96) * dpr * gust;
+      const velY = (-38 - sB * 82) * dpr * gust;
 
       const diffAng = r1 * Math.PI * 2;
-      const diffMag = (16 + r2 * 52) * dpr * (1 + wisp * 0.5);
+      const diffMag = (12 + r2 * 36) * dpr * (1 + wisp * 0.45);
       const diffX = Math.cos(diffAng) * diffMag;
       const diffY = Math.sin(diffAng) * diffMag * 0.72;
 
-      const swirl = (14 + sB * 26) * dpr;
-      const phase = sA * Math.PI * 3.4 + (r3 - 0.5) * 0.5;
+      const swirl = (11 + sB * 20) * dpr;
+      const phase = sA * Math.PI * 3.0 + (r3 - 0.5) * 0.48;
 
       const chunkIdx = Math.floor(globalIdx / PARTICLES_PER_BUFFER);
       const slotOffset = (globalIdx % PARTICLES_PER_BUFFER) * PARTICLE_STRIDE;
@@ -597,17 +597,17 @@ void main() {
   }
 
   float local = clamp(raw_local, 0.0, 1.0);
-  float travel_t = mix(smoothstep(0.0, 1.0, local), 1.0 - pow(1.0 - local, 1.9), 0.66);
-  float spread_t = pow(local, 1.65);
+  float travel_t = mix(smoothstep(0.0, 1.0, local), 1.0 - pow(1.0 - local, 1.45), 0.45);
+  float spread_t = pow(local, 1.75);
   float env = sin(local * 2.890265) * 0.85;
-  float w1 = sin(local * 7.8539816 + a_phase);
-  float w2 = cos(local * 14.765485 + a_phase * 1.61);
+  float w1 = sin(local * 5.2 + a_phase);
+  float w2 = cos(local * 9.7 + a_phase * 1.61);
 
   vec2 perp = vec2(-a_velocity.y, a_velocity.x) / max(length(a_velocity), 0.001);
   vec2 drift = a_velocity * travel_t
              + perp * (w1 * a_swirl + w2 * a_swirl * 0.25) * env
              + a_diffusion * spread_t
-             + vec2(0.0, -48.0 * u_dpr * local * local);
+             + vec2(0.0, -30.0 * u_dpr * local * local);
 
   float softness = smoothstep(0.02, 0.24, local);
   float point_scale = mix(1.0, 2.35, softness);
@@ -792,13 +792,13 @@ function createCanvas2DLayerBurst(doc: Document, snap: SnapshotCaptureResult, se
     const rA = hash2DInt(i, 11, seed + 71);
     const rB = hash2DInt(i, 29, seed + 193);
     const angle = -0.78 + (rA - 0.5) * 0.52;
-    const dist = (115 + rB * 135) * dpr;
+    const dist = (68 + rB * 86) * dpr;
     return {
       canvas: c,
       delayNorm: (i / CANVAS2D_LAYERS) * MAX_THRESHOLD,
       dx: Math.cos(angle) * dist,
-      dy: Math.sin(angle) * dist - 28 * dpr,
-      rot: ((rA - 0.5) * 16 * Math.PI) / 180,
+      dy: Math.sin(angle) * dist - 18 * dpr,
+      rot: ((rA - 0.5) * 12 * Math.PI) / 180,
     };
   });
 
