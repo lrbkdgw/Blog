@@ -36,13 +36,18 @@ const uiGraphMod = await importTsModule('src/lib/uiGraph.ts')
 const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
 const echoCaveMod = await importTsModule('src/lib/echoCave.ts')
+const echoAshMod = await importTsModule('src/lib/echoAsh.ts')
 
 function makeMock2dContext(strokeSink, drawSink) {
   const stack = []
+  let textBitmap = null
   return {
     canvas: { width: 1280, height: 720 },
     fillStyle: '',
     strokeStyle: '',
+    font: '16px serif',
+    textAlign: 'left',
+    textBaseline: 'alphabetic',
     lineWidth: 1,
     lineCap: 'butt',
     globalAlpha: 1,
@@ -56,6 +61,47 @@ function makeMock2dContext(strokeSink, drawSink) {
     createRadialGradient: () => ({ addColorStop() {} }),
     createPattern: () => ({}),
     createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    measureText: (str) => ({
+      width: String(str).length * 18,
+      fontBoundingBoxAscent: 18,
+      fontBoundingBoxDescent: 4,
+      actualBoundingBoxAscent: 17,
+      actualBoundingBoxDescent: 4,
+    }),
+    fillText(str, x, y) {
+      const w = 640
+      const h = 240
+      if (!textBitmap) textBitmap = new Uint8ClampedArray(w * h * 4)
+      const chars = Array.from(String(str))
+      const alphaByte = Math.max(40, Math.min(255, Math.round(this.globalAlpha * 255)))
+      for (let c = 0; c < chars.length; c++) {
+        const bx = Math.round(x + c * 18)
+        const by = Math.round(y - 14)
+        for (let dy = 0; dy < 12; dy += 2) {
+          for (let dx = 0; dx < 12; dx += 2) {
+            const px = bx + dx
+            const py = by + dy
+            if (px >= 0 && px < w && py >= 0 && py < h) {
+              textBitmap[(py * w + px) * 4 + 3] = alphaByte
+            }
+          }
+        }
+      }
+    },
+    getImageData(sx, sy, sw, sh) {
+      const out = new Uint8ClampedArray(sw * sh * 4)
+      if (textBitmap) {
+        const srcW = 640
+        const srcH = 240
+        for (let py = 0; py < sh && sy + py < srcH; py++) {
+          for (let px = 0; px < sw && sx + px < srcW; px++) {
+            const a = textBitmap[((sy + py) * srcW + (sx + px)) * 4 + 3]
+            if (a > 0) out[(py * sw + px) * 4 + 3] = a
+          }
+        }
+      }
+      return { width: sw, height: sh, data: out }
+    },
     putImageData() {},
     setTransform() {},
     bezierCurveTo() {},
@@ -1138,7 +1184,15 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
     assert.match(allInputs[0].className, /\bborder-b\b/, '输入控件应为底部横线样式')
     assert.match(allInputs[0].className, /\bborder-0\b/, '输入控件不应有四周边框盒')
 
-    // 3) 验证逐字出现动画、零闪现/零回退回归断言（MutationObserver 实时监控）+ 连续点击 12 次严格无重复
+    // 3) 验证骨灰消散退场特效（先让上一句化灰下场、舞台清空后再逐字浮现下一句）、零闪现/零回退回归断言与连续 12 句无重复
+    const lightPalette = echoAshMod.buildAshPalette({ r: 30, g: 41, b: 59 })
+    const darkPalette = echoAshMod.buildAshPalette({ r: 241, g: 245, b: 249 })
+    assert.equal(lightPalette.length, 20)
+    assert.equal(darkPalette.length, 20)
+
+    const ashCanvas = fullscreenRoot.querySelector('canvas[data-echo-ash-canvas]')
+    assert.ok(ashCanvas, '回声洞应挂载全屏骨灰消散粒子画布')
+
     const reverseFlips = []
     const prematureMountFlashes = []
     const antiFlashObserver = new dom.window.MutationObserver((mutations) => {
@@ -1172,28 +1226,46 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
 
     // 先等待首句 100% 全部显现（模拟用户看完上一整句后再点击切换的场景）
     await new Promise((r) => setTimeout(r, 1150))
+    const firstSentenceText = fullscreenRoot.querySelector('p')?.textContent?.trim()
+    assert.ok(firstSentenceText, '首句应正常显示')
     assert.equal(
       fullscreenRoot.querySelectorAll('[data-char-shown="true"]').length,
       fullscreenRoot.querySelectorAll('[data-char-shown]').length,
       '首句应在点击前已完整显现',
     )
 
-    // 点击切换到下一句：React 19 微任务提交首帧（任何定时器/动画帧触发之前）shown 必须严格为 0
+    // 点击切换到下一句：阶段一（0 ~ ASH_EXIT_STAGE_MS）上一句立即化为骨灰粒子退场，下一句尚未登场（舞台净空）
     fullscreenRoot.click()
     await Promise.resolve()
     assert.equal(
-      fullscreenRoot.querySelectorAll('[data-char-shown="true"]').length,
-      0,
-      '点击切换新句子首帧绝不能残留上一句的已显现字数',
+      fullscreenRoot.querySelector('[data-echo-sentence]'),
+      null,
+      '点击后上一句应先进入骨灰消散退场阶段，下一句在退场完成前不应提前出现',
+    )
+    assert.equal(ashCanvas.dataset.ashActive, 'true', '点击瞬间骨灰粒子画布应立即激活接管原字迹')
+    assert.ok(
+      Number(ashCanvas.dataset.ashParticles || '0') > 50,
+      `应从上一句采样生成充足的骨灰粒子，实际粒子数：${ashCanvas.dataset.ashParticles}`,
     )
 
-    await new Promise((r) => setTimeout(r, 35))
+    // 退场中途（200ms）：骨灰仍在随风飘散，舞台依然保持净空未提前渲染下一句
+    await new Promise((r) => setTimeout(r, 200))
+    assert.equal(
+      fullscreenRoot.querySelector('[data-echo-sentence]'),
+      null,
+      '骨灰消散退场尚未结束时不应提前显示下一句',
+    )
+
+    // 阶段二：等待骨灰消散下场完成（共 > 560ms），下一句正式登场并从第 1 字起逐字浮现
+    await new Promise((r) => setTimeout(r, echoAshMod.ASH_EXIT_STAGE_MS - 200 + 35))
+    const secondSentenceText = fullscreenRoot.querySelector('p')?.textContent?.trim()
+    assert.ok(secondSentenceText && secondSentenceText !== firstSentenceText, '退场完成后应切换显示全新的下一句')
     const allSpansInitial = fullscreenRoot.querySelectorAll('[data-char-shown]')
     const shownInitial = fullscreenRoot.querySelectorAll('[data-char-shown="true"]')
     assert.ok(allSpansInitial.length > 2, '回声句子应拆分为独立字符节点以逐字显现')
     assert.ok(
       shownInitial.length >= 1 && shownInitial.length < allSpansInitial.length,
-      `刚切换时应处于逐字浮现过程中（已显 ${shownInitial.length} / 总计 ${allSpansInitial.length}）`,
+      `下一句登场初期应处于逐字浮现过程中（已显 ${shownInitial.length} / 总计 ${allSpansInitial.length}）`,
     )
     await new Promise((r) => setTimeout(r, 1150))
     assert.equal(
@@ -1202,22 +1274,26 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       '逐字动画结束后整句字符应全部显现',
     )
 
+    // 验证连续切换 12 句（含快速连点加速残灰立即呈上下一句）：严格无重复、无首帧闪现、无回退消失
     const clickedHistory = []
     for (let i = 0; i < 12; i++) {
+      // 第 1 击触发当前句化灰退场，紧接第 2 击验证快速连点可加速残灰并立即呈上下一句
+      fullscreenRoot.click()
+      await Promise.resolve()
       fullscreenRoot.click()
       await Promise.resolve()
       assert.equal(
         fullscreenRoot.querySelectorAll('[data-char-shown="true"]').length,
         0,
-        `第 ${i + 1} 次连续点击的提交首帧同样必须严格从 0 字开始显现`,
+        `第 ${i + 1} 次切换新句挂载首帧必须严格从 0 字开始显现`,
       )
-      await new Promise((r) => setTimeout(r, 20))
+      await new Promise((r) => setTimeout(r, 30))
       clickedHistory.push(fullscreenRoot.querySelector('p')?.textContent?.trim())
     }
     assert.equal(
       new Set(clickedHistory).size,
       clickedHistory.length,
-      `连续点击 12 次不应出现任何重复句子，实际序列：${JSON.stringify(clickedHistory)}`,
+      `连续切换 12 句不应出现任何重复句子，实际序列：${JSON.stringify(clickedHistory)}`,
     )
     assert.equal(
       prematureMountFlashes.length,
@@ -1231,7 +1307,7 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
     )
     antiFlashObserver.disconnect()
 
-    // 4) 在底部横线输入内容并点击箭头按钮，验证写入 Discussions 并立即逐字回显
+    // 4) 在底部横线输入内容并点击箭头按钮：同样先让旧句化灰下场，再逐字浮现刚发送的新回声
     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
       dom.window.HTMLInputElement.prototype,
       'value',
@@ -1246,10 +1322,12 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
     await new Promise((r) => setTimeout(r, 60))
 
     assert.equal(allInputs[0].value, '', '发送成功后底部横线应清空')
+    assert.equal(ashCanvas.dataset.ashActive, 'true', '发送新回声时上一句同样应先化灰消散退场')
+    await new Promise((r) => setTimeout(r, echoAshMod.ASH_EXIT_STAGE_MS + 40))
     assert.equal(
       fullscreenRoot.querySelector('p')?.textContent?.trim(),
       '今晚的风很轻',
-      '发送成功后应立即显示刚写入 Discussions 的回声',
+      '上一句化灰下场后应显示刚写入 Discussions 的回声',
     )
     assert.equal(
       container.querySelectorAll('button').length,

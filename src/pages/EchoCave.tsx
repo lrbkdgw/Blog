@@ -5,6 +5,11 @@ import { useAuth } from '../lib/auth'
 import { getRepoTarget } from '../lib/github'
 import { useToast } from '../components/Toast'
 import {
+  ASH_EXIT_STAGE_MS,
+  attachEchoAshCanvas,
+  type EchoAshController,
+} from '../lib/echoAsh'
+import {
   createEchoDeck,
   fetchHitokotoOne,
   filterRecognizedEchoes,
@@ -44,6 +49,7 @@ interface EchoDisplayState {
   item: EchoItem | null
   seq: number
   shown: number
+  exiting: boolean
 }
 
 interface EchoSentenceProps {
@@ -96,14 +102,25 @@ export default function EchoCave() {
     deckRef.current = createEchoDeck()
   }
 
-  // 单一原子状态保存 { item, seq, shown }：每次切换新句子时在同一提交帧将 shown 归零，杜绝上一句 shown 残留导致新句瞬间闪现再消失
+  // 单一原子状态保存 { item, seq, shown, exiting }：
+  // 切换时先将旧句采样化灰退场（item = null, exiting = true），待骨灰消散下场后再挂载新句逐字浮现（shown = 0）
   const [display, setDisplay] = useState<EchoDisplayState>({
     item: null,
     seq: 0,
     shown: 0,
+    exiting: false,
   })
   const [draft, setDraft] = useState(() => readPendingEchoDraft())
   const [sending, setSending] = useState(false)
+
+  const displayRef = useRef(display)
+  displayRef.current = display
+
+  const sentenceWrapRef = useRef<HTMLDivElement>(null)
+  const ashCanvasRef = useRef<HTMLCanvasElement>(null)
+  const ashCtrlRef = useRef<EchoAshController | null>(null)
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingNextRef = useRef<EchoItem | null>(null)
 
   const discussionNodeIdRef = useRef<string | null>(null)
   const rawCommentsRef = useRef<RawEchoComment[]>([])
@@ -113,13 +130,26 @@ export default function EchoCave() {
   const pumpingRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const latestItemRef = useRef<EchoItem | null>(null)
-  latestItemRef.current = display.item
+  // 挂载全屏骨灰消散粒子画布控制器
+  useEffect(() => {
+    const canvas = ashCanvasRef.current
+    if (!canvas) return
+    const ctrl = attachEchoAshCanvas(canvas)
+    ashCtrlRef.current = ctrl
+    return () => {
+      ctrl.destroy()
+      ashCtrlRef.current = null
+      if (exitTimerRef.current !== null) {
+        clearTimeout(exitTimerRef.current)
+        exitTimerRef.current = null
+      }
+    }
+  }, [])
 
   // 同步推进 data-char-shown（严格单调 0 -> 1 -> 2 -> ... -> total，仅随 seq 重置，绝不倒退）
   useEffect(() => {
     const targetSeq = display.seq
-    const item = latestItemRef.current
+    const item = displayRef.current.item
     if (!item) return
     const total = splitGraphemes(item.text).length
     if (total === 0) return
@@ -131,14 +161,18 @@ export default function EchoCave() {
     const rafId = requestAnimationFrame(() => {
       count = 1
       setDisplay((prev) =>
-        prev.seq === targetSeq && prev.shown < 1 ? { ...prev, shown: 1 } : prev,
+        prev.seq === targetSeq && prev.item !== null && prev.shown < 1
+          ? { ...prev, shown: 1 }
+          : prev,
       )
       if (total <= 1) return
       intervalId = setInterval(() => {
         count += 1
         const nextShown = Math.min(total, count)
         setDisplay((prev) =>
-          prev.seq === targetSeq && prev.shown < nextShown ? { ...prev, shown: nextShown } : prev,
+          prev.seq === targetSeq && prev.item !== null && prev.shown < nextShown
+            ? { ...prev, shown: nextShown }
+            : prev,
         )
         if (nextShown >= total && intervalId !== null) {
           clearInterval(intervalId)
@@ -202,17 +236,80 @@ export default function EchoCave() {
     [],
   )
 
+  // 核心切换状态机：先将当前句化为骨灰随风消散下场，待舞台净空后再浮现下一句；消散途中再次点击则加速残灰并立即呈上下一句
+  const transitionToNext = useCallback(
+    (explicitNext?: EchoItem) => {
+      const deck = deckRef.current!
+      const cur = displayRef.current
+
+      if (exitTimerRef.current !== null) {
+        clearTimeout(exitTimerRef.current)
+        exitTimerRef.current = null
+      }
+
+      if (cur.exiting && !explicitNext) {
+        ashCtrlRef.current?.accelerate()
+        const readyNext = pendingNextRef.current ?? deck.next()
+        pendingNextRef.current = null
+        setDisplay((prev) => ({
+          item: readyNext,
+          seq: prev.seq + 1,
+          shown: 0,
+          exiting: false,
+        }))
+        return
+      }
+
+      const nextItem = explicitNext ?? deck.next(cur.item?.text)
+      const reducedMotion =
+        typeof window !== 'undefined' &&
+        Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+
+      const sentenceNode = sentenceWrapRef.current?.querySelector<HTMLElement>('[data-echo-sentence]') ?? null
+      const particleCount =
+        !reducedMotion && cur.item && sentenceNode
+          ? (ashCtrlRef.current?.disintegrateFromElement(sentenceNode) ?? 0)
+          : 0
+
+      if (particleCount > 0) {
+        pendingNextRef.current = nextItem
+        setDisplay((prev) => ({
+          item: null,
+          seq: prev.seq + 1,
+          shown: 0,
+          exiting: true,
+        }))
+        exitTimerRef.current = setTimeout(() => {
+          exitTimerRef.current = null
+          const target = pendingNextRef.current ?? nextItem
+          pendingNextRef.current = null
+          setDisplay((prev) => ({
+            item: target,
+            seq: prev.seq + 1,
+            shown: 0,
+            exiting: false,
+          }))
+        }, ASH_EXIT_STAGE_MS)
+      } else {
+        pendingNextRef.current = null
+        setDisplay((prev) => ({
+          item: nextItem,
+          seq: prev.seq + 1,
+          shown: 0,
+          exiting: false,
+        }))
+      }
+    },
+    [],
+  )
+
   const handleAdvance = useCallback(() => {
     const deck = deckRef.current!
-    setDisplay((prev) => ({
-      item: deck.next(prev.item?.text),
-      seq: prev.seq + 1,
-      shown: 0,
-    }))
+    transitionToNext()
     if (deck.hitokotoBufferedCount() < TARGET_HITOKOTO_BUFFER) {
       pumpHitokotoBuffer()
     }
-  }, [pumpHitokotoBuffer])
+  }, [pumpHitokotoBuffer, transitionToNext])
 
   const sendMessage = useCallback(
     async (textToSend?: string) => {
@@ -247,11 +344,7 @@ export default function EchoCave() {
         const mine = refreshed.find((item) => item.id === `discussion-${res.comment.id}`)
         if (mine && res.recognized) {
           deck.markShown(mine)
-          setDisplay((prev) => ({
-            item: mine,
-            seq: prev.seq + 1,
-            shown: 0,
-          }))
+          transitionToNext(mine)
         } else {
           toast('已写入 Discussions（每小时仅识别前 3 条、每天前 10 条）', 'info')
         }
@@ -262,7 +355,7 @@ export default function EchoCave() {
         setSending(false)
       }
     },
-    [draft, ghUser?.login, navigate, toast],
+    [draft, ghUser?.login, navigate, toast, transitionToNext],
   )
 
   // 首次进入页面：最多等待 140ms 让 Discussions / 一言首个响应到位后直接呈现首句；一旦首句呈现，后续异步响应只入队、绝不中途顶替当前句子
@@ -275,12 +368,12 @@ export default function EchoCave() {
       if (settled || controller.signal.aborted) return
       settled = true
       setDisplay((prev) => {
-        if (prev.item !== null) return prev
+        if (prev.item !== null || prev.exiting) return prev
         if (preferDiscussionLatest) {
           deck.markShown(preferDiscussionLatest)
-          return { item: preferDiscussionLatest, seq: prev.seq + 1, shown: 0 }
+          return { item: preferDiscussionLatest, seq: prev.seq + 1, shown: 0, exiting: false }
         }
-        return { item: deck.next(), seq: prev.seq + 1, shown: 0 }
+        return { item: deck.next(), seq: prev.seq + 1, shown: 0, exiting: false }
       })
     }
 
@@ -355,13 +448,22 @@ export default function EchoCave() {
       onClick={handleAdvance}
       className="relative flex h-dvh w-full cursor-pointer select-none flex-col items-center justify-center overflow-hidden bg-transparent px-6 sm:px-12"
     >
-      {display.item && <EchoSentence key={display.seq} item={display.item} shown={display.shown} />}
+      <canvas
+        ref={ashCanvasRef}
+        data-echo-ash-canvas
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 z-20 h-full w-full"
+      />
+
+      <div ref={sentenceWrapRef} className="pointer-events-none flex items-center justify-center">
+        {display.item && <EchoSentence key={display.seq} item={display.item} shown={display.shown} />}
+      </div>
 
       <form
         onSubmit={handleSubmit}
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
-        className="fixed inset-x-0 bottom-7 mx-auto flex w-full max-w-md items-center gap-2.5 px-6"
+        className="fixed inset-x-0 bottom-7 z-30 mx-auto flex w-full max-w-md items-center gap-2.5 px-6"
       >
         <input
           ref={inputRef}

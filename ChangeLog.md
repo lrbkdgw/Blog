@@ -23,8 +23,9 @@
   - 顶部导航栏新增 `百宝箱`（`/toolbox`）页签，桌面与移动端菜单同步生效，页面接入 `data-yield-list` 顶栏防冲突机制；
   - `Toolbox.tsx` 当前仅展示「回声洞」模块卡片，点击进入 `/toolbox/echo`；
   - `Layout.tsx` 在 `/toolbox/echo` 下自动隐藏 `<Header>`、`<Footer>` 与全局搜索弹窗，将全屏背景装饰与动态背景置于正序 `z-0` 图层（忽略文章级临时 `::set-background` 覆盖，始终展示用户自己选择的配色主题、明暗模式、自定义渐变与动态背景），并放开登录态外观偏好恢复限制。
-- **回声洞全屏页面、逐字浮现、去重轮播与数据层（`src/pages/EchoCave.tsx`、`src/styles/index.css`、`src/lib/echoCave.ts`、`src/lib/config.ts`、`functions/api/echo.ts`）**：
-  - 页面中心纯文字**逐字出现**（单一原子状态 `{ item, seq, shown }` + CSS `@keyframes echo-char-reveal` `animation-fill-mode: both` 逐字阶梯浮现，切换首帧同步归零且绝不回退，并消除首屏异步请求中途顶替当前句子的闪现问题），点击屏幕任意区域即刻无阻塞切换下一句；
+- **回声洞全屏页面、化灰消散退场、逐字浮现、去重轮播与数据层（`src/pages/EchoCave.tsx`、`src/lib/echoAsh.ts`、`src/styles/index.css`、`src/lib/echoCave.ts`、`src/lib/config.ts`、`functions/api/echo.ts`）**：
+  - 点击切换或发送新回声时，**上一句先以骨灰消散特效退场，再显示下一句**：`echoAsh.ts` 直接采样当前屏幕上已显现字符与出处的真实笔画像素与墨色，沿二维有机噪声波前从左下向右上层层钙化剥落为数千枚细灰粒子，在无散度旋流风场中向右上翻卷消散；待上一句化灰下场、舞台净空后再挂载下一句（消散途中再次点击可加速残灰并立即呈上下一句，兼顾意境与连点响应）；
+  - 新句子以单一原子状态 `{ item, seq, shown, exiting }` + CSS `@keyframes echo-char-reveal` `animation-fill-mode: both` 逐字阶梯浮现，切换首帧同步归零且绝不回退，并消除首屏异步请求中途顶替当前句子的闪现问题；
   - 页面底部固定居中一条极简细横线（透明单下边框 `<input>`）与单个**箭头发送按钮**（`ArrowRight`），全页无任何其他按钮、卡片、徽章或计数器；
   - 根治重复内容问题：`fetchHitokotoOne` 携带唯一防缓存参数与 `cache: 'no-store'` 并以 380ms 节流串行预取避免 `v1.hitokoto.cn` 并发限流与缓存复用；引入 `createEchoDeck` 洗牌袋与近期展示去重历史（Discussions 留言按轮次与最小间隔穿插，36 条精选兜底语料无放回洗牌）；
   - 使用公开 GitHub REST API 读取仓库 Discussions 与贡献者列表（未登录访客同样可直接听到全部已识别的 Discussions 回声），写入时支持已登录 GitHub GraphQL 直写、同源 Cloudflare Pages Function（`functions/api/echo.ts`）匿名中继以及未登录草稿暂存自动续发；
