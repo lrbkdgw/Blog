@@ -1,5 +1,5 @@
 /**
- * Echo Cave — Zero-Shift Hybrid DOM-Mask + GPU WebGL2 Bone-Ash Disintegration Engine (v3)
+ * Echo Cave — Zero-Shift Hybrid DOM-Mask + GPU WebGL2 Vapor Disintegration Engine (v4)
  *
  * Combines three proven open-source disintegration techniques with zero Frame-0 shift:
  * 1. Live DOM Ragged FBM Alpha-Mask Pass 1:
@@ -8,12 +8,12 @@
  *    HiDPI zoom level) while sweeping a pre-baked multi-octave `fbm2D` ragged alpha mask across
  *    `mask-position` on the GPU compositor with zero per-frame allocations and zero startup delay.
  * 2. `uvarov-frontend/vanilla-disintegrate` (MIT) + `Burn-My-Windows` (`snap.frag` math):
- *    WebGL2 sub-pixel `gl.POINTS` particle pass (chunked at `32,768` per VAO for Safari Metal)
- *    with algebraically locked `threshold(c, v)` matching the exact live DOM mask contour,
- *    streaming upward-and-right along coherent dual-harmonic FBM curl ribbons and softening into
- *    velvety bone-ash motes.
+ *    WebGL2 `gl.POINTS` are used only as overlapping density samples, never as visible grains.
+ *    A coherent FBM wind field, Gaussian kernels, DPR-normalized expansion and energy-conserving
+ *    alpha merge the samples into soft, continuous vapor instead of a pixel-particle spray.
  * 3. Google Search 2019 "Thanos Snap" (`@wellwind/thanos-snap`, MIT):
- *    28-layer spatially weighted `ImageData` pixel-cloud Canvas 2D fallback when WebGL2 is absent.
+ *    28-layer spatially coherent `ImageData` vapor fallback with progressive defocus when WebGL2
+ *    is absent. Adjacent layers share edge pixels so the fallback has no random pixel confetti.
  */
 
 export interface EchoAshController {
@@ -46,7 +46,7 @@ const PARTICLE_STRIDE = 9; // [srcX, srcY, threshold, velX, velY, diffX, diffY, 
 const PARTICLE_LIFE = 0.52;
 const MIN_THRESHOLD = 0.002;
 const MAX_THRESHOLD = 1 - PARTICLE_LIFE; // 0.48
-const TRANSITION_BAND = 0.012;
+const TRANSITION_BAND = 0.028;
 const CANVAS2D_LAYERS = 28;
 
 // Algebraically coupled `mask-size: 300% 100%` sweep constants:
@@ -152,10 +152,15 @@ function smoothstepJS(edge0: number, edge1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** Compute ragged fractal mask edge `u_edge(v) ∈ [0.594, 0.642]` shared by DOM mask & GPU particles. */
+/** Compute ragged fractal mask edge `u_edge(v) ∈ [0.594, 0.642]` shared by DOM mask & GPU vapor. */
 function maskEdgeAtRow(vNorm: number): number {
   const n = fbm2D(3.7, vNorm * 5.2, 2067, 3);
   return MASK_EDGE_CENTER - MASK_EDGE_AMP * clamp((n - 0.5) * 2.2, -1, 1);
+}
+
+/** Broad, continuous edge undulation; deliberately no per-pixel hash/grain. */
+function maskGrainAt(uNorm: number, vNorm: number): number {
+  return (fbm2D(uNorm * 28, vNorm * 9, 913, 2) - 0.5) * 0.008;
 }
 
 function getFractalWipeMaskUrl(doc: Document): string {
@@ -177,8 +182,8 @@ function getFractalWipeMaskUrl(doc: Document): string {
       const edgeBase = maskEdgeAtRow(v);
       for (let x = 0; x < MASK_TEX_W; x += 1) {
         const u = (x + 0.5) / MASK_TEX_W;
-        // High-frequency organic flake grain right along the fracture band
-        const grain = (fbm2D(u * 46, v * 14, 913, 2) - 0.5) * 0.016;
+        // Low-frequency edge variation dissolves as a continuous surface, not a ragged pixel edge.
+        const grain = maskGrainAt(u, v);
         const alpha = smoothstepJS(-MASK_SOFT, MASK_SOFT, u - (edgeBase + grain));
         const idx = (y * MASK_TEX_W + x) * 4;
         data[idx] = 255;
@@ -589,8 +594,10 @@ export function buildAshParticleField(
       const x = bx * blockSize;
       const col = (x + blockSize * 0.5) / texW;
 
-      // Exact algebraic solution matching `applyDomErosionMask`: `(col + 2 * p) / 3 === uEdgeRow`
-      const microGrain = (hash2DInt(bx, by, seed + 7919) - 0.5) * 0.02;
+      // Algebraic solution matching `applyDomErosionMask`: `(col + 2 * p) / 3 === uEdgeRow`.
+      // The same continuous edge function is used on both paths; independent per-texel detachment
+      // noise was removed because it made otherwise smooth text look like scattered sand.
+      const microGrain = maskGrainAt(uEdgeRow, row);
       const pDetach = clamp((3 * (uEdgeRow + microGrain) - col) * 0.5, MASK_P_END, 1);
       const sweepNorm = clamp((1 - pDetach) / MASK_P_SPAN, 0, 1);
       const threshold = MIN_THRESHOLD + sweepNorm * (MAX_THRESHOLD - MIN_THRESHOLD);
@@ -599,26 +606,20 @@ export function buildAshParticleField(
       thresholdMap[bIdx] = Math.round(threshold * 255);
       if (visibleBlocks[bIdx] === 0) continue;
 
-      // Lively yet graceful rising wind ribbons (~135 CSS px/s) + gentle late dispersion
-      const sA = fbm2D(x * 0.013 + 11.3, y * 0.013 + 4.7, seed + 101, 3);
-      const sB = fbm2D(x * 0.025 + 31.7, y * 0.025 + 9.2, seed + 211, 3);
-      const r1 = hash2DInt(bx, by, seed + 1301);
-      const r2 = hash2DInt(bx, by, seed + 2713);
-      const r3 = hash2DInt(bx, by, seed + 4099);
-      const r4 = hash2DInt(bx, by, seed + 5657);
-      const wisp = r4 > 0.88 ? 1 : 0;
+      // Neighboring samples must inherit neighboring motion. These three broad FBM fields form a
+      // slow, coherent wind; there are no random per-particle impulses or randomly faster motes.
+      const sA = fbm2D(x * 0.011 + 11.3, y * 0.011 + 4.7, seed + 101, 3);
+      const sB = fbm2D(x * 0.017 + 31.7, y * 0.017 + 9.2, seed + 211, 3);
+      const sC = fbm2D(x * 0.006 + 7.1, y * 0.006 + 19.4, seed + 307, 2);
+      const gust = 0.88 + sC * 0.26;
+      const velX = (42 + sA * 72) * dpr * gust;
+      const velY = (-16 - sB * 46) * dpr * gust;
 
-      const gust = 1 + wisp * 0.38;
-      const velX = (84 + sA * 124) * dpr * gust;
-      const velY = (-50 - sB * 102) * dpr * gust;
-
-      const diffAng = r1 * Math.PI * 2;
-      const diffMag = (14 + r2 * 42) * dpr * (1 + wisp * 0.48);
-      const diffX = Math.cos(diffAng) * diffMag;
-      const diffY = Math.sin(diffAng) * diffMag * 0.72;
-
-      const swirl = (12 + sB * 22) * dpr;
-      const phase = sA * Math.PI * 3.1 + (r3 - 0.5) * 0.48;
+      // Small, spatially correlated diffusion loosens the vapor without separating visible dots.
+      const diffX = (sA - 0.5) * 36 * dpr;
+      const diffY = (sB - 0.5) * 28 * dpr;
+      const swirl = (6 + sB * 16) * dpr;
+      const phase = (sA * 1.7 + sB * 0.9 + sC * 0.6) * Math.PI;
 
       const chunkIdx = Math.floor(globalIdx / PARTICLES_PER_BUFFER);
       const slotOffset = (globalIdx % PARTICLES_PER_BUFFER) * PARTICLE_STRIDE;
@@ -688,31 +689,35 @@ void main() {
   }
 
   float local = clamp(raw_local, 0.0, 1.0);
-  float travel_t = mix(smoothstep(0.0, 1.0, local), 1.0 - pow(1.0 - local, 1.6), 0.52);
-  float spread_t = pow(local, 1.7);
-  float env = sin(local * 2.890265) * 0.85;
-  float w1 = sin(local * 6.2 + a_phase);
-  float w2 = cos(local * 11.4 + a_phase * 1.61);
+  float travel_t = mix(smoothstep(0.0, 1.0, local), 1.0 - pow(1.0 - local, 1.45), 0.68);
+  float spread_t = local * local;
+  float env = sin(local * 3.141593) * 0.72;
+  float w1 = sin(local * 4.8 + a_phase);
+  float w2 = cos(local * 8.4 + a_phase * 1.31);
 
   vec2 perp = vec2(-a_velocity.y, a_velocity.x) / max(length(a_velocity), 0.001);
   vec2 drift = a_velocity * travel_t
-             + perp * (w1 * a_swirl + w2 * a_swirl * 0.25) * env
+             + perp * (w1 * a_swirl + w2 * a_swirl * 0.18) * env
              + a_diffusion * spread_t
-             + vec2(0.0, -38.0 * u_dpr * local * local);
+             + vec2(0.0, -16.0 * u_dpr * local * local);
 
-  float softness = smoothstep(0.02, 0.24, local);
-  float point_scale = mix(1.0, 2.35, softness);
+  // Each sample expands into its neighbors. Normalizing alpha by kernel area and DPR conserves
+  // density, so this reads as a thinning volume of vapor rather than brighter/larger particles.
+  float softness = smoothstep(0.0, 0.75, local);
+  float point_scale = mix(2.2, 18.0, softness);
   vec2 center = u_source_offset + a_origin + vec2(u_block_size * 0.5) + drift;
   vec2 clip = center / u_canvas_size * 2.0 - 1.0;
 
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-  gl_PointSize = max(1.0, u_block_size * point_scale);
+  gl_PointSize = max(1.0, max(u_block_size, u_dpr) * point_scale);
 
   v_uv_origin = a_origin / u_source_size;
   v_uv_size = vec2(u_block_size) / u_source_size;
-  float fade = 1.0 - smoothstep(0.24, 1.0, local);
-  float energy_norm = mix(1.0, 0.54, softness);
-  v_alpha = activation * fade * energy_norm;
+  float fade = 1.0 - smoothstep(0.10, 1.0, local);
+  float energy_norm = 3.2 / (point_scale * point_scale * u_dpr * u_dpr);
+  float ribbon_wave = 0.5 + 0.5 * sin(a_phase * 2.2 + local * 2.6);
+  float ribbon = mix(1.0, smoothstep(0.18, 0.82, ribbon_wave), smoothstep(0.22, 0.85, local));
+  v_alpha = activation * fade * energy_norm * ribbon;
   v_local = local;
   v_softness = softness;
 }
@@ -738,8 +743,11 @@ void main() {
   }
   vec2 centered = gl_PointCoord - vec2(0.5);
   float dist = length(centered);
-  float radial = 1.0 - smoothstep(0.16, 0.5, dist);
-  float mask = mix(1.0, radial, v_softness);
+  // A Gaussian at every age (including detachment) avoids the hard square/point sprites that made
+  // the old pass feel granular. The soft cutoff only prevents a visible circular sprite boundary.
+  float falloff = mix(18.0, 10.0, v_softness);
+  float radial = exp(-dot(centered, centered) * falloff);
+  float mask = radial * (1.0 - smoothstep(0.34, 0.5, dist));
   if (mask <= 0.002) {
     out_color = vec4(0.0);
     return;
@@ -753,7 +761,7 @@ void main() {
   }
 
   vec3 straight_rgb = tex.rgb / max(tex.a, 0.0001);
-  float ash_mix = clamp(0.26 + smoothstep(0.0, 0.34, v_local) * 0.66, 0.0, 0.92);
+  float ash_mix = mix(0.12, 0.78, smoothstep(0.0, 0.72, v_local));
   vec3 tinted = mix(straight_rgb, u_ash_color, ash_mix);
   float final_a = v_alpha * mask;
   out_color = vec4(tinted * tex.a, tex.a) * final_a;
@@ -816,7 +824,7 @@ function compileGLProgram(gl: WebGL2RenderingContext, vsSrc: string, fsSrc: stri
 }
 
 // ============================================================================
-// Secondary Fallback Renderer: Google 2019 Thanos-Snap 28-Layer Canvas2D Engine
+// Secondary Fallback Renderer: Spatially Coherent 28-Layer Canvas2D Vapor
 // ============================================================================
 
 interface Canvas2DLayerBurst {
@@ -831,6 +839,7 @@ interface Canvas2DLayerBurst {
   offsetY: number;
   texW: number;
   texH: number;
+  dpr: number;
   particleCount: number;
   domElement: HTMLElement | null;
   elapsedMs: number;
@@ -856,16 +865,25 @@ function createCanvas2DLayerBurst(
       particleCount += 1;
 
       const col = x / texW;
-      const organic = fbm2D(x * 0.02, y * 0.024, seed + 37, 2);
-      for (let rep = 0; rep < 2; rep += 1) {
-        const jitter = hash2DInt(x + rep * 991, y, seed + 613);
-        const weighted = clamp((2 * col + organic * 0.7 + jitter * 0.6) / 3.3, 0, 0.9999);
-        const bucket = Math.min(CANVAS2D_LAYERS - 1, Math.floor(weighted * CANVAS2D_LAYERS));
+      const organic = fbm2D(x * 0.012, y * 0.016, seed + 37, 3);
+      const weighted = clamp((2 * col + organic * 0.9) / 2.9, 0, 0.9999);
+      const layerPos = weighted * (CANVAS2D_LAYERS - 1);
+      const lower = Math.floor(layerPos);
+      const upper = Math.min(CANVAS2D_LAYERS - 1, lower + 1);
+      const upperWeight = layerPos - lower;
+
+      // Split only across adjacent time layers. Broad FBM regions remain intact and the shared
+      // edge pixels prevent the random salt-and-pepper holes produced by the old two-bucket hash.
+      for (const [bucket, weight] of [
+        [lower, 1 - upperWeight],
+        [upper, upperWeight],
+      ] as const) {
+        if (weight <= 0) continue;
         const dst = layerArrays[bucket];
-        dst[pIdx] = Math.round(pixels[pIdx] * 0.52 + ashColor[0] * 255 * 0.48);
-        dst[pIdx + 1] = Math.round(pixels[pIdx + 1] * 0.52 + ashColor[1] * 255 * 0.48);
-        dst[pIdx + 2] = Math.round(pixels[pIdx + 2] * 0.52 + ashColor[2] * 255 * 0.48);
-        dst[pIdx + 3] = Math.round(a * 0.72);
+        dst[pIdx] = Math.round(pixels[pIdx] * 0.68 + ashColor[0] * 255 * 0.32);
+        dst[pIdx + 1] = Math.round(pixels[pIdx + 1] * 0.68 + ashColor[1] * 255 * 0.32);
+        dst[pIdx + 2] = Math.round(pixels[pIdx + 2] * 0.68 + ashColor[2] * 255 * 0.32);
+        dst[pIdx + 3] = Math.round(a * weight * 0.68);
       }
     }
   }
@@ -886,14 +904,15 @@ function createCanvas2DLayerBurst(
     }
     const rA = hash2DInt(i, 11, seed + 71);
     const rB = hash2DInt(i, 29, seed + 193);
-    const angle = -0.78 + (rA - 0.5) * 0.52;
-    const dist = (86 + rB * 112) * scaleX;
+    const layerT = i / (CANVAS2D_LAYERS - 1);
+    const angle = -0.62 + (rA - 0.5) * 0.16;
+    const dist = (48 + layerT * 48 + rB * 22) * scaleX;
     return {
       canvas: c,
-      delayNorm: (i / CANVAS2D_LAYERS) * MAX_THRESHOLD,
+      delayNorm: layerT * MAX_THRESHOLD,
       dx: Math.cos(angle) * dist,
-      dy: Math.sin(angle) * dist - 22 * scaleX,
-      rot: ((rA - 0.5) * 14 * Math.PI) / 180,
+      dy: Math.sin(angle) * dist - 12 * scaleX,
+      rot: ((rA - 0.5) * 2.4 * Math.PI) / 180,
     };
   });
 
@@ -903,6 +922,7 @@ function createCanvas2DLayerBurst(
     offsetY,
     texW,
     texH,
+    dpr: scaleX,
     particleCount,
     domElement,
     elapsedMs: 0,
@@ -1091,13 +1111,17 @@ export function attachEchoAshCanvas(canvas: HTMLCanvasElement): EchoAshControlle
         for (const layer of b.layers) {
           if (progress < layer.delayNorm) continue;
           const local = clamp((progress - layer.delayNorm) / PARTICLE_LIFE, 0, 1);
-          const alpha = (1 - local * local) * smoothstepJS(0, 0.08, local);
+          const alpha =
+            (1 - smoothstepJS(0.12, 1, local)) * smoothstepJS(0, 0.12, local) * 0.9;
           if (alpha <= 0.005) continue;
-          const ease = 1 - Math.pow(1 - local, 1.75);
+          const ease = 1 - Math.pow(1 - local, 1.45);
+          const spread = 1 + local * 0.045;
           ctx2d.save();
           ctx2d.globalAlpha = alpha;
+          ctx2d.filter = `blur(${((0.25 + local * 2.4) * b.dpr).toFixed(2)}px)`;
           ctx2d.translate(cx + layer.dx * ease, cy + layer.dy * ease);
           ctx2d.rotate(layer.rot * ease);
+          ctx2d.scale(spread, spread);
           ctx2d.drawImage(layer.canvas, -b.texW * 0.5, -b.texH * 0.5);
           ctx2d.restore();
         }
