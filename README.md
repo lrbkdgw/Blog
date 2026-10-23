@@ -585,6 +585,30 @@ $\texttt{吃}$！
   以及——`api.github.com` / `/graphql` / `login/device/code` / `fonts.googleapis.com` / OAuth Client ID
   任一字符串出现在产物里——都会让构建直接失败。也就是说「离线版不联网」不是承诺，是可检查的事实。
 
+### main 更新后，离线版与 Release 是怎么自动更新的
+
+```
+push main（命中 src/**、content/**、public/**、构建配置 / 脚本 / 本 workflow 等路径）
+  → .github/workflows/offline.yml
+      1. npm ci + tsc --noEmit
+      2. vite build --config vite.offline.config.ts
+      3. node scripts/verify-offline.mjs（缺字体 / 缺文章 / 外链残留 → 直接失败）
+      4. 产物有变化 → 以 github-actions[bot] 提交回 offline/index.html
+      5. 无论产物有没有变化 → 刷新滚动 Release（tag: offline）
+         · 固定资产名 starlog-offline-latest.html（--clobber 原地替换）
+         · 标题带日期与来源短 SHA；说明追加来源提交 / 构建时间 / 精确体积 / 固定下载地址
+         · 把 rolling tag 指向本次来源提交
+  → .github/workflows/deploy.yml
+      现场再构建一次同一份离线文件，放进站点 <站点地址>/offline/index.html
+```
+
+几个取舍：
+
+- **只保留一个 rolling Release**，不按版本号发布：下载地址永远不变，也不会在 Releases 里堆出数百个附件；历史版本看 `offline/index.html` 的提交记录；
+- 只有命中**构建输入**才重建，改 README / ChangeLog 这类文档不会白白跑一遍；
+- `offline/index.html` 即使已在 PR 里提交，Release 也会刷新——这一点专门修过：旧实现只在 bot 提交产生变化时才更新 Release，结果 Release 长期停在旧版本；
+- 想手动补一次：**Actions → 构建离线单文件版 → Run workflow**（`workflow_dispatch`）。
+
 ### 支持范围
 
 | | |
