@@ -43,6 +43,12 @@ import { PasswordPrompt } from '../components/PasswordPrompt'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../lib/auth'
 import { requestHeaderYieldRefresh } from '../lib/headerYield'
+import {
+  type BidirectionalScrollMapper,
+  collectScrollSyncAnchors,
+  createBidirectionalScrollMapper,
+  rebuildTextareaLineMirror,
+} from '../lib/scrollSync'
 import { decryptPost, encryptPostMarkdown, restorePostUnlock } from '../lib/crypto'
 import { checkUserRepoPermissions } from '../lib/github'
 import {
@@ -959,148 +965,201 @@ export default function Editor() {
    * ------------------------------------------------------------------------ */
   const mirrorRef = useRef<HTMLDivElement>(null)
   const anchorsDirtyRef = useRef(true)
+  const mirrorBuiltTextRef = useRef<string | null>(null)
+  const mirrorBuiltWidthRef = useRef(0)
+  const cachedMapperRef = useRef<{
+    mapper: BidirectionalScrollMapper
+    taClientWidth: number
+    taScrollHeight: number
+    taClientHeight: number
+    pvScrollHeight: number
+    pvClientHeight: number
+  } | null>(null)
+  const scrollDriverRef = useRef<'editor' | 'preview'>('editor')
+  const expectedScrollEchoRef = useRef<{
+    editor: { top: number; until: number } | null
+    preview: { top: number; until: number } | null
+  }>({ editor: null, preview: null })
 
-  const escapeHtml = (text: string) =>
-    text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;')
+  const markScrollDriver = useCallback((side: 'editor' | 'preview') => {
+    scrollDriverRef.current = side
+    expectedScrollEchoRef.current[side] = null
+  }, [])
 
-  /** 用与 textarea 完全一致的样式重建隐藏镜像层，用于测量每行的纵向像素位置。 */
-  const rebuildLineMirror = (ta: HTMLTextAreaElement) => {
+  const applyProgrammaticScroll = useCallback(
+    (side: 'editor' | 'preview', el: HTMLElement, nextTop: number) => {
+      const maxTop = Math.max(0, el.scrollHeight - el.clientHeight)
+      const clampedTop = Math.max(0, Math.min(maxTop, nextTop))
+      if (Math.abs(el.scrollTop - clampedTop) < 0.5) return
+      expectedScrollEchoRef.current[side] = {
+        top: clampedTop,
+        until: performance.now() + 200,
+      }
+      el.scrollTop = clampedTop
+    },
+    [],
+  )
+
+  const ensureScrollMapper = useCallback((): BidirectionalScrollMapper | null => {
+    const ta = textareaRef.current
     const mirror = mirrorRef.current
-    if (!mirror) return
-    mirror.style.width = `${ta.clientWidth}px`
-    // 每个源码行一个块级 div：块内换行行为与 textarea 的逐行换行一致，
-    // 空行用零宽字符撑起行高，保证 offsetTop 对每一行都可靠。
-    mirror.innerHTML = ta.value
-      .split('\n')
-      .map(
-        (line, index) =>
-          `<div data-l="${index + 1}">${line ? escapeHtml(line) : '&#8203;'}</div>`,
-      )
-      .join('')
-  }
+    const pv = previewRef.current
+    if (!ta || !mirror || !pv || pv.clientHeight === 0 || ta.clientHeight === 0) {
+      return null
+    }
 
-  /** 内容、视图或尺寸变化后，下次滚动时重建锚点。 */
+    const cached = cachedMapperRef.current
+    const needMirrorRebuild =
+      mirrorBuiltTextRef.current !== ta.value || mirrorBuiltWidthRef.current !== ta.clientWidth
+    const needAnchorRebuild =
+      anchorsDirtyRef.current ||
+      needMirrorRebuild ||
+      !cached ||
+      cached.taClientWidth !== ta.clientWidth ||
+      cached.taScrollHeight !== ta.scrollHeight ||
+      cached.taClientHeight !== ta.clientHeight ||
+      cached.pvScrollHeight !== pv.scrollHeight ||
+      cached.pvClientHeight !== pv.clientHeight
+
+    if (!needAnchorRebuild && cached) {
+      return cached.mapper
+    }
+
+    if (needMirrorRebuild) {
+      mirrorBuiltWidthRef.current = rebuildTextareaLineMirror(ta, mirror)
+      mirrorBuiltTextRef.current = ta.value
+    }
+
+    const anchors = collectScrollSyncAnchors(ta, mirror, pv)
+    const mapper = createBidirectionalScrollMapper(anchors, {
+      taScrollHeight: Math.max(ta.scrollHeight, mirror.scrollHeight),
+      taClientHeight: ta.clientHeight,
+      pvScrollHeight: pv.scrollHeight,
+      pvClientHeight: pv.clientHeight,
+    })
+
+    cachedMapperRef.current = {
+      mapper,
+      taClientWidth: ta.clientWidth,
+      taScrollHeight: ta.scrollHeight,
+      taClientHeight: ta.clientHeight,
+      pvScrollHeight: pv.scrollHeight,
+      pvClientHeight: pv.clientHeight,
+    }
+    anchorsDirtyRef.current = false
+    return mapper
+  }, [])
+
+  const syncFromDriver = useCallback(
+    (driver: 'editor' | 'preview') => {
+      const ta = textareaRef.current
+      const pv = previewRef.current
+      if (!ta || !pv || view !== 'split' || !scrollSync) return
+      const mapper = ensureScrollMapper()
+      if (!mapper) return
+      if (driver === 'editor') {
+        applyProgrammaticScroll('preview', pv, mapper.editorToPreview(ta.scrollTop))
+      } else {
+        applyProgrammaticScroll('editor', ta, mapper.previewToEditor(pv.scrollTop))
+      }
+    },
+    [view, scrollSync, ensureScrollMapper, applyProgrammaticScroll],
+  )
+
+  const handleEditorScroll = useCallback(() => {
+    const ta = textareaRef.current
+    if (!ta || view !== 'split' || !scrollSync) return
+    const echo = expectedScrollEchoRef.current.editor
+    if (echo) {
+      expectedScrollEchoRef.current.editor = null
+      if (performance.now() <= echo.until && Math.abs(ta.scrollTop - echo.top) <= 2) {
+        return
+      }
+    }
+    scrollDriverRef.current = 'editor'
+    syncFromDriver('editor')
+  }, [view, scrollSync, syncFromDriver])
+
+  const handlePreviewScroll = useCallback(() => {
+    const pv = previewRef.current
+    if (!pv || view !== 'split' || !scrollSync) return
+    const echo = expectedScrollEchoRef.current.preview
+    if (echo) {
+      expectedScrollEchoRef.current.preview = null
+      if (performance.now() <= echo.until && Math.abs(pv.scrollTop - echo.top) <= 2) {
+        return
+      }
+    }
+    scrollDriverRef.current = 'preview'
+    syncFromDriver('preview')
+  }, [view, scrollSync, syncFromDriver])
+
+  /** 内容、延迟渲染正文、视图或尺寸变化后，标记锚点需重算。 */
   useEffect(() => {
     anchorsDirtyRef.current = true
-  }, [content, view, scrollSync, fullscreen])
+  }, [content, deferredContent, view, scrollSync, fullscreen])
 
-  // 空闲时（停止输入约 200ms）提前重建镜像层，让下一次滚动无需现算。
+  // 空闲时（停止输入约 160ms）提前预热镜像层与锚点样条，使首次滚动零卡顿。
   useEffect(() => {
     if (view !== 'split' || !scrollSync) return
     const timer = window.setTimeout(() => {
-      const ta = textareaRef.current
-      const mirror = mirrorRef.current
-      const pv = previewRef.current
-      // 窄屏（md 以下）双栏里的预览是隐藏的，无需测量。
-      if (!ta || !mirror || !pv || pv.clientHeight === 0) return
-      rebuildLineMirror(ta)
-      anchorsDirtyRef.current = false
-    }, 200)
+      ensureScrollMapper()
+    }, 160)
     return () => window.clearTimeout(timer)
-  }, [content, view, scrollSync, fullscreen])
+  }, [content, deferredContent, view, scrollSync, fullscreen, ensureScrollMapper])
 
-  // 视图或开关变化后重新挂载镜像层 / 尺寸变化（窗口缩放、全屏切换）都会使行位置失效。
+  // 监听编辑框与预览内容尺寸变化、折叠框开合、异步图片加载完成，动态刷新锚点并保持对齐。
   useEffect(() => {
+    if (view !== 'split' || !scrollSync) return
     const ta = textareaRef.current
-    if (!ta || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => {
+    const pv = previewRef.current
+    if (!ta || !pv) return
+
+    const invalidateAndResync = (preferredDriver?: 'editor' | 'preview') => {
       anchorsDirtyRef.current = true
-    })
-    observer.observe(ta)
-    return () => observer.disconnect()
-  }, [view, scrollSync])
+      const driver = preferredDriver ?? scrollDriverRef.current
+      syncFromDriver(driver)
+    }
+
+    const observer =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => {
+            anchorsDirtyRef.current = true
+          })
+        : null
+    observer?.observe(ta)
+    observer?.observe(pv)
+    if (pv.firstElementChild) observer?.observe(pv.firstElementChild)
+
+    const onDetailsToggle = () => {
+      invalidateAndResync('preview')
+    }
+    const onImageLoad = () => {
+      invalidateAndResync()
+    }
+    pv.addEventListener('toggle', onDetailsToggle, true)
+    pv.addEventListener('load', onImageLoad, true)
+
+    return () => {
+      observer?.disconnect()
+      pv.removeEventListener('toggle', onDetailsToggle, true)
+      pv.removeEventListener('load', onImageLoad, true)
+    }
+  }, [view, scrollSync, deferredContent, syncFromDriver])
 
   // 云端字体加载完成后行高会变化，同样需要重测。
   useEffect(() => {
     let active = true
     document.fonts?.ready.then(() => {
-      if (active) anchorsDirtyRef.current = true
+      if (active) {
+        mirrorBuiltTextRef.current = null
+        anchorsDirtyRef.current = true
+      }
     })
     return () => {
       active = false
     }
   }, [])
-
-  const syncScroll = () => {
-    const ta = textareaRef.current
-    const pv = previewRef.current
-    if (!ta || !pv || view !== 'split' || !scrollSync) return
-
-    const maxTa = ta.scrollHeight - ta.clientHeight
-    const maxPv = pv.scrollHeight - pv.clientHeight
-    if (maxTa <= 0 || maxPv <= 0) return
-
-    if (anchorsDirtyRef.current) {
-      rebuildLineMirror(ta)
-      anchorsDirtyRef.current = false
-    }
-
-    // 读取所有写值前的测量，避免布局抖动。
-    const pvTop = pv.getBoundingClientRect().top
-    const pvScrollTop = pv.scrollTop
-    const mirror = mirrorRef.current
-    const anchors: { ta: number; pv: number }[] = []
-
-    if (mirror) {
-      const marked = pv.querySelectorAll<HTMLElement>('[data-source-line]')
-      for (const el of marked) {
-        // 只取最外层块：嵌套在折叠框、表格里的标注不参与对齐。
-        if (el.parentElement?.closest('[data-source-line]')) continue
-        const line = Number(el.dataset.sourceLine)
-        if (!Number.isInteger(line) || line < 1) continue
-        const lineEl = mirror.querySelector<HTMLElement>(`div[data-l="${line}"]`)
-        if (!lineEl) continue
-        const taY = lineEl.offsetTop
-        const pvY = el.getBoundingClientRect().top - pvTop + pvScrollTop
-        const prev = anchors[anchors.length - 1]
-        if (prev && (taY <= prev.ta || pvY <= prev.pv)) continue
-        anchors.push({ ta: taY, pv: pvY })
-      }
-    }
-
-    const scroll = ta.scrollTop
-    // 只保留编辑区实际能滚到的锚点；更靠下的锚点只可能出现在视口下部，
-    // 让尾部平滑过渡到「两侧同时见底」。
-    const usable = anchors.filter((a) => a.ta < maxTa - 0.5)
-    let target: number
-    if (usable.length === 0) {
-      // 没有可用锚点时退回按总高度比例同步。
-      target = (scroll / maxTa) * maxPv
-    } else if (scroll <= usable[0].ta) {
-      // 顶部到第一个锚点之间。
-      target =
-        usable[0].ta > 0 ? (scroll / usable[0].ta) * usable[0].pv : usable[0].pv
-    } else if (scroll >= usable[usable.length - 1].ta) {
-      // 最后一个可达锚点到末尾：过渡到预览区底部。
-      const last = usable[usable.length - 1]
-      const span = maxTa - last.ta
-      target =
-        span < 1
-          ? scroll >= maxTa - 0.5
-            ? maxPv
-            : last.pv
-          : last.pv + ((scroll - last.ta) / span) * (maxPv - last.pv)
-    } else {
-      // 在相邻两个锚点之间线性插值。
-      let lo = 0
-      let hi = usable.length - 1
-      while (hi - lo > 1) {
-        const mid = (lo + hi) >> 1
-        if (usable[mid].ta <= scroll) lo = mid
-        else hi = mid
-      }
-      const a = usable[lo]
-      const b = usable[hi]
-      target = a.pv + ((scroll - a.ta) / (b.ta - a.ta)) * (b.pv - a.pv)
-    }
-
-    pv.scrollTop = Math.max(0, Math.min(maxPv, target))
-  }
 
   // 全屏时按 Esc 退出（输入法组合键中的 Esc 用于取消候选，不退出全屏；
   // 符号选择框开着时 Esc 只关闭选择框）。
@@ -1525,7 +1584,7 @@ export default function Editor() {
             style={fullscreen ? undefined : { height: 'min(68vh, 44rem)' }}
           >
             {view !== 'preview' && (
-              <div className="relative min-h-0">
+              <div className="relative min-h-0 overflow-hidden">
                 <textarea
                   ref={textareaRef}
                   value={content}
@@ -1533,8 +1592,14 @@ export default function Editor() {
                     setContent(e.target.value)
                     markDirty()
                   }}
-                  onKeyDown={onKeyDown}
-                  onScroll={syncScroll}
+                  onKeyDown={(e) => {
+                    markScrollDriver('editor')
+                    onKeyDown(e)
+                  }}
+                  onWheel={() => markScrollDriver('editor')}
+                  onPointerDown={() => markScrollDriver('editor')}
+                  onTouchStart={() => markScrollDriver('editor')}
+                  onScroll={handleEditorScroll}
                   spellCheck={false}
                   placeholder="在这里用 Markdown 写作…"
                   className="editor-textarea h-full w-full resize-none bg-transparent p-5 font-mono text-[14px] text-ink-800 outline-none placeholder:text-ink-400 dark:text-ink-100"
@@ -1554,6 +1619,11 @@ export default function Editor() {
               <div
                 ref={previewRef}
                 data-yield-ignore
+                onWheel={() => markScrollDriver('preview')}
+                onPointerDown={() => markScrollDriver('preview')}
+                onTouchStart={() => markScrollDriver('preview')}
+                onKeyDown={() => markScrollDriver('preview')}
+                onScroll={handlePreviewScroll}
                 className={`h-full overflow-y-auto bg-ink-50/40 p-5 dark:bg-white/[.02] ${
                   view === 'split'
                     ? 'hidden border-l border-ink-200/70 md:block dark:border-white/10'

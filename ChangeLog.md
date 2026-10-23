@@ -1,5 +1,39 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-23 · 修复双栏编辑器双向同步滚动与长文锚点偏差（#101）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+- **Issue #101（同步滚动修复）**：
+  1. 在浏览右边预览区时，左边编辑区此前未绑定反向联动，不会同步滚动；
+  2. 原单向滚动同步存在严重偏差：
+     - `if (el.parentElement?.closest('[data-source-line]')) continue` 直接丢弃了展开态折叠框（`:::info[...]{open}` 等）、列表项（`li`）、引用块（`blockquote`）与 `cute-table` 外壳内的全部子块锚点（在多折叠框长文中丢失超过 90% 的锚点）；
+     - 闭合折叠框（`:::warning[...]` 等）、展示框（`::show_begin`）、直角坐标系（`::begin_ui-ccs`）、图论画布（`::begin_ui-graph`）、表单控件（`::begin_ui-choose` / `::begin_ui-if` / `::ui-write[new]`）、多行代码块与表格此前只记录起始行号而缺少结束行号区间，导致数十行源码压缩为数十像素标题栏或数行源码展开为巨幅画布时产生数百至数千像素漂移；
+     - `usable = anchors.filter(a => a.ta < maxTa - 0.5)` 删掉了编辑区最后一屏内的所有锚点，导致中短篇多图文章在编辑区前段就提前将右侧预览冲到底部；
+     - 左侧隐藏测量镜像层外层未加 `overflow-hidden`，长文镜像高度溢出撑高整页 `window` 滚动条。
+
+### 调整
+
+- **Markdown 全层级起止行号区间标注（`src/components/Markdown.tsx`、`src/components/ShowBox.tsx`、`src/components/CoordinatePlane.tsx`、`src/components/GraphPlane.tsx`、`src/components/UiWidgets.tsx`）**：
+  - `preprocessMarkdownDetailed` 新增 `endLineMap` 记录多行扩展指令（`ui-graph`、`ui-choose`、`ui-if`、`ui-write[new]`、`show-box`、`ui-ccs`、`cute-table`、折叠框闭合行）对应的精确源码结束行号；
+  - `rehypeInheritPositions` 自底向上聚合子节点的起止行范围，使 `rehype-raw` 生成的 `<details class="callout">` 精确覆盖从开启行至闭合 `:::` 行的完整源码区间；
+  - `sourceLineMarkers` 开启时为所有块级组件同时输出 `data-source-line` 与 `data-source-line-end`。
+- **双向高精度保序双射滚动同步引擎与编辑器联动（`src/lib/scrollSync.ts`、`src/pages/Editor.tsx`）**：
+  - 新增 `src/lib/scrollSync.ts`：完整复制 `<textarea>` 计算盒模型、字距、行高与折行属性构建行测量镜像；穿透展开态 `<details open>`、引用块与列表提取全部叶级可见块的 `[taTop, taBottom] <-> [pvTop, pvBottom]` 双端锚点，并将闭合 `<details>` 整体映射为其折叠栏高度并跳过内部隐藏节点；
+  - 构建 256 节点对称保序双射样条（`editorToPreview` / `previewToEditor` 严格互逆，正文顶边逐行零偏移对齐，末尾一屏平滑扫过尾部全部锚点并精确落底 `maxTa <-> maxPv`）；
+  - `Editor.tsx` 为右侧预览区接入 `onScroll` / `onWheel` / `onPointerDown` / `onTouchStart` / `onKeyDown` 双向联动与回声抑制锁（切换滚动方向零跳变、绝无乒乓抖动），为左侧镜像外层补充 `overflow-hidden`，并监听 `ResizeObserver`、`<details>` `toggle` 与图片 `load` 动态重对齐。
+
+### 验证
+
+- `scripts/test-features.mjs` 新增两项专项回归测试，覆盖全语法源码起止行标注、真实长文（`oi-dp-skill-1.md`、`smsky-2026冬令营-problem_set.md`、`hoyoverser-skill-guess.md`）全覆盖叶级锚点提取、极端非对称高度双向往返精度（`< 0.05px`）、真实 `<Editor />` DOM 左右双向联动、折叠框开合即时重对齐、零乒乓回声及 `editorScrollSync` 设置开关控制。
+- 通过 `npm test`（含 Web 特性测试与 VS Code 插件全部 71 项测试）、`npm --prefix vscode_extensions/v1 run typecheck`、`npm run build` 与 `npm run build:offline` 全量构建自检，并同步更新 `offline/index.html`。
+
 ## 2026-10-22 · 新增顶栏「百宝箱」页签与独占全屏极简「回声洞」模块（#93）
 
 | 模型信息 | |
