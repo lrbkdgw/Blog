@@ -53,7 +53,7 @@
 
 ### 验证
 
-- `scripts/test-features.mjs` 新增 5 项回归测试：
+- `scripts/test-features.mjs` 新增 6 项回归测试：
   - headerYield 在块脱离让路列表后由 `clearHeaderYieldState()` 同步清理、以及 `apply()` 自动扫除残留遮罩；
   - 滚动锁引用计数（两次加锁、先释放搜索仍保持全屏锁定、`release()` 幂等、恢复原 `overflow` / `padding-right`）；
   - 编辑器源码接入滚动锁、全屏清理与 Esc 弹窗优先级；
