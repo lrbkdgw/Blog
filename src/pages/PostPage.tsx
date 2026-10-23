@@ -116,7 +116,7 @@ function HistoryDialog({
   postTitle: string
   onClose: () => void
   onSelect: (version: PostHistoryVersion) => void
-  onCompare: () => void
+  onCompare: (baseSha?: string, targetSha?: string) => void
   selecting: string | null
 }) {
   const toast = useToast()
@@ -179,7 +179,7 @@ function HistoryDialog({
           <div className="flex shrink-0 items-center gap-1.5">
             <button
               type="button"
-              onClick={onCompare}
+              onClick={() => onCompare()}
               disabled={loading || versions.length < 2}
               className="btn-ghost h-8 text-xs disabled:cursor-not-allowed disabled:opacity-40"
               title={versions.length < 2 ? '至少需要两个历史版本才能对比' : '对比任意两个版本的源码与渲染效果'}
@@ -272,6 +272,17 @@ function HistoryDialog({
                     </span>
                     <span className="shrink-0 text-xs text-brand-600 dark:text-brand-300">查看</span>
                   </button>
+                  {index + 1 < versions.length && (
+                    <button
+                      type="button"
+                      onClick={() => onCompare(versions[index + 1].sha, version.sha)}
+                      disabled={Boolean(selecting)}
+                      className="btn-ghost h-8 w-8 !px-0"
+                      title="与上一历史版本对比"
+                    >
+                      <GitCompareArrows size={14} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => startRename(version)}
@@ -304,6 +315,11 @@ export default function PostPage() {
   const [history, setHistory] = useState<PostHistoryVersion[]>([])
   const [selectingVersion, setSelectingVersion] = useState<string | null>(null)
   const [compareOpen, setCompareOpen] = useState(false)
+  const [comparePair, setComparePair] = useState<{ baseSha?: string; targetSha?: string }>({})
+  const openCompareDialog = (baseSha?: string, targetSha?: string) => {
+    setComparePair({ baseSha, targetSha })
+    setCompareOpen(true)
+  }
   const [historicalPost, setHistoricalPost] = useState<Post | null>(null)
   const [unlockedPost, setUnlockedPost] = useState<Post | null>(null)
   const [restoringUnlock, setRestoringUnlock] = useState(false)
@@ -539,8 +555,8 @@ export default function PostPage() {
             <button type="button" onClick={openHistory} className="btn-ghost h-8 text-xs"><History size={13} />{OFFLINE ? '本机版本' : '历史版本'}</button>
           </div>
         </div>
-        {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} slug={historyBase.slug} postTitle={historyBase.title} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} onCompare={() => setCompareOpen(true)} selecting={selectingVersion} />}
-        {compareOpen && <VersionCompare versions={history} slug={historyBase.slug} path={historyBase.path} onClose={() => setCompareOpen(false)} />}
+        {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} slug={historyBase.slug} postTitle={historyBase.title} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} onCompare={openCompareDialog} selecting={selectingVersion} />}
+        {compareOpen && <VersionCompare versions={history} slug={historyBase.slug} path={historyBase.path} initialBaseSha={comparePair.baseSha} initialTargetSha={comparePair.targetSha} onClose={() => setCompareOpen(false)} />}
       </>
     )
   }
@@ -628,8 +644,8 @@ export default function PostPage() {
         </article>
         <Toc items={toc} />
       </div>
-      {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} slug={historyBase.slug} postTitle={historyBase.title} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} onCompare={() => setCompareOpen(true)} selecting={selectingVersion} />}
-      {compareOpen && <VersionCompare versions={history} slug={historyBase.slug} path={historyBase.path} onClose={() => setCompareOpen(false)} />}
+      {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} slug={historyBase.slug} postTitle={historyBase.title} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} onCompare={openCompareDialog} selecting={selectingVersion} />}
+      {compareOpen && <VersionCompare versions={history} slug={historyBase.slug} path={historyBase.path} initialBaseSha={comparePair.baseSha} initialTargetSha={comparePair.targetSha} onClose={() => setCompareOpen(false)} />}
       {showTop && <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="no-print card fixed bottom-6 left-6 z-40 flex h-10 w-10 animate-scale-in items-center justify-center !rounded-full text-ink-500 transition hover:text-brand-600 dark:hover:text-brand-300" aria-label="回到顶部"><ArrowUp size={17} /></button>}
     </>
   )

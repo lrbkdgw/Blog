@@ -393,6 +393,18 @@ function OfflineBadge() {
   )
 }
 
+export const EDITOR_FULLSCREEN_EVENT = 'starlog:editor-fullscreen'
+
+export function setEditorFullscreenActive(active: boolean) {
+  if (typeof document !== 'undefined') {
+    if (active) document.documentElement.dataset.editorFullscreen = 'true'
+    else delete document.documentElement.dataset.editorFullscreen
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent<boolean>(EDITOR_FULLSCREEN_EVENT, { detail: active }))
+  }
+}
+
 export function Layout() {
   const [searchOpen, setSearchOpen] = useState(false)
   const { pathname, search } = useLocation()
@@ -408,12 +420,29 @@ export function Layout() {
     requestHeaderYieldRefresh()
   }, [search])
 
+  const [editorFullscreen, setEditorFullscreen] = useState(
+    () => typeof document !== 'undefined' && document.documentElement.dataset.editorFullscreen === 'true',
+  )
+  const hideChrome = isFullscreen || editorFullscreen
+
+  useEffect(() => {
+    const onFullscreenChange = (e: Event) => {
+      const next = Boolean((e as CustomEvent<boolean>).detail)
+      setEditorFullscreen(next)
+      if (next) setSearchOpen(false)
+    }
+    window.addEventListener(EDITOR_FULLSCREEN_EVENT, onFullscreenChange)
+    return () => window.removeEventListener(EDITOR_FULLSCREEN_EVENT, onFullscreenChange)
+  }, [])
+
   // issue #71：正文滚到页头这一栏下方时先渐变淡掉（只改正文，不碰背景）
   useEffect(() => installHeaderYield(), [])
 
   useEffect(() => {
-    if (isFullscreen) return
+    if (hideChrome) return
     const onKey = (e: KeyboardEvent) => {
+      // 编辑器内已消费的快捷键（例如 ⌘K / Ctrl+K 插入链接）不再触发全站搜索弹层
+      if (e.defaultPrevented) return
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setSearchOpen((v) => !v)
@@ -425,7 +454,7 @@ export function Layout() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [isFullscreen])
+  }, [hideChrome])
 
   return (
     <div className="relative flex min-h-screen flex-col">
@@ -441,16 +470,18 @@ export function Layout() {
         <AnimatedBackdropLayer ignoreOverride={isFullscreen} />
       </div>
 
-      {!isFullscreen && <Header onSearch={() => setSearchOpen(true)} />}
-      <main className="relative z-10 flex-1">
+      {!hideChrome && <Header onSearch={() => setSearchOpen(true)} />}
+      {/* 注意：main 保持 z-index: auto（不设 z-10），既能按 DOM 顺序盖在 fixed z-0 背景之上，
+          又不会创建独立层叠上下文把全屏编辑器（z-[80]）与弹窗（z-[90+]）压在页头（z-50）下面。 */}
+      <main className="relative flex-1">
         <Outlet />
       </main>
-      {!isFullscreen && (
-        <div className="relative z-10">
+      {!hideChrome && (
+        <div className="relative">
           <Footer />
         </div>
       )}
-      {!isFullscreen && <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />}
+      {!hideChrome && <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />}
     </div>
   )
 }

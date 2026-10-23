@@ -109,7 +109,9 @@ export function StorageGuard({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const showBanner = !dismissed && (Boolean(storageStatus.error) || storageStatus.dirty)
+  // 仅在真正发生存储异常时才弹出顶部横幅；正常打字期间短暂的 dirty 在途写入由编辑器自己的状态点展示，
+  // 避免在离线全屏写作时每次按键都在屏幕正上方闪烁提示条遮挡标题栏。
+  const showBanner = !dismissed && Boolean(storageStatus.error)
 
   return (
     <>

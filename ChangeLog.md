@@ -1,5 +1,48 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-23 · 修复全屏编辑冲突、美化历史版本渲染对比、首页下滑自动加载更多及 main 自动发布离线版 Release（#104 / #105 / #106）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+- **Issue #104（全屏编辑出现冲突问题）**：
+  1. `Layout.tsx` 中 `<main className="relative z-10 flex-1">` 创建了 `z-index: 10` 的独立层叠上下文，导致其内部的编辑器全屏容器（`fixed inset-0 z-[80]`）及文章历史/对比弹窗被压在吸顶页头 `<header className="site-header sticky top-0 z-50">` 下方，顶栏导航与全屏编辑器标题栏、操作按钮直接重叠冲突；
+  2. 全站搜索热键（`⌘K / Ctrl+K` 与 `/`）与编辑器的插入链接快捷键（`⌘K / Ctrl+K`）及全屏编辑态冲突：在编辑器按 `Ctrl+K` 插入链接的同时会弹出全站搜索框抢走焦点，且按 `Esc` 关闭弹层时会连带把编辑器踢出全屏；底层页面滚动与离线存储瞬时 `dirty` 顶栏横幅亦会干扰全屏写作。
+- **Issue #105（美化历史版本渲染对比）**：
+  1. 原 `splitMarkdownBlocks` 仅识别代码围栏，未识别折叠提示框（`:::info` / 嵌套 `::::info`）、展示框（`::show_begin`）、交互块（`::begin_ui-*`）、多行 `$$...$$` 公式及 `::cute-table` 属性头，遇到内部空行即把容器切成碎片并裸露出原始 `:::`；
+  2. 原 `VersionCompare` 存在双层嵌套滚动条、悬浮 `-top-2` 标签压字、对被删段落套用 `[&_.prose]:line-through` 划穿公式与代码块、修改段落拆成孤立红绿块且无法折叠长篇未修改上下文或快速跳转变更点。
+- **Issue #106（首页向下滑动时自动加载更多）**：
+  - 首页文章列表此前仅支持手动点击底部「加载更多」按钮翻页，向下浏览至底部时不会自动续载下一页。
+- **每次更新 `main` 自动同步离线版并发布 GitHub Release**：
+  1. 原 `.github/workflows/offline.yml` 的 Release 步骤带有 `if: steps.commit.outputs.changed == 'true'`，一旦合入的 PR 已经预构建了最新 `offline/index.html`，Release 更新步骤就会被直接跳过；
+  2. 原 Release 使用 `--prerelease --latest=false` 且未推进 `offline` Git 标签，仓库右侧 Releases 栏长期停留在旧提交与旧时间；同时 `deploy.yml` 直接复制旧 `offline/index.html` 而未实时构建离线单文件版。
+
+### 调整
+
+- **修复全屏编辑层叠与热键冲突（`src/components/Layout.tsx`、`src/pages/Editor.tsx`、`src/components/StorageGuard.tsx`）**：
+  - 移除 `<main>` 与页脚包裹层上多余的 `z-10`，保留 `position: relative` 使其继续位于 `fixed z-0` 背景层之上，同时让全屏编辑器与所有弹窗直接在根层叠上下文中正常覆盖顶栏；
+  - 新增 `starlog:editor-fullscreen` 状态同步：进入全屏编辑时自动隐藏站点顶栏、页脚与全站搜索框并锁定底层 `documentElement` 滚动；
+  - 全局热键监听跳过已被编辑器 `preventDefault()` 消费的快捷键（`⌘K / Ctrl+K`），全屏编辑器 `Esc` 监听优先让位于已打开的 `[role="dialog"]` 子弹层；离线 `StorageGuard` 仅在真实存储异常时弹出顶部告警横幅。
+- **重构与美化历史版本渲染对比（`src/lib/diff.ts`、`src/components/VersionCompare.tsx`、`src/pages/PostPage.tsx`）**：
+  - 重写栈感知的 `splitMarkdownBlocks`，完整保护嵌套 `:::` / `::::` 容器、`::show_begin`、`::begin_ui-*`、多行 `$$...$$` 与 `::cute-table` + 管道表格不被内部空行切碎；
+  - 新增 `diffMarkdownHunks` 与 `renderedDiffSummary`，将相邻删改自动配对为语义化「修改段落」Hunk；
+  - 重设计 `VersionCompare` 弹窗：默认开启「渲染对比」，消除双层滚动条与删除线穿透污染，支持 **分栏对照 / 上下融合** 切换、未变更段落折叠与原地展开、**上一处 / 下一处变更** 快捷跳转，并在文章历史弹窗每行新增一键「与上一历史版本对比」入口。
+- **首页向下滑动自动加载更多（`src/pages/Home.tsx`）**：
+  - 基于 `IntersectionObserver`（提前 `240px` 预加载）与 `scroll` / `resize` 被动监听双保险，在向下滑动接近列表底部时自动加载下一页，同时保留无障碍手动「加载更多」按钮与全部加载完成提示。
+- **完善 `main` 自动更新离线版与发布 Latest Release（`.github/workflows/offline.yml`、`.github/workflows/deploy.yml`）**：
+  - `offline.yml` 改为监听 `main` 全量有效推送（配合 `[skip ci]` 防循环保护），自动构建自检并按需回写 `offline/index.html`，且**每次运行始终更新 `offline` 标签至最新提交并发布正式 `--latest` GitHub Release**（附构建时间、体积与 SHA-256 摘要，保留固定下载链接 `starlog-offline-latest.html`）；
+  - `deploy.yml` 在部署 GitHub Pages 前直接实时构建并自检 `dist-offline/index.html` 写入 `public/offline/index.html`，确保线上站内离线包下载与仓库、`Releases` 三端实时一致。
+
+### 验证
+
+- `scripts/test-features.mjs` 新增 3 组端到端与单元回归测试（覆盖 `#104` 全屏层叠与 `Ctrl+K` / `/` / `Esc` 交互、`#105` 多行容器块切分与 `VersionCompare` 渲染对比交互、`#106` 首页自动加载更多及 CI 工作流不变量检查），全部通过。
+- 通过 `npm test`（Web 全部 13 组测试 + VS Code 插件全部 71 项测试）、`npm --prefix vscode_extensions/v1 run typecheck`、`npm run build`、`npm run build:offline` 与 `node scripts/verify-offline.mjs` 全量验证，并同步更新仓库内 `offline/index.html`。
+
 ## 2026-10-23 · 修复双栏编辑器双向同步滚动与长文锚点偏差（#101）
 
 | 模型信息 | |

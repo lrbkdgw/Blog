@@ -1,6 +1,6 @@
 /**
- * 极简行级 diff（Myers 的 LCS 动态规划版本）。
- * 仅用于在浏览器里对比两个历史版本的 Markdown 源码，不需要依赖额外的库。
+ * 极简行级 diff（Myers 的 LCS 动态规划版本）与 Markdown 语法块级结构化 diff。
+ * 仅用于在浏览器里对比两个历史版本的 Markdown 源码与渲染效果，不需要依赖额外的库。
  */
 
 export type DiffType = 'equal' | 'insert' | 'delete'
@@ -163,7 +163,7 @@ export function collapseContext(lines: DiffLine[], context = 3): (DiffLine | { t
 }
 
 /* -------------------------------------------------------------------------- */
-/*                      渲染对比：仅显示较新版本的结构化差异                     */
+/*                       渲染对比：语法块级切分与语义化 Hunk                   */
 /* -------------------------------------------------------------------------- */
 
 export interface RenderedDiffChunk {
@@ -172,81 +172,358 @@ export interface RenderedDiffChunk {
   text: string
 }
 
-interface SourceBlock {
-  /** 1 开始的行号（相对传入的文本） */
+export interface SourceBlock {
+  /** 1 开始的行号（相对传入正文） */
   start: number
   end: number
   lines: string[]
+  text: string
+}
+
+export type RenderedDiffHunk =
+  | {
+      type: 'equal'
+      blocks: SourceBlock[]
+      text: string
+      oldStart: number
+      oldEnd: number
+      newStart: number
+      newEnd: number
+    }
+  | {
+      type: 'insert'
+      text: string
+      blockCount: number
+      newStart: number
+      newEnd: number
+    }
+  | {
+      type: 'delete'
+      text: string
+      blockCount: number
+      oldStart: number
+      oldEnd: number
+    }
+  | {
+      type: 'modify'
+      beforeText: string
+      afterText: string
+      beforeCount: number
+      afterCount: number
+      oldStart: number
+      oldEnd: number
+      newStart: number
+      newEnd: number
+    }
+
+export interface RenderedDiffSummary {
+  totalChanges: number
+  modified: number
+  inserted: number
+  deleted: number
+  unchangedBlocks: number
 }
 
 /**
- * 把 Markdown 按空行切成块，围栏代码块内部的空行不切。
- * 渲染对比以「块」为单位着色：整块新增标绿、整块删除标红，
- * 这样不会把标题、列表或代码围栏从中间截断。
+ * 把 Markdown 正文切成完整、可独立交给 `<Markdown />` 渲染的语法块：
+ *   - 围栏代码块（``` / ~~~）内部的空行不切；
+ *   - 折叠/提示容器（`:::info` / 嵌套 `::::info` … `:::`）内部的空行不切；
+ *   - `::show_begin` … `::show_end`、`::begin_ui-*` … `::end_ui-*` 内部的空行不切；
+ *   - 多行 `$$ … $$` 公式块内部的空行不切；
+ *   - `::cute-table{tuack}` 与紧随其后的管道表格（哪怕中间隔一空行）合并为同一块。
  */
-function splitMarkdownBlocks(text: string): SourceBlock[] {
+export function splitMarkdownBlocks(text: string): SourceBlock[] {
   const lines = text.replace(/\r\n/g, '\n').split('\n')
   const blocks: SourceBlock[] = []
   let current: { start: number; lines: string[] } | null = null
+
   let inFence = false
   let fenceChar = ''
+  let fenceLen = 0
+  let inMathBlock = false
+  const directiveStack: number[] = []
+  let showDepth = 0
+  let uiBlockDepth = 0
+  let pendingTableAttr = false
 
   const flush = (end: number) => {
-    if (!current || current.lines.length === 0) {
-      current = null
-      return
+    if (!current) return
+    while (current.lines.length > 0 && current.lines[current.lines.length - 1].trim() === '') {
+      current.lines.pop()
+      end -= 1
     }
-    blocks.push({ start: current.start, end, lines: current.lines })
+    if (current.lines.length > 0) {
+      blocks.push({
+        start: current.start,
+        end: Math.max(current.start, end),
+        lines: current.lines,
+        text: current.lines.join('\n'),
+      })
+    }
     current = null
   }
 
   lines.forEach((line, index) => {
     const lineNumber = index + 1
+    const trimmed = line.trim()
+
+    // 1. 代码围栏（最优先：围栏内部的一切 `:::`、`$$` 都只是普通代码文本）
     const fence = line.match(/^\s*(`{3,}|~{3,})/)
     if (fence) {
       const marker = fence[1]
       if (!inFence) {
         inFence = true
         fenceChar = marker[0]
-      } else if (marker[0] === fenceChar) {
+        fenceLen = marker.length
+      } else if (marker[0] === fenceChar && marker.length >= fenceLen && /^\s*(`{3,}|~{3,})\s*$/.test(line)) {
         inFence = false
+        fenceChar = ''
+        fenceLen = 0
       }
+      if (!current) current = { start: lineNumber, lines: [] }
+      current.lines.push(line)
+      return
     }
 
-    if (!inFence && line.trim() === '') {
-      flush(lineNumber - 1)
+    if (inFence) {
+      if (!current) current = { start: lineNumber, lines: [] }
+      current.lines.push(line)
       return
+    }
+
+    // 2. 多行展示公式块 `$$ ... $$`
+    if (trimmed === '$$') {
+      inMathBlock = !inMathBlock
+      if (!current) current = { start: lineNumber, lines: [] }
+      current.lines.push(line)
+      return
+    }
+
+    // 3. Starlog / 洛谷风格容器块：`:::info[标题]{open}` 与嵌套 `::::info` … `:::`
+    const openDirective = line.match(/^\s*(:{3,})\s*([a-zA-Z][\w-]*)/)
+    const closeDirective = !openDirective ? line.match(/^\s*(:{3,})\s*$/) : null
+    if (openDirective) {
+      directiveStack.push(openDirective[1].length)
+      if (!current) current = { start: lineNumber, lines: [] }
+      current.lines.push(line)
+      return
+    }
+    if (closeDirective && directiveStack.length > 0) {
+      const colons = closeDirective[1].length
+      let matchIdx = -1
+      for (let k = directiveStack.length - 1; k >= 0; k -= 1) {
+        if (directiveStack[k] === colons) {
+          matchIdx = k
+          break
+        }
+      }
+      directiveStack.length = matchIdx >= 0 ? matchIdx : directiveStack.length - 1
+      if (!current) current = { start: lineNumber, lines: [] }
+      current.lines.push(line)
+      return
+    }
+
+    // 4. `::show_begin` … `::show_end` 与 `::begin_ui-*` … `::end_ui-*`
+    if (/^\s*::show_begin\b/.test(line)) {
+      showDepth += 1
+      if (!current) current = { start: lineNumber, lines: [] }
+      current.lines.push(line)
+      return
+    }
+    if (/^\s*::show_end\b/.test(line) && showDepth > 0) {
+      showDepth -= 1
+      if (!current) current = { start: lineNumber, lines: [] }
+      current.lines.push(line)
+      return
+    }
+    if (/^\s*::begin_ui-[\w-]+/.test(line)) {
+      uiBlockDepth += 1
+      if (!current) current = { start: lineNumber, lines: [] }
+      current.lines.push(line)
+      return
+    }
+    if (/^\s*::end_ui-[\w-]+/.test(line) && uiBlockDepth > 0) {
+      uiBlockDepth -= 1
+      if (!current) current = { start: lineNumber, lines: [] }
+      current.lines.push(line)
+      return
+    }
+
+    const insideContainer =
+      inMathBlock || directiveStack.length > 0 || showDepth > 0 || uiBlockDepth > 0
+
+    // 5. 空行：容器内保留在当前块中；顶层空行结束当前块（`::cute-table` 等待紧邻表格时暂不切开）
+    if (trimmed === '') {
+      if (insideContainer || pendingTableAttr) {
+        if (current) current.lines.push(line)
+      } else {
+        flush(lineNumber - 1)
+      }
+      return
+    }
+
+    // 6. `::cute-table{tuack}` 属性头与其下方紧邻的管道表格归为同一块
+    if (/^\s*::cute-table\b/.test(line)) {
+      if (current && !insideContainer) flush(lineNumber - 1)
+      pendingTableAttr = true
+      current = { start: lineNumber, lines: [line] }
+      return
+    }
+    if (pendingTableAttr) {
+      pendingTableAttr = false
+      if (!/^\s*\|/.test(line)) {
+        flush(lineNumber - 1)
+      }
     }
 
     if (!current) current = { start: lineNumber, lines: [] }
     current.lines.push(line)
   })
+
   flush(lines.length)
   return blocks
 }
 
-/**
- * 生成「只显示较新版本」的渲染对比片段：
- *   - equal：未改动的内容，正常渲染；
- *   - insert：新增的块，调用方用绿色标出；
- *   - delete：被删除的旧内容，调用方用红色标出（没有对应新内容可显示）。
- *
- * 以 Markdown 块（空行分隔，围栏代码块内部的空行不切）为最小单位，
- * 整块新增标绿、整块删除标红，避免把代码围栏、列表或表格从中间截断。
- */
-export function renderedDiffBlocks(oldText: string, newText: string): RenderedDiffChunk[] {
+interface RawBlockDiffOp {
+  type: 'equal' | 'delete' | 'insert'
+  oldBlock?: SourceBlock
+  newBlock?: SourceBlock
+}
+
+function computeRawBlockOps(oldText: string, newText: string): RawBlockDiffOp[] {
   const oldBlocks = splitMarkdownBlocks(oldText.replace(/\r\n/g, '\n'))
   const newBlocks = splitMarkdownBlocks(newText.replace(/\r\n/g, '\n'))
   if (oldBlocks.length === 0 && newBlocks.length === 0) return []
 
-  // 每个块编码成一行再复用行级 LCS：块内部的换行用 NUL 占位，
-  // 因此 diff 的行号可以直接映射回块下标，代码围栏也不会被拆开。
   const encode = (block: SourceBlock) => block.lines.join('\u0000')
   const rows = diffLines(
     oldBlocks.map(encode).join('\n'),
     newBlocks.map(encode).join('\n'),
   )
 
+  const ops: RawBlockDiffOp[] = []
+  for (const row of rows) {
+    if (row.type === 'equal') {
+      const oldBlock = oldBlocks[(row.oldNumber ?? 1) - 1]
+      const newBlock = newBlocks[(row.newNumber ?? 1) - 1]
+      if (oldBlock && newBlock) ops.push({ type: 'equal', oldBlock, newBlock })
+    } else if (row.type === 'delete') {
+      const oldBlock = oldBlocks[(row.oldNumber ?? 1) - 1]
+      if (oldBlock) ops.push({ type: 'delete', oldBlock })
+    } else {
+      const newBlock = newBlocks[(row.newNumber ?? 1) - 1]
+      if (newBlock) ops.push({ type: 'insert', newBlock })
+    }
+  }
+  return ops
+}
+
+/**
+ * 将两个版本的 Markdown 正文对比为语义化 Hunk 列表：
+ *   - `equal`：未变更块序列（保留逐块数组，支持按需折叠/展开长上下文）；
+ *   - `modify`：同一位置上的「旧版块 → 新版块」配对修改（支持分栏对照或上下融合展示）；
+ *   - `insert`：纯新增块；
+ *   - `delete`：纯删除块。
+ */
+export function diffMarkdownHunks(oldText: string, newText: string): RenderedDiffHunk[] {
+  const ops = computeRawBlockOps(oldText, newText)
+  if (ops.length === 0) return []
+
+  const hunks: RenderedDiffHunk[] = []
+  let index = 0
+
+  while (index < ops.length) {
+    const current = ops[index]
+    if (current.type === 'equal') {
+      const equalOld: SourceBlock[] = []
+      const equalNew: SourceBlock[] = []
+      while (index < ops.length && ops[index].type === 'equal') {
+        equalOld.push(ops[index].oldBlock!)
+        equalNew.push(ops[index].newBlock!)
+        index += 1
+      }
+      hunks.push({
+        type: 'equal',
+        blocks: equalNew,
+        text: equalNew.map((b) => b.text).join('\n\n'),
+        oldStart: equalOld[0].start,
+        oldEnd: equalOld[equalOld.length - 1].end,
+        newStart: equalNew[0].start,
+        newEnd: equalNew[equalNew.length - 1].end,
+      })
+      continue
+    }
+
+    const deletedBlocks: SourceBlock[] = []
+    const insertedBlocks: SourceBlock[] = []
+    while (index < ops.length && ops[index].type !== 'equal') {
+      if (ops[index].type === 'delete' && ops[index].oldBlock) {
+        deletedBlocks.push(ops[index].oldBlock!)
+      } else if (ops[index].type === 'insert' && ops[index].newBlock) {
+        insertedBlocks.push(ops[index].newBlock!)
+      }
+      index += 1
+    }
+
+    if (deletedBlocks.length > 0 && insertedBlocks.length > 0) {
+      hunks.push({
+        type: 'modify',
+        beforeText: deletedBlocks.map((b) => b.text).join('\n\n'),
+        afterText: insertedBlocks.map((b) => b.text).join('\n\n'),
+        beforeCount: deletedBlocks.length,
+        afterCount: insertedBlocks.length,
+        oldStart: deletedBlocks[0].start,
+        oldEnd: deletedBlocks[deletedBlocks.length - 1].end,
+        newStart: insertedBlocks[0].start,
+        newEnd: insertedBlocks[insertedBlocks.length - 1].end,
+      })
+    } else if (insertedBlocks.length > 0) {
+      hunks.push({
+        type: 'insert',
+        text: insertedBlocks.map((b) => b.text).join('\n\n'),
+        blockCount: insertedBlocks.length,
+        newStart: insertedBlocks[0].start,
+        newEnd: insertedBlocks[insertedBlocks.length - 1].end,
+      })
+    } else if (deletedBlocks.length > 0) {
+      hunks.push({
+        type: 'delete',
+        text: deletedBlocks.map((b) => b.text).join('\n\n'),
+        blockCount: deletedBlocks.length,
+        oldStart: deletedBlocks[0].start,
+        oldEnd: deletedBlocks[deletedBlocks.length - 1].end,
+      })
+    }
+  }
+
+  return hunks
+}
+
+export function renderedDiffSummary(hunks: RenderedDiffHunk[]): RenderedDiffSummary {
+  let modified = 0
+  let inserted = 0
+  let deleted = 0
+  let unchangedBlocks = 0
+  for (const hunk of hunks) {
+    if (hunk.type === 'modify') modified += 1
+    else if (hunk.type === 'insert') inserted += 1
+    else if (hunk.type === 'delete') deleted += 1
+    else unchangedBlocks += hunk.blocks.length
+  }
+  return {
+    totalChanges: modified + inserted + deleted,
+    modified,
+    inserted,
+    deleted,
+    unchangedBlocks,
+  }
+}
+
+/**
+ * 扁平块级 diff 片段接口（保留向后兼容）。
+ */
+export function renderedDiffBlocks(oldText: string, newText: string): RenderedDiffChunk[] {
+  const ops = computeRawBlockOps(oldText, newText)
   const chunks: RenderedDiffChunk[] = []
   const push = (type: RenderedDiffChunk['type'], text: string) => {
     if (!text.trim()) return
@@ -257,19 +534,10 @@ export function renderedDiffBlocks(oldText: string, newText: string): RenderedDi
       chunks.push({ type, text })
     }
   }
-
-  for (const row of rows) {
-    if (row.type === 'equal') {
-      const block = oldBlocks[(row.oldNumber ?? 1) - 1]
-      if (block) push('equal', block.lines.join('\n'))
-    } else if (row.type === 'delete') {
-      const block = oldBlocks[(row.oldNumber ?? 1) - 1]
-      if (block) push('delete', block.lines.join('\n'))
-    } else {
-      const block = newBlocks[(row.newNumber ?? 1) - 1]
-      if (block) push('insert', block.lines.join('\n'))
-    }
+  for (const op of ops) {
+    if (op.type === 'equal' && op.newBlock) push('equal', op.newBlock.text)
+    else if (op.type === 'delete' && op.oldBlock) push('delete', op.oldBlock.text)
+    else if (op.type === 'insert' && op.newBlock) push('insert', op.newBlock.text)
   }
-
   return chunks
 }

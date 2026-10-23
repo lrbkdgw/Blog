@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "test": "node --test scripts/test-features.mjs && npm run extension:test",
+    "test": "node --max-old-space-size=3584 --test scripts/test-features.mjs && npm run extension:test",
     "preview": "vite preview",
     "extension:build": "npm --prefix vscode_extensions/v1 run build",
     "extension:test": "npm --prefix vscode_extensions/v1 test",

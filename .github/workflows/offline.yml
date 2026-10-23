@@ -1,41 +1,35 @@
-name: 构建离线单文件版
+name: 构建离线单文件版并发布 Release
 
-# 产出：一个可直接双击打开的 HTML（离线版博客），提交回仓库的 offline/index.html，
-# 并更新 Rolling Release（tag: offline）。
-#
-# 为什么不用第三方 vite-plugin-singlefile：它不认识 public/ 里的图标、不会转义内联代码里的
-# `</script`、也不会校验 KaTeX 字体是否真的进了文件；这三件事在离线版里都属于「静默坏掉」，
-# 所以我们用自研插件（scripts/vite-plugin-single-html.mjs）+ 构建后自检（scripts/verify-offline.mjs）。
+# 每次更新 main 分支（合并 PR、网页端「统一更新」或本地 push）时自动执行：
+#   1. 构建并校验最新离线单文件 HTML（dist-offline/index.html）；
+#   2. 若仓库内 offline/index.html 尚未同步，自动提交回 main（附带 [skip ci] 防止死循环）；
+#   3. 无论本次 PR 是否已提前构建过 offline/index.html，始终将 Git 标签 `offline` 指向最新提交，
+#      并刷新 GitHub Latest Release（固定下载链接 starlog-offline-latest.html 保持不变）。
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'content/**'
-      - 'index.html'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'vite.config.ts'
-      - 'vite.offline.config.ts'
-      - 'scripts/vite-plugin-single-html.mjs'
-      - 'scripts/verify-offline.mjs'
-      - '.github/workflows/offline.yml'
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
   workflow_dispatch: {}
 
 permissions:
   contents: write
 
-# 提交回仓库的动作必须串行，否则会互相覆盖；这里不取消进行中的任务。
+# 提交回仓库与更新 Release 的动作必须串行，避免并发推送互相覆盖。
 concurrency:
   group: offline-single-file
   cancel-in-progress: false
 
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -59,53 +53,70 @@ jobs:
           size=$(wc -c < dist-offline/index.html)
           echo "### 离线单文件体积：${size} bytes" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: 把产物提交回 offline/index.html
+      - name: 同步 offline/index.html 到 main 分支
         id: commit
         env:
           BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           test -f dist-offline/index.html
-          mkdir -p offline
-          cp dist-offline/index.html offline/index.html
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin "${BRANCH}"
+          mkdir -p offline
+          cp dist-offline/index.html offline/index.html
           git add offline/index.html
           if git diff --cached --quiet; then
-            echo "离线文件与仓库中已有版本一致，无需提交"
+            echo "仓库中的 offline/index.html 已是最新版本，无需重复提交"
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          else
+            # [skip ci] 防止「Actions 提交 → 再次触发 push 工作流」死循环
+            git commit -m "chore(offline): 更新离线单文件版 [skip ci]" --no-verify
+            git push origin "HEAD:${BRANCH}"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
-          # [skip ci] 很关键：这个提交会命中 deploy.yml 的 push 触发条件，
-          # 没有它就会出现「Actions 提交 → 触发部署 → 触发离线构建 → 再提交」的循环。
-          git commit -m "chore(offline): 更新离线单文件版 [skip ci]" --no-verify
-          git push origin "HEAD:${BRANCH}"
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "target_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: "更新 Rolling Release（tag: offline）"
-        if: steps.commit.outputs.changed == 'true'
+      - name: "发布最新 GitHub Release（tag: offline）"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHA: ${{ steps.commit.outputs.sha }}
+          TARGET_SHA: ${{ steps.commit.outputs.target_sha }}
+          SHORT_SHA: ${{ steps.commit.outputs.short_sha }}
         run: |
           set -euo pipefail
-          # 只保留一个固定名字的资产：滚动 tag 上如果每次都用新文件名，资产会无限堆积。
-          # 需要历史版本时看仓库里的 offline/index.html（每次提交都有对应版本）。
           cp dist-offline/index.html starlog-offline-latest.html
-          if gh release view offline >/dev/null 2>&1; then
-            gh release edit offline --title "离线单文件版（rolling）" \
-              --notes-file .github/offline-release-notes.md --latest=false
-            gh release upload offline starlog-offline-latest.html --clobber
-          else
-            gh release create offline starlog-offline-latest.html \
-              --title "离线单文件版（rolling）（${SHA}）" \
-              --notes-file .github/offline-release-notes.md \
-              --target "$(git rev-parse HEAD)" \
-              --prerelease --latest=false
-          fi
+          DATE_STR=$(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M')
+          SIZE_BYTES=$(wc -c < starlog-offline-latest.html | tr -d ' ')
+          SHA256_SUM=$(sha256sum starlog-offline-latest.html | awk '{print $1}')
 
-      # Actions 的 artifact 只保留 90 天，Release 才是长期入口；这里作为备用下载
+          {
+            cat .github/offline-release-notes.md
+            echo ""
+            echo "---"
+            echo ""
+            echo "- **同步提交**：\`${SHORT_SHA}\`（${DATE_STR} CST）"
+            echo "- **文件大小**：\`${SIZE_BYTES}\` bytes"
+            echo "- **SHA-256**：\`${SHA256_SUM}\`"
+          } > release-notes.generated.md
+
+          # 将滚动标签 `offline` 更新到最新提交，并重建为正式 Latest Release：
+          # 1) 固定下载链接 `.../releases/download/offline/starlog-offline-latest.html` 永久有效；
+          # 2) 仓库右侧 Releases 栏始终显示最新提交、最新时间与 Latest 标识；
+          # 3) 只更新 tag（不触发 branches: [main] 的 push 工作流），不会产生循环。
+          if gh release view offline >/dev/null 2>&1; then
+            gh release delete offline -y
+          fi
+          git tag -fa offline "${TARGET_SHA}" -m "离线单文件版 (${SHORT_SHA})"
+          git push origin refs/tags/offline --force
+
+          gh release create offline starlog-offline-latest.html \
+            --title "离线单文件版（${DATE_STR} · ${SHORT_SHA}）" \
+            --notes-file release-notes.generated.md \
+            --target "${TARGET_SHA}" \
+            --latest
+
+      # Actions 的 artifact 只保留 30 天，Release 才是长期入口；这里作为备用下载
       - name: 上传本次运行的 Artifacts
         uses: actions/upload-artifact@v4
         with:
