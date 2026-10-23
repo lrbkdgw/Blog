@@ -1194,7 +1194,7 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
     const sampleN2 = echoAshMod.fbm2D(1.26, 2.75, 42, 3)
     assert.ok(Math.abs(sampleN - sampleN2) < 0.05, 'fbm2D 相邻采样应保持平滑连续以形成丝带状风场')
 
-    // 验证 40,000+ 亚像素墨点自动按 32,768 安全分片、左->右有机侵蚀阈值单调性与右上扬升风场向量
+    // 验证 40,000+ 亚像素墨点自动按 32,768 安全分片、无方向噪声斑块脱离阈值分布与右上扬升风场向量
     const syntheticW = 400
     const syntheticH = 120
     const syntheticPixels = new Uint8ClampedArray(syntheticW * syntheticH * 4)
@@ -1210,10 +1210,40 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
     assert.equal(field.chunks.length, 2, '超过 32,768 微粒时应按 Safari Metal 安全上限自动分片')
     assert.equal(field.chunks[0].count, 32_768)
     assert.equal(field.chunks[1].count, 7_232)
-    assert.ok(
-      field.thresholdMap[syntheticW - 1] > field.thresholdMap[0],
-      '侵蚀阈值图应保持从左向右推进的自然风向梯度',
-    )
+    // 脱离阈值必须无方向性：整幅阈值图应铺满脱离时间窗（噪声斑块先后起飘），
+    // 且左、右三分之一的平均脱离时刻应接近——绝不允许再出现左->右横扫的「光带」
+    {
+      let thrMin = 255
+      let thrMax = 0
+      let leftSum = 0
+      let leftN = 0
+      let rightSum = 0
+      let rightN = 0
+      for (let ty = 0; ty < field.thresholdHeight; ty += 1) {
+        for (let tx = 0; tx < field.thresholdWidth; tx += 1) {
+          const v = field.thresholdMap[ty * field.thresholdWidth + tx]
+          if (v < thrMin) thrMin = v
+          if (v > thrMax) thrMax = v
+          if (tx < field.thresholdWidth / 3) {
+            leftSum += v
+            leftN += 1
+          } else if (tx >= (2 * field.thresholdWidth) / 3) {
+            rightSum += v
+            rightN += 1
+          }
+        }
+      }
+      assert.ok(
+        thrMax - thrMin > 60,
+        `脱离阈值应经分位归一化铺满整个时间窗形成有机斑块，实际范围 ${thrMin}..${thrMax}`,
+      )
+      const leftMean = leftSum / leftN
+      const rightMean = rightSum / rightN
+      assert.ok(
+        Math.abs(leftMean - rightMean) < 18,
+        `脱离时刻不得有左->右（或右->左）方向性横扫：左侧均值 ${leftMean.toFixed(1)} vs 右侧均值 ${rightMean.toFixed(1)}（字节尺度 1..82）`,
+      )
+    }
     assert.ok(field.chunks[0].data[3] > 0 && field.chunks[0].data[4] < 0, '粒子流线速度场应向右上方自然飘升')
 
     // 验证 WebGL2 双 Pass GPU 着色器管线（GLSL 全部 attribute / uniform 严格对齐、首帧 progress===0 零接缝交接与零显存泄漏）
@@ -1364,7 +1394,7 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       const glCtrl = echoAshMod.attachEchoAshCanvas(glCanvas)
       assert.equal(glCtrl.backend, 'webgl2', '支持 WebGL2 时应自动启用 GPU 粒子着色器后端')
       assert.equal(liveShaders.size, 0, '链接完成后临时 Shader 对象应立即释放')
-      assert.equal(livePrograms.size, 1, '应编译 GPU 粒子流线着色器程序（底图直接由原 DOM 分形遮罩零位移承载）')
+      assert.equal(livePrograms.size, 1, '应编译 GPU 粒子流线着色器程序（底图由原 DOM 零位移承载并均匀淡出交接）')
 
       await new Promise((r) => setTimeout(r, 1150))
       const liveSentenceEl = fullscreenRoot.querySelector('[data-echo-sentence]')
@@ -1373,14 +1403,20 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       assert.ok(spawned > 50, `WebGL2 后端应生成充足亚像素粒子，实际 ${spawned}`)
       assert.equal(progressHistory[0], 0, '首帧 u_progress 必须严格等于 0 以实现原字迹 100% 零接缝交接')
       assert.equal(
-        liveSentenceEl.style.maskPosition,
-        '100.000% 0%',
-        '首帧原 DOM 遮罩位置必须为 100% 满不透明，彻底杜绝首帧任何像素瞬移',
+        Number(liveSentenceEl.style.opacity),
+        1,
+        '首帧原 DOM 必须为 100% 满不透明无损原位显示（粒子此时不可见），彻底杜绝首帧任何像素瞬移',
+      )
+      assert.equal(
+        liveSentenceEl.style.maskImage ?? '',
+        '',
+        '不得再使用任何方向性遮罩横扫原句（左->右光带已被移除）',
       )
       assert.ok(drawCalls.some((d) => d.mode === 0x0000 && d.count === spawned), '应执行 GPU POINTS 亚像素粒子绘制')
 
       glCtrl.destroy()
-      assert.equal(liveSentenceEl.style.maskPosition, '', 'destroy() 后应彻底还原原 DOM 节点遮罩样式')
+      assert.equal(liveSentenceEl.style.opacity, '', 'destroy() 后应彻底还原原 DOM 节点消散样式')
+      assert.equal(liveSentenceEl.style.filter, '', 'destroy() 后应彻底还原原 DOM 节点滤镜样式')
       assert.equal(liveTextures.size, 0, 'destroy() 后所有 GPU 纹理必须零泄漏释放')
       assert.equal(liveBuffers.size, 0, 'destroy() 后所有 GPU 缓冲必须零泄漏释放')
       assert.equal(liveVaos.size, 0, 'destroy() 后所有 VAO 必须零泄漏释放')
@@ -1430,31 +1466,31 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       '首句应在点击前已完整显现',
     )
 
-    // 点击切换到下一句：阶段一（0 ~ ASH_EXIT_STAGE_MS）原句 DOM 保持原位零瞬移并经分形遮罩左->右蚕食化灰，下一句尚未登场
+    // 点击切换到下一句：阶段一（0 ~ ASH_EXIT_STAGE_MS）原句 DOM 保持原位零瞬移，均匀淡出交接后由粒子按噪声斑块无方向整句化开，下一句尚未登场
     fullscreenRoot.click()
     await Promise.resolve()
     const exitingWrap = fullscreenRoot.querySelector('[data-echo-exiting="true"]')
     assert.ok(exitingWrap, '点击后应立即进入骨灰消散退场阶段（data-echo-exiting="true"）')
     const exitingSentence = fullscreenRoot.querySelector('[data-echo-sentence]')
-    assert.ok(exitingSentence, '退场期间原 DOM 节点保持原位挂载并通过遮罩擦除，彻底根绝 Canvas 重绘造成的向右瞬移')
+    assert.ok(exitingSentence, '退场期间原 DOM 节点保持原位挂载并均匀淡出交接，彻底根绝 Canvas 重绘造成的瞬移与横扫光带')
     assert.equal(
       exitingSentence.querySelector('p')?.textContent?.trim(),
       firstSentenceText,
       '退场阶段舞台上仍为正在蚕食退场的上一句，下一句绝不应提前出现',
     )
-    assert.equal(exitingSentence.style.maskPosition, '100.000% 0%', '点击首帧原句遮罩为 100% 无损原位显示')
+    assert.equal(Number(exitingSentence.style.opacity), 1, '点击首帧原句 DOM 为 100% 无损原位显示')
     assert.equal(ashCanvas.dataset.ashActive, 'true', '点击瞬间骨灰粒子画布应立即激活飞出细灰')
     assert.ok(
       Number(ashCanvas.dataset.ashParticles || '0') > 50,
       `应从上一句采样生成充足的骨灰粒子，实际粒子数：${ashCanvas.dataset.ashParticles}`,
     )
 
-    // 退场中途（200ms）：分形遮罩已无延迟向左推进蚕食原句，且下一句仍未提前登场
+    // 退场中途（200ms）：原句 DOM 已无延迟均匀淡出交接给粒子（交接窗约 187ms 内完成），且下一句仍未提前登场
     await new Promise((r) => setTimeout(r, 200))
     assert.notEqual(
-      exitingSentence.style.maskPosition,
-      '100.000% 0%',
-      '点击后应立即开始推进分形遮罩消散，无任何停顿等待',
+      Number(exitingSentence.style.opacity),
+      1,
+      '点击后应立即开始均匀消散交接，无任何停顿等待',
     )
     assert.equal(
       fullscreenRoot.querySelector('[data-echo-exiting]')?.getAttribute('data-echo-exiting'),

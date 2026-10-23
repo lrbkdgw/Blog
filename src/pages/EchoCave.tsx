@@ -281,7 +281,7 @@ export default function EchoCave() {
 
       if (particleCount > 0) {
         pendingNextRef.current = nextItem
-        // 退场期间保留原 DOM 节点原位不动并由 CSS 分形遮罩逐帧左→右蚕食，彻底根绝首帧任何像素偏移
+        // 退场期间保留原 DOM 节点原位不动，先均匀淡出交接给粒子快照、再按噪声斑块无方向地整句化开，彻底根绝首帧任何像素偏移与横扫光带
         setDisplay((prev) => ({
           ...prev,
           exiting: true,
