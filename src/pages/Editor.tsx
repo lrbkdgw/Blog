@@ -39,6 +39,7 @@ import { Archive,
 } from 'lucide-react'
 import { Markdown } from '../components/Markdown'
 import { LatexPicker } from '../components/LatexPicker'
+import { setEditorFullscreenActive } from '../components/Layout'
 import { PasswordPrompt } from '../components/PasswordPrompt'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../lib/auth'
@@ -1162,18 +1163,34 @@ export default function Editor() {
   }, [])
 
   // 全屏时按 Esc 退出（输入法组合键中的 Esc 用于取消候选，不退出全屏；
-  // 符号选择框开着时 Esc 只关闭选择框）。
+  // 符号选择框或其它对话框开着时 Esc 只关闭当前弹层，不连带退出全屏）。
   useEffect(() => {
     if (!fullscreen || latexPickerOpen) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.isComposing) setFullscreen(false)
+      if (e.defaultPrevented || e.isComposing) return
+      if (typeof document !== 'undefined' && document.querySelector('[role="dialog"]')) return
+      if (e.key === 'Escape') setFullscreen(false)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [fullscreen, latexPickerOpen])
 
+  // 同步全屏状态给外层 Layout（隐藏吸顶页头/页脚/全站搜索热键）并锁定底层页面滚动，避免冲突。
   useEffect(() => {
+    setEditorFullscreenActive(fullscreen)
+    const prevOverflow = typeof document !== 'undefined' ? document.documentElement.style.overflow : ''
+    if (fullscreen && typeof document !== 'undefined') {
+      document.documentElement.style.overflow = 'hidden'
+    }
     requestHeaderYieldRefresh()
+    return () => {
+      if (typeof document !== 'undefined') {
+        document.documentElement.style.overflow = prevOverflow
+      }
+      if (fullscreen) {
+        setEditorFullscreenActive(false)
+      }
+    }
   }, [fullscreen])
 
   if (protectedExisting && !unlocked) {
@@ -1200,7 +1217,7 @@ export default function Editor() {
     <div
       className={
         fullscreen
-          ? 'fixed inset-0 z-[80] flex h-screen flex-col overflow-hidden bg-white dark:bg-ink-950'
+          ? 'fixed inset-0 z-[80] flex h-screen h-[100dvh] flex-col overflow-hidden bg-white dark:bg-ink-950'
           : 'container-page pt-12'
       }
     >

@@ -33,14 +33,15 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
-      - name: 把离线单文件版一并放进站点（供直接下载）
-        # 只在本次构建期间把仓库里的产物放进 public/，由 Vite 一起复制进 dist/；
-        # 仓库不会因此多出第二份离线文件（来源始终只有 offline/index.html）
+      - name: 构建最新离线单文件版一并放进站点（供直接下载）
+        # 直接基于当前提交实时构建离线单文件版并放入 public/offline/index.html，
+        # 确保即使网页端直接提交新文章（offline.yml 仍在并行运行且回写提交带 [skip ci]），
+        # GitHub Pages 线上提供的离线版下载也始终与最新提交完全同步。
         run: |
-          if [ -f offline/index.html ]; then
-            mkdir -p public/offline
-            cp offline/index.html public/offline/index.html
-          fi
+          npx vite build --config vite.offline.config.ts
+          node scripts/verify-offline.mjs
+          mkdir -p public/offline
+          cp dist-offline/index.html public/offline/index.html
 
       - name: 构建
         # 项目主页需要把 base 设为 /<仓库名>/；

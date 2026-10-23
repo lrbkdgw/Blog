@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, PenLine } from 'lucide-react'
 import { PostCard } from '../components/PostCard'
@@ -6,14 +6,59 @@ import { siteConfig } from '../lib/config'
 import { usePosts } from '../lib/usePosts'
 import { useAuth } from '../lib/auth'
 
+/** 距离视口底部多少像素时提前触发下一页加载，避免用户滑到底部后等待。 */
+const AUTO_LOAD_ROOT_MARGIN_PX = 240
+
 export default function Home() {
   const [posts] = usePosts()
   const { isAuthed } = useAuth()
   const [page, setPage] = useState(1)
+  const sentinelRef = useRef<HTMLDivElement>(null)
 
   const perPage = siteConfig.postsPerPage
+  const maxPage = Math.max(1, Math.ceil(posts.length / perPage))
   const visible = posts.slice(0, page * perPage)
   const hasMore = visible.length < posts.length
+
+  const loadMore = useCallback(() => {
+    setPage((prev) => Math.min(maxPage, prev + 1))
+  }, [maxPage])
+
+  // 向下滑动接近列表底部时自动加载下一页；同时保留滚动监听兜底（兼容无 IntersectionObserver 环境与超宽/超高屏连载）。
+  useEffect(() => {
+    if (!hasMore) return
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+
+    let observer: IntersectionObserver | null = null
+    if (typeof IntersectionObserver !== 'undefined') {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) {
+            loadMore()
+          }
+        },
+        { rootMargin: `${AUTO_LOAD_ROOT_MARGIN_PX}px 0px` },
+      )
+      observer.observe(sentinel)
+    }
+
+    const checkScrollNearBottom = () => {
+      const rect = sentinel.getBoundingClientRect()
+      if (rect.top <= window.innerHeight + AUTO_LOAD_ROOT_MARGIN_PX) {
+        loadMore()
+      }
+    }
+
+    window.addEventListener('scroll', checkScrollNearBottom, { passive: true })
+    window.addEventListener('resize', checkScrollNearBottom, { passive: true })
+
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('scroll', checkScrollNearBottom)
+      window.removeEventListener('resize', checkScrollNearBottom)
+    }
+  }, [hasMore, visible.length, loadMore])
 
   return (
     <section id="posts" className="container-page scroll-mt-24 pb-8 pt-12 sm:pt-14" data-yield-list>
@@ -40,12 +85,18 @@ export default function Home() {
               <PostCard key={post.slug} post={post} index={i} />
             ))}
           </div>
-          {hasMore && (
-            <div className="mt-10 flex justify-center">
-              <button onClick={() => setPage((p) => p + 1)} className="btn-outline h-10">
+          {hasMore ? (
+            <div ref={sentinelRef} data-infinite-scroll-sentinel className="mt-10 flex justify-center">
+              <button onClick={loadMore} className="btn-outline h-10">
                 加载更多（还有 {posts.length - visible.length} 篇）
               </button>
             </div>
+          ) : (
+            posts.length > perPage && (
+              <p className="mt-10 text-center text-xs text-ink-400">
+                已加载全部 {posts.length} 篇文章
+              </p>
+            )
           )}
         </>
       )}

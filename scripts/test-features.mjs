@@ -1593,7 +1593,9 @@ test('双栏编辑器滚动同步引擎（#101）：全层级源码行区间标�
     harnessEntry,
     `
       import React from 'react'
+      import { createRoot } from 'react-dom/client'
       import { renderToStaticMarkup } from 'react-dom/server'
+      import { MemoryRouter, Routes, Route } from 'react-router-dom'
       import { Markdown } from '../../src/components/Markdown'
       import { parseFrontmatter } from '../../src/lib/frontmatter'
       import {
@@ -1602,15 +1604,46 @@ test('双栏编辑器滚动同步引擎（#101）：全层级源码行区间标�
         isHiddenInsideClosedDetails,
         rebuildTextareaLineMirror,
       } from '../../src/lib/scrollSync'
+      import { ThemeProvider } from '../../src/lib/theme'
+      import { FontProvider } from '../../src/lib/font'
+      import { BackgroundProvider } from '../../src/lib/background'
+      import { AuthProvider } from '../../src/lib/auth'
+      import { ToastProvider } from '../../src/components/Toast'
+      import { Layout } from '../../src/components/Layout'
+      import Editor from '../../src/pages/Editor'
+      import Home from '../../src/pages/Home'
+      import { VersionCompare } from '../../src/components/VersionCompare'
+      import { splitMarkdownBlocks, diffMarkdownHunks, renderedDiffSummary } from '../../src/lib/diff'
+      import { saveLocalPost, deleteLocalPost } from '../../src/lib/posts'
+      import { siteConfig } from '../../src/lib/config'
       export {
         React,
+        createRoot,
         renderToStaticMarkup,
+        MemoryRouter,
+        Routes,
+        Route,
         Markdown,
         parseFrontmatter,
         collectScrollSyncAnchors,
         createBidirectionalScrollMapper,
         isHiddenInsideClosedDetails,
         rebuildTextareaLineMirror,
+        ThemeProvider,
+        FontProvider,
+        BackgroundProvider,
+        AuthProvider,
+        ToastProvider,
+        Layout,
+        Editor,
+        Home,
+        VersionCompare,
+        splitMarkdownBlocks,
+        diffMarkdownHunks,
+        renderedDiffSummary,
+        saveLocalPost,
+        deleteLocalPost,
+        siteConfig,
       }
     `,
     'utf8',
@@ -1623,6 +1656,16 @@ test('双栏编辑器滚动同步引擎（#101）：全层级源码行区间标�
     format: 'esm',
     platform: 'browser',
     target: 'es2022',
+    plugins: [
+      {
+        name: 'vite-raw-md',
+        setup(b) {
+          b.onResolve({ filter: /\?raw$/ }, (args) => ({
+            path: join(root, args.path.replace(/^\//, '').replace(/\?raw$/, '')),
+          }))
+        },
+      },
+    ],
     loader: {
       '.jpg': 'dataurl',
       '.png': 'dataurl',
@@ -2283,6 +2326,521 @@ test('双栏编辑器真实 DOM 双向联动交互（#101）：浏览右侧同�
     Object.assign(globalThis, prevGlobals)
   }
 })
+
+/* ------------------- 11–13. Issues #104 / #105 / #106 & 离线 CI 回归测试 ------------------- */
+async function loadSharedAppBundle() {
+  const { pathToFileURL } = await import('node:url')
+  const sharedPath = join(root, 'node_modules/.cache/scroll-sync-unit-bundle.mjs')
+  return import(pathToFileURL(sharedPath).href)
+}
+
+function setupJsdomTestEnv(url = 'https://blog-apa.pages.dev/') {
+  class LightMC {
+    constructor() {
+      const p1 = { onmessage: null, close() {} }
+      const p2 = {
+        onmessage: null,
+        postMessage(data) {
+          setTimeout(() => p1.onmessage?.({ data }), 0)
+        },
+        close() {},
+      }
+      p1.postMessage = (data) => {
+        setTimeout(() => p2.onmessage?.({ data }), 0)
+      }
+      this.port1 = p1
+      this.port2 = p2
+    }
+  }
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+    url,
+    pretendToBeVisual: true,
+  })
+  const prevGlobals = {}
+  for (const key of [
+    'window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement',
+    'Element', 'Node', 'SVGElement', 'Event', 'KeyboardEvent', 'CustomEvent', 'MutationObserver',
+    'DOMParser', 'localStorage', 'sessionStorage', 'getComputedStyle',
+    'ResizeObserver', 'matchMedia', 'requestAnimationFrame', 'cancelAnimationFrame',
+    'fetch', 'MessageChannel', 'BroadcastChannel', 'IntersectionObserver',
+  ]) {
+    prevGlobals[key] = globalThis[key]
+  }
+  const activeRafIds = new Set()
+  dom.window.requestAnimationFrame = (cb) => {
+    const id = setTimeout(() => {
+      activeRafIds.delete(id)
+      cb(performance.now())
+    }, 16)
+    activeRafIds.add(id)
+    return id
+  }
+  dom.window.cancelAnimationFrame = (id) => {
+    activeRafIds.delete(id)
+    clearTimeout(id)
+  }
+  dom.window.scrollTo = () => {}
+  dom.window.HTMLElement.prototype.scrollIntoView = function () {}
+  dom.window.HTMLCanvasElement.prototype.getContext = () => null
+  dom.window.matchMedia = () => ({
+    matches: false,
+    addListener() {},
+    removeListener() {},
+    addEventListener() {},
+    removeEventListener() {},
+  })
+  dom.window.MessageChannel = LightMC
+  dom.window.BroadcastChannel = undefined
+
+  for (const key of [
+    'window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement',
+    'Element', 'Node', 'SVGElement', 'Event', 'KeyboardEvent', 'CustomEvent', 'MutationObserver',
+    'DOMParser', 'localStorage', 'sessionStorage', 'getComputedStyle',
+    'matchMedia', 'requestAnimationFrame', 'cancelAnimationFrame',
+    'MessageChannel', 'BroadcastChannel',
+  ]) {
+    Object.defineProperty(globalThis, key, {
+      value: dom.window[key],
+      configurable: true,
+      writable: true,
+    })
+  }
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  globalThis.fetch = async () => new Response('{}', { status: 404 })
+
+  return {
+    dom,
+    cleanup() {
+      for (const id of activeRafIds) clearTimeout(id)
+      activeRafIds.clear()
+      dom.window.close()
+      for (const [k, v] of Object.entries(prevGlobals)) {
+        Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true })
+      }
+    },
+  }
+}
+
+test('issue #104：全屏编辑与吸顶页头、Ctrl+K / 斜杠搜索快捷键及弹层 Esc 互不冲突', async () => {
+  const env = setupJsdomTestEnv('https://blog-apa.pages.dev/admin/new')
+  const {
+    React,
+    createRoot,
+    MemoryRouter,
+    Routes,
+    Route,
+    ThemeProvider,
+    FontProvider,
+    BackgroundProvider,
+    AuthProvider,
+    ToastProvider,
+    Layout,
+    Editor,
+  } = await loadSharedAppBundle()
+
+  const rootEl = env.dom.window.document.getElementById('root')
+  const reactRoot = createRoot(rootEl)
+
+  try {
+    reactRoot.render(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ['/admin/new'] },
+        React.createElement(
+          AuthProvider,
+          null,
+          React.createElement(
+            ThemeProvider,
+            null,
+            React.createElement(
+              FontProvider,
+              null,
+              React.createElement(
+                BackgroundProvider,
+                null,
+                React.createElement(
+                  ToastProvider,
+                  null,
+                  React.createElement(
+                    Routes,
+                    null,
+                    React.createElement(
+                      Route,
+                      { element: React.createElement(Layout) },
+                      React.createElement(Route, {
+                        path: '/admin/new',
+                        element: React.createElement(Editor),
+                      }),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    )
+    await new Promise((r) => setTimeout(r, 80))
+
+    // 1) 非全屏态：<main> 不得携带 z-10 创建层叠上下文陷阱；Ctrl+K 在编辑框内只插入链接而不弹搜索框
+    const mainEl = rootEl.querySelector('main')
+    assert.ok(mainEl && !/\bz-10\b/.test(mainEl.className), '<main> 不应携带 z-10 层叠上下文')
+    assert.ok(rootEl.querySelector('header.site-header'), '常规编辑态应保留顶部导航栏')
+
+    const ta = rootEl.querySelector('textarea.editor-textarea')
+    assert.ok(ta, '应挂载编辑器正文 textarea')
+    ta.focus()
+    ta.dispatchEvent(
+      new env.dom.window.KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true }),
+    )
+    await new Promise((r) => setTimeout(r, 30))
+    assert.equal(
+      env.dom.window.document.querySelector('[role="dialog"]'),
+      null,
+      '编辑器内按下 Ctrl+K 插入链接时不应误触发全站搜索弹层',
+    )
+    assert.ok(ta.value.includes('[链接文字](https://)'), 'Ctrl+K 应正常插入 Markdown 链接语法')
+
+    // 2) 进入全屏态：吸顶页头与页脚彻底隐藏、锁定底层滚动、`/` 与 `Ctrl+K` 均不弹搜索框
+    const enterFsBtn = rootEl.querySelector('button[title="全屏编辑 (Esc 退出)"]')
+    assert.ok(enterFsBtn, '应找到全屏编辑按钮')
+    enterFsBtn.click()
+    await new Promise((r) => setTimeout(r, 40))
+
+    assert.equal(rootEl.querySelector('header.site-header'), null, '全屏编辑态应隐藏吸顶页头，避免与标题栏重叠')
+    assert.equal(rootEl.querySelector('footer'), null, '全屏编辑态应隐藏页脚')
+    assert.equal(env.dom.window.document.documentElement.dataset.editorFullscreen, 'true')
+    assert.equal(env.dom.window.document.documentElement.style.overflow, 'hidden')
+
+    env.dom.window.dispatchEvent(
+      new env.dom.window.KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true }),
+    )
+    await new Promise((r) => setTimeout(r, 25))
+    assert.equal(env.dom.window.document.querySelector('[role="dialog"]'), null, '全屏编辑时按 `/` 不应弹出搜索框')
+
+    // 3) 全屏态打开 LaTeX 符号框后按 Esc：只关闭符号框，不连带退出全屏；再按 Esc 才退出全屏并恢复页头
+    ta.focus()
+    ta.dispatchEvent(
+      new env.dom.window.KeyboardEvent('keydown', { key: 'ArrowUp', shiftKey: true, bubbles: true, cancelable: true }),
+    )
+    await new Promise((r) => setTimeout(r, 35))
+    assert.ok(
+      env.dom.window.document.querySelector('[role="dialog"][aria-label="插入 LaTeX 符号"]'),
+      'Shift + ↑ 应在全屏态正常打开 LaTeX 符号选择框',
+    )
+
+    env.dom.window.dispatchEvent(
+      new env.dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    )
+    await new Promise((r) => setTimeout(r, 35))
+    assert.equal(
+      env.dom.window.document.querySelector('[role="dialog"][aria-label="插入 LaTeX 符号"]'),
+      null,
+      '第一次 Esc 应关闭 LaTeX 符号框',
+    )
+    assert.ok(
+      rootEl.querySelector('button[title="退出全屏 (Esc)"]'),
+      '关闭子对话框时不应连带退出全屏编辑',
+    )
+
+    env.dom.window.dispatchEvent(
+      new env.dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    )
+    await new Promise((r) => setTimeout(r, 40))
+    assert.ok(rootEl.querySelector('header.site-header'), '退出全屏后应立即恢复顶部导航栏')
+    assert.equal(env.dom.window.document.documentElement.style.overflow, '')
+  } finally {
+    reactRoot.unmount()
+    await new Promise((r) => setTimeout(r, 30))
+    env.cleanup()
+  }
+})
+
+test('issue #105：历史版本渲染对比保持多行容器块完整并支持分栏/折叠/跳转', async () => {
+  const { readFileSync } = await import('node:fs')
+  const env = setupJsdomTestEnv('https://blog-apa.pages.dev/posts/dp-note')
+  const {
+    React,
+    createRoot,
+    VersionCompare,
+    splitMarkdownBlocks,
+    diffMarkdownHunks,
+    renderedDiffSummary,
+    parseFrontmatter,
+  } = await loadSharedAppBundle()
+
+  const dpPostRaw = readFileSync(join(root, 'content/posts/oi-dp-skill-1.md'), 'utf8')
+  const dpContent = parseFrontmatter(dpPostRaw).content
+
+  // 1) 真实长文 oi-dp-skill-1.md 切块验证：嵌套 :::info / ::::info、::begin_ui-ccs 等绝不被内部空行撕裂出裸 `:::`
+  const blocks = splitMarkdownBlocks(dpContent)
+  for (const blk of blocks) {
+    assert.ok(
+      !/^:{3,}\s*$/.test(blk.text.trim()),
+      `容器闭合行不应被切碎为孤立块：L${blk.start}-${blk.end}: ${blk.text}`,
+    )
+  }
+
+  // `::cute-table{tuack}` + 空行 + 管道表格必须合为同一块
+  const tableBlocks = splitMarkdownBlocks(
+    '::cute-table{tuack}\n\n| 列 A | 列 B |\n| --- | --- |\n| 1 | 2 |\n',
+  )
+  assert.equal(tableBlocks.length, 1, '::cute-table 属性头与紧邻表格应合并为单一渲染块')
+
+  // 2) Hunk 配对与 VersionCompare 真实组件交互验证
+  const baseMd = [
+    '---',
+    'title: "DP 优化笔记"',
+    'date: "2026-10-20"',
+    '---',
+    '',
+    '导言第一段保持不变。',
+    '',
+    '导言第二段保持不变。',
+    '',
+    ':::info[例题 1]{open}',
+    '',
+    '朴素状态转移时间复杂度为 $O(n^2)$。',
+    '',
+    ':::',
+    '',
+    '这段旧备注将被移除。',
+  ].join('\n')
+
+  const nextMd = [
+    '---',
+    'title: "DP 优化笔记"',
+    'date: "2026-10-23"',
+    '---',
+    '',
+    '导言第一段保持不变。',
+    '',
+    '导言第二段保持不变。',
+    '',
+    ':::info[例题 1]{open}',
+    '',
+    '斜率优化后单次转移时间复杂度降为 $O(\\log n)$。',
+    '',
+    ':::',
+    '',
+    ':::success[新增总结]{open}',
+    '',
+    '总时间复杂度 $O(n \\log n)$。',
+    '',
+    ':::',
+  ].join('\n')
+
+  const hunks = diffMarkdownHunks(
+    parseFrontmatter(baseMd).content,
+    parseFrontmatter(nextMd).content,
+  )
+  const summary = renderedDiffSummary(hunks)
+  assert.equal(summary.unchangedBlocks, 2, '前两段未改动块应精确归入 equal hunk')
+  assert.equal(summary.totalChanges, 1, '相邻旧块替换与新增应合并为结构化变更组')
+  assert.equal(summary.modified, 1)
+
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    if (url.includes('sha-old')) {
+      return new Response(
+        JSON.stringify({
+          sha: 'sha-old-7654321',
+          encoding: 'base64',
+          content: Buffer.from(baseMd, 'utf8').toString('base64'),
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    if (url.includes('sha-new')) {
+      return new Response(
+        JSON.stringify({
+          sha: 'sha-new-1234567',
+          encoding: 'base64',
+          content: Buffer.from(nextMd, 'utf8').toString('base64'),
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    throw new Error(`unexpected fetch: ${url}`)
+  }
+
+  const rootEl = env.dom.window.document.getElementById('root')
+  const reactRoot = createRoot(rootEl)
+  try {
+    reactRoot.render(
+      React.createElement(VersionCompare, {
+        slug: 'dp-note',
+        path: 'content/posts/dp-note.md',
+        versions: [
+          {
+            sha: 'sha-new-1234567',
+            message: 'Upd：斜率优化复杂度',
+            committedAt: '2026-10-23T08:00:00Z',
+            author: { name: 'Author' },
+          },
+          {
+            sha: 'sha-old-7654321',
+            message: 'Init：初版笔记',
+            committedAt: '2026-10-20T08:00:00Z',
+            author: { name: 'Author' },
+          },
+        ],
+        onClose: () => {},
+      }),
+    )
+    await new Promise((r) => setTimeout(r, 90))
+
+    assert.equal(
+      rootEl.querySelectorAll('.overflow-y-auto').length,
+      1,
+      'VersionCompare 应只保留单一纵向滚动容器，杜绝双层嵌套滚动条',
+    )
+    assert.ok(rootEl.textContent.includes('修改段落'), '应展示配对后的「修改段落」语义卡片')
+    assert.ok(rootEl.querySelectorAll('details.callout').length >= 2, '新旧两侧折叠框均应完整渲染而非碎裂')
+    assert.ok(rootEl.querySelectorAll('.katex').length >= 2, '新旧两侧 KaTeX 数学公式均应完整渲染')
+
+    const expandGapBtn = Array.from(rootEl.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('展开此处未变更的 2 段内容'),
+    )
+    assert.ok(expandGapBtn, '默认应将多段未变更内容折叠为可展开分隔条')
+    expandGapBtn.click()
+    await new Promise((r) => setTimeout(r, 30))
+    assert.ok(rootEl.textContent.includes('导言第一段保持不变。'), '点击后应原地展开未修改段落上下文')
+  } finally {
+    reactRoot.unmount()
+    await new Promise((r) => setTimeout(r, 30))
+    env.cleanup()
+  }
+})
+
+test('issue #106 & offline CI：首页下滑自动加载更多 + main 更新自动同步离线版与 Release', async () => {
+  const { readFileSync } = await import('node:fs')
+  const env = setupJsdomTestEnv('https://blog-apa.pages.dev/')
+
+  const observers = []
+  class MockIntersectionObserver {
+    constructor(callback, options) {
+      this.callback = callback
+      this.options = options
+      this.elements = new Set()
+      observers.push(this)
+    }
+    observe(el) {
+      this.elements.add(el)
+    }
+    unobserve(el) {
+      this.elements.delete(el)
+    }
+    disconnect() {
+      this.elements.clear()
+    }
+  }
+  globalThis.IntersectionObserver = MockIntersectionObserver
+  env.dom.window.IntersectionObserver = MockIntersectionObserver
+
+  const {
+    React,
+    createRoot,
+    MemoryRouter,
+    AuthProvider,
+    Home,
+    saveLocalPost,
+    deleteLocalPost,
+    siteConfig,
+  } = await loadSharedAppBundle()
+
+  const totalExpected = siteConfig.postsPerPage * 2 + 3
+  const createdSlugs = []
+  for (let i = 1; i <= totalExpected; i += 1) {
+    const slug = `auto-scroll-test-${String(i).padStart(2, '0')}`
+    createdSlugs.push(slug)
+    saveLocalPost({
+      slug,
+      title: `自动加载测试文章 #${i}`,
+      date: '2026-10-23',
+      summary: '测试下滑自动加载下一页',
+      tags: ['测试'],
+      draft: false,
+      content: '正文内容',
+    })
+  }
+
+  const rootEl = env.dom.window.document.getElementById('root')
+  const reactRoot = createRoot(rootEl)
+
+  try {
+    reactRoot.render(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ['/'] },
+        React.createElement(AuthProvider, null, React.createElement(Home)),
+      ),
+    )
+    await new Promise((r) => setTimeout(r, 60))
+
+    const countCards = () => rootEl.querySelectorAll('article').length
+    assert.equal(countCards(), siteConfig.postsPerPage, '首屏初始应展示第一页文章数量')
+    assert.ok(
+      rootEl.querySelector('[data-infinite-scroll-sentinel]'),
+      '存在未展示文章时应挂载底部自动加载哨兵节点',
+    )
+
+    // 模拟用户向下滑动触发 IntersectionObserver 进入视口预加载区间 -> 自动加载第 2 页
+    const activeObs = observers.find((o) => o.elements.size > 0)
+    assert.ok(activeObs, 'IntersectionObserver 应已监听底部哨兵节点')
+    activeObs.callback([{ isIntersecting: true, target: Array.from(activeObs.elements)[0] }])
+    await new Promise((r) => setTimeout(r, 50))
+    assert.equal(
+      countCards(),
+      siteConfig.postsPerPage * 2,
+      '向下滑动触发视口相交后应无需点击按钮自动加载第 2 页',
+    )
+
+    // 继续滑动触发 scroll 兜底监听 -> 自动加载第 3 页直至全部 25 篇加载完成
+    const sentinel = rootEl.querySelector('[data-infinite-scroll-sentinel]')
+    sentinel.getBoundingClientRect = () => ({
+      top: env.dom.window.innerHeight - 20,
+      bottom: env.dom.window.innerHeight + 20,
+      left: 0,
+      right: 100,
+      width: 100,
+      height: 40,
+    })
+    env.dom.window.dispatchEvent(new env.dom.window.Event('scroll'))
+    await new Promise((r) => setTimeout(r, 50))
+    assert.equal(countCards(), totalExpected, '继续下滑应自动加载剩余全部第 3 页文章')
+    assert.ok(
+      rootEl.textContent.includes(`已加载全部 ${totalExpected} 篇文章`),
+      '全部加载完后应展示底部完成提示',
+    )
+
+    // 校验 GitHub Actions 工作流不变量
+    const offlineYml = readFileSync(join(root, '.github/workflows/offline.yml'), 'utf8')
+    const deployYml = readFileSync(join(root, '.github/workflows/deploy.yml'), 'utf8')
+    assert.ok(
+      !offlineYml.includes("if: steps.commit.outputs.changed == 'true'"),
+      'Release 步骤不得因 PR 已预构建 offline/index.html 而被跳过',
+    )
+    assert.ok(
+      offlineYml.includes('--latest') && offlineYml.includes('refs/tags/offline'),
+      'offline.yml 应同步更新 offline 标签并发布 Latest Release',
+    )
+    assert.ok(
+      deployYml.includes('vite.offline.config.ts'),
+      'deploy.yml 应实时构建离线单文件版以确保 Pages 下载文件与当前提交一致',
+    )
+  } finally {
+    for (const s of createdSlugs) deleteLocalPost(s)
+    reactRoot.unmount()
+    await new Promise((r) => setTimeout(r, 30))
+    env.cleanup()
+  }
+})
+
 
 
 

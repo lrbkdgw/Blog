@@ -112,6 +112,19 @@ export function LatexPicker({
       ?.scrollIntoView({ block: 'nearest' })
   }, [active])
 
+  // 当焦点切到分类按钮或符号卡片上时，按 Esc 仍应稳定关闭选择框而非穿透到宿主全屏编辑器
+  useEffect(() => {
+    if (!open) return
+    const onGlobalKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.isComposing) {
+        event.preventDefault()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onGlobalKey)
+    return () => window.removeEventListener('keydown', onGlobalKey)
+  }, [open, onClose])
+
   if (!open) return null
 
   const choose = (symbol: LatexSymbol) => {
