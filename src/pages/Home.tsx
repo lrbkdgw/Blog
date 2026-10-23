@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, PenLine } from 'lucide-react'
 import { PostCard } from '../components/PostCard'
@@ -10,10 +10,33 @@ export default function Home() {
   const [posts] = usePosts()
   const { isAuthed } = useAuth()
   const [page, setPage] = useState(1)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
 
   const perPage = siteConfig.postsPerPage
   const visible = posts.slice(0, page * perPage)
   const hasMore = visible.length < posts.length
+  const loadMore = useCallback(() => {
+    setPage((current) => {
+      const lastPage = Math.max(1, Math.ceil(posts.length / perPage))
+      return Math.min(current + 1, lastPage)
+    })
+  }, [perPage, posts.length])
+
+  // 提前一小屏加载，读者接近列表末尾时无需停下来点按钮。
+  // page 变化后重新观察：若宽屏/超高视口仍容得下 sentinel，会继续补齐下一页；
+  // 不支持 IntersectionObserver 的旧浏览器保留下方按钮作为回退。
+  useEffect(() => {
+    const sentinel = loadMoreRef.current
+    if (!sentinel || !hasMore || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) loadMore()
+      },
+      { rootMargin: '360px 0px', threshold: 0.01 },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasMore, loadMore, page])
 
   return (
     <section id="posts" className="container-page scroll-mt-24 pb-8 pt-12 sm:pt-14" data-yield-list>
@@ -40,13 +63,22 @@ export default function Home() {
               <PostCard key={post.slug} post={post} index={i} />
             ))}
           </div>
-          {hasMore && (
-            <div className="mt-10 flex justify-center">
-              <button onClick={() => setPage((p) => p + 1)} className="btn-outline h-10">
-                加载更多（还有 {posts.length - visible.length} 篇）
+          {hasMore ? (
+            <div
+              ref={loadMoreRef}
+              className="mt-10 flex flex-col items-center gap-2"
+              data-load-more-sentinel
+            >
+              <button type="button" onClick={loadMore} className="btn-outline h-10">
+                立即加载更多（还有 {posts.length - visible.length} 篇）
               </button>
+              <p className="text-xs text-ink-400">继续向下滑动将自动加载</p>
             </div>
-          )}
+          ) : posts.length > perPage ? (
+            <p className="mt-10 text-center text-xs text-ink-400" role="status">
+              已加载全部 {posts.length} 篇文章
+            </p>
+          ) : null}
         </>
       )}
     </section>

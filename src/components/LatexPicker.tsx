@@ -10,6 +10,7 @@ import {
   type LatexCategoryId,
   type LatexSymbol,
 } from '../lib/latexSymbols'
+import { lockBodyScroll } from '../lib/bodyScrollLock'
 
 /**
  * LaTeX 符号选择框（issue #60）：站内编辑器里按 <kbd>Shift</kbd> + <kbd>↑</kbd> 打开
@@ -80,10 +81,11 @@ export function LatexPicker({
     setCategory('all')
     setActive(0)
     setRecentCommands(readRecentCommands())
-    setTimeout(() => inputRef.current?.focus(), 30)
-    document.body.style.overflow = 'hidden'
+    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 30)
+    const unlockBody = lockBodyScroll()
     return () => {
-      document.body.style.overflow = ''
+      window.clearTimeout(focusTimer)
+      unlockBody()
     }
   }, [open])
 

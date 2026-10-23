@@ -81,6 +81,7 @@ import { parseArticleDirectives } from '../lib/articleDirectives'
 import { setAnimatedSceneOverride } from '../lib/animatedBackground'
 import { warmFontFamilies } from '../lib/font'
 import { focusWithoutScroll, restoreCaret } from '../lib/caret'
+import { lockBodyScroll } from '../lib/bodyScrollLock'
 import { latexSymbolInsert, type LatexSymbol } from '../lib/latexSymbols'
 import { handleEditorKey, insertBlock, toggleLinePrefix, toggleWrap } from '../lib/editor'
 import type { EditAction } from '../lib/editor'
@@ -707,6 +708,8 @@ export default function Editor() {
     }
     if (mod && e.key.toLowerCase() === 'k') {
       e.preventDefault()
+      // 插入链接是编辑器局部动作，不能继续冒泡触发 Layout 的全站搜索。
+      e.stopPropagation()
       withSelection((v, s, en) => toggleWrap(v, s, en, '[', '](https://)', '链接文字'))
       return
     }
@@ -1166,11 +1169,17 @@ export default function Editor() {
   useEffect(() => {
     if (!fullscreen || latexPickerOpen) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.isComposing) setFullscreen(false)
+      if (e.key === 'Escape' && !e.isComposing && !e.defaultPrevented) setFullscreen(false)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [fullscreen, latexPickerOpen])
+
+  // 全屏编辑与搜索 / LaTeX 等上层浮层共用可嵌套滚动锁，退出时仍回到原阅读位置。
+  useEffect(() => {
+    if (!fullscreen) return
+    return lockBodyScroll()
+  }, [fullscreen])
 
   useEffect(() => {
     requestHeaderYieldRefresh()

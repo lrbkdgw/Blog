@@ -5,8 +5,8 @@ import type { PostHistoryVersion } from '../lib/github'
 import { diffLines, diffStats, renderedDiffBlocks } from '../lib/diff'
 import type { RenderedDiffChunk } from '../lib/diff'
 import { parseFrontmatter } from '../lib/frontmatter'
-import { Markdown } from './Markdown'
 import { DiffTable } from './DiffView'
+import { RenderedDiff } from './RenderedDiff'
 import { resolveVersionName, VERSION_NAMES_CHANGED_EVENT } from '../lib/versionNames'
 
 type CompareMode = 'source' | 'render'
@@ -211,15 +211,15 @@ export function VersionCompare({
             </>
           )}
           {mode === 'render' && (
-            <>
-              <span className="ml-auto text-ink-400">仅显示较新版本</span>
-              <span className="flex items-center gap-1">
-                <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500/40" /> 新增
+            <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1.5 text-ink-400">
+              <span>仅显示较新版本</span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-400" /> 新增
               </span>
-              <span className="flex items-center gap-1">
-                <span className="h-2.5 w-2.5 rounded-sm bg-rose-500/40" /> 已删除
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-rose-400" /> 已删除
               </span>
-            </>
+            </div>
           )}
         </div>
 
@@ -235,64 +235,20 @@ export function VersionCompare({
           ) : identical ? (
             <p className="p-10 text-center text-sm text-ink-500">这两个版本的内容完全相同。</p>
           ) : mode === 'render' ? (
-            <div className="mx-auto max-w-3xl p-4">
-              <section className="overflow-hidden rounded-xl border border-ink-200/70 bg-white dark:border-white/10 dark:bg-ink-900/60">
-                <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ink-200/70 px-4 py-2.5 dark:border-white/10">
-                  <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] font-semibold text-brand-600 dark:text-brand-300">
-                    较新版本
-                  </span>
-                  <span className="min-w-0 truncate font-mono text-[11px] text-ink-400">
-                    {targetIndex >= 0
-                      ? shortVersionName(
-                          versions[targetIndex],
-                          targetIndex,
-                          versions.length,
-                          nameOf(targetSha),
-                        )
-                      : targetSha.slice(0, 7)}
-                  </span>
-                  <span className="ml-auto font-mono text-[11px] text-ink-400">
-                    <span className="text-emerald-600 dark:text-emerald-400">+{stats.added}</span>{' '}
-                    <span className="text-rose-600 dark:text-rose-400">−{stats.removed}</span>
-                  </span>
-                </header>
-                <div className="max-h-[60vh] overflow-y-auto px-4 py-3">
-                  {renderedChunks.map((chunk, index) =>
-                    chunk.type === 'equal' ? (
-                      <Markdown key={`equal-${index}`} content={chunk.text} />
-                    ) : (
-                      <div
-                        key={`${chunk.type}-${index}`}
-                        className={`relative my-3 rounded-lg border px-3 py-1 ${
-                          chunk.type === 'insert'
-                            ? 'border-emerald-300/70 bg-emerald-500/[0.08] dark:border-emerald-400/25'
-                            : 'border-rose-300/70 bg-rose-500/[0.08] dark:border-rose-400/25'
-                        }`}
-                      >
-                        <span
-                          className={`absolute -top-2 left-3 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                            chunk.type === 'insert'
-                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
-                              : 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'
-                          }`}
-                        >
-                          {chunk.type === 'insert' ? '新增' : '已删除'}
-                        </span>
-                        <div
-                          className={
-                            chunk.type === 'delete'
-                              ? 'opacity-80 [&_.prose]:line-through [&_.prose]:decoration-rose-400/50 [&_.prose]:decoration-1'
-                              : ''
-                          }
-                        >
-                          <Markdown content={chunk.text} />
-                        </div>
-                      </div>
-                    ),
-                  )}
-                </div>
-              </section>
-            </div>
+            <RenderedDiff
+              chunks={renderedChunks}
+              bodyIdentical={renderedChunks.every((chunk) => chunk.type === 'equal')}
+              targetLabel={
+                targetIndex >= 0
+                  ? shortVersionName(
+                      versions[targetIndex],
+                      targetIndex,
+                      versions.length,
+                      nameOf(targetSha),
+                    )
+                  : targetSha.slice(0, 7)
+              }
+            />
           ) : (
             <DiffTable lines={lines} onlyChanges={onlyChanges} />
           )}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CornerDownLeft, FileText, Search } from 'lucide-react'
 import { excerpt, formatDate, getPublishedPosts, searchPosts } from '../lib/posts'
+import { lockBodyScroll } from '../lib/bodyScrollLock'
 
 export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [query, setQuery] = useState('')
@@ -13,16 +14,14 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
   const results = useMemo(() => searchPosts(posts, query).slice(0, 8), [posts, query])
 
   useEffect(() => {
-    if (open) {
-      setQuery('')
-      setActive(0)
-      setTimeout(() => inputRef.current?.focus(), 30)
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
+    if (!open) return
+    setQuery('')
+    setActive(0)
+    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 30)
+    const unlockBody = lockBodyScroll()
     return () => {
-      document.body.style.overflow = ''
+      window.clearTimeout(focusTimer)
+      unlockBody()
     }
   }, [open])
 
@@ -36,6 +35,8 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
   }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // 搜索框里的 Esc / 快捷键只作用于最上层对话框，不能同时退出全屏编辑器。
+    e.stopPropagation()
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       setActive((i) => (i + 1) % Math.max(results.length, 1))
@@ -45,12 +46,24 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
     } else if (e.key === 'Enter' && results[active]) {
       go(results[active].slug)
     } else if (e.key === 'Escape') {
+      e.preventDefault()
       onClose()
     }
   }
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-start justify-center px-4 pt-[12vh]" role="dialog" aria-modal>
+    <div
+      className="fixed inset-0 z-[90] flex items-start justify-center px-4 pt-[12vh]"
+      role="dialog"
+      aria-modal
+      onKeyDown={(event) => {
+        event.stopPropagation()
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          onClose()
+        }
+      }}
+    >
       <div className="absolute inset-0 animate-fade-in bg-ink-950/40 backdrop-blur-sm" onClick={onClose} />
       <div className="card relative w-full max-w-xl animate-scale-in overflow-hidden !bg-white/95 dark:!bg-ink-900/95">
         <div className="flex items-center gap-3 border-b border-ink-200/70 px-4 dark:border-white/10">

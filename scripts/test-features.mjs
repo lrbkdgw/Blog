@@ -37,6 +37,7 @@ const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
 const echoCaveMod = await importTsModule('src/lib/echoCave.ts')
 const echoAshMod = await importTsModule('src/lib/echoAsh.ts')
+const bodyScrollLockMod = await importTsModule('src/lib/bodyScrollLock.ts')
 
 function makeMock2dContext(strokeSink, drawSink) {
   const stack = []
@@ -174,6 +175,43 @@ function makeMock2dContext(strokeSink, drawSink) {
     },
   }
 }
+
+test('全屏与模态框共用引用计数滚动锁（#104），关闭上层浮层不会提前解锁', () => {
+  const previousDocument = globalThis.document
+  globalThis.document = { body: { style: { overflow: 'scroll' } } }
+  try {
+    const unlockEditor = bodyScrollLockMod.lockBodyScroll()
+    assert.equal(globalThis.document.body.style.overflow, 'hidden')
+    const unlockSearch = bodyScrollLockMod.lockBodyScroll()
+    unlockSearch()
+    assert.equal(globalThis.document.body.style.overflow, 'hidden', '关闭搜索后仍应保持全屏编辑器滚动锁')
+    unlockSearch()
+    assert.equal(globalThis.document.body.style.overflow, 'hidden', '重复释放同一把锁不应影响计数')
+    unlockEditor()
+    assert.equal(globalThis.document.body.style.overflow, 'scroll', '最后一把锁释放后应恢复原始 inline 样式')
+    unlockEditor()
+    assert.equal(globalThis.document.body.style.overflow, 'scroll')
+  } finally {
+    globalThis.document = previousDocument
+  }
+})
+
+test('渲染对比美化与 main 每次更新发布离线版的结构契约（#105）', () => {
+  const renderedDiff = readFileSync(join(root, 'src/components/RenderedDiff.tsx'), 'utf8')
+  assert.match(renderedDiff, /data-rendered-diff/)
+  assert.match(renderedDiff, /data-render-diff=\{chunk\.type\}/)
+  assert.match(renderedDiff, /新增内容/)
+  assert.match(renderedDiff, /删除内容/)
+  assert.match(renderedDiff, /正文渲染完全一致/)
+
+  const workflow = readFileSync(join(root, '.github/workflows/offline.yml'), 'utf8')
+  assert.match(workflow, /on:\n {2}push:\n {4}branches: \[main\]\n {2}workflow_dispatch:/, '每次 main 推送都应触发，不能再按路径漏跑')
+  assert.doesNotMatch(workflow, /git push\b/, '受保护的 main 与 tag 都不能成为 Release 前置条件')
+  assert.doesNotMatch(workflow, /git (commit|add)\b/, '发布任务不应再生成绕过 PR 的自动提交')
+  assert.match(workflow, /gh release upload offline starlog-offline-latest\.html --clobber/)
+  assert.match(workflow, /if: github\.ref_name == 'main'/, '手动运行也不能从功能分支覆盖 Release')
+  assert.match(workflow, /固定 tag 只是稳定下载入口/)
+})
 
 /* -------------------------------------------------------------------------- */
 /*                     1. 暴雨背景自然水滴形态、同轴与阅读保护验证                */
@@ -1831,7 +1869,7 @@ test('双栏编辑器滚动同步引擎（#101）：全层级源码行区间标�
   }
 })
 
-test('双栏编辑器真实 DOM 双向联动交互（#101）：浏览右侧同步左侧、折叠框开合重对齐、防死循环与开关控制', async () => {
+test('编辑器与首页真实 DOM 交互（#101/#104/#106）：双向滚动、全屏快捷键冲突与自动加载', async () => {
   const harnessEntry = join(root, 'node_modules/.cache/editor-scroll-dom-harness.tsx')
   const { mkdirSync, writeFileSync } = await import('node:fs')
   mkdirSync(dirname(harnessEntry), { recursive: true })
@@ -1848,6 +1886,7 @@ test('双栏编辑器真实 DOM 双向联动交互（#101）：浏览右侧同�
       import { ToastProvider } from '../../src/components/Toast'
       import { writeEditorScrollSync } from '../../src/lib/editorSettings'
       import { STORAGE_KEYS } from '../../src/lib/config'
+      import { saveLocalPost } from '../../src/lib/posts'
       import App from '../../src/App'
       export {
         React,
@@ -1860,6 +1899,7 @@ test('双栏编辑器真实 DOM 双向联动交互（#101）：浏览右侧同�
         ToastProvider,
         writeEditorScrollSync,
         STORAGE_KEYS,
+        saveLocalPost,
         App,
       }
     `,
@@ -1931,6 +1971,7 @@ test('双栏编辑器真实 DOM 双向联动交互（#101）：浏览右侧同�
     Node: globalThis.Node,
     MutationObserver: globalThis.MutationObserver,
     ResizeObserver: globalThis.ResizeObserver,
+    IntersectionObserver: globalThis.IntersectionObserver,
     matchMedia: globalThis.matchMedia,
     requestAnimationFrame: globalThis.requestAnimationFrame,
     cancelAnimationFrame: globalThis.cancelAnimationFrame,
@@ -1962,6 +2003,28 @@ test('双栏编辑器真实 DOM 双向联动交互（#101）：浏览右侧同�
     unobserve() {}
     disconnect() {}
   }
+  const intersectionObservers = []
+  class MockIntersectionObserver10 {
+    constructor(callback, options) {
+      this.callback = callback
+      this.options = options
+      this.target = null
+      this.disconnected = false
+      intersectionObservers.push(this)
+    }
+    observe(target) {
+      this.target = target
+    }
+    unobserve() {}
+    disconnect() {
+      this.disconnected = true
+    }
+    trigger(isIntersecting = true) {
+      this.callback([{ isIntersecting, target: this.target }], this)
+    }
+  }
+  dom.window.IntersectionObserver = MockIntersectionObserver10
+  globalThis.IntersectionObserver = MockIntersectionObserver10
   dom.window.matchMedia = () => ({
     matches: false,
     addListener() {},
@@ -1999,6 +2062,7 @@ test('双栏编辑器真实 DOM 双向联动交互（#101）：浏览右侧同�
     AuthProvider,
     ToastProvider,
     writeEditorScrollSync,
+    saveLocalPost,
     App,
   } = await import(pathToFileURL(bundlePath).href)
 
@@ -2066,6 +2130,55 @@ test('双栏编辑器真实 DOM 双向联动交互（#101）：浏览右侧同�
       /\boverflow-hidden\b/,
       '左侧容器必须裁剪隐藏镜像层溢出高度，防止撑高整页 window 滚动条',
     )
+
+    // Issue #104：全屏编辑器里的 Ctrl+K 只能插入链接，不得再冒泡打开全站搜索。
+    const enterFullscreen = container.querySelector('button[title^="全屏编辑"]')
+    assert.ok(enterFullscreen, '应找到全屏编辑按钮')
+    enterFullscreen.click()
+    await new Promise((r) => setTimeout(r, 50))
+    assert.ok(ta.closest('.fixed.inset-0'), '编辑器应进入 fixed 全屏状态')
+    assert.equal(dom.window.document.body.style.overflow, 'hidden', '全屏时应锁定背景页面滚动')
+
+    ta.setSelectionRange(0, 0)
+    const editorModK = new dom.window.KeyboardEvent('keydown', {
+      key: 'k',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    ta.dispatchEvent(editorModK)
+    await new Promise((r) => setTimeout(r, 50))
+    assert.equal(editorModK.defaultPrevented, true)
+    assert.ok(ta.value.includes('[链接文字](https://)'), '编辑器 Ctrl+K 应插入带占位文字的 Markdown 链接')
+    assert.equal(container.querySelector('input[placeholder^="搜索文章标题"]'), null, '插入链接不得同时打开搜索框')
+    assert.ok(ta.closest('.fixed.inset-0'), '插入链接不应退出全屏')
+
+    // 从标题输入框主动打开搜索后，Esc 只能关闭最上层搜索框，不能连带退出全屏或解开背景滚动锁。
+    const titleInput = container.querySelector('input[placeholder="输入文章标题…"]')
+    titleInput.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+      key: 'k',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    }))
+    await new Promise((r) => setTimeout(r, 90))
+    const searchInput = container.querySelector('input[placeholder^="搜索文章标题"]')
+    assert.ok(searchInput, '标题输入框的 Ctrl+K 仍可打开全站搜索')
+    assert.equal(dom.window.document.body.style.overflow, 'hidden')
+    searchInput.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    }))
+    await new Promise((r) => setTimeout(r, 50))
+    assert.equal(container.querySelector('input[placeholder^="搜索文章标题"]'), null, 'Esc 应关闭搜索框')
+    assert.ok(ta.closest('.fixed.inset-0'), '关闭搜索框不应连带退出全屏编辑器')
+    assert.equal(dom.window.document.body.style.overflow, 'hidden', '关闭上层搜索后仍须保留全屏滚动锁')
+
+    container.querySelector('button[title^="退出全屏"]').click()
+    await new Promise((r) => setTimeout(r, 50))
+    assert.equal(ta.closest('.fixed.inset-0'), null)
+    assert.equal(dom.window.document.body.style.overflow, '', '退出最后一层全屏后应恢复原始 overflow')
 
     // 写入测试 Markdown 正文
     const nativeTaSetter = Object.getOwnPropertyDescriptor(
@@ -2273,6 +2386,74 @@ test('双栏编辑器真实 DOM 双向联动交互（#101）：浏览右侧同�
     pvTopVal = 600
     pv.dispatchEvent(new dom.window.Event('scroll'))
     assert.equal(taScrollWrites, 1, '重新开启同步滚动开关后浏览右侧应立即恢复同步')
+
+    // Issue #106：切到首页，用滚动哨兵回调模拟读者接近列表底部。
+    // esbuild 不展开 Vite 的 import.meta.glob，因此在这个 DOM harness 中预置公开本地文章。
+    for (let i = 1; i <= 14; i += 1) {
+      saveLocalPost({
+        slug: `infinite-scroll-${i}`,
+        title: `自动加载测试文章 ${i}`,
+        date: `2026-10-${String(i).padStart(2, '0')}`,
+        summary: `第 ${i} 篇首页自动加载测试文章`,
+        tags: ['测试'],
+        draft: false,
+        content: `这是第 ${i} 篇测试文章的正文。`,
+      })
+    }
+    reactRoot.render(
+      React.createElement(
+        MemoryRouter,
+        { key: 'home-infinite-scroll', initialEntries: ['/'] },
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(
+            AuthProvider,
+            null,
+            React.createElement(
+              FontProvider,
+              null,
+              React.createElement(
+                BackgroundProvider,
+                null,
+                React.createElement(ToastProvider, null, React.createElement(App)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    )
+    await new Promise((r) => setTimeout(r, 140))
+    const firstPageCards = container.querySelectorAll('article').length
+    assert.equal(firstPageCards, 6, '首页首屏仍应按 postsPerPage 渲染 6 篇')
+    let sentinel = container.querySelector('[data-load-more-sentinel]')
+    assert.ok(sentinel, '文章多于一页时应挂载自动加载哨兵')
+    assert.ok(sentinel.querySelector('button'), '不支持观察器时仍保留手动加载按钮')
+
+    const observerFor = (node) => intersectionObservers
+      .filter((item) => item.target === node && !item.disconnected)
+      .at(-1)
+    const firstObserver = observerFor(sentinel)
+    assert.ok(firstObserver, '首页应通过 IntersectionObserver 监听列表末尾')
+    assert.equal(firstObserver.options.rootMargin, '360px 0px', '应提前一小屏加载而不是严格触底')
+    firstObserver.trigger(true)
+    await new Promise((r) => setTimeout(r, 60))
+    assert.ok(
+      container.querySelectorAll('article').length > firstPageCards,
+      '哨兵进入视口后应无需点击就追加下一页文章',
+    )
+
+    // 若加载后哨兵仍在视口内，page 依赖会重建观察器并继续补齐，直到全部文章出现。
+    for (let guard = 0; guard < 8 && sentinel; guard += 1) {
+      sentinel = container.querySelector('[data-load-more-sentinel]')
+      if (!sentinel) break
+      const observer = observerFor(sentinel)
+      assert.ok(observer, '每次分页后都应重新观察哨兵')
+      observer.trigger(true)
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    assert.equal(container.querySelector('[data-load-more-sentinel]'), null, '全部加载后应移除哨兵')
+    assert.match(container.textContent, /已加载全部 \d+ 篇文章/)
   } finally {
     writeEditorScrollSync(true)
     reactRoot.unmount()

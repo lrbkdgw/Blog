@@ -12,7 +12,8 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 
 | | |
 | --- | --- |
-| 📝 **在线编辑** | 分栏实时预览、工具栏、快捷键、LaTeX 符号选择框（Shift + ↑，按别名搜索）、滚动同步、自动保存草稿 |
+| 📝 **在线编辑** | 分栏实时预览、工具栏、快捷键、LaTeX 符号选择框（Shift + ↑，按别名搜索）、滚动同步、自动保存草稿、无快捷键与滚动锁冲突的全屏编辑 |
+| 🏠 **首页自动加载** | 每页先显示 6 篇，向下滑动接近列表末尾时提前自动追加；仍保留手动按钮作为旧浏览器回退 |
 | 🧮 **KaTeX 公式** | 行内 `$…$` 与独立 `$$…$$`，支持 `aligned`、矩阵、分段函数 |
 | 🎨 **配色主题** | 10 套主题（星野蓝 / 深海青 / 极光紫 / 樱花粉 / 落日橙 / 森野绿 / 绯红 / 鎏金 / 赛博霓虹 / 墨白）+ 浅色 / 深色 / **跟随系统**，页头色卡一键换肤，全站配色与动态背景一起变 |
 | 🌌 **动态背景** | 樱花 / 粒子星链 / 雪花 / 暴雨 / 竹林 五种场景，**各自适配深色与浅色**（白昼 / 夜樱、浅色星图 / 暗夜、雪日 / 雪夜、阴雨白昼 / 雨夜、晨光 / 月夜竹林）：飘落花瓣与散景、主题色光点与连线、鼠标吸引与数据脉冲…暴雨是雨云下的山湖（三层混合林、分带倒影、晶莹折射水珠与近景散景水珠、中央阅读净空区及雷光），每种 5 项参数可调，星链颜色跟随配色主题 |
@@ -23,7 +24,7 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 🏷️ **标签 / 归档** | 标签云、按年归档、置顶、草稿、阅读时长、自动目录 |
 | 🧰 **百宝箱 · 回声洞** | 顶栏内置「百宝箱」页签；「回声洞」独占全屏、无多余按键、完整沿用用户所选配色/渐变/动态背景，点击屏幕时上一句先以真实字形像素化灰随风消散下场、再逐字浮现来自 GitHub Discussions 与 hitokoto 的不重复下一句，底部仅设一条独立横线与箭头发送按钮（每小时识别前 3 条 / 每天前 10 条，仓库贡献者不受限制） |
 | 🖼️ **图片上传** | 图片先暂存本地待更新队列，统一更新时提交到仓库 `public/uploads/` 并插入链接 |
-| 🕓 **历史版本** | 每次发布均保留 Git 提交版本；可浏览、查看、继续编辑、**自定义版本名称**（随待更新队列保存到 GitHub 对应文章下），并对比任意两个版本的**源码差异或较新版本的渲染差异**（新增 / 删除着色） |
+| 🕓 **历史版本** | 每次发布均保留 Git 提交版本；可浏览、查看、继续编辑、**自定义版本名称**（随待更新队列保存到 GitHub 对应文章下），并对比任意两个版本的**源码差异或较新版本的渲染差异**；渲染页采用纸张式正文、分块色条与新增 / 删除文字标签 |
 | 🔒 **密码文章** | 标题与标签公开，正文与其他信息由浏览器 Web Crypto 加密；本设备成功解锁一次后可自动恢复 |
 | 🎛️ **交互展示框** | Markdown 中可声明整数、有理数、字符串变量，实时计算并渲染展示内容 |
 | 🧩 **表单交互与条件映射** | 支持选择框 `ui-choose`、行内下拉框 `ui-select`（支持 `search`）、是否框 `ui-if`（支持 `lined` 划线动画）、填空/滑块输入框 `ui-write`（支持 `merge` 同行并列），以及 `<<id>>` / `<id>` 最高优先级值替换、`<IF:<a>,<b>>` 与 `::IF[<a>]…::IF_END` KaTeX 条件渲染（issue #82） |
@@ -486,7 +487,7 @@ $\texttt{吃}$！
 
 每次通过编辑器发布文章都会创建一个 Git commit，因此无需额外数据库即可保存完整历史。文章页“历史”按钮会列出该 Markdown 文件的每次提交，并可为任一版本**修改版本名称**（优先于提交信息显示，即更新该 Git 记录展示的名字）。修改名称会**加入待更新队列**，统一更新后保存到 GitHub 对应文章旁的 `content/posts/{slug}.versions.json`，构建后所有访客可见；未更新前名称先记录在本浏览器立即生效。同一文章的多次改名合并为一条队列条目，恢复默认（留空保存）会删除对应名称，删除文章时该名称文件也会一并清理。查看某个历史版本后点“编辑”时，若现有文章（含内容）完全一致就进入对应编辑页，否则会新建一份已填充该历史内容的本地草稿。
 
-历史面板中的“**版本对比**”可任选原始版本与新版本，在**源码对比**（逐行高亮新增与删除，支持交换方向、只看差异附近内容）与**渲染对比**（只显示较新版本，新增内容标绿、被删除的旧内容标红；渲染以 Markdown 块为单位，不会截断代码围栏或列表）之间切换。
+历史面板中的“**版本对比**”可任选原始版本与新版本，在**源码对比**（逐行高亮新增与删除，支持交换方向、只看差异附近内容）与**渲染对比**之间切换。渲染对比仍只显示较新版本，以 Markdown 块为单位，不会截断代码围栏或列表；未修改内容保持纸张式正文排版，新增 / 删除块使用独立的轻柔底色、左侧色条、图标与文字标签，页首显示目标版本及变更块统计。若只有 frontmatter 改变，会明确提示“正文渲染完全一致”，不再把文章信息差异误算成正文变化。
 
 拥有目标仓库直接推送权限的管理员可在编辑器“文章信息”中勾选“发布为带密码的加密文章”。文章标题与标签会保留在公开 frontmatter 中（标签不加密，标签云与标签页照常可用），正文和其余文章信息会在浏览器内用 **PBKDF2-SHA-256 + AES-256-GCM** 加密后再加入待更新队列（队列里保存的即是密文，密码不会写入队列）。密码不会写入 GitHub、浏览器存储或 URL；成功解锁后，浏览器仅在 IndexedDB 中保存不可导出的 `CryptoKey`，同一设备再次查看或编辑可自动解锁。可在设置页随时清除已记住的解锁状态。请仍自行妥善保管密码：忘记密码且清除站点数据后无法恢复文章内容。
 
@@ -503,7 +504,7 @@ $\texttt{吃}$！
 | <kbd>Shift</kbd> + <kbd>↑</kbd> | 打开 **LaTeX 符号选择框**：按命令或别名搜索（「正负」→ `\pm`、「异或」→ `\oplus`），方向键选择、Enter 插入到光标处，插入后光标落在第一个空参数内；插入过程不会把页面拽到文末（先恢复光标再以 `preventScroll` 聚焦，见 `src/lib/caret.ts`，issue #70）；最近用过的符号会记住（评论输入框同样支持，符号目录 `src/lib/latexSymbols.ts`，与 VS Code 插件共用） |
 | <kbd>Enter</kbd> | 列表内自动续行（空项自动结束列表） |
 
-全站快捷键：<kbd>⌘</kbd>+<kbd>K</kbd> 或 <kbd>/</kbd> 打开搜索。
+全站快捷键：<kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>K</kbd> 或 <kbd>/</kbd> 打开搜索；在编辑正文时该组合键优先执行“插入链接”，不会同时弹出搜索。全屏编辑、搜索框与 LaTeX 选择框使用可嵌套滚动锁；在最上层搜索框按 <kbd>Esc</kbd> 只关闭搜索，不会连带退出全屏。
 
 ---
 
@@ -512,7 +513,7 @@ $\texttt{吃}$！
 ```
 .
 ├── .github/workflows/deploy.yml   # GitHub Pages 自动部署（路线 B）
-├── .github/workflows/offline.yml  # 离线单文件版构建（自检后提交到 offline/，并发布 Rolling Release）
+├── .github/workflows/offline.yml  # main 更新后构建、自检并刷新 Release（不推送 Git ref）
 ├── offline/index.html             # 离线单文件版产物（自动生成，请勿手工编辑，见 offline/README.md）
 ├── vite.offline.config.ts         # 离线构建配置（内联一切，`__STARLOG_OFFLINE__ = true`）
 ├── scripts/vite-plugin-single-html.mjs  # 单文件内联插件（含构建期硬校验）
@@ -531,9 +532,11 @@ $\texttt{吃}$！
 │   │   ├── GraphPlane.tsx         # 可交互图论画布与编辑器「调整模式」（::begin_ui-graph）
 │   │   ├── UiWidgets.tsx          # 选择框 / 下拉框 / 是否框 / 填空框交互组件
 │   │   ├── LatexPicker.tsx        # LaTeX 符号选择框（Shift + ↑）
+│   │   ├── RenderedDiff.tsx       # 历史版本的单栏纸张式渲染差异视图
 │   │   └── ThemePicker.tsx        # 页头配色主题色卡
 │   ├── lib/                       # 配置、文章解析、认证、GitHub API、待更新队列、主题
 │   │   ├── headerYield.ts         # 全站顶栏防冲突渐变遮罩引擎
+│   │   ├── bodyScrollLock.ts      # 全屏与模态框共用的可嵌套背景滚动锁
 │   │   ├── uiCcs.ts               # 直角坐标系语法解析、数学表达式求值与曲线裁剪
 │   │   ├── uiGraph.ts             # 图论画布解析、自动布局、几何裁剪与源码点位回写
 │   │   ├── uiWidgets.ts           # 表单交互控件解析、控件值映射与 KaTeX 条件求值
@@ -561,14 +564,27 @@ $\texttt{吃}$！
 整个博客可以打包成**一个 HTML 文件**：拷进 U 盘、发给自己、双击打开即可阅读与写作。
 离线版按设计**不发起任何网络请求**——没有在线登录，没有云端字体，不加载远程图片，也不直接改仓库。
 
-- 产物由 [`.github/workflows/offline.yml`](.github/workflows/offline.yml) 自动构建，提交在仓库的
-  [`offline/index.html`](offline/index.html)，并挂在 Releases 的滚动 tag `offline`（`starlog-offline-latest.html`）；
-  线上站点也会把它放在 `<站点地址>/offline/index.html` 供直接下载；
+- **每次推送 `main` 都会触发** [`.github/workflows/offline.yml`](.github/workflows/offline.yml) 构建与自检，
+  并直接刷新固定 tag `offline` 下 Rolling Release 的资产 `starlog-offline-latest.html`；
+  发布过程只读取本次构建产物，不推送 `main`、不移动 tag，兼容分支保护；
 - 本地构建：`npm run build:offline`（= `vite build --config vite.offline.config.ts` + 产物自检），
   想用浏览器先验证：`npm run preview:offline`；
 - 自检是**硬性**的：多余文件、残留相对引用、KaTeX 字体缺失、某篇文章没进包、内联脚本语法被破坏，
   以及——`api.github.com` / `/graphql` / `login/device/code` / `fonts.googleapis.com` / OAuth Client ID
   任一字符串出现在产物里——都会让构建直接失败。也就是说「离线版不联网」不是承诺，是可检查的事实。
+
+### `main` 更新后如何自动发布 Release
+
+工作流已经配置好，正常推送后无需手工操作：
+
+1. `on.push.branches: [main]` 不设路径过滤，文章、源码、配置或文档更新都会运行；也可在 Actions 页选择“构建离线单文件版”并从 `main` 手动运行（功能分支不能覆盖 Release）。
+2. Actions 使用 Node 20 执行 `npm ci`、TypeScript 类型检查、离线构建和 `verify-offline.mjs` 自检；任一步失败都不会发布。
+3. Release 直接读取本次运行生成的 `dist-offline/index.html`，**不执行 `git commit` / `git push`，也不移动 `offline` tag**。因此锁定 `main`、要求 PR 审查或禁止强推都不会阻断发布。
+4. 固定 tag `offline` 只是稳定下载入口，`starlog-offline-latest.html` 通过 `--clobber` 覆盖上传。下载地址保持不变：
+   `https://github.com/lrbkdgw/Blog/releases/download/offline/starlog-offline-latest.html`。
+5. Release 标题包含本次 `main` 的提交短 SHA，说明中记录完整提交、Actions 日志和 HTML 的 SHA-256，以这些内容而非固定 tag 的位置追溯版本；同一次运行的构建产物还会作为 Actions Artifact 保留 30 天。
+
+工作流使用 GitHub 自动提供的 `GITHUB_TOKEN` 创建 / 编辑 Release 和上传资产，不需要创建或保存 Personal Access Token，也不需要 `main` 的分支推送权限。仓库仍需在 **Settings → Actions → General → Workflow permissions** 允许 **Read and write permissions**（这里的 `contents: write` 只用于 Release，不用于推送分支或 tag）。滚动 Release 始终提供最新版；较早的运行产物可在保留期内从对应 Actions Artifact 获取。
 
 ### 支持范围
 

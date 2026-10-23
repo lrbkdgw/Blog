@@ -414,6 +414,9 @@ export function Layout() {
   useEffect(() => {
     if (isFullscreen) return
     const onKey = (e: KeyboardEvent) => {
+      // 编辑器、对话框等局部快捷键已经处理过的事件不再触发全站搜索。
+      // 例如编辑器里的 ⌘/Ctrl+K 是插入链接，不能同时打开搜索浮层。
+      if (e.defaultPrevented || e.isComposing) return
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setSearchOpen((v) => !v)

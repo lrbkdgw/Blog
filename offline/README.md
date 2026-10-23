@@ -4,11 +4,13 @@
 不需要服务器、不需要联网（同步功能除外）。
 
 > ⚠️ **不要手工编辑 `index.html`，也不要在这里加别的文件。**
-> 它由 `.github/workflows/offline.yml` 在每次相关改动后覆盖提交；手工改的内容会在下一次构建时消失。
+> 最新离线单文件版由 `.github/workflows/offline.yml` 在每次 `main` 更新后重新构建并发布到 Releases；
+> 发布过程不提交或推送 `main`，也不移动固定 tag，因此兼容分支保护 / ruleset。
 
 ## 下载 / 使用
 
-- 从这个仓库的 Releases（tag `offline`）下载 `starlog-offline-latest.html`；
+- 从这个仓库的 Releases（滚动 tag `offline`）下载 `starlog-offline-latest.html`；固定直链为
+  `https://github.com/lrbkdgw/Blog/releases/download/offline/starlog-offline-latest.html`，每次 `main` 更新后都会指向新构建；
 - 或访问线上站点的 `<站点地址>/offline/index.html` 直接下载；
 - 或把本目录的 `index.html` 拷到本地（U 盘、网盘、邮件附件都行）。
 

@@ -1,4 +1,4 @@
-星野笔记 · 离线单文件版（自动构建，main 分支每次相关改动都会刷新这里）。
+星野笔记 · 离线单文件版（自动构建，main 分支每次更新都会刷新这里，包括只改了文档或配置的提交）。
 
 ## 怎么用
 
@@ -54,4 +54,4 @@
 
 ## 这是自动产物
 
-由 `.github/workflows/offline.yml` 生成并覆盖，**不要手工编辑**；仓库里的对应副本在 `offline/index.html`。
+由 `.github/workflows/offline.yml` 从每次 `main` 提交构建并覆盖上传到 Releases；发布过程不推送 `main`、不移动固定 tag。
