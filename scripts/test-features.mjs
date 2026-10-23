@@ -1585,4 +1585,704 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
   }
 })
 
+test('双栏编辑器滚动同步引擎（#101）：全层级源码行区间标注、闭合/展开折叠框与双向严格互逆映射', async () => {
+  const harnessEntry = join(root, 'node_modules/.cache/scroll-sync-unit-harness.tsx')
+  const { mkdirSync, writeFileSync } = await import('node:fs')
+  mkdirSync(dirname(harnessEntry), { recursive: true })
+  writeFileSync(
+    harnessEntry,
+    `
+      import React from 'react'
+      import { renderToStaticMarkup } from 'react-dom/server'
+      import { Markdown } from '../../src/components/Markdown'
+      import { parseFrontmatter } from '../../src/lib/frontmatter'
+      import {
+        collectScrollSyncAnchors,
+        createBidirectionalScrollMapper,
+        isHiddenInsideClosedDetails,
+        rebuildTextareaLineMirror,
+      } from '../../src/lib/scrollSync'
+      export {
+        React,
+        renderToStaticMarkup,
+        Markdown,
+        parseFrontmatter,
+        collectScrollSyncAnchors,
+        createBidirectionalScrollMapper,
+        isHiddenInsideClosedDetails,
+        rebuildTextareaLineMirror,
+      }
+    `,
+    'utf8',
+  )
+
+  const bundled = await build({
+    entryPoints: [harnessEntry],
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    loader: {
+      '.jpg': 'dataurl',
+      '.png': 'dataurl',
+      '.svg': 'dataurl',
+      '.md': 'text',
+    },
+    define: {
+      'process.env.NODE_ENV': '"production"',
+      __STARLOG_OFFLINE__: 'false',
+    },
+  })
+  const { pathToFileURL } = await import('node:url')
+  const bundlePath = join(dirname(harnessEntry), 'scroll-sync-unit-bundle.mjs')
+  writeFileSync(bundlePath, bundled.outputFiles[0].text, 'utf8')
+
+  class LightMessageChannel {
+    constructor() {
+      const p1 = { onmessage: null, close() {} }
+      const p2 = {
+        onmessage: null,
+        postMessage(data) {
+          setTimeout(() => p1.onmessage?.({ data }), 0)
+        },
+        close() {},
+      }
+      p1.postMessage = (data) => {
+        setTimeout(() => p2.onmessage?.({ data }), 0)
+      }
+      this.port1 = p1
+      this.port2 = p2
+    }
+  }
+
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+    url: 'https://blog-apa.pages.dev/',
+    pretendToBeVisual: true,
+  })
+  const prevGlobals = {
+    window: globalThis.window,
+    document: globalThis.document,
+    DOMParser: globalThis.DOMParser,
+    HTMLElement: globalThis.HTMLElement,
+    MessageChannel: globalThis.MessageChannel,
+  }
+  globalThis.window = dom.window
+  globalThis.document = dom.window.document
+  globalThis.DOMParser = dom.window.DOMParser
+  globalThis.HTMLElement = dom.window.HTMLElement
+  globalThis.MessageChannel = LightMessageChannel
+
+  try {
+    const {
+      React,
+      renderToStaticMarkup,
+      Markdown,
+      parseFrontmatter,
+      createBidirectionalScrollMapper,
+      isHiddenInsideClosedDetails,
+    } = await import(pathToFileURL(bundlePath).href)
+
+    // 1) 验证所有自定义块级指令与嵌套容器都输出精确的首尾源行号 [data-source-line .. data-source-line-end]
+    const allSyntaxMd = [
+      '## 顶部标题',                         // L1
+      '',                                    // L2
+      ':::warning[闭合的 6 行折叠框]',       // L3
+      '隐藏段一',                             // L4
+      '',                                    // L5
+      '隐藏段二',                             // L6
+      ':::',                                 // L7
+      '',                                    // L8
+      ':::info[展开的折叠框]{open}',         // L9
+      '展开段一',                             // L10
+      '',                                    // L11
+      '- 框内列表项 A',                       // L12
+      '  - 嵌套子项 A1',                      // L13
+      '',                                    // L14
+      '```cpp',                              // L15
+      'int x = 1;',                          // L16
+      'int y = 2;',                          // L17
+      '```',                                 // L18
+      ':::',                                 // L19
+      '',                                    // L20
+      '::show_begin{演示}{n:Z=2[1,5,1]}',    // L21
+      '当前 *&show(n)*&',                     // L22
+      '::show_end',                          // L23
+      '',                                    // L24
+      '::begin_ui-ccs',                      // L25
+      'create_point:(0,0);',                 // L26
+      'create_line:(x^2);',                  // L27
+      '::end_ui-ccs',                        // L28
+      '',                                    // L29
+      '::begin_ui-graph[dag]',               // L30
+      '3',                                   // L31
+      '1 2 5',                               // L32
+      '::end_ui-graph',                      // L33
+    ].join('\n')
+
+    const renderedHtml = renderToStaticMarkup(
+      React.createElement(Markdown, { content: allSyntaxMd, sourceLineMarkers: true }),
+    )
+    const host = dom.window.document.createElement('div')
+    host.innerHTML = renderedHtml
+
+    const closedDetails = host.querySelector('details.callout-warning')
+    assert.ok(closedDetails && !closedDetails.open, '闭合折叠框应处于未展开状态')
+    assert.equal(closedDetails.dataset.sourceLine, '3', '闭合折叠框起始行应为 3')
+    assert.equal(closedDetails.dataset.sourceLineEnd, '7', '闭合折叠框结束行应精确覆盖闭合 ::: 第 7 行')
+    for (const inner of closedDetails.querySelectorAll('[data-source-line]')) {
+      assert.equal(isHiddenInsideClosedDetails(inner, host), true, '闭合折叠框内部节点应识别为隐藏态')
+    }
+
+    const openDetails = host.querySelector('details.callout-info')
+    assert.ok(openDetails && openDetails.open, '展开折叠框应处于 open 状态')
+    const innerCode = openDetails.querySelector('div.group.relative')
+    assert.equal(innerCode?.dataset.sourceLine, '15', '展开折叠框内代码块起始行应为 15')
+    assert.equal(innerCode?.dataset.sourceLineEnd, '18', '展开折叠框内代码块结束行应为 18')
+
+    const showBox = host.querySelector('.show-box')
+    assert.equal(showBox?.dataset.sourceLine, '21')
+    assert.equal(showBox?.dataset.sourceLineEnd, '23')
+
+    const ccsBox = host.querySelector('.ui-ccs-box:not(.ui-graph-box)')
+    assert.equal(ccsBox?.dataset.sourceLine, '25')
+    assert.equal(ccsBox?.dataset.sourceLineEnd, '28')
+
+    const graphBox = host.querySelector('.ui-graph-box')
+    assert.equal(graphBox?.dataset.sourceLine, '30')
+    assert.equal(graphBox?.dataset.sourceLineEnd, '33')
+
+    // 2) 验证真实长文（含大量展开折叠框与 12 个闭合题解折叠框）不再丢失锚点
+    for (const [postFile, minExpectedBlocks, minMaxLine] of [
+      ['oi-dp-skill-1.md', 60, 215],
+      ['smsky-2026冬令营-problem_set.md', 15, 530],
+      ['hoyoverser-skill-guess.md', 70, 150],
+    ]) {
+      const { content } = parseFrontmatter(readFileSync(join(root, 'content/posts', postFile), 'utf8'))
+      const postHost = dom.window.document.createElement('div')
+      postHost.innerHTML = renderToStaticMarkup(
+        React.createElement(Markdown, { content, sourceLineMarkers: true }),
+      )
+      const visibleBlocks = [...postHost.querySelectorAll('[data-source-line]')].filter(
+        (el) => el.tagName !== 'SPAN' && !isHiddenInsideClosedDetails(el, postHost),
+      )
+      const visibleSet = new Set(visibleBlocks)
+      const activeLeaves = visibleBlocks.filter((el) => {
+        if (el.tagName === 'DETAILS' && !el.open) return true
+        for (const d of el.querySelectorAll('[data-source-line]')) {
+          if (visibleSet.has(d)) return false
+        }
+        return true
+      })
+      const maxCoveredLine = Math.max(...activeLeaves.map((e) => Number(e.dataset.sourceLineEnd)))
+      assert.ok(
+        activeLeaves.length >= minExpectedBlocks,
+        `${postFile} 应提取至少 ${minExpectedBlocks} 个有效叶级锚点块，实际 ${activeLeaves.length}`,
+      )
+      assert.ok(
+        maxCoveredLine >= minMaxLine,
+        `${postFile} 锚点应覆盖至文章末尾（>= ${minMaxLine} 行），实际 ${maxCoveredLine}`,
+      )
+    }
+
+    // 3) 验证极端非对称高度下的双向映射精度与严格可逆性（含短编辑区 + 多大图长预览区）
+    const asymmetricAnchors = [
+      { ta: 0, pv: 0 },
+      { ta: 120, pv: 520 },
+      { ta: 260, pv: 1180 },
+      { ta: 420, pv: 1320 },
+      { ta: 620, pv: 2150 },
+      { ta: 760, pv: 2600 },
+    ]
+    const shortEditorMapper = createBidirectionalScrollMapper(asymmetricAnchors, {
+      taScrollHeight: 760,
+      taClientHeight: 600, // maxTa = 160（过去 filter(a.ta < maxTa) 会删掉 5/6 篇文章锚点！）
+      pvScrollHeight: 2600,
+      pvClientHeight: 600, // maxPv = 2000
+    })
+    assert.equal(shortEditorMapper.editorToPreview(0), 0, '顶部必须严格 0 <-> 0 对齐')
+    assert.equal(shortEditorMapper.editorToPreview(160), 2000, '底部必须严格 maxTa <-> maxPv 对齐')
+    assert.equal(shortEditorMapper.previewToEditor(0), 0, '反向顶部必须严格 0 <-> 0 对齐')
+    assert.equal(shortEditorMapper.previewToEditor(2000), 160, '反向底部必须严格 maxPv <-> maxTa 对齐')
+
+    // 中点视线对齐检验：r = 0.5（taScrollTop = 80 -> 视口中线 y_E = 380），对应预览焦点 y_P ≈ 1285 -> pvScrollTop ≈ 985（绝不提前飞到底部 2000！）
+    const midPv = shortEditorMapper.editorToPreview(80)
+    assert.ok(
+      Math.abs(midPv - 985) < 5,
+      `短编辑区滚至中点时右侧预览应对齐视口中心内容（约 985px），而非提前冲到底部，实际 ${midPv}`,
+    )
+
+    // 全区间 400 个采样点验证严格单调递增与正逆往返误差 < 0.05px
+    let prevMappedPv = -1
+    for (let step = 0; step <= 400; step++) {
+      const sTa = (step / 400) * 160
+      const sPv = shortEditorMapper.editorToPreview(sTa)
+      assert.ok(sPv >= prevMappedPv - 1e-6, `正向映射必须严格单调不减：step=${step}`)
+      prevMappedPv = sPv
+      const roundTripTa = shortEditorMapper.previewToEditor(sPv)
+      assert.ok(
+        Math.abs(roundTripTa - sTa) < 0.05,
+        `双向滚动映射必须严格互逆（误差 < 0.05px）：输入 ${sTa} -> 预览 ${sPv} -> 反推 ${roundTripTa}`,
+      )
+    }
+  } finally {
+    dom.window.close()
+    Object.assign(globalThis, prevGlobals)
+  }
+})
+
+test('双栏编辑器真实 DOM 双向联动交互（#101）：浏览右侧同步左侧、折叠框开合重对齐、防死循环与开关控制', async () => {
+  const harnessEntry = join(root, 'node_modules/.cache/editor-scroll-dom-harness.tsx')
+  const { mkdirSync, writeFileSync } = await import('node:fs')
+  mkdirSync(dirname(harnessEntry), { recursive: true })
+  writeFileSync(
+    harnessEntry,
+    `
+      import React from 'react'
+      import { createRoot } from 'react-dom/client'
+      import { MemoryRouter } from 'react-router-dom'
+      import { ThemeProvider } from '../../src/lib/theme'
+      import { FontProvider } from '../../src/lib/font'
+      import { BackgroundProvider } from '../../src/lib/background'
+      import { AuthProvider } from '../../src/lib/auth'
+      import { ToastProvider } from '../../src/components/Toast'
+      import { writeEditorScrollSync } from '../../src/lib/editorSettings'
+      import { STORAGE_KEYS } from '../../src/lib/config'
+      import App from '../../src/App'
+      export {
+        React,
+        createRoot,
+        MemoryRouter,
+        ThemeProvider,
+        FontProvider,
+        BackgroundProvider,
+        AuthProvider,
+        ToastProvider,
+        writeEditorScrollSync,
+        STORAGE_KEYS,
+        App,
+      }
+    `,
+    'utf8',
+  )
+
+  const bundled = await build({
+    entryPoints: [harnessEntry],
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    plugins: [
+      {
+        name: 'vite-raw-md',
+        setup(b) {
+          b.onResolve({ filter: /\?raw$/ }, (args) => ({
+            path: join(root, args.path.replace(/^\//, '').replace(/\?raw$/, '')),
+          }))
+        },
+      },
+    ],
+    loader: {
+      '.jpg': 'dataurl',
+      '.png': 'dataurl',
+      '.svg': 'dataurl',
+      '.md': 'text',
+    },
+    define: {
+      'process.env.NODE_ENV': '"production"',
+      __STARLOG_OFFLINE__: 'true',
+    },
+  })
+  const { pathToFileURL } = await import('node:url')
+  const bundlePath = join(dirname(harnessEntry), 'editor-scroll-dom-bundle.mjs')
+  writeFileSync(bundlePath, bundled.outputFiles[0].text, 'utf8')
+
+  class LightMessageChannel10 {
+    constructor() {
+      const p1 = { onmessage: null, close() {} }
+      const p2 = {
+        onmessage: null,
+        postMessage(data) {
+          setTimeout(() => p1.onmessage?.({ data }), 0)
+        },
+        close() {},
+      }
+      p1.postMessage = (data) => {
+        setTimeout(() => p2.onmessage?.({ data }), 0)
+      }
+      this.port1 = p1
+      this.port2 = p2
+    }
+  }
+
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+    url: 'https://blog-apa.pages.dev/',
+    pretendToBeVisual: true,
+  })
+
+  const prevGlobals = {
+    window: globalThis.window,
+    document: globalThis.document,
+    localStorage: globalThis.localStorage,
+    sessionStorage: globalThis.sessionStorage,
+    HTMLElement: globalThis.HTMLElement,
+    SVGElement: globalThis.SVGElement,
+    Node: globalThis.Node,
+    MutationObserver: globalThis.MutationObserver,
+    ResizeObserver: globalThis.ResizeObserver,
+    matchMedia: globalThis.matchMedia,
+    requestAnimationFrame: globalThis.requestAnimationFrame,
+    cancelAnimationFrame: globalThis.cancelAnimationFrame,
+    fetch: globalThis.fetch,
+    DOMParser: globalThis.DOMParser,
+    CustomEvent: globalThis.CustomEvent,
+    Event: globalThis.Event,
+    MessageChannel: globalThis.MessageChannel,
+    BroadcastChannel: globalThis.BroadcastChannel,
+  }
+
+  dom.window.MessageChannel = LightMessageChannel10
+  dom.window.BroadcastChannel = undefined
+  globalThis.MessageChannel = LightMessageChannel10
+  globalThis.BroadcastChannel = undefined
+  globalThis.window = dom.window
+  globalThis.document = dom.window.document
+  globalThis.localStorage = dom.window.localStorage
+  globalThis.sessionStorage = dom.window.sessionStorage
+  globalThis.HTMLElement = dom.window.HTMLElement
+  globalThis.SVGElement = dom.window.SVGElement
+  globalThis.Node = dom.window.Node
+  globalThis.MutationObserver = dom.window.MutationObserver
+  globalThis.DOMParser = dom.window.DOMParser
+  globalThis.CustomEvent = dom.window.CustomEvent
+  globalThis.Event = dom.window.Event
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  dom.window.matchMedia = () => ({
+    matches: false,
+    addListener() {},
+    removeListener() {},
+    addEventListener() {},
+    removeEventListener() {},
+  })
+  globalThis.matchMedia = dom.window.matchMedia
+  const activeRafIds = new Set()
+  dom.window.requestAnimationFrame = (cb) => {
+    const id = setTimeout(() => {
+      activeRafIds.delete(id)
+      cb(performance.now())
+    }, 16)
+    activeRafIds.add(id)
+    return id
+  }
+  dom.window.cancelAnimationFrame = (id) => {
+    activeRafIds.delete(id)
+    clearTimeout(id)
+  }
+  globalThis.requestAnimationFrame = dom.window.requestAnimationFrame
+  globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame
+  dom.window.scrollTo = () => {}
+  dom.window.HTMLCanvasElement.prototype.getContext = () => null
+  globalThis.fetch = async () => new Response('{}', { status: 404 })
+
+  const {
+    React,
+    createRoot,
+    MemoryRouter,
+    ThemeProvider,
+    FontProvider,
+    BackgroundProvider,
+    AuthProvider,
+    ToastProvider,
+    writeEditorScrollSync,
+    App,
+  } = await import(pathToFileURL(bundlePath).href)
+
+  // 构造一篇含：40 段闭合折叠框 + 巨幅坐标系图 + 展开折叠框长题解 的真实测试文稿
+  const docLines = []
+  docLines.push('## 第一节：引言')
+  docLines.push('')
+  docLines.push(':::warning[题面与数据范围（闭合长折叠框）]')
+  for (let i = 1; i <= 20; i++) {
+    docLines.push(`题面描述第 ${i} 段`)
+    docLines.push('')
+  }
+  docLines.push(':::')
+  docLines.push('')
+  docLines.push('::begin_ui-ccs')
+  docLines.push('create_point:(0,0);')
+  docLines.push('create_line:(x^2-2);')
+  docLines.push('::end_ui-ccs')
+  docLines.push('')
+  docLines.push(':::success[详细推导与代码（展开态折叠框）]{open}')
+  for (let i = 1; i <= 30; i++) {
+    docLines.push(`推导步骤第 ${i} 段：利用单调队列维护凸包斜率优化。`)
+    docLines.push('')
+  }
+  docLines.push(':::')
+  const markdownDoc = docLines.join('\n')
+
+  writeEditorScrollSync(true)
+  const container = dom.window.document.getElementById('root')
+  const reactRoot = createRoot(container)
+
+  try {
+    reactRoot.render(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ['/editor'] },
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(
+            AuthProvider,
+            null,
+            React.createElement(
+              FontProvider,
+              null,
+              React.createElement(
+                BackgroundProvider,
+                null,
+                React.createElement(ToastProvider, null, React.createElement(App)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    )
+
+    await new Promise((r) => setTimeout(r, 120))
+
+    const ta = container.querySelector('textarea.editor-textarea')
+    const mirror = container.querySelector('div.editor-textarea[aria-hidden="true"]')
+    const pv = container.querySelector('[data-yield-ignore]')
+    assert.ok(ta && mirror && pv, '双栏编辑器应同时挂载 textarea、隐藏镜像层与右侧预览容器')
+    assert.match(
+      ta.parentElement.className,
+      /\boverflow-hidden\b/,
+      '左侧容器必须裁剪隐藏镜像层溢出高度，防止撑高整页 window 滚动条',
+    )
+
+    // 写入测试 Markdown 正文
+    const nativeTaSetter = Object.getOwnPropertyDescriptor(
+      dom.window.HTMLTextAreaElement.prototype,
+      'value',
+    ).set
+    nativeTaSetter.call(ta, markdownDoc)
+    ta.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 240))
+
+    // 为 JSDOM 赋予真实的浏览器盒模型排版尺寸（模拟真实 1080p 分栏：视口高 600px，左行高 24px，右块按真实高度堆叠）
+    const LINE_H = 24
+    const PAD = 20
+    const totalLines = markdownDoc.split('\n').length
+    const taScrollH = PAD * 2 + totalLines * LINE_H
+    Object.defineProperty(ta, 'clientWidth', { configurable: true, get: () => 560 })
+    Object.defineProperty(ta, 'clientHeight', { configurable: true, get: () => 600 })
+    Object.defineProperty(ta, 'scrollHeight', { configurable: true, get: () => taScrollH })
+    Object.defineProperty(mirror, 'scrollHeight', { configurable: true, get: () => taScrollH })
+
+    const installMirrorLineMetrics = () => {
+      for (const lineDiv of mirror.querySelectorAll('div[data-l]')) {
+        const lineNo = Number(lineDiv.dataset.l)
+        Object.defineProperty(lineDiv, 'offsetTop', {
+          configurable: true,
+          get: () => PAD + (lineNo - 1) * LINE_H,
+        })
+        Object.defineProperty(lineDiv, 'offsetHeight', {
+          configurable: true,
+          get: () => LINE_H,
+        })
+      }
+    }
+
+    // 动态计算右侧预览 DOM 每个块的真实流式纵向布局（闭合折叠框仅 46px 高；展开后内部每段各占高度；ui-ccs 画布占 420px）
+    let currentPvScrollH = 1200
+    const layoutPreviewDom = () => {
+      const prose = pv.querySelector('.prose')
+      let cursorY = PAD
+      const boxMap = new Map()
+      const layoutChildren = (parent) => {
+        for (const child of parent.children) {
+          if (child.tagName === 'DETAILS' && !child.open) {
+            const top = cursorY
+            const h = 46
+            boxMap.set(child, { top, height: h })
+            cursorY += h + 16
+            continue
+          }
+          const top = cursorY
+          if (child.classList.contains('ui-ccs-box')) {
+            const h = 420
+            boxMap.set(child, { top, height: h })
+            cursorY += h + 24
+            continue
+          }
+          if (child.children.length > 0 && (child.tagName === 'DETAILS' || child.classList.contains('callout-content'))) {
+            layoutChildren(child)
+            boxMap.set(child, { top, height: Math.max(28, cursorY - top) })
+            cursorY += 12
+            continue
+          }
+          const h = child.tagName === 'SUMMARY' ? 44 : 38
+          boxMap.set(child, { top, height: h })
+          cursorY += h + 14
+        }
+      }
+      if (prose) layoutChildren(prose)
+      currentPvScrollH = cursorY + PAD
+      pv.getBoundingClientRect = () => ({
+        top: 80,
+        bottom: 680,
+        left: 600,
+        right: 1160,
+        width: 560,
+        height: 600,
+        x: 600,
+        y: 80,
+        toJSON: () => ({}),
+      })
+      for (const [el, box] of boxMap.entries()) {
+        el.getBoundingClientRect = () => ({
+          top: 80 + box.top - pv.scrollTop,
+          bottom: 80 + box.top + box.height - pv.scrollTop,
+          left: 620,
+          right: 1140,
+          width: 520,
+          height: box.height,
+          x: 620,
+          y: 80 + box.top - pv.scrollTop,
+          toJSON: () => ({}),
+        })
+      }
+    }
+
+    Object.defineProperty(pv, 'clientHeight', { configurable: true, get: () => 600 })
+    Object.defineProperty(pv, 'scrollHeight', { configurable: true, get: () => currentPvScrollH })
+
+    // 拦截镜像 innerHTML 写入后立即挂载每行真实 offsetTop/offsetHeight
+    const origInnerHtmlDesc = Object.getOwnPropertyDescriptor(dom.window.Element.prototype, 'innerHTML')
+    Object.defineProperty(mirror, 'innerHTML', {
+      configurable: true,
+      get() {
+        return origInnerHtmlDesc.get.call(this)
+      },
+      set(v) {
+        origInnerHtmlDesc.set.call(this, v)
+        installMirrorLineMetrics()
+      },
+    })
+    installMirrorLineMetrics()
+    layoutPreviewDom()
+
+    // 追踪真实浏览器的异步 scroll 回声，验证绝无乒乓死循环！
+    let taScrollWrites = 0
+    let pvScrollWrites = 0
+    let taTopVal = 0
+    let pvTopVal = 0
+    Object.defineProperty(ta, 'scrollTop', {
+      configurable: true,
+      get: () => taTopVal,
+      set: (v) => {
+        taTopVal = v
+        taScrollWrites += 1
+      },
+    })
+    Object.defineProperty(pv, 'scrollTop', {
+      configurable: true,
+      get: () => pvTopVal,
+      set: (v) => {
+        pvTopVal = v
+        pvScrollWrites += 1
+      },
+    })
+
+    // 1) 左 -> 右：滚过 40 行闭合折叠框（Line 45 在左侧 y ≈ 1100，在右侧因折叠框闭合仅在 y ≈ 82）
+    taTopVal = 960
+    taScrollWrites = 0
+    pvScrollWrites = 0
+    ta.dispatchEvent(new dom.window.Event('scroll'))
+    assert.equal(pvScrollWrites, 1, '左侧滚动应精确写入右侧 scrollTop 一次')
+    // 模拟浏览器因 pv.scrollTop 被程序修改而异步派发回声 scroll 事件 -> 必须零回写 ta！
+    pv.dispatchEvent(new dom.window.Event('scroll'))
+    assert.equal(taScrollWrites, 0, '程序同步触发的预览回声 scroll 绝不应反向改写左侧编辑区（零乒乓抖动）')
+    assert.ok(
+      pvTopVal > 50 && pvTopVal < 500,
+      `经过 40 行闭合折叠框后右侧应精准停在折叠框下方坐标系处（而非按行数误滚至千余像素外），实际 pv.scrollTop=${pvTopVal}`,
+    )
+
+    // 2) 右 -> 左（Issue #101 核心需求 1：浏览右侧预览时左侧编辑区同步滚动！）
+    const maxPv = currentPvScrollH - 600
+    const maxTa = taScrollH - 600
+    pvTopVal = maxPv * 0.72
+    taScrollWrites = 0
+    pvScrollWrites = 0
+    pv.dispatchEvent(new dom.window.Event('wheel', { bubbles: true }))
+    pv.dispatchEvent(new dom.window.Event('scroll'))
+    assert.equal(taScrollWrites, 1, '浏览右侧预览时必须同步驱动左侧编辑区滚动')
+    // 模拟浏览器异步派发左侧 ta 的回声 scroll 事件 -> 必须零回写 pv！
+    ta.dispatchEvent(new dom.window.Event('scroll'))
+    assert.equal(pvScrollWrites, 0, '左侧回声 scroll 事件绝不应反向篡改右侧预览滚动位置')
+    const syncedTaAt72 = taTopVal
+    assert.ok(
+      syncedTaAt72 > maxTa * 0.55 && syncedTaAt72 < maxTa * 0.95,
+      `浏览右侧 72% 处展开题解时左侧编辑区应精确跟随至对应源码段落，实际 ta.scrollTop=${syncedTaAt72} / maxTa=${maxTa}`,
+    )
+
+    // 滚至右侧最底部 -> 左侧同步精准见底；滚回右侧最顶部 -> 左侧同步精准归零
+    pvTopVal = maxPv
+    pv.dispatchEvent(new dom.window.Event('scroll'))
+    assert.ok(Math.abs(taTopVal - maxTa) < 1, `右侧触底时左侧应精准触底：${taTopVal} vs ${maxTa}`)
+
+    pvTopVal = 0
+    pv.dispatchEvent(new dom.window.Event('scroll'))
+    assert.ok(Math.abs(taTopVal) < 1, `右侧回顶时左侧应精准归零：${taTopVal}`)
+
+    // 3) 动态展开 40 行闭合折叠框：触发 toggle 后锚点立即更新并重新对齐左侧源码位置
+    const closedCallout = pv.querySelector('details.callout-warning')
+    pvTopVal = 260
+    pv.dispatchEvent(new dom.window.Event('scroll'))
+    const taBeforeOpen = taTopVal
+    closedCallout.open = true
+    layoutPreviewDom()
+    closedCallout.dispatchEvent(new dom.window.Event('toggle'))
+    const taAfterOpen = taTopVal
+    assert.ok(
+      taAfterOpen < taBeforeOpen - 400,
+      `展开 40 行折叠框后同一预览位置对应折叠框内部前段源码（行号显著前移）：展开前 ${taBeforeOpen} vs 展开后 ${taAfterOpen}`,
+    )
+
+    // 4) 关闭「编辑器滚动同步」个人设置后，左右两侧各自独立滚动互不干扰；重新开启后立即恢复联动
+    writeEditorScrollSync(false)
+    await new Promise((r) => setTimeout(r, 30))
+    taScrollWrites = 0
+    pvScrollWrites = 0
+    pvTopVal = 500
+    pv.dispatchEvent(new dom.window.Event('scroll'))
+    assert.equal(taScrollWrites, 0, '关闭同步滚动开关后浏览右侧不应再改动左侧滚动条')
+    taTopVal = 400
+    ta.dispatchEvent(new dom.window.Event('scroll'))
+    assert.equal(pvScrollWrites, 0, '关闭同步滚动开关后滚动左侧不应再改动右侧滚动条')
+
+    writeEditorScrollSync(true)
+    await new Promise((r) => setTimeout(r, 30))
+    pvTopVal = 600
+    pv.dispatchEvent(new dom.window.Event('scroll'))
+    assert.equal(taScrollWrites, 1, '重新开启同步滚动开关后浏览右侧应立即恢复同步')
+  } finally {
+    writeEditorScrollSync(true)
+    reactRoot.unmount()
+    await new Promise((r) => setTimeout(r, 40))
+    for (const id of activeRafIds) clearTimeout(id)
+    activeRafIds.clear()
+    dom.window.close()
+    Object.assign(globalThis, prevGlobals)
+  }
+})
+
+
 

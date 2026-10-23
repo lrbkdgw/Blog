@@ -19,8 +19,10 @@ import {
 interface GraphPlaneProps {
   header: string
   source: string
-  /** 原始 Markdown 行号（双栏编辑器滚动同步锚点用）。 */
+  /** 原始 Markdown 起始行号（双栏编辑器滚动同步锚点用）。 */
   sourceLine?: number
+  /** 原始 Markdown 结束行号（双栏编辑器滚动同步锚点用）。 */
+  sourceEndLine?: number
   /**
    * 仅在站内文章编辑器中传入：支持开启「调整模式」，可视化拖拽调整节点位置并写回 Markdown 源码。
    * 传入 `null` 表示重置该图的自定义坐标并恢复自动布局。
@@ -32,7 +34,7 @@ function fmtSvg(n: number): string {
   return String(Number(n.toFixed(2)))
 }
 
-export function GraphPlane({ header, source, sourceLine, onCommitPositions }: GraphPlaneProps) {
+export function GraphPlane({ header, source, sourceLine, sourceEndLine, onCommitPositions }: GraphPlaneProps) {
   const clipId = useId().replace(/:/g, '_')
   const svgRef = useRef<SVGSVGElement>(null)
 
@@ -343,6 +345,7 @@ export function GraphPlane({ header, source, sourceLine, onCommitPositions }: Gr
     <section
       className="ui-graph-box ui-ccs-box not-prose relative my-6 overflow-hidden rounded-xl border border-ink-200 bg-white/95 shadow-sm dark:border-white/10 dark:bg-ink-950/70"
       data-source-line={sourceLine}
+      data-source-line-end={sourceEndLine}
     >
       {/* 仅在编辑器中提供极简「调整模式」悬浮胶囊 */}
       {onCommitPositions && (

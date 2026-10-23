@@ -21,11 +21,14 @@ export function CoordinatePlane({
   title,
   body,
   sourceLine,
+  sourceEndLine,
 }: {
   title?: string
   body: string
-  /** 原始 Markdown 行号（双栏编辑器滚动同步锚点用）。 */
+  /** 原始 Markdown 起始行号（双栏编辑器滚动同步锚点用）。 */
   sourceLine?: number
+  /** 原始 Markdown 结束行号（双栏编辑器滚动同步锚点用）。 */
+  sourceEndLine?: number
 }) {
   const parsed = useMemo(() => parseUiCcs(body), [body])
   const initialViewport = useMemo(
@@ -309,6 +312,7 @@ export function CoordinatePlane({
     <section
       className="ui-ccs-box not-prose my-6 overflow-hidden rounded-xl border border-ink-200 bg-white/95 shadow-sm dark:border-white/10 dark:bg-ink-950/70"
       data-source-line={sourceLine}
+      data-source-line-end={sourceEndLine}
     >
       <svg
         ref={svgRef}

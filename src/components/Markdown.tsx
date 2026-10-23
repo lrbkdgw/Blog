@@ -157,9 +157,11 @@ function languageOf(node: ReactNode): string {
 function CodeBlock({
   children,
   sourceLine,
+  sourceEndLine,
 }: {
   children?: ReactNode
   sourceLine?: number
+  sourceEndLine?: number
 }) {
   const [copied, setCopied] = useState(false)
   const lang = languageOf(children)
@@ -181,7 +183,11 @@ function CodeBlock({
   }
 
   return (
-    <div className="group relative my-6" data-source-line={sourceLine}>
+    <div
+      className="group relative my-6"
+      data-source-line={sourceLine}
+      data-source-line-end={sourceEndLine}
+    >
       <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-2">
         {lang && (
           <span className="rounded-md bg-ink-900/[.06] px-2 py-0.5 font-mono text-[11px] uppercase tracking-wide text-ink-500 dark:bg-white/10 dark:text-ink-400">
@@ -208,16 +214,23 @@ function Heading({
   level,
   id,
   sourceLine,
+  sourceEndLine,
   children,
 }: {
   level: 2 | 3 | 4
   id?: string
   sourceLine?: number
+  sourceEndLine?: number
   children?: ReactNode
 }) {
   const Tag = `h${level}` as 'h2' | 'h3' | 'h4'
   return (
-    <Tag id={id} data-source-line={sourceLine} className="group/heading relative">
+    <Tag
+      id={id}
+      data-source-line={sourceLine}
+      data-source-line-end={sourceEndLine}
+      className="group/heading relative"
+    >
       {children}
       {id && (
         <a
@@ -438,15 +451,31 @@ function rehypeMarkBlockMath() {
   }
 }
 
-/** 上层元素缺失 position 时从第一个有 position 的子元素回填（如 rehype-raw 生成的 details）。 */
+/** 上层元素缺失 position 时从有 position 的子元素回填首尾范围，并向上合并子元素的最大结束行（如 rehype-raw 生成的 details）。 */
 function rehypeInheritPositions() {
   return function inheritPositionsPlugin() {
     return (tree: RehypeNode) => {
       const walk = (node: RehypeNode) => {
         for (const child of node.children || []) walk(child)
-        if (node.type === 'element' && !node.position) {
-          const first = (node.children || []).find((child) => child.position)
-          if (first) node.position = first.position
+        if (node.type !== 'element') return
+        const positioned = (node.children || []).filter((child) => child.position?.start?.line)
+        if (positioned.length === 0) return
+        let maxEndLine = node.position?.end?.line ?? node.position?.start?.line ?? 0
+        for (const child of positioned) {
+          const childEnd = child.position?.end?.line ?? child.position?.start?.line ?? 0
+          if (childEnd > maxEndLine) maxEndLine = childEnd
+        }
+        if (!node.position) {
+          const first = positioned[0]
+          node.position = {
+            start: first.position!.start,
+            end: maxEndLine > 0 ? { line: maxEndLine } : first.position!.end ?? first.position!.start,
+          }
+        } else if (maxEndLine > (node.position.end?.line ?? node.position.start?.line ?? 0)) {
+          node.position = {
+            start: node.position.start,
+            end: { ...(node.position.end || {}), line: maxEndLine },
+          }
         }
       }
       walk(tree)
@@ -457,11 +486,17 @@ function rehypeInheritPositions() {
 export interface PreprocessedMarkdown {
   text: string
   /**
-   * lineMap[i] 为处理后第 i 行（0 基）对应的原始 Markdown 行号（0 基）。
+   * lineMap[i] 为处理后第 i 行（0 基）对应的原始 Markdown 起始行号（0 基）。
    * 指令（折叠框、Tuack 表格等）展开出的行都会映射回其指令行，
    * 供编辑器把渲染结果对齐回源文本行号。
    */
   lineMap: number[]
+  /**
+   * endLineMap[i] 为处理后第 i 行（0 基）对应的原始 Markdown 结束行号（0 基）。
+   * 多行指令（如 ::show_begin、::begin_ui-ccs、::begin_ui-graph 等）压缩为单行 HTML 时，
+   * 记录其闭合指令所在源行号，使双栏同步能精确对齐整个块的起止高度。
+   */
+  endLineMap: number[]
   /** 文首文章排版指令（issue #59：::set-font / ::set-code-font / ::set-background）。 */
   directives: ArticleDirectives
 }
@@ -518,7 +553,7 @@ export function preprocessMarkdownDetailed(
     uiLookup?: { exact: Map<string, string>; lower: Map<string, string> }
   } = {},
 ): PreprocessedMarkdown {
-  if (!md) return { text: '', lineMap: [], directives: EMPTY_ARTICLE_DIRECTIVES }
+  if (!md) return { text: '', lineMap: [], endLineMap: [], directives: EMPTY_ARTICLE_DIRECTIVES }
   const lines = md.split('\n')
   // 文章排版指令只认文首（见 articleDirectives.ts）：先整段扫描出要移除的指令行，
   // 代码围栏、正文之后的同形文字都不会被当成指令。评论、展示框片段等非文章
@@ -540,6 +575,7 @@ export function preprocessMarkdownDetailed(
 
   const result: string[] = []
   const lineMap: number[] = []
+  const endLineMap: number[] = []
   const stack: { colonsCount: number; type: string }[] = []
   const ifStack: boolean[] = []
   let inCodeFence = false
@@ -547,9 +583,10 @@ export function preprocessMarkdownDetailed(
 
   const isIfActive = () => ifStack.every(Boolean)
 
-  const push = (line: string, sourceLine: number) => {
+  const push = (line: string, sourceLine: number, sourceEndLine: number = sourceLine) => {
     result.push(line)
     lineMap.push(sourceLine)
+    endLineMap.push(Math.max(sourceLine, sourceEndLine))
   }
 
   const transformLineText = (rawLine: string) =>
@@ -607,8 +644,9 @@ export function preprocessMarkdownDetailed(
           push(
             `<div data-ui-graph="true" data-graph-index="${rawGraphIndex}" data-graph-header="${encodeURIComponent(graphMatch[1])}" data-graph-source="${encodeURIComponent(body.join('\n'))}"></div>`,
             i,
+            end,
           )
-          push('', i)
+          push('', end)
         }
         i = end
         continue
@@ -637,8 +675,9 @@ export function preprocessMarkdownDetailed(
           push(
             `<div data-ui-choose="true" data-ui-id="${encodeURIComponent(def.id)}" data-ui-payload="${encodeUiPayload(def)}"></div>`,
             i,
+            end,
           )
-          push('', i)
+          push('', end)
         }
         i = end
         continue
@@ -691,8 +730,9 @@ export function preprocessMarkdownDetailed(
           push(
             `<div data-ui-if="true" data-ui-id="${encodeURIComponent(def.id)}" data-ui-payload="${encodeUiPayload(def)}"></div>`,
             i,
+            end,
           )
-          push('', i)
+          push('', end)
         }
         i = end
         continue
@@ -724,8 +764,9 @@ export function preprocessMarkdownDetailed(
       push(
         `<div data-ui-write-row="true" data-ui-id="${encodeURIComponent(rowDefs[0].id)}" data-ui-payload="${encodeUiPayload(rowDefs)}"></div>`,
         i,
+        lastConsumed,
       )
-      push('', i)
+      push('', lastConsumed)
       i = lastConsumed
       continue
     }
@@ -744,8 +785,9 @@ export function preprocessMarkdownDetailed(
         push(
           `<div data-show-box="true" data-show-title="${encodeURIComponent(showMatch[1])}" data-show-vars="${encodeURIComponent(showMatch[2])}" data-show-content="${encodeURIComponent(body.join('\n'))}"></div>`,
           i,
+          end,
         )
-        push('', i)
+        push('', end)
         i = end
         continue
       }
@@ -764,8 +806,9 @@ export function preprocessMarkdownDetailed(
         push(
           `<div data-ui-ccs="true" data-ccs-title="${encodeURIComponent(ccsMatch[1] ?? '')}" data-ccs-content="${encodeURIComponent(body.join('\n'))}"></div>`,
           i,
+          end,
         )
-        push('', i)
+        push('', end)
         i = end
         continue
       }
@@ -787,9 +830,10 @@ export function preprocessMarkdownDetailed(
         push(expandInlineWriteDirectives(transformLineText(lines[j])), j)
         j++
       }
-      push('', i)
-      push('</div>', i)
-      push('', i)
+      const tableEnd = Math.max(i, j - 1)
+      push('', tableEnd)
+      push('</div>', tableEnd)
+      push('', tableEnd)
       i = j - 1
       continue
     }
@@ -855,7 +899,7 @@ export function preprocessMarkdownDetailed(
     push('</details>', last)
   }
 
-  return { text: result.join('\n'), lineMap, directives: scanned.directives }
+  return { text: result.join('\n'), lineMap, endLineMap, directives: scanned.directives }
 }
 
 export function preprocessMarkdown(md: string): string {
@@ -915,12 +959,14 @@ function CalloutSummary({
   children,
   node: _node,
   sourceLine,
+  sourceEndLine,
   ...props
 }: HTMLAttributes<HTMLElement> & {
   'data-callout'?: string
   'data-title'?: string
   node?: unknown
   sourceLine?: number
+  sourceEndLine?: number
 }) {
   const calloutType = props['data-callout'] || 'info'
   const rawTitle = props['data-title'] ? decodeShowAttribute(props['data-title']) : extractText(children)
@@ -947,7 +993,12 @@ function CalloutSummary({
           : Info
 
   return (
-    <summary {...props} data-source-line={sourceLine} className="callout-summary group/summary">
+    <summary
+      {...props}
+      data-source-line={sourceLine}
+      data-source-line-end={sourceEndLine}
+      className="callout-summary group/summary"
+    >
       <IconComponent size={16} className="shrink-0 transition-transform group-hover/summary:scale-110" />
       <span className="flex-1 font-semibold">{titleNode}</span>
       <ChevronRight
@@ -964,8 +1015,13 @@ function SmartTable({
   node: _node,
   className,
   sourceLine,
+  sourceEndLine,
   ...props
-}: HTMLAttributes<HTMLTableElement> & { node?: unknown; sourceLine?: number }) {
+}: HTMLAttributes<HTMLTableElement> & {
+  node?: unknown
+  sourceLine?: number
+  sourceEndLine?: number
+}) {
   const isTuack = className?.includes('table-tuack')
 
   const childrenArray = Children.toArray(children)
@@ -1062,6 +1118,7 @@ function SmartTable({
       aria-label="文章表格"
       tabIndex={0}
       data-source-line={sourceLine}
+      data-source-line-end={sourceEndLine}
     >
       <table className={`markdown-table ${className || ''} ${isTuack ? 'table-tuack' : ''}`} {...props}>
         {newChildren}
@@ -1102,7 +1159,8 @@ interface MarkdownProps {
   compact?: boolean
 }
 
-type SourceLineResolver = (node: unknown) => number | undefined
+type SourceLineRange = { start: number; end: number }
+type SourceLineResolver = (node: unknown) => SourceLineRange | undefined
 
 /** 在 sourceLineMarkers 关闭时不标注任何行号。 */
 const noSourceLine: SourceLineResolver = () => undefined
@@ -1126,39 +1184,47 @@ function buildComponents(
   urlTransform?: UrlTransform,
   onContentChange?: (updater: (prevMarkdown: string) => string) => void,
 ) {
-  const toSourceLine: SourceLineResolver = marker ?? noSourceLine
+  const resolveRange: SourceLineResolver = marker ?? noSourceLine
+  const lineProps = (node: unknown) => {
+    const r = resolveRange(node)
+    return { sourceLine: r?.start, sourceEndLine: r?.end }
+  }
+  const dataLineAttrs = (node: unknown) => {
+    const r = resolveRange(node)
+    return { 'data-source-line': r?.start, 'data-source-line-end': r?.end }
+  }
   const passthrough = (tag: string) => {
     return function MarkerBlock({ node, ...rest }: { node?: unknown } & Record<string, unknown>) {
       return createElement(tag, {
         ...(rest as Record<string, unknown>),
-        'data-source-line': toSourceLine(node),
+        ...dataLineAttrs(node),
       })
     }
   }
 
   return {
     pre: ({ node, children }: { node?: unknown; children?: ReactNode }) => (
-      <CodeBlock sourceLine={toSourceLine(node)}>{children}</CodeBlock>
+      <CodeBlock {...lineProps(node)}>{children}</CodeBlock>
     ),
     h2: ({ node, id, children }: { node?: unknown; id?: string; children?: ReactNode }) => (
-      <Heading level={2} id={id} sourceLine={toSourceLine(node)}>
+      <Heading level={2} id={id} {...lineProps(node)}>
         {children}
       </Heading>
     ),
     h3: ({ node, id, children }: { node?: unknown; id?: string; children?: ReactNode }) => (
-      <Heading level={3} id={id} sourceLine={toSourceLine(node)}>
+      <Heading level={3} id={id} {...lineProps(node)}>
         {children}
       </Heading>
     ),
     h4: ({ node, id, children }: { node?: unknown; id?: string; children?: ReactNode }) => (
-      <Heading level={4} id={id} sourceLine={toSourceLine(node)}>
+      <Heading level={4} id={id} {...lineProps(node)}>
         {children}
       </Heading>
     ),
     p: ({ node, children, ...rest }: { node?: unknown; children?: ReactNode } & HTMLAttributes<HTMLParagraphElement>) => {
       const widgetKey = findEmbeddedWidgetKey(children)
       return (
-        <p key={widgetKey} {...rest} data-source-line={toSourceLine(node)}>
+        <p key={widgetKey} {...rest} {...dataLineAttrs(node)}>
           {children}
         </p>
       )
@@ -1202,7 +1268,7 @@ function buildComponents(
       children?: ReactNode
       className?: string
     } & HTMLAttributes<HTMLTableElement>) => (
-      <SmartTable sourceLine={toSourceLine(node)} className={className} {...props}>
+      <SmartTable {...lineProps(node)} className={className} {...props}>
         {children}
       </SmartTable>
     ),
@@ -1231,7 +1297,7 @@ function buildComponents(
             title={decodeShowAttribute(attributes['data-show-title'])}
             variableSpec={decodeShowAttribute(attributes['data-show-vars'])}
             body={decodeShowAttribute(attributes['data-show-content'])}
-            sourceLine={toSourceLine(node)}
+            {...lineProps(node)}
             urlTransform={urlTransform}
           />
         )
@@ -1241,7 +1307,7 @@ function buildComponents(
           <CoordinatePlane
             title={decodeShowAttribute(attributes['data-ccs-title'])}
             body={decodeShowAttribute(attributes['data-ccs-content'])}
-            sourceLine={toSourceLine(node)}
+            {...lineProps(node)}
           />
         )
       }
@@ -1252,7 +1318,7 @@ function buildComponents(
             key={`ui-graph-${graphIdx}`}
             header={decodeShowAttribute(attributes['data-graph-header'])}
             source={decodeShowAttribute(attributes['data-graph-source'])}
-            sourceLine={toSourceLine(node)}
+            {...lineProps(node)}
             onCommitPositions={
               onContentChange
                 ? (positions) => {
@@ -1265,22 +1331,22 @@ function buildComponents(
       }
       if (attributes['data-ui-choose'] === 'true') {
         const def = decodeUiPayload<UiChooseWidgetDef>(attributes['data-ui-payload'])
-        if (def) return <UiChooseCard key={`ui-choose-${def.id}`} def={def} sourceLine={toSourceLine(node)} />
+        if (def) return <UiChooseCard key={`ui-choose-${def.id}`} def={def} {...lineProps(node)} />
       }
       if (attributes['data-ui-if'] === 'true') {
         const def = decodeUiPayload<UiIfWidgetDef>(attributes['data-ui-payload'])
-        if (def) return <UiIfCard key={`ui-if-${def.id}`} def={def} sourceLine={toSourceLine(node)} />
+        if (def) return <UiIfCard key={`ui-if-${def.id}`} def={def} {...lineProps(node)} />
       }
       if (attributes['data-ui-write-row'] === 'true') {
         const defs = decodeUiPayload<UiWriteWidgetDef[]>(attributes['data-ui-payload'])
         if (defs && defs.length > 0) {
-          return <UiWriteRow key={`ui-write-row-${defs[0].id}`} defs={defs} sourceLine={toSourceLine(node)} />
+          return <UiWriteRow key={`ui-write-row-${defs[0].id}`} defs={defs} {...lineProps(node)} />
         }
       }
-      return <div {...props} data-source-line={toSourceLine(node)}>{children}</div>
+      return <div {...props} {...dataLineAttrs(node)}>{children}</div>
     },
     summary: ({ node, ...props }: { node?: unknown } & HTMLAttributes<HTMLElement>) => (
-      <CalloutSummary {...props} sourceLine={toSourceLine(node)} />
+      <CalloutSummary {...props} {...lineProps(node)} />
     ),
     ...(marker
       ? Object.fromEntries(MARKER_TAGS.map((tag) => [tag, passthrough(tag)]))
@@ -1300,7 +1366,7 @@ function buildComponents(
         if (def) return <UiWriteField key={`ui-write-${def.id}`} def={def} />
       }
       return (
-        <span {...props} data-source-line={toSourceLine(node)}>
+        <span {...props} {...dataLineAttrs(node)}>
           {children}
         </span>
       )
@@ -1377,6 +1443,8 @@ export const Markdown = memo(function Markdown({
 
   const lineMapRef = useRef<number[]>(processed.lineMap)
   lineMapRef.current = processed.lineMap
+  const endLineMapRef = useRef<number[]>(processed.endLineMap)
+  endLineMapRef.current = processed.endLineMap
 
   const onContentChangeRef = useRef(onContentChange)
   onContentChangeRef.current = onContentChange
@@ -1393,11 +1461,22 @@ export const Markdown = memo(function Markdown({
   )
 
   const toSourceLine = useCallback<SourceLineResolver>((node) => {
-    const position = (node as { position?: { start?: { line?: number } } } | undefined)?.position
-    const processedLine = position?.start?.line
-    if (typeof processedLine !== 'number') return undefined
-    const sourceIndex = lineMapRef.current[processedLine - 1]
-    return sourceIndex === undefined ? undefined : sourceIndex + 1
+    const position = (
+      node as { position?: { start?: { line?: number }; end?: { line?: number } } } | undefined
+    )?.position
+    const startProcessedLine = position?.start?.line
+    if (typeof startProcessedLine !== 'number') return undefined
+    const startSourceIndex = lineMapRef.current[startProcessedLine - 1]
+    if (startSourceIndex === undefined) return undefined
+    const endProcessedLine = position?.end?.line ?? startProcessedLine
+    const endSourceIndex =
+      endLineMapRef.current[endProcessedLine - 1] ??
+      lineMapRef.current[endProcessedLine - 1] ??
+      startSourceIndex
+    return {
+      start: startSourceIndex + 1,
+      end: Math.max(startSourceIndex + 1, endSourceIndex + 1),
+    }
   }, [])
 
   const components = useMemo(

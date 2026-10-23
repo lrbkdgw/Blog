@@ -142,9 +142,11 @@ export function preserveOptionLineBreaks(markdown: string): string {
 export function UiChooseCard({
   def,
   sourceLine,
+  sourceEndLine,
 }: {
   def: UiChooseWidgetDef
   sourceLine?: number
+  sourceEndLine?: number
 }) {
   const ctx = useContext(UiWidgetsContext)
   const fallback = useMemo(() => createInitialWidgetState(def), [def])
@@ -183,6 +185,7 @@ export function UiChooseCard({
       className="not-prose ui-widget-card ui-choose-card my-6 overflow-hidden rounded-xl border border-ink-200/80 bg-white/95 shadow-2xs transition-colors dark:border-white/10 dark:bg-white/[0.03]"
       data-ui-id={def.id}
       data-source-line={sourceLine}
+      data-source-line-end={sourceEndLine}
     >
       {(def.name || rangeHint) && (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-200/60 bg-ink-50/50 px-4 py-2.5 dark:border-white/[0.07] dark:bg-white/[0.02]">
@@ -446,9 +449,11 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
 export function UiIfCard({
   def,
   sourceLine,
+  sourceEndLine,
 }: {
   def: UiIfWidgetDef
   sourceLine?: number
+  sourceEndLine?: number
 }) {
   const ctx = useContext(UiWidgetsContext)
   const fallback = useMemo(() => createInitialWidgetState(def), [def])
@@ -466,6 +471,7 @@ export function UiIfCard({
       className="not-prose ui-widget-card ui-if-card my-6 divide-y divide-ink-200/55 overflow-hidden rounded-xl border border-ink-200/80 bg-white/95 shadow-2xs dark:divide-white/[0.07] dark:border-white/10 dark:bg-white/[0.03]"
       data-ui-id={def.id}
       data-source-line={sourceLine}
+      data-source-line-end={sourceEndLine}
     >
       {def.items.map((item, idx) => {
         const on = Boolean(checked[idx])
@@ -675,14 +681,17 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
 export function UiWriteRow({
   defs,
   sourceLine,
+  sourceEndLine,
 }: {
   defs: UiWriteWidgetDef[]
   sourceLine?: number
+  sourceEndLine?: number
 }) {
   return (
     <div
       className="not-prose ui-write-row my-3.5 grid items-end gap-3.5"
       data-source-line={sourceLine}
+      data-source-line-end={sourceEndLine}
       style={{
         gridTemplateColumns: defs.length > 1 ? `repeat(${defs.length}, minmax(0, 1fr))` : undefined,
       }}

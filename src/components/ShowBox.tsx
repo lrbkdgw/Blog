@@ -17,13 +17,16 @@ export function ShowBox({
   variableSpec,
   body,
   sourceLine,
+  sourceEndLine,
   urlTransform,
 }: {
   title: string
   variableSpec: string
   body: string
-  /** 原始 Markdown 行号（双栏编辑器滚动同步锚点用）。 */
+  /** 原始 Markdown 起始行号（双栏编辑器滚动同步锚点用）。 */
   sourceLine?: number
+  /** 原始 Markdown 结束行号（双栏编辑器滚动同步锚点用）。 */
+  sourceEndLine?: number
   urlTransform?: UrlTransform
 }) {
   const variables = useMemo(() => parseShowVariables(variableSpec, body), [variableSpec, body])
@@ -45,6 +48,7 @@ export function ShowBox({
     <section
       className="show-box not-prose my-6 overflow-hidden rounded-xl border border-ink-200 bg-ink-50/70 shadow-sm dark:border-white/10 dark:bg-white/[0.035]"
       data-source-line={sourceLine}
+      data-source-line-end={sourceEndLine}
     >
       <div className="flex items-center gap-2 border-b border-ink-200/80 bg-white/75 px-4 py-2.5 font-sans text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/[0.035] dark:text-ink-200">
         <SlidersHorizontal size={14} className="text-brand-500" />
