@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, PenLine } from 'lucide-react'
+import { ArrowRight, ChevronsDown, PenLine } from 'lucide-react'
 import { PostCard } from '../components/PostCard'
 import { siteConfig } from '../lib/config'
+import { observeReachEnd } from '../lib/infiniteScroll'
 import { usePosts } from '../lib/usePosts'
 import { useAuth } from '../lib/auth'
 
@@ -12,8 +13,27 @@ export default function Home() {
   const [page, setPage] = useState(1)
 
   const perPage = siteConfig.postsPerPage
-  const visible = posts.slice(0, page * perPage)
+  const visible = useMemo(() => posts.slice(0, page * perPage), [posts, page, perPage])
   const hasMore = visible.length < posts.length
+  const remaining = Math.max(0, posts.length - visible.length)
+
+  // 滚动到列表底部附近时自动加载下一页。
+  // 每次 page 变化都会重新建立观察器：如果屏幕很高、一页填不满，哨兵仍在可视范围内，
+  // 下一帧会继续补齐；一旦新卡片把哨兵推出 rootMargin，观察器自然停下。
+  // 不支持 IntersectionObserver 的浏览器保持旧行为，用下方按钮手动加载。
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!hasMore) return
+    return observeReachEnd(sentinelRef.current, () => setPage((value) => value + 1), {
+      rootMargin: '0px 0px 420px 0px',
+    })
+  }, [hasMore, page])
+
+  // 文章数变少（删草稿）时把页码收回来，避免一直停在「加载更多」却什么也不发生。
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(posts.length / perPage))
+    setPage((value) => Math.min(value, maxPage))
+  }, [posts.length, perPage])
 
   return (
     <section id="posts" className="container-page scroll-mt-24 pb-8 pt-12 sm:pt-14" data-yield-list>
@@ -40,13 +60,28 @@ export default function Home() {
               <PostCard key={post.slug} post={post} index={i} />
             ))}
           </div>
-          {hasMore && (
-            <div className="mt-10 flex justify-center">
-              <button onClick={() => setPage((p) => p + 1)} className="btn-outline h-10">
-                加载更多（还有 {posts.length - visible.length} 篇）
-              </button>
-            </div>
-          )}
+
+          <div className="mt-10 flex flex-col items-center gap-3">
+            {hasMore ? (
+              <>
+                {/* 哨兵：滚动到这里时自动翻页；用 aria-hidden 避免读屏器念出空节点 */}
+                <div ref={sentinelRef} aria-hidden="true" className="h-px w-full max-w-xs" />
+                <p className="flex items-center gap-1.5 text-xs text-ink-400" role="status">
+                  <ChevronsDown size={13} className="animate-bounce" />
+                  继续下滑，自动加载更多（已显示 {visible.length} / {posts.length} 篇）
+                </p>
+                <button onClick={() => setPage((value) => value + 1)} className="btn-outline h-10">
+                  加载更多（还有 {remaining} 篇）
+                </button>
+              </>
+            ) : (
+              posts.length > perPage && (
+                <p className="text-xs text-ink-400" role="status">
+                  已经到底了 · 共 {posts.length} 篇
+                </p>
+              )
+            )}
+          </div>
         </>
       )}
     </section>

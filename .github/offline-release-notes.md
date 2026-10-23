@@ -1,4 +1,16 @@
-星野笔记 · 离线单文件版（自动构建，main 分支每次相关改动都会刷新这里）。
+星野笔记 · 离线单文件版（自动构建）。
+
+`main` 分支每次影响离线产物的改动（`src/**`、`content/**`、`public/**`、构建配置与脚本等）
+都会重新构建、自检并刷新本 Release 的标题、说明与附件；下载地址固定不变，
+最新一次构建的来源提交、时间与体积见文末的「本次构建」。
+
+> 这是一个**滚动发布**（rolling release），不是按版本号发布。历史版本请看仓库
+> [`offline/index.html`](https://github.com/lrbkdgw/Blog/commits/main/offline/index.html)
+> 的提交记录——每次构建都会把当时的产物提交进去。
+
+## 固定下载地址
+
+<https://github.com/lrbkdgw/Blog/releases/download/offline/starlog-offline-latest.html>
 
 ## 怎么用
 
@@ -48,10 +60,12 @@
 
 ## 体积与性能
 
-单文件约 3.0 MB（未压缩），其中约 1.07 MB 是 KaTeX 字体的 base64。首屏只有一次文件读取，
+单文件约 3 MB 出头（未压缩，每次构建的精确体积见文末），其中约 1 MB 是 KaTeX 字体的 base64。首屏只有一次文件读取，
 没有 chunk 瀑布、没有字体请求，网络请求数为 0；代价是首次解析这 3 MB（桌面约 60–150ms）。
 之后所有路由切换都是纯本地渲染。
 
 ## 这是自动产物
 
-由 `.github/workflows/offline.yml` 生成并覆盖，**不要手工编辑**；仓库里的对应副本在 `offline/index.html`。
+由 [`.github/workflows/offline.yml`](https://github.com/lrbkdgw/Blog/blob/main/.github/workflows/offline.yml)
+生成并覆盖，**不要手工编辑**；仓库里的对应副本在 [`offline/index.html`](https://github.com/lrbkdgw/Blog/blob/main/offline/index.html)。
+部署到 GitHub Pages 的站点也会在 `<站点地址>/offline/index.html` 提供同一份文件。

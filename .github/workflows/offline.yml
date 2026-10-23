@@ -1,7 +1,15 @@
 name: 构建离线单文件版
 
-# 产出：一个可直接双击打开的 HTML（离线版博客），提交回仓库的 offline/index.html，
-# 并更新 Rolling Release（tag: offline）。
+# 产出：一个可直接双击打开的 HTML（离线版博客）。
+#   1. 提交回仓库的 offline/index.html（仓库内的稳定副本）；
+#   2. 覆盖发布 Releases 上的滚动 tag `offline`（starlog-offline-latest.html）。
+#
+# 「每次 main 更新都自动更新」的关键：
+#   - 只要命中下面的构建输入（含 tailwind / postcss / public 图标），就重新构建并自检；
+#   - 即使 offline/index.html 内容没有变化（例如上次构建已提交过、本次只改动了
+#     不影响产物的注释），Release 的标题 / 说明 / 附件仍然刷新一次，并记录来源提交；
+#   - Release 使用固定 tag 与固定资产名，下载地址永远不变，历史版本看 git 提交记录，
+#     不会在 Release 里堆出上百个附件。
 #
 # 为什么不用第三方 vite-plugin-singlefile：它不认识 public/ 里的图标、不会转义内联代码里的
 # `</script`、也不会校验 KaTeX 字体是否真的进了文件；这三件事在离线版里都属于「静默坏掉」，
@@ -13,20 +21,25 @@ on:
     paths:
       - 'src/**'
       - 'content/**'
+      - 'public/**'
       - 'index.html'
       - 'package.json'
       - 'package-lock.json'
       - 'vite.config.ts'
       - 'vite.offline.config.ts'
+      - 'tailwind.config.js'
+      - 'postcss.config.js'
+      - 'tsconfig.json'
       - 'scripts/vite-plugin-single-html.mjs'
       - 'scripts/verify-offline.mjs'
+      - '.github/offline-release-notes.md'
       - '.github/workflows/offline.yml'
   workflow_dispatch: {}
 
 permissions:
   contents: write
 
-# 提交回仓库的动作必须串行，否则会互相覆盖；这里不取消进行中的任务。
+# 提交回仓库与覆盖 Release 都必须串行，否则会互相覆盖；这里不取消进行中的任务。
 concurrency:
   group: offline-single-file
   cancel-in-progress: false
@@ -76,36 +89,82 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # [skip ci] 很关键：这个提交会命中 deploy.yml 的 push 触发条件，
-          # 没有它就会出现「Actions 提交 → 触发部署 → 触发离线构建 → 再提交」的循环。
+          # 注意：[skip ci] 只是给人工 review 的提示。用 GITHUB_TOKEN 推的提交本来就不会
+          # 再次触发 workflow（GitHub 的防递归规则），所以不会出现「Actions 提交 → 触发部署
+          # → 触发离线构建 → 再提交」的循环；站点侧的副本由 deploy.yml 自己构建，见该文件。
           git commit -m "chore(offline): 更新离线单文件版 [skip ci]" --no-verify
           git push origin "HEAD:${BRANCH}"
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: "更新 Rolling Release（tag: offline）"
-        if: steps.commit.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHA: ${{ steps.commit.outputs.sha }}
+      # ------------------------------------------------------------------ #
+      # 发布 / 刷新 Rolling Release。无论 offline/index.html 是否变化都执行：
+      # 只要 main 发生构建，Release 的「来源提交 / 构建时间 / 大小」就应该是新的。
+      # ------------------------------------------------------------------ #
+      - name: 准备 Release 说明
+        id: notes
         run: |
           set -euo pipefail
-          # 只保留一个固定名字的资产：滚动 tag 上如果每次都用新文件名，资产会无限堆积。
-          # 需要历史版本时看仓库里的 offline/index.html（每次提交都有对应版本）。
+          size_bytes=$(wc -c < dist-offline/index.html)
+          size_mb=$(awk -v b="$size_bytes" 'BEGIN { printf "%.2f", b / 1024 / 1024 }')
+          short_sha=${GITHUB_SHA::7}
+          build_time=$(date -u +'%Y-%m-%d %H:%M UTC')
+          subject=$(git log -1 --pretty=%s | tr '|' '/' | cut -c1-120)
+          {
+            cat .github/offline-release-notes.md
+            echo
+            echo '---'
+            echo
+            echo '## 🔖 本次构建'
+            echo
+            echo '| 项目 | 值 |'
+            echo '| --- | --- |'
+            echo "| 来源提交 | [\`${short_sha}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}) |"
+            echo "| 提交说明 | ${subject} |"
+            echo "| 构建时间 | ${build_time} |"
+            echo "| 文件大小 | ${size_mb} MB（${size_bytes} bytes） |"
+            echo "| 固定下载地址 | [starlog-offline-latest.html](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/offline/starlog-offline-latest.html) |"
+            echo
+            echo '> 这是一个**滚动发布**：`main` 每次影响离线版的改动都会覆盖本 Release 的标题、说明与附件，'
+            echo '> 下载地址保持不变。需要历史版本时，查看仓库 `offline/index.html` 的提交记录。'
+          } > "$RUNNER_TEMP/offline-release-notes.md"
+          echo "title=离线单文件版（rolling）· $(date -u +'%Y-%m-%d')（${short_sha}）" >> "$GITHUB_OUTPUT"
+
+      - name: "覆盖发布 Rolling Release（tag: offline）"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: ${{ steps.notes.outputs.title }}
+        run: |
+          set -euo pipefail
           cp dist-offline/index.html starlog-offline-latest.html
           if gh release view offline >/dev/null 2>&1; then
-            gh release edit offline --title "离线单文件版（rolling）" \
-              --notes-file .github/offline-release-notes.md --latest=false
+            # 只保留一个固定资产名；--clobber 原地替换，避免资产无限堆积。
             gh release upload offline starlog-offline-latest.html --clobber
+            # 保持仓库原有的「滚动预发布」语义：不上抢 Latest 徽标，
+            # 但标题、说明、附件与 tag 指向每次都刷新。
+            gh release edit offline \
+              --title "$TITLE" \
+              --notes-file "$RUNNER_TEMP/offline-release-notes.md" \
+              --prerelease --latest=false
+            # 让 rolling tag 指向本次构建的来源提交，Release 页面上的 commit 才不会永远停在第一次。
+            if ! gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/offline" \
+              -f sha="$GITHUB_SHA" -F force=true >/dev/null; then
+              echo "::warning::无法移动 rolling tag offline（可能启用了不可变 Release）；链接与附件仍已更新"
+            fi
           else
             gh release create offline starlog-offline-latest.html \
-              --title "离线单文件版（rolling）（${SHA}）" \
-              --notes-file .github/offline-release-notes.md \
-              --target "$(git rev-parse HEAD)" \
+              --title "$TITLE" \
+              --notes-file "$RUNNER_TEMP/offline-release-notes.md" \
+              --target "$GITHUB_SHA" \
               --prerelease --latest=false
           fi
+          {
+            echo "### 离线版已发布"
+            echo "- Release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/offline"
+            echo "- 资产: starlog-offline-latest.html"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      # Actions 的 artifact 只保留 90 天，Release 才是长期入口；这里作为备用下载
+      # Actions 的 artifact 只保留 30 天，Release 才是长期入口；这里作为备用下载
       - name: 上传本次运行的 Artifacts
         uses: actions/upload-artifact@v4
         with:

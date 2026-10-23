@@ -273,3 +273,93 @@ export function renderedDiffBlocks(oldText: string, newText: string): RenderedDi
 
   return chunks
 }
+
+/* -------------------------------------------------------------------------- */
+/*                      渲染对比：把块差异组织成「改动卡片」                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * 渲染对比的展示单元：
+ *   - `equal`  ：未改动的原文块，按原样渲染；
+ *   - `change` ：连续的删除 / 新增块合成一张卡片（删除在前、新增在后），
+ *               旧实现把它们拆成一堆彼此独立的红/绿方块，读到一半很难对应哪段变成了哪段。
+ */
+export type RenderDiffGroup =
+  | { kind: 'equal'; text: string }
+  | { kind: 'change'; id: number; removed: string[]; added: string[] }
+
+export interface RenderDiffSummary {
+  /** 改动处数（change 卡片数） */
+  changes: number
+  /** 新增的 Markdown 块数 */
+  addedBlocks: number
+  /** 被删除的 Markdown 块数 */
+  removedBlocks: number
+}
+
+/** 数一段（可能由多个块用空行拼接的）Markdown 里有几个块。 */
+export function countRenderBlocks(texts: string[]): number {
+  return texts.reduce((total, text) => {
+    const blocks = text.split(/\n{2,}/).filter((part) => part.trim().length > 0)
+    return total + blocks.length
+  }, 0)
+}
+
+/** 把 renderedDiffBlocks 的扁平 chunk 列表合并成「等宽」的展示分组。 */
+export function groupRenderedDiffChunks(chunks: RenderedDiffChunk[]): RenderDiffGroup[] {
+  const groups: RenderDiffGroup[] = []
+  let changeId = 0
+
+  for (const chunk of chunks) {
+    if (chunk.type === 'equal') {
+      groups.push({ kind: 'equal', text: chunk.text })
+      continue
+    }
+    const last = groups[groups.length - 1]
+    if (last && last.kind === 'change') {
+      if (chunk.type === 'insert') last.added.push(chunk.text)
+      else last.removed.push(chunk.text)
+      continue
+    }
+    groups.push({
+      kind: 'change',
+      id: changeId++,
+      removed: chunk.type === 'delete' ? [chunk.text] : [],
+      added: chunk.type === 'insert' ? [chunk.text] : [],
+    })
+  }
+
+  return groups
+}
+
+/** 统计改动处数与新增 / 删除的块数，用于渲染对比顶部的摘要。 */
+export function summarizeRenderDiff(groups: RenderDiffGroup[]): RenderDiffSummary {
+  let changes = 0
+  let addedBlocks = 0
+  let removedBlocks = 0
+  for (const group of groups) {
+    if (group.kind !== 'change') continue
+    changes += 1
+    addedBlocks += countRenderBlocks(group.added)
+    removedBlocks += countRenderBlocks(group.removed)
+  }
+  return { changes, addedBlocks, removedBlocks }
+}
+
+/**
+ * 按界面开关过滤分组：
+ *   - `onlyChanges`：隐藏未改动的原文块（长文只想看改了什么）；
+ *   - `showRemoved`：关闭时隐藏「只有删除」的卡片，并让「修改」卡片只显示新内容。
+ */
+export function filterRenderGroups(
+  groups: RenderDiffGroup[],
+  options: { onlyChanges?: boolean; showRemoved?: boolean } = {},
+): RenderDiffGroup[] {
+  const { onlyChanges = false, showRemoved = true } = options
+  return groups.filter((group) => {
+    if (group.kind === 'equal') return !onlyChanges
+    // 只有删除、且用户选择不看删除内容 → 整张卡片都没有可展示的内容
+    if (!showRemoved && group.removed.length > 0 && group.added.length === 0) return false
+    return true
+  })
+}

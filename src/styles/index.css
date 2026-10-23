@@ -909,3 +909,50 @@ details[open] .callout-chevron {
 }
 
 
+/* -------------------------------------------------------------------------- */
+/*            版本对比 · 渲染差异（issue #105）：等宽块与删除块的可读性          */
+/* -------------------------------------------------------------------------- */
+
+/* 每个 Markdown 块由独立的 <Markdown> 渲染，prose 自带上下外边距；
+   去掉首尾外边距后，相邻块才会像同一篇文章一样自然衔接，而不是被切成一段段。 */
+.render-diff-stack > .prose > :first-child {
+  margin-top: 0;
+}
+.render-diff-stack > .prose > :last-child {
+  margin-bottom: 0;
+}
+
+/* 被删除的旧内容：极淡的斜纹底色 + 删除线，既保留可读性，也不会被误认成正文。
+   颜色只作用在正文层，卡片边框与顶部标签仍用 rose 主题色。 */
+.render-diff-deleted {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(244, 63, 94, 0.05) 0,
+    rgba(244, 63, 94, 0.05) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+}
+
+.render-diff-deleted .prose {
+  color: rgb(159 18 57 / 0.8);
+}
+
+.dark .render-diff-deleted .prose {
+  color: rgb(254 205 211 / 0.8);
+}
+
+.render-diff-deleted .prose :is(p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote) {
+  text-decoration: line-through;
+  text-decoration-color: rgb(244 63 94 / 0.45);
+  text-decoration-thickness: 1px;
+}
+
+/* 新增内容保持干净底色，只靠左侧的 emerald 竖线区分。 */
+.render-diff-added {
+  background-image: linear-gradient(
+    to bottom,
+    rgba(16, 185, 129, 0.045),
+    rgba(16, 185, 129, 0)
+  );
+}

@@ -58,6 +58,21 @@ function clearYield(el: HTMLElement): void {
   el.style.removeProperty(VAR_FADE)
 }
 
+/**
+ * 立刻清掉本机制留下的全部遮罩状态（不等待下一帧）。
+ *
+ * `apply()` 只遍历**当前**仍命中选择器的块，因此一个块如果不再属于让路列表
+ * （最典型的是编辑器进入全屏：容器从 `[data-yield-list]` 变成 `.fixed inset-0`），
+ * 它身上已有的 `data-yield` / `--yield-top` / `--yield-fade` 不会被旧实现擦掉，
+ * 结果全屏后顶部工具栏仍带着一层按滚动位置算出来的渐变 mask（或直接 opacity: 0），
+ * 看起来就像「全屏编辑和顶栏防冲突打架」。
+ *
+ * 进入全屏这类「DOM 结构瞬间改变」的场景应当在下一帧之前同步调用一次。
+ */
+export function clearHeaderYieldState(root: ParentNode = document): void {
+  root.querySelectorAll?.(`[${STATE_ATTR}]`).forEach((el) => clearYield(el as HTMLElement))
+}
+
 function smoothStep(edge0: number, edge1: number, x: number): number {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)))
   return t * t * (3 - 2 * t)
@@ -77,6 +92,14 @@ export function installHeaderYield(): () => void {
     // 先读几何、后写样式：读写交替会把一帧变成好几次重排。
     const inOverlay = blocks.map((el) => Boolean(el.closest('[role="dialog"], .fixed, [data-yield-ignore]')))
     const rects = blocks.map((el, i) => (inOverlay[i] ? null : el.getBoundingClientRect()))
+
+    // 清掉「已经不在让路列表里」的块留下的旧状态：页面切换、列表重排，尤其是
+    // 编辑器进入全屏（data-yield-list 被移除、容器变成 fixed）时，否则顶部会残留
+    // 一层按旧滚动位置计算的 mask，甚至整个块 opacity: 0。
+    const blockSet = new Set(blocks)
+    document.querySelectorAll<HTMLElement>(`[${STATE_ATTR}]`).forEach((el) => {
+      if (!blockSet.has(el)) clearYield(el)
+    })
 
     let minTop = Infinity
     for (const r of rects) {

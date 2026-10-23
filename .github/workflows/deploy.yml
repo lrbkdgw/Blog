@@ -6,6 +6,8 @@ on:
     # 只有这些路径变化时才重新部署
     paths-ignore:
       - 'README.md'
+      - 'ChangeLog.md'
+      - 'AI_README.md'
       - '.gitignore'
   workflow_dispatch:
 
@@ -33,14 +35,15 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
-      - name: 把离线单文件版一并放进站点（供直接下载）
-        # 只在本次构建期间把仓库里的产物放进 public/，由 Vite 一起复制进 dist/；
-        # 仓库不会因此多出第二份离线文件（来源始终只有 offline/index.html）
+      - name: 构建离线单文件版并放进站点（供直接下载）
+        # 这里不复制仓库里的 offline/index.html，而是用本次提交现场构建一份：
+        # offline.yml 由 GITHUB_TOKEN 提交的 offline/index.html 不会再触发部署，
+        # 如果部署时去读仓库副本，站点上的 /offline/index.html 可能落后于 Release 一版。
+        # 现场构建还能顺便验证「这次提交的代码确实能打出离线单文件」。
         run: |
-          if [ -f offline/index.html ]; then
-            mkdir -p public/offline
-            cp offline/index.html public/offline/index.html
-          fi
+          npm run build:offline
+          mkdir -p public/offline
+          cp dist-offline/index.html public/offline/index.html
 
       - name: 构建
         # 项目主页需要把 base 设为 /<仓库名>/；

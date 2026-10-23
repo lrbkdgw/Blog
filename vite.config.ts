@@ -32,6 +32,15 @@ export default defineConfig(({ mode, command }) => {
             fs.copyFileSync(index, path.join(dist, '404.html'))
             fs.writeFileSync(path.join(dist, '.nojekyll'), '')
           }
+          // 离线单文件版下载入口：GitHub Actions 会先现场构建并放进 public/offline/；
+          // 本地 / Cloudflare Pages 构建时没有这一步，退回仓库里由 offline.yml 维护的副本，
+          // 保证任何部署路线都能在 <站点>/offline/index.html 下载到离线版。
+          const offlineInDist = path.join(dist, 'offline', 'index.html')
+          const offlineInRepo = path.resolve(process.cwd(), 'offline/index.html')
+          if (!fs.existsSync(offlineInDist) && fs.existsSync(offlineInRepo)) {
+            fs.mkdirSync(path.dirname(offlineInDist), { recursive: true })
+            fs.copyFileSync(offlineInRepo, offlineInDist)
+          }
         },
       },
     ],

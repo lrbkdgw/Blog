@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import katex from 'katex'
 import { CornerDownLeft, Search, Sigma } from 'lucide-react'
+import { lockBodyScroll } from '../lib/scrollLock'
 import {
   LATEX_CATEGORIES,
   LATEX_SYMBOLS,
@@ -80,10 +81,11 @@ export function LatexPicker({
     setCategory('all')
     setActive(0)
     setRecentCommands(readRecentCommands())
-    setTimeout(() => inputRef.current?.focus(), 30)
-    document.body.style.overflow = 'hidden'
+    const focusTimer = setTimeout(() => inputRef.current?.focus(), 30)
+    const releaseScroll = lockBodyScroll()
     return () => {
-      document.body.style.overflow = ''
+      clearTimeout(focusTimer)
+      releaseScroll()
     }
   }, [open])
 

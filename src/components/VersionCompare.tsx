@@ -1,9 +1,25 @@
-import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeftRight, Columns2, FileText, GitCompareArrows, Loader2, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ArrowLeftRight,
+  ChevronDown,
+  ChevronUp,
+  Columns2,
+  FileText,
+  GitCompareArrows,
+  Loader2,
+  X,
+} from 'lucide-react'
 import { loadPostHistoryMarkdown } from '../lib/postHistory'
 import type { PostHistoryVersion } from '../lib/github'
-import { diffLines, diffStats, renderedDiffBlocks } from '../lib/diff'
-import type { RenderedDiffChunk } from '../lib/diff'
+import {
+  diffLines,
+  diffStats,
+  filterRenderGroups,
+  groupRenderedDiffChunks,
+  renderedDiffBlocks,
+  summarizeRenderDiff,
+} from '../lib/diff'
+import type { RenderedDiffChunk, RenderDiffGroup } from '../lib/diff'
 import { parseFrontmatter } from '../lib/frontmatter'
 import { Markdown } from './Markdown'
 import { DiffTable } from './DiffView'
@@ -47,6 +63,11 @@ export function VersionCompare({
   const [texts, setTexts] = useState<{ base: string; target: string } | null>(null)
   const [onlyChanges, setOnlyChanges] = useState(true)
   const [mode, setMode] = useState<CompareMode>('source')
+  // 渲染对比的展示开关：默认完整展示（含已删除内容），需要时再收敛到「只看改动」。
+  const [onlyRenderChanges, setOnlyRenderChanges] = useState(false)
+  const [showRemoved, setShowRemoved] = useState(true)
+  const [activeChange, setActiveChange] = useState(0)
+  const changeRefs = useRef<Record<number, HTMLDivElement | null>>({})
   // 版本名称在历史列表中被修改后，这里同步刷新
   const [namesVersion, setNamesVersion] = useState(0)
   useEffect(() => {
@@ -92,6 +113,17 @@ export function VersionCompare({
     if (!texts) return []
     return renderedDiffBlocks(parseFrontmatter(texts.base).content, parseFrontmatter(texts.target).content)
   }, [texts])
+  // 渲染对比：把相邻的删除 / 新增块合成一张改动卡片，并给出「几处改动」摘要。
+  const renderGroups = useMemo(() => groupRenderedDiffChunks(renderedChunks), [renderedChunks])
+  const renderSummary = useMemo(() => summarizeRenderDiff(renderGroups), [renderGroups])
+  const visibleRenderGroups = useMemo(
+    () => filterRenderGroups(renderGroups, { onlyChanges: onlyRenderChanges, showRemoved }),
+    [renderGroups, onlyRenderChanges, showRemoved],
+  )
+  const navigableChanges = useMemo(
+    () => visibleRenderGroups.filter((group): group is Extract<RenderDiffGroup, { kind: 'change' }> => group.kind === 'change'),
+    [visibleRenderGroups],
+  )
   const identical = texts !== null && stats.added === 0 && stats.removed === 0
 
   const nameOf = (sha: string) => {
@@ -103,6 +135,20 @@ export function VersionCompare({
   const swap = () => {
     setBaseSha(targetSha)
     setTargetSha(baseSha)
+  }
+
+  useEffect(() => {
+    setActiveChange(0)
+  }, [baseSha, targetSha])
+
+  /** 跳到上一处 / 下一处改动（在可见的改动卡片之间循环）。 */
+  const jumpToChange = (step: 1 | -1) => {
+    if (navigableChanges.length === 0) return
+    const next = (activeChange + step + navigableChanges.length) % navigableChanges.length
+    setActiveChange(next)
+    const node = changeRefs.current[navigableChanges[next].id]
+    // jsdom / 老浏览器可能没有 scrollIntoView，不影响状态切换。
+    node?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
   }
 
   return (
@@ -236,9 +282,9 @@ export function VersionCompare({
             <p className="p-10 text-center text-sm text-ink-500">这两个版本的内容完全相同。</p>
           ) : mode === 'render' ? (
             <div className="mx-auto max-w-3xl p-4">
-              <section className="overflow-hidden rounded-xl border border-ink-200/70 bg-white dark:border-white/10 dark:bg-ink-900/60">
-                <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ink-200/70 px-4 py-2.5 dark:border-white/10">
-                  <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] font-semibold text-brand-600 dark:text-brand-300">
+              <section className="overflow-hidden rounded-2xl border border-ink-200/70 bg-white shadow-[0_1px_2px_rgba(16,24,40,.04),0_16px_40px_-28px_rgba(16,24,40,.35)] dark:border-white/10 dark:bg-ink-900/60">
+                <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ink-200/70 bg-gradient-to-r from-brand-500/[0.07] via-transparent to-transparent px-4 py-2.5 dark:border-white/10">
+                  <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] font-semibold text-brand-600 dark:bg-brand-400/15 dark:text-brand-300">
                     较新版本
                   </span>
                   <span className="min-w-0 truncate font-mono text-[11px] text-ink-400">
@@ -251,44 +297,154 @@ export function VersionCompare({
                         )
                       : targetSha.slice(0, 7)}
                   </span>
-                  <span className="ml-auto font-mono text-[11px] text-ink-400">
-                    <span className="text-emerald-600 dark:text-emerald-400">+{stats.added}</span>{' '}
-                    <span className="text-rose-600 dark:text-rose-400">−{stats.removed}</span>
-                  </span>
+                  <div className="ml-auto flex items-center gap-1.5 font-mono text-[11px]">
+                    <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300">
+                      +{renderSummary.addedBlocks} 段
+                    </span>
+                    <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-rose-700 dark:bg-rose-400/15 dark:text-rose-300">
+                      −{renderSummary.removedBlocks} 段
+                    </span>
+                  </div>
                 </header>
-                <div className="max-h-[60vh] overflow-y-auto px-4 py-3">
-                  {renderedChunks.map((chunk, index) =>
-                    chunk.type === 'equal' ? (
-                      <Markdown key={`equal-${index}`} content={chunk.text} />
-                    ) : (
-                      <div
-                        key={`${chunk.type}-${index}`}
-                        className={`relative my-3 rounded-lg border px-3 py-1 ${
-                          chunk.type === 'insert'
-                            ? 'border-emerald-300/70 bg-emerald-500/[0.08] dark:border-emerald-400/25'
-                            : 'border-rose-300/70 bg-rose-500/[0.08] dark:border-rose-400/25'
-                        }`}
+
+                {renderSummary.changes > 0 && (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-ink-200/70 bg-ink-50/50 px-4 py-2 text-[11px] dark:border-white/10 dark:bg-white/[0.02]">
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => jumpToChange(-1)}
+                        disabled={navigableChanges.length <= 1}
+                        className="rounded-md p-1 text-ink-500 transition hover:bg-white hover:text-ink-800 disabled:opacity-30 dark:hover:bg-white/10 dark:hover:text-white"
+                        aria-label="上一处改动"
+                        title="上一处改动"
                       >
-                        <span
-                          className={`absolute -top-2 left-3 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                            chunk.type === 'insert'
-                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
-                              : 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'
+                        <ChevronUp size={13} />
+                      </button>
+                      <span className="min-w-[4.5rem] text-center font-mono text-ink-500">
+                        第 {Math.min(activeChange + 1, Math.max(navigableChanges.length, 1))} /{' '}
+                        {navigableChanges.length} 处
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => jumpToChange(1)}
+                        disabled={navigableChanges.length <= 1}
+                        className="rounded-md p-1 text-ink-500 transition hover:bg-white hover:text-ink-800 disabled:opacity-30 dark:hover:bg-white/10 dark:hover:text-white"
+                        aria-label="下一处改动"
+                        title="下一处改动"
+                      >
+                        <ChevronDown size={13} />
+                      </button>
+                    </div>
+                    <span className="h-3 w-px bg-ink-200 dark:bg-white/15" />
+                    <label className="flex cursor-pointer items-center gap-1.5 text-ink-500">
+                      <input
+                        type="checkbox"
+                        checked={onlyRenderChanges}
+                        onChange={(event) => setOnlyRenderChanges(event.target.checked)}
+                        className="h-3.5 w-3.5 rounded accent-brand-500"
+                      />
+                      仅显示改动
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-1.5 text-ink-500">
+                      <input
+                        type="checkbox"
+                        checked={showRemoved}
+                        onChange={(event) => setShowRemoved(event.target.checked)}
+                        className="h-3.5 w-3.5 rounded accent-brand-500"
+                      />
+                      显示已删除
+                    </label>
+                    <span className="ml-auto flex items-center gap-2 text-ink-400">
+                      <span className="flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500/70" /> 新增
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-rose-500/70" /> 已删除
+                      </span>
+                    </span>
+                  </div>
+                )}
+
+                <div className="max-h-[60vh] overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
+                  {visibleRenderGroups.length === 0 ? (
+                    <p className="p-8 text-center text-sm text-ink-500">
+                      没有可显示的改动。
+                    </p>
+                  ) : (
+                    visibleRenderGroups.map((group, index) =>
+                      group.kind === 'equal' ? (
+                        <div
+                          key={`equal-${index}`}
+                          className="render-diff-stack text-ink-700 dark:text-ink-200"
+                        >
+                          <Markdown content={group.text} compact />
+                        </div>
+                      ) : (
+                        <div
+                          key={`change-${group.id}`}
+                          ref={(node) => {
+                            changeRefs.current[group.id] = node
+                          }}
+                          className={`relative my-4 overflow-hidden rounded-xl border transition-shadow hover:shadow-[0_10px_30px_-24px_rgba(16,24,40,.6)] ${
+                            group.added.length > 0
+                              ? 'border-emerald-300/70 dark:border-emerald-400/25'
+                              : 'border-rose-300/70 dark:border-rose-400/25'
                           }`}
                         >
-                          {chunk.type === 'insert' ? '新增' : '已删除'}
-                        </span>
-                        <div
-                          className={
-                            chunk.type === 'delete'
-                              ? 'opacity-80 [&_.prose]:line-through [&_.prose]:decoration-rose-400/50 [&_.prose]:decoration-1'
-                              : ''
-                          }
-                        >
-                          <Markdown content={chunk.text} />
+                          <div
+                            className={`flex items-center gap-2 border-b px-3 py-1.5 text-[11px] font-semibold ${
+                              group.added.length > 0 && group.removed.length > 0
+                                ? 'border-ink-200/60 bg-ink-50/80 text-ink-500 dark:border-white/10 dark:bg-white/[0.03] dark:text-ink-400'
+                                : group.added.length > 0
+                                  ? 'border-emerald-300/50 bg-emerald-500/[0.07] text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300'
+                                  : 'border-rose-300/50 bg-rose-500/[0.07] text-rose-700 dark:border-rose-400/20 dark:bg-rose-400/10 dark:text-rose-300'
+                            }`}
+                          >
+                            <GitCompareArrows size={12} className="opacity-70" />
+                            {group.added.length > 0 && group.removed.length > 0
+                              ? '已修改'
+                              : group.added.length > 0
+                                ? '新增'
+                                : '已删除'}
+                            <span className="ml-auto font-mono text-[10px] font-normal opacity-60">
+                              改动 {Math.max(0, navigableChanges.findIndex((item) => item.id === group.id)) + 1}
+                            </span>
+                          </div>
+
+                          {group.removed.length > 0 && showRemoved && (
+                            <div className="relative border-l-2 border-rose-400/70 px-3 py-2 sm:px-4">
+                              {group.added.length > 0 && (
+                                <span className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                                  旧版本
+                                </span>
+                              )}
+                              <div className="render-diff-deleted render-diff-stack rounded-lg px-2 py-1">
+                                {group.removed.map((text, i) => (
+                                  <Markdown key={`removed-${i}`} content={text} compact />
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {group.added.length > 0 && (
+                            <div className="relative border-l-2 border-emerald-400/70 px-3 py-2 sm:px-4">
+                              {group.removed.length > 0 && showRemoved && (
+                                <span className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                  新版本
+                                </span>
+                              )}
+                              <div className="render-diff-added render-diff-stack rounded-lg px-2 py-1">
+                                {group.added.map((text, i) => (
+                                  <Markdown key={`added-${i}`} content={text} compact />
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ),
+                      ),
+                    )
                   )}
                 </div>
               </section>

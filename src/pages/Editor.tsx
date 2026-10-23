@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Archive, 
   AlertCircle,
@@ -42,7 +42,7 @@ import { LatexPicker } from '../components/LatexPicker'
 import { PasswordPrompt } from '../components/PasswordPrompt'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../lib/auth'
-import { requestHeaderYieldRefresh } from '../lib/headerYield'
+import { clearHeaderYieldState, requestHeaderYieldRefresh } from '../lib/headerYield'
 import {
   type BidirectionalScrollMapper,
   collectScrollSyncAnchors,
@@ -81,6 +81,7 @@ import { parseArticleDirectives } from '../lib/articleDirectives'
 import { setAnimatedSceneOverride } from '../lib/animatedBackground'
 import { warmFontFamilies } from '../lib/font'
 import { focusWithoutScroll, restoreCaret } from '../lib/caret'
+import { lockBodyScroll } from '../lib/scrollLock'
 import { latexSymbolInsert, type LatexSymbol } from '../lib/latexSymbols'
 import { handleEditorKey, insertBlock, toggleLinePrefix, toggleWrap } from '../lib/editor'
 import type { EditAction } from '../lib/editor'
@@ -1163,18 +1164,46 @@ export default function Editor() {
 
   // 全屏时按 Esc 退出（输入法组合键中的 Esc 用于取消候选，不退出全屏；
   // 符号选择框开着时 Esc 只关闭选择框）。
+  //
+  // 还要让上层浮层优先：全屏里按 ⌘K 打开站内搜索后，这两个 keydown 都挂在 window 上，
+  // 旧实现会在关闭搜索的同一次按键里顺手退掉全屏。这里只要还开着任何 modal
+  // （SearchDialog / LatexPicker / 确认框等都会带 aria-modal），就把 Esc 留给它。
   useEffect(() => {
     if (!fullscreen || latexPickerOpen) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.isComposing) setFullscreen(false)
+      if (e.key !== 'Escape' || e.isComposing) return
+      if (e.defaultPrevented) return
+      if (document.querySelector('[role="dialog"][aria-modal], [aria-modal="true"]')) return
+      setFullscreen(false)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [fullscreen, latexPickerOpen])
 
+  // 全屏时锁住背景滚动：浮层铺满屏幕后，底下的页面仍会跟着滚轮/触控滑动，
+  // 退出全屏就发现阅读位置已经被挪走。锁是引用计数的，和搜索框共用，
+  // 关掉搜索不会把全屏的锁一起解掉（见 lib/scrollLock.ts）。
   useEffect(() => {
+    if (!fullscreen) return
+    const release = lockBodyScroll()
+    return release
+  }, [fullscreen])
+
+  // 全屏切换会改变整棵子树的定位方式（data-yield-list → fixed 浮层）。
+  // 必须在浏览器绘制前同步清掉按旧滚动位置算出的顶栏让位 mask，
+  // 否则全屏后的顶部工具栏会带着一层渐隐/透明，像是和页头「打架」。
+  useLayoutEffect(() => {
+    if (fullscreen) clearHeaderYieldState()
     requestHeaderYieldRefresh()
   }, [fullscreen])
+
+  // 进入全屏后把焦点交回编辑区（只在编辑 / 双栏视图下），用户可以立刻继续打字；
+  // focusWithoutScroll 保证不会把页面滚回顶部。
+  useEffect(() => {
+    if (!fullscreen || view === 'preview') return
+    const timer = window.setTimeout(() => focusWithoutScroll(textareaRef.current), 30)
+    return () => window.clearTimeout(timer)
+  }, [fullscreen, view])
 
   if (protectedExisting && !unlocked) {
     return (
@@ -1624,7 +1653,7 @@ export default function Editor() {
                 onTouchStart={() => markScrollDriver('preview')}
                 onKeyDown={() => markScrollDriver('preview')}
                 onScroll={handlePreviewScroll}
-                className={`h-full overflow-y-auto bg-ink-50/40 p-5 dark:bg-white/[.02] ${
+                className={`h-full overflow-y-auto overscroll-contain bg-ink-50/40 p-5 dark:bg-white/[.02] ${
                   view === 'split'
                     ? 'hidden border-l border-ink-200/70 md:block dark:border-white/10'
                     : ''

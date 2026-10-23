@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CornerDownLeft, FileText, Search } from 'lucide-react'
 import { excerpt, formatDate, getPublishedPosts, searchPosts } from '../lib/posts'
+import { lockBodyScroll } from '../lib/scrollLock'
 
 export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [query, setQuery] = useState('')
@@ -13,16 +14,15 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
   const results = useMemo(() => searchPosts(posts, query).slice(0, 8), [posts, query])
 
   useEffect(() => {
-    if (open) {
-      setQuery('')
-      setActive(0)
-      setTimeout(() => inputRef.current?.focus(), 30)
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
+    if (!open) return
+    setQuery('')
+    setActive(0)
+    const focusTimer = setTimeout(() => inputRef.current?.focus(), 30)
+    // 与全屏编辑器、LaTeX 选择框共用引用计数滚动锁：关掉搜索不会顺手解锁别人。
+    const releaseScroll = lockBodyScroll()
     return () => {
-      document.body.style.overflow = ''
+      clearTimeout(focusTimer)
+      releaseScroll()
     }
   }, [open])
 

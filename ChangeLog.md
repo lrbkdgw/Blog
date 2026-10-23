@@ -1,5 +1,67 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-23 · 修复全屏编辑冲突（#104）、美化历史版本渲染对比（#105）、首页下滑自动加载（#106）与离线 Release 自动化
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+- **Issue #104（全屏编辑出现冲突问题）**：
+  1. 顶栏「防冲突让位」引擎（`headerYield.ts`）只遍历**当前**仍命中 `[data-yield-list] > *` / `.prose > *` 的块，不会擦除已经脱离选择器的块上的 `data-yield`、`--yield-top`、`--yield-fade`。编辑器进入全屏时容器从 `[data-yield-list]` 变成 `.fixed inset-0`，滚动位置算出的旧遮罩就留在全屏工具栏 / 编辑卡片上，表现为顶部一行渐隐甚至整块 `opacity: 0`。
+  2. 全屏浮层没有锁住背景滚动；全屏里按 <kbd>⌘</kbd>+<kbd>K</kbd> 打开站内搜索后，搜索关闭时会把 `document.body.style.overflow` 直接置空，解掉全屏的锁（两个浮层各写各的）。
+  3. 搜索弹窗与全屏编辑器都把 Esc 挂在 `window` 上；关闭搜索的同一次按键会顺手退出全屏，两个浮层抢同一个 Esc。
+- **Issue #105（美化历史版本渲染对比）**：渲染对比把每个 diff 块各自丢进一个独立 `<Markdown>`，`prose` 的首尾外边距把整篇文章切成一截截红/绿方块；删除内容只是 `opacity-80 + line-through`，代码块与表格不易辨认；没有摘要、改动导航与显示开关。
+- **Issue #106（首页向下滑动自动加载更多）**：首页只有「加载更多」按钮，滚动到底不会自动翻页。
+- **离线版 Release 自动化**：`offline.yml` 只在 `offline/index.html` 内容变化时才 `gh release edit/upload`，因此当仓库副本已随 PR 更新（AI_README 要求的流程）时，Release 资产与说明不会刷新；`deploy.yml` 复制的是仓库里的旧副本，而 `GITHUB_TOKEN` 推送的提交不会再次触发部署，站点上的 `/offline/index.html` 可能永远落后 Release 一版；构建触发路径还漏了 `tailwind.config.js`、`postcss.config.js`、`public/**`、`tsconfig.json` 与 Release 说明文件。
+
+### 修复
+
+- **顶栏让位引擎清理残留状态（`src/lib/headerYield.ts`）**：
+  - `apply()` 在写完几何读数后，统一清掉所有 `[data-yield]` 中**已不在当前块列表**的元素，页面切换、列表重排、全屏切换都不会留下旧遮罩；
+  - 新增 `clearHeaderYieldState(root?)`，供「DOM 结构瞬间变化」的场景在浏览器绘制前同步清理。
+- **全屏编辑器（`src/pages/Editor.tsx`）**：
+  - 用 `useLayoutEffect` 在进入全屏的那一帧先 `clearHeaderYieldState()` 再请求重算，顶部工具栏不再带着旧 mask；
+  - 全屏期间锁住背景滚动，退出 / 卸载时释放；
+  - Esc 处理新增 `defaultPrevented` 与 `[role="dialog"][aria-modal]` / `[aria-modal="true"]` 检查，搜索、符号选择框等上层弹窗开着时只关弹窗、不退全屏；
+  - 进入全屏后自动把焦点交回编辑区（`focusWithoutScroll`，预览视图不抢焦点），分栏预览加 `overscroll-contain`。
+- **统一浮层滚动锁（新增 `src/lib/scrollLock.ts`，`SearchDialog.tsx`、`LatexPicker.tsx` 接入）**：引用计数 + 只记录/恢复一次原始 `overflow` 与 `padding-right`，隐藏滚动条时补偿等宽 padding；关闭任一浮层只释放自己的锁，`release()` 幂等。
+
+### 调整
+
+- **渲染对比（`src/lib/diff.ts`、`src/components/VersionCompare.tsx`、`src/styles/index.css`）**：
+  - 新增 `groupRenderedDiffChunks()`：把相邻的删除 / 新增块合并成一张 **已修改 / 新增 / 已删除** 改动卡片（旧内容在上、新内容在下），`renderDiffBlocks` 的块级语义保持不变；
+  - 新增 `summarizeRenderDiff()`、`filterRenderGroups()`、`countRenderBlocks()`，输出「+N 段 / −M 段」、改动处数与显示过滤；
+  - 顶部工具条新增「上一处 / 下一处改动」跳转（`scrollIntoView` 容错）、「仅显示改动」「显示已删除」开关与新增 / 已删除图例；
+  - 所有块改用 `compact` 渲染并新增 `.render-diff-stack` 收敛首尾外边距，多块拼起来仍像同一篇文章；
+  - 删除内容改为极淡斜纹底 + 可读的红色删除线（`.render-diff-deleted`），新增内容使用绿色左侧竖线与浅渐变（`.render-diff-added`）；
+  - 渲染对比摘要不再复用行级 `+/-` 统计，而是按 Markdown 块数展示。
+- **首页自动加载（`src/pages/Home.tsx`、新增 `src/lib/infiniteScroll.ts`）**：
+  - 新增 `observeReachEnd()`：封装 `IntersectionObserver`，`rootMargin: 0px 0px 420px 0px` 提前预取，单次观察只回调一次，卸载即 `disconnect`，不支持 IO 的浏览器返回 no-op；
+  - 首页在列表底部放置哨兵，下滑自动追加下一页，新卡片沿用 `PostCard` 的淡入动画；保留「加载更多（还有 N 篇）」按钮作为回退；
+  - 状态行显示「继续下滑，自动加载更多（已显示 X / Y 篇）」，全部加载后显示「已经到底了 · 共 N 篇」；文章数减少时自动收敛页码。
+- **离线 Release 自动化（`.github/workflows/offline.yml`、`.github/workflows/deploy.yml`、`.github/offline-release-notes.md`、`vite.config.ts`）**：
+  - `offline.yml` 的触发路径补齐 `public/**`、`tailwind.config.js`、`postcss.config.js`、`tsconfig.json`、`.github/offline-release-notes.md`；
+  - **无论 `offline/index.html` 是否变化**，只要 main 发生构建，就刷新 Release：`gh release upload --clobber` 固定资产名、`gh release edit --prerelease --latest=false` 更新标题 / 说明（保持仓库原有的滚动预发布语义，不抢 Latest 徽标）、`gh api` 把滚动 tag `offline` 强制指向本次来源提交；首次创建时用 `gh release create --target --prerelease`；
+  - Release 说明由静态 `offline-release-notes.md` + 本次构建信息（来源提交链接、提交说明、构建时间、精确体积、固定下载地址）拼接；
+  - `deploy.yml` 在部署时**现场执行 `npm run build:offline`** 并放入 `public/offline/`，保证站点 `/offline/index.html` 与本次提交一致，不再依赖 bot 提交的时序；
+  - `vite.config.ts` 在本地 / Cloudflare 构建时若没有 `public/offline/index.html`，回退复制仓库 `offline/index.html`，任何部署路线都可下载；
+  - 更新 `README.md` 与 `offline/README.md` 中对滚动 Release、固定下载地址与构建触发范围的说明。
+
+### 验证
+
+- `scripts/test-features.mjs` 新增 5 项回归测试：
+  - headerYield 在块脱离让路列表后由 `clearHeaderYieldState()` 同步清理、以及 `apply()` 自动扫除残留遮罩；
+  - 滚动锁引用计数（两次加锁、先释放搜索仍保持全屏锁定、`release()` 幂等、恢复原 `overflow` / `padding-right`）；
+  - 编辑器源码接入滚动锁、全屏清理与 Esc 弹窗优先级；
+  - `observeReachEnd()` 只回调一次、`disconnect`、无 `IntersectionObserver` 时 no-op；
+  - 真实 `<Home />` DOM：首屏 6 篇 → 触发哨兵 → 12 篇 → 14 篇并出现到底提示；
+  - `renderedDiffBlocks` + 改动卡片分组、摘要与两个显示开关的过滤结果。
+- `npm test`（Web 特性测试 16/16，VS Code 插件测试全部通过）、`npx tsc --noEmit`、`npm --prefix vscode_extensions/v1 run typecheck`、`npm run build`、`npm run build:offline`（13 篇内置文章、3.20 MB、自检通过）均通过；同步更新 `offline/index.html`。
+
 ## 2026-10-23 · 修复双栏编辑器双向同步滚动与长文锚点偏差（#101）
 
 | 模型信息 | |

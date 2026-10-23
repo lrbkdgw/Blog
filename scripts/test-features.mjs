@@ -37,6 +37,9 @@ const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
 const echoCaveMod = await importTsModule('src/lib/echoCave.ts')
 const echoAshMod = await importTsModule('src/lib/echoAsh.ts')
+const diffMod = await importTsModule('src/lib/diff.ts')
+const scrollLockMod = await importTsModule('src/lib/scrollLock.ts')
+const infiniteScrollMod = await importTsModule('src/lib/infiniteScroll.ts')
 
 function makeMock2dContext(strokeSink, drawSink) {
   const stack = []
@@ -2286,3 +2289,407 @@ test('双栏编辑器真实 DOM 双向联动交互（#101）：浏览右侧同�
 
 
 
+
+/* -------------------------------------------------------------------------- */
+/*   3. issue #104：全屏编辑 / 顶栏防冲突 / 浮层滚动锁 / Esc 优先级的回归验证     */
+/* -------------------------------------------------------------------------- */
+
+test('headerYield（#104）：块脱离让路列表（进入全屏）后，残留遮罩必须被清掉', async () => {
+  const dom = new JSDOM(`<!doctype html><html><body>
+    <header class="site-header"></header>
+    <main>
+      <div id="list" data-yield-list>
+        <section id="toolbar">Toolbar</section>
+      </div>
+    </main>
+  </body></html>`)
+
+  const prevWindow = globalThis.window
+  const prevDocument = globalThis.document
+  const prevMutationObserver = globalThis.MutationObserver
+  const prevRAF = globalThis.requestAnimationFrame
+  const prevCAF = globalThis.cancelAnimationFrame
+
+  globalThis.window = dom.window
+  globalThis.document = dom.window.document
+  globalThis.MutationObserver = dom.window.MutationObserver
+  globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0)
+  globalThis.cancelAnimationFrame = (id) => clearTimeout(id)
+
+  const header = dom.window.document.querySelector('.site-header')
+  header.getBoundingClientRect = () => ({ top: 0, bottom: 56, left: 0, right: 1000, width: 1000, height: 56 })
+
+  let pageScroll = 0
+  const toolbar = dom.window.document.getElementById('toolbar')
+  // 让 toolbar 跨越 yVanish=48 / yOpaque=88 过渡带
+  toolbar.getBoundingClientRect = () => ({
+    top: 30 - pageScroll,
+    bottom: 230 - pageScroll,
+    left: 0,
+    right: 800,
+    width: 800,
+    height: 200,
+  })
+
+  const flushYield = async () => {
+    headerYieldMod.requestHeaderYieldRefresh()
+    await new Promise((r) => setTimeout(r, 12))
+  }
+
+  try {
+    const cleanup = headerYieldMod.installHeaderYield()
+    await new Promise((r) => setTimeout(r, 12))
+
+    // 正常滚动：工具栏应带上过渡带遮罩
+    pageScroll = 0
+    await flushYield()
+    assert.equal(toolbar.getAttribute('data-yield'), 'on')
+    assert.match(toolbar.style.getPropertyValue('--yield-top'), /^\d+px$/)
+
+    // 进入全屏：容器不再是 data-yield-list，并且变成 fixed 浮层
+    const list = dom.window.document.getElementById('list')
+    list.removeAttribute('data-yield-list')
+    list.classList.add('fixed', 'inset-0')
+    headerYieldMod.clearHeaderYieldState()
+    assert.equal(toolbar.hasAttribute('data-yield'), false, '同步清理必须立即移除 data-yield')
+    assert.equal(toolbar.style.getPropertyValue('--yield-top'), '', '同步清理必须移除 --yield-top')
+    assert.equal(toolbar.style.getPropertyValue('--yield-fade'), '', '同步清理必须移除 --yield-fade')
+
+    // 即使调用方忘了同步清理，下一次 apply 也必须扫掉「已经不在块列表里」的旧状态
+    list.classList.remove('fixed', 'inset-0')
+    list.setAttribute('data-yield-list', '')
+    await flushYield()
+    assert.equal(toolbar.getAttribute('data-yield'), 'on')
+    list.classList.add('fixed', 'inset-0')
+    list.removeAttribute('data-yield-list')
+    await flushYield()
+    assert.equal(toolbar.hasAttribute('data-yield'), false, 'apply 应清掉离开让路列表的块')
+    assert.equal(toolbar.style.getPropertyValue('--yield-top'), '')
+
+    cleanup()
+  } finally {
+    dom.window.close()
+    globalThis.window = prevWindow
+    globalThis.document = prevDocument
+    globalThis.MutationObserver = prevMutationObserver
+    globalThis.requestAnimationFrame = prevRAF
+    globalThis.cancelAnimationFrame = prevCAF
+  }
+})
+
+test('浮层滚动锁（#104）：引用计数，关闭搜索不会解掉全屏编辑器的锁', () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>')
+  const prevWindow = globalThis.window
+  const prevDocument = globalThis.document
+
+  globalThis.window = dom.window
+  globalThis.document = dom.window.document
+
+  try {
+    const body = dom.window.document.body
+    body.style.overflow = 'scroll'
+    body.style.paddingRight = '3px'
+    Object.defineProperty(dom.window.document.documentElement, 'clientWidth', {
+      configurable: true,
+      value: 1009,
+    })
+
+    assert.equal(scrollLockMod.bodyScrollLockCount(), 0)
+
+    const releaseFullscreen = scrollLockMod.lockBodyScroll()
+    assert.equal(body.style.overflow, 'hidden', '打开全屏编辑器后背景不得滚动')
+    assert.equal(body.style.paddingRight, '15px', '隐藏滚动条应补偿等宽 padding，避免横向跳动')
+
+    const releaseSearch = scrollLockMod.lockBodyScroll()
+    assert.equal(scrollLockMod.bodyScrollLockCount(), 2)
+
+    releaseSearch()
+    assert.equal(body.style.overflow, 'hidden', '关闭搜索只释放自己的锁，不能解除全屏的锁')
+    releaseSearch()
+    assert.equal(body.style.overflow, 'hidden', 'release 必须幂等')
+    assert.equal(scrollLockMod.bodyScrollLockCount(), 1)
+
+    releaseFullscreen()
+    assert.equal(scrollLockMod.bodyScrollLockCount(), 0)
+    assert.equal(body.style.overflow, 'scroll', '最后一个持有者释放后应恢复原 overflow')
+    assert.equal(body.style.paddingRight, '3px', '应恢复原 padding-right')
+  } finally {
+    dom.window.close()
+    globalThis.window = prevWindow
+    globalThis.document = prevDocument
+  }
+})
+
+test('编辑器源码（#104）：全屏接入滚动锁、清残留遮罩，Esc 先让给上层弹窗', () => {
+  const editorSource = readFileSync(join(root, 'src/pages/Editor.tsx'), 'utf8')
+  assert.match(editorSource, /lockBodyScroll/, '全屏编辑器必须使用引用计数滚动锁')
+  assert.match(editorSource, /clearHeaderYieldState/, '进入全屏必须同步清理残留的顶栏让位遮罩')
+  assert.match(
+    editorSource,
+    /\[role="dialog"\]\[aria-modal\]/,
+    'Esc 处理必须先检查是否还有打开的 modal（例如 ⌘K 搜索）',
+  )
+  assert.match(editorSource, /overscroll-contain/, '全屏预览区应阻止滚动链传回页面')
+})
+
+/* -------------------------------------------------------------------------- */
+/*        4. issue #106：首页向下滑动自动加载更多（IntersectionObserver）        */
+/* -------------------------------------------------------------------------- */
+
+test('触底观察器（#106）：进入视口只触发一次，清理后 disconnect', () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="sentinel"></div></body></html>')
+  const sentinel = dom.window.document.getElementById('sentinel')
+  const calls = []
+  const instances = []
+
+  class FakeObserver {
+    constructor(callback, options) {
+      this.callback = callback
+      this.options = options
+      this.disconnected = false
+      instances.push(this)
+    }
+    observe(target) {
+      this.target = target
+    }
+    disconnect() {
+      this.disconnected = true
+    }
+  }
+
+  const dispose = infiniteScrollMod.observeReachEnd(sentinel, () => calls.push('reach'), {
+    rootMargin: '0px 0px 420px 0px',
+    observerFactory: FakeObserver,
+  })
+
+  assert.equal(instances.length, 1)
+  assert.equal(instances[0].target, sentinel)
+  assert.equal(instances[0].options.rootMargin, '0px 0px 420px 0px')
+
+  instances[0].callback([{ isIntersecting: false }], instances[0])
+  assert.equal(calls.length, 0, '哨兵未进入视口时不应加载')
+
+  instances[0].callback([{ isIntersecting: true }], instances[0])
+  instances[0].callback([{ isIntersecting: true }], instances[0])
+  assert.equal(calls.length, 1, '同一个观察器只应回调一次，避免一次滑动连翻多页')
+
+  dispose()
+  assert.equal(instances[0].disconnected, true, '卸载时必须 disconnect')
+
+  // 浏览器不支持 IntersectionObserver 时返回 no-op（页面回退到「加载更多」按钮）
+  const prevObserver = globalThis.IntersectionObserver
+  delete globalThis.IntersectionObserver
+  try {
+    const disposeNoop = infiniteScrollMod.observeReachEnd(sentinel, () => calls.push('bad'))
+    assert.doesNotThrow(() => disposeNoop())
+    assert.equal(calls.length, 1)
+  } finally {
+    if (prevObserver !== undefined) globalThis.IntersectionObserver = prevObserver
+  }
+})
+
+test('首页（#106）：真实 DOM 渲染下滑自动追加卡片，并保留加载更多按钮与到底提示', async () => {
+  const harnessEntry = join(root, 'node_modules/.cache/home-infinite-test-harness.tsx')
+  const { mkdirSync, writeFileSync } = await import('node:fs')
+  mkdirSync(dirname(harnessEntry), { recursive: true })
+  writeFileSync(
+    harnessEntry,
+    `
+      import React from 'react'
+      import { createRoot } from 'react-dom/client'
+      import { MemoryRouter } from 'react-router-dom'
+      import { AuthProvider } from '../../src/lib/auth'
+      import { saveLocalPostRaw } from '../../src/lib/posts'
+      import Home from '../../src/pages/Home'
+      export { React, createRoot, MemoryRouter, AuthProvider, saveLocalPostRaw, Home }
+    `,
+    'utf8',
+  )
+
+  const bundled = await build({
+    entryPoints: [harnessEntry],
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    plugins: [
+      {
+        name: 'vite-raw-md',
+        setup(b) {
+          b.onResolve({ filter: /\?raw$/ }, (args) => ({
+            path: join(root, args.path.replace(/^\//, '').replace(/\?raw$/, '')),
+          }))
+        },
+      },
+    ],
+    loader: {
+      '.jpg': 'dataurl',
+      '.png': 'dataurl',
+      '.svg': 'dataurl',
+      '.md': 'text',
+    },
+    define: {
+      'process.env.NODE_ENV': '"production"',
+      __STARLOG_OFFLINE__: 'false',
+    },
+  })
+  const { pathToFileURL } = await import('node:url')
+  const bundlePath = join(dirname(harnessEntry), 'home-infinite-test-bundle.mjs')
+  writeFileSync(bundlePath, bundled.outputFiles[0].text, 'utf8')
+  const { React, createRoot, MemoryRouter, AuthProvider, saveLocalPostRaw, Home } = await import(
+    pathToFileURL(bundlePath).href
+  )
+
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+    url: 'https://example.com/',
+    pretendToBeVisual: true,
+  })
+
+  const instances = []
+  class FakeIntersectionObserver {
+    constructor(callback, options) {
+      this.callback = callback
+      this.options = options
+      this.disconnected = false
+      instances.push(this)
+    }
+    observe(target) {
+      this.target = target
+    }
+    disconnect() {
+      this.disconnected = true
+    }
+    fire() {
+      this.callback([{ isIntersecting: true, target: this.target }], this)
+    }
+  }
+
+  const prevGlobals = {
+    window: globalThis.window,
+    document: globalThis.document,
+    localStorage: globalThis.localStorage,
+    CustomEvent: globalThis.CustomEvent,
+    IntersectionObserver: globalThis.IntersectionObserver,
+  }
+
+  globalThis.window = dom.window
+  globalThis.document = dom.window.document
+  globalThis.localStorage = dom.window.localStorage
+  globalThis.CustomEvent = dom.window.CustomEvent
+  globalThis.IntersectionObserver = FakeIntersectionObserver
+  dom.window.IntersectionObserver = FakeIntersectionObserver
+
+  const reactRoot = createRoot(dom.window.document.getElementById('root'))
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+  try {
+    // 这个测试环境里 import.meta.glob 不可用（仓库文章为空），用本机文章库造 14 篇，
+    // 走的是和线上完全相同的「本地文章 + 分页」路径。
+    for (let i = 0; i < 14; i += 1) {
+      saveLocalPostRaw(
+        `auto-${String(i).padStart(2, '0')}`,
+        `---\ntitle: 自动加载测试 ${i}\ndate: 2026-01-${String(i + 1).padStart(2, '0')}\nsummary: 第 ${i} 篇\n---\n\n正文 ${i}\n`,
+      )
+    }
+
+    reactRoot.render(
+      React.createElement(
+        MemoryRouter,
+        null,
+        React.createElement(AuthProvider, null, React.createElement(Home)),
+      ),
+    )
+    await sleep(150)
+
+    assert.equal(
+      dom.window.document.querySelectorAll('article').length,
+      6,
+      '首页首屏应按 postsPerPage=6 渲染',
+    )
+    const moreButton = Array.from(dom.window.document.querySelectorAll('button')).find((b) =>
+      (b.textContent || '').includes('加载更多'),
+    )
+    assert.ok(moreButton, '应保留「加载更多」按钮作为回退入口')
+    assert.match(dom.window.document.body.textContent || '', /已显示 6 \/ 14 篇/)
+
+    // 触发第一次触底：哨兵进入视口
+    assert.ok(instances.length >= 1, '首页应建立 IntersectionObserver 观察哨兵')
+    instances[instances.length - 1].fire()
+    await sleep(120)
+    assert.equal(
+      dom.window.document.querySelectorAll('article').length,
+      12,
+      '滑动触底后应自动加载到 12 篇（无需点击按钮）',
+    )
+
+    // 触发第二次触底：补满 14 篇，并显示到底提示
+    instances[instances.length - 1].fire()
+    await sleep(120)
+    assert.equal(dom.window.document.querySelectorAll('article').length, 14)
+    assert.match(dom.window.document.body.textContent || '', /已经到底了 · 共 14 篇/)
+    const staleButton = Array.from(dom.window.document.querySelectorAll('button')).find((b) =>
+      (b.textContent || '').includes('加载更多'),
+    )
+    assert.equal(staleButton, undefined, '全部加载完后不应再出现加载更多按钮')
+  } finally {
+    reactRoot.unmount()
+    await sleep(40)
+    dom.window.close()
+    Object.assign(globalThis, prevGlobals)
+  }
+})
+
+/* -------------------------------------------------------------------------- */
+/*       5. issue #105：渲染对比的「改动卡片」分组、摘要与显示开关               */
+/* -------------------------------------------------------------------------- */
+
+test('渲染对比（#105）：相邻删除/新增合并为改动卡片，摘要、跳转与过滤正确', () => {
+  const oldText = '# 标题\n\n旧段落\n\n共同段落\n\n只有旧内容\n'
+  const newText = '# 标题\n\n新段落\n\n共同段落\n\n新增段落\n'
+
+  const chunks = diffMod.renderedDiffBlocks(oldText, newText)
+  const groups = diffMod.groupRenderedDiffChunks(chunks)
+
+  assert.equal(groups[0].kind, 'equal', '开头未改动的标题应保持原文块')
+  const firstChange = groups.find((group) => group.kind === 'change')
+  assert.ok(firstChange, '应至少识别出一处改动')
+  assert.deepEqual(firstChange.removed, ['旧段落'], '旧段落应进入 removed')
+  assert.deepEqual(firstChange.added, ['新段落'], '新段落应进入 added')
+
+  // 相邻的删除 + 新增必须在同一张卡片里，而不是两块独立色块
+  const pairs = groups.filter((group) => group.kind === 'change')
+  assert.equal(pairs.length, 2, '两处修改应生成两张改动卡片')
+  assert.equal(pairs[1].removed.length, 1)
+  assert.equal(pairs[1].added.length, 1)
+
+  const summary = diffMod.summarizeRenderDiff(groups)
+  assert.deepEqual(summary, { changes: 2, addedBlocks: 2, removedBlocks: 2 })
+
+  // 只有一个删除 / 一个新增的卡片
+  const manual = diffMod.groupRenderedDiffChunks([
+    { type: 'equal', text: 'keep' },
+    { type: 'delete', text: 'gone' },
+    { type: 'insert', text: 'new' },
+    { type: 'equal', text: 'tail' },
+    { type: 'delete', text: 'old tail' },
+  ])
+  assert.equal(manual.length, 4)
+  assert.equal(manual[1].kind, 'change')
+  assert.deepEqual(manual[1].removed, ['gone'])
+  assert.deepEqual(manual[1].added, ['new'])
+  assert.deepEqual(manual[3], { kind: 'change', id: 1, removed: ['old tail'], added: [] })
+
+  // 仅显示改动：隐藏 equal
+  assert.deepEqual(
+    diffMod.filterRenderGroups(manual, { onlyChanges: true }).map((group) => group.kind),
+    ['change', 'change'],
+  )
+  // 关闭「显示已删除」：只剩删除内容的卡片整张隐藏
+  assert.deepEqual(
+    diffMod.filterRenderGroups(manual, { showRemoved: false }).map((group) => group.kind),
+    ['equal', 'change', 'equal'],
+  )
+  // 修改卡片保留，但只展示新增内容（由组件按 showRemoved 控制）
+  assert.equal(diffMod.countRenderBlocks(['a\n\nb']), 2)
+})
