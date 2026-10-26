@@ -80,10 +80,11 @@
    （如 `__STARLOG_OFFLINE__`）或新的环境声明，就要同步把声明文件加进
    `vscode_extensions/v1/tsconfig.json` 的 `include`，并在本地跑一次
    `npm --prefix vscode_extensions/v1 run typecheck` 再提交（2026-10-19 的 CI 失败就是漏了这步）。
-   离线版的定位是**完全不联网**：不要在 `OFFLINE` 分支里引入任何请求（GitHub API、云端字体、
-   远程图片都不行）。如果自检报出「产物里出现了在线端点」，说明新代码把在线能力漏进了离线文件，
-   要么把调用放到 `if (OFFLINE)` 之后，要么像 `config.ts` / `github.ts` 那样把端点常量写成
-   `OFFLINE ? '' : 'https://…'`，而不是把自检删掉。
+   离线版的定位是**不依赖互联网**：不要在 `OFFLINE` 分支里引入任何互联网请求（GitHub API、云端字体、
+   远程图片都不行）。唯一例外是 issue #112 的局域网协作：仅在用户主动交换连接码后使用 WebRTC 点对点
+   直连，`iceServers` 必须为空，不得引入 STUN / TURN 或外部信令服务器。如果自检报出「产物里出现了在线端点」，
+   说明新代码把在线能力漏进了离线文件，要么把调用放到 `if (OFFLINE)` 之后，要么像 `config.ts` / `github.ts`
+   那样把端点常量写成 `OFFLINE ? '' : 'https://…'`，而不是把自检删掉。
    自检通过后，把 `dist-offline/index.html` 拷到 `offline/index.html` 一并提交（该文件由
    `.github/workflows/offline.yml` 自动维护，**不要手工编辑**，也不要提交 `dist-offline/`）。
 4. **更新 README.md**（按规则 1）与 **ChangeLog.md**（按规则 1、2、3，含模型信息）。

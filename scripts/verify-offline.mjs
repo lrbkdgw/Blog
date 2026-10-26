@@ -149,7 +149,7 @@ if (markdownFiles.length === 0) {
   }
 }
 
-/* --------------------- 8) 离线版必须彻底不联网 ----------------------------- */
+/* --------------------- 8) 离线版不得包含互联网端点 -------------------------- */
 
 // 这些字符串一旦被打包进来，就说明某处在线能力没被离线开关切断。
 // 做法上依赖两点：`vite.offline.config.ts` 的 define 把 __STARLOG_OFFLINE__ 换成 true，
@@ -168,7 +168,7 @@ const found = FORBIDDEN.filter(([, needle]) => html.includes(needle))
 if (found.length > 0) {
   fail(
     `离线产物里出现了在线端点：${found.map(([label]) => label).join('、')}。` +
-      '离线版按设计完全不联网——请把对应调用放进 if (OFFLINE) 提前返回之后，' +
+      '离线版按设计不访问互联网——请把对应调用放进 if (OFFLINE) 提前返回之后，' +
       '或像 config.ts / github.ts 那样把端点常量写成 OFFLINE ? \'\' : \'https://…\'。',
   )
 }
@@ -176,8 +176,19 @@ for (const [label, needle] of [
   ['离线存储层', 'starlog:drafts'],
   ['离线文章库', 'starlog:offline-hidden'],
   ['离线能力标记', '离线版'],
+  ['局域网协作连接码', 'STARLOG-LAN1.'],
+  ['WebRTC 点对点能力', 'RTCPeerConnection'],
 ]) {
   if (!html.includes(needle)) fail(`产物里找不到「${label}」相关标记（${needle}），离线功能可能没被打包`)
+}
+
+// issue #112：协作只允许手动信令 + 局域网 WebRTC 直连，不能借离线版之名引入互联网中继。
+const lanSource = readFileSync(join(root, 'src/components/LanCollaboration.tsx'), 'utf8')
+if (!lanSource.includes('new RTCPeerConnection({ iceServers: [] })')) {
+  fail('局域网协作必须显式使用空 iceServers，禁止默认或外部 STUN / TURN 服务')
+}
+if (/\b(?:stun|turn):/i.test(lanSource)) {
+  fail('局域网协作源码出现 STUN / TURN 地址；离线版只允许手动交换连接码后的点对点直连')
 }
 
 /* --------------------------------- 汇报结果 --------------------------------- */

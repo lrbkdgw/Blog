@@ -1,3 +1,4 @@
+import { createHeadingSlugger } from './headingSlug'
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter'
 import { stripArticleDirectives } from './articleDirectives'
 import { STORAGE_KEYS } from './config'
@@ -445,26 +446,49 @@ function parseFence(line: string): MarkdownFence | null {
   return { marker: match[1][0] as '`' | '~', length: match[1].length }
 }
 
-function slugHeading(text: string, used: Map<string, number>): string {
-  // 与 rehype-slug（github-slugger）保持一致的 id 生成规则
-  let id = text
-    .toLowerCase()
-    .replace(/[\s]+/g, '-')
-    .replace(/[^\p{L}\p{N}\-_]+/gu, '')
-  const seen = used.get(id)
-  if (seen !== undefined) {
-    used.set(id, seen + 1)
-    id = `${id}-${seen + 1}`
-  } else {
-    used.set(id, 0)
+/**
+ * 提取标题在最终 HAST 中的纯文本。
+ *
+ * 不能复用摘要用的 stripMarkdown()：它会把行内代码、公式等内容整体删掉，
+ * 而 rehype-slug 是根据标题的实际 textContent 生成 id 的。这里保留这些文字，
+ * 只去掉 Markdown 包装符号，确保目录标题与正文锚点使用同一份输入。
+ */
+function headingPlainText(markdown: string): string {
+  const literals: string[] = []
+  const keepLiteral = (value: string): string => {
+    const token = `\u0000${literals.length}\u0000`
+    literals.push(value)
+    return token
   }
-  return id
+
+  let text = markdown.trim()
+  // 反斜杠转义、代码 span 与公式中的符号不是 Markdown 包装，先保护起来。
+  text = text.replace(/\\([\\`*{}\[\]()#+\-.!_>~|])/g, (_match, char: string) => keepLiteral(char))
+  text = text.replace(/(`+)([\s\S]*?)\1/g, (_match, _ticks: string, code: string) => keepLiteral(code))
+  text = text.replace(/\$\$([\s\S]*?)\$\$|\$([^$\n]+?)\$/g, (_match, block: string, inline: string) =>
+    keepLiteral(block ?? inline ?? ''),
+  )
+  // 自动链接显示的是 URL 本身；图片没有文本节点，普通链接则保留标签文字。
+  text = text.replace(/<((?:https?:\/\/|mailto:)[^>]+)>/gi, '$1')
+  text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+  text = text.replace(/\[([^\]]+)]\([^)]*\)/g, '$1')
+  text = text.replace(/\[([^\]]+)]\[[^\]]*]/g, '$1')
+  text = text.replace(/<[^>]+>/g, '')
+  text = text.replace(/[*_~]{1,3}/g, '')
+  text = text.replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (entity, body: string) => {
+    const lower = body.toLowerCase()
+    if (lower.startsWith('#x')) return String.fromCodePoint(Number.parseInt(lower.slice(2), 16))
+    if (lower.startsWith('#')) return String.fromCodePoint(Number.parseInt(lower.slice(1), 10))
+    return ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' } as Record<string, string>)[lower] ?? entity
+  })
+  return text.replace(/\u0000(\d+)\u0000/g, (_match, index: string) => literals[Number(index)] ?? '').trim()
 }
 
 export function extractToc(md: string): TocItem[] {
   const lines = md.split('\n')
   const items: TocItem[] = []
-  const used = new Map<string, number>()
+  // 与正文 rehype 插件共享同一个生成器，包括重复标题和空 slug 回退规则。
+  const slugHeading = createHeadingSlugger()
   const callouts: number[] = []
   let fence: MarkdownFence | null = null
 
@@ -534,9 +558,9 @@ export function extractToc(md: string): TocItem[] {
     const heading = line.match(/^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/)
     if (!heading) continue
 
-    const text = stripMarkdown(heading[2])
+    const text = headingPlainText(heading[2])
     const level = heading[1].length
-    const id = slugHeading(text, used)
+    const id = slugHeading(text)
     // 折叠框内的标题不显示在目录中；仍参与 slug 计数，以匹配正文渲染后的锚点后缀。
     if (callouts.length === 0 && level >= 2 && level <= 4) {
       items.push({ id, text, level })

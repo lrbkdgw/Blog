@@ -97,7 +97,7 @@ export function OfflineSettingsCard() {
           <h2 className="font-medium text-ink-900 dark:text-white">离线版</h2>
           <p className="mt-0.5 text-xs leading-relaxed text-ink-400">
             这个 HTML 就是完整站点：阅读、写作、排版、公式、搜索、加密与版本历史都在本机完成，
-            <strong className="font-medium text-ink-600 dark:text-ink-200">不会发起任何网络请求</strong>
+            <strong className="font-medium text-ink-600 dark:text-ink-200">不会访问互联网（主动局域网协作除外）</strong>
             ——没有在线登录、在线评论、远端历史版本，也不请求云端字体与远程图片。
           </p>
         </div>
