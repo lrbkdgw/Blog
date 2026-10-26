@@ -38,6 +38,7 @@ import { Archive,
   Upload,
 } from 'lucide-react'
 import { Markdown } from '../components/Markdown'
+import LanCollaboration from '../components/LanCollaboration'
 import { LatexPicker } from '../components/LatexPicker'
 import { setEditorFullscreenActive } from '../components/Layout'
 import { PasswordPrompt } from '../components/PasswordPrompt'
@@ -85,6 +86,7 @@ import { focusWithoutScroll, restoreCaret } from '../lib/caret'
 import { latexSymbolInsert, type LatexSymbol } from '../lib/latexSymbols'
 import { handleEditorKey, insertBlock, toggleLinePrefix, toggleWrap } from '../lib/editor'
 import type { EditAction } from '../lib/editor'
+import type { CollaborationValue } from '../lib/lanCollaboration'
 import { useEditorScrollSync } from '../lib/editorSettings'
 import { useRepoTarget } from '../lib/useRepoTarget'
 import type { Post } from '../lib/types'
@@ -512,6 +514,26 @@ export default function Editor() {
     },
     [],
   )
+
+  const collaborationValue = useMemo<CollaborationValue>(
+    () => ({ content, title, slug, date, tagsText, summary, author, cover, draft, pinned }),
+    [content, title, slug, date, tagsText, summary, author, cover, draft, pinned],
+  )
+  const handleCollaborationChange = useCallback((next: CollaborationValue) => {
+    setContent(next.content)
+    setDebouncedContent(next.content)
+    setTitle(next.title)
+    setSlug(next.slug)
+    setDate(next.date)
+    setTagsText(next.tagsText)
+    setSummary(next.summary)
+    setAuthor(next.author)
+    setCover(next.cover)
+    setDraft(next.draft)
+    setPinned(next.pinned)
+    // 远端更新与本地输入走同一自动保存路径，分别写入各设备的本机文章库。
+    setDirty(true)
+  }, [])
 
   /* ------------------------------ 工具栏操作 ------------------------------ */
   const applyAction = (action: EditAction | null) => {
@@ -1244,6 +1266,14 @@ export default function Editor() {
           />
 
           <div className="flex items-center gap-2">
+            {OFFLINE && (
+              <LanCollaboration
+                documentKey={routeSlug ?? 'new'}
+                documentLabel={effectiveSlug}
+                value={collaborationValue}
+                onChange={handleCollaborationChange}
+              />
+            )}
             {/* 视图模式切换 */}
             <div className="flex rounded-lg bg-ink-100 p-0.5 dark:bg-white/10">
               {(
@@ -1290,7 +1320,7 @@ export default function Editor() {
                   onClick={publishOrSubmitPR}
                   disabled={publishing}
                   className="btn-outline h-9"
-                  title="写入这个 HTML 所在浏览器的本机文章库；不联网，也不会改动仓库"
+                  title="写入这个 HTML 所在浏览器的本机文章库；不访问互联网，也不会改动仓库"
                 >
                   {publishing ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
                   <span className="hidden sm:inline">{publishing ? '保存中…' : '保存到本机'}</span>
@@ -1669,7 +1699,7 @@ export default function Editor() {
           {OFFLINE ? (
             <span className="flex items-center gap-1.5">
               <AlertCircle size={13} />
-              离线版：草稿与文章都存在这个浏览器的本机文章库里，全程不联网。要带到线上，用
+              离线版：草稿与文章都存在这个浏览器的本机文章库里，不访问互联网；仅主动开启协作时才与局域网设备直连。要带到线上，用
               <Link to="/admin?tab=export" className="text-brand-600 hover:underline dark:text-brand-300">
                 导出文章包
               </Link>

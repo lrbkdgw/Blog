@@ -795,7 +795,19 @@ details[open] .callout-chevron {
 .prose hr {
   @apply border-dashed dark:border-white/10;
 }
-.prose ul > li::marker {
+.prose ul {
+  list-style-type: disc;
+}
+.prose ul ul {
+  list-style-type: circle;
+}
+.prose ul ul ul {
+  list-style-type: square;
+}
+.prose ul ul ul ul {
+  list-style-type: disc;
+}
+.prose :is(ul, ol) > li::marker {
   @apply text-brand-500;
 }
 .prose :where(input[type='checkbox']) {

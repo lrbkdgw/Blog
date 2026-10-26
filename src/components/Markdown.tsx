@@ -9,7 +9,7 @@ import rehypeRaw from 'rehype-raw'
 import rehypeSanitize, { defaultSchema, type Options as SanitizeOptions } from 'rehype-sanitize'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
-import rehypeSlug from 'rehype-slug'
+import { toString as hastToString } from 'hast-util-to-string'
 import { ShowBox } from './ShowBox'
 import { CoordinatePlane } from './CoordinatePlane'
 import { GraphPlane } from './GraphPlane'
@@ -23,6 +23,7 @@ import {
   type UiWidgetsContextValue,
 } from './UiWidgets'
 import { resolvePendingImageSrc } from '../lib/updateQueue'
+import { createHeadingSlugger } from '../lib/headingSlug'
 import {
   EMPTY_ARTICLE_DIRECTIVES,
   articleFontStyle,
@@ -384,6 +385,26 @@ function rehypeWrapLinedRuns() {
 
       visit(tree)
     }
+  }
+}
+
+/**
+ * rehype-slug 的同等实现 + 空 slug 回退。
+ * 标题纯文本直接取自最终 HAST，目录则在 posts.extractToc 中使用同一个 createHeadingSlugger。
+ */
+function rehypeHeadingIds() {
+  return (tree: RehypeNode) => {
+    const slugHeading = createHeadingSlugger()
+    const visit = (node: RehypeNode) => {
+      if (isHeadingNode(node) && !node.properties?.id) {
+        const properties = node.properties ?? (node.properties = {})
+        properties.id = slugHeading(
+          hastToString(node as unknown as Parameters<typeof hastToString>[0]),
+        )
+      }
+      for (const child of node.children || []) visit(child)
+    }
+    visit(tree)
   }
 }
 
@@ -1506,7 +1527,7 @@ export const Markdown = memo(function Markdown({
             rehypeRaw,
             [rehypeSanitize, sanitizeSchema],
             ...(headingAnchors
-              ? [rehypeSlug, rehypeRemoveHeadingIds({ calloutsOnly: true })]
+              ? [rehypeHeadingIds, rehypeRemoveHeadingIds({ calloutsOnly: true })]
               : [rehypeRemoveHeadingIds()]),
             ...(sourceLineMarkers ? [rehypeMarkBlockMath()] : []),
             [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],

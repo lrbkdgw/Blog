@@ -439,7 +439,7 @@ export default function Admin() {
             ) : OFFLINE ? (
               <span className="flex items-center gap-1.5 text-ink-500">
                 <HardDrive size={14} />
-                内容保存在这台设备的浏览器里（离线版不联网）
+                内容保存在这台设备的浏览器里（离线版不访问互联网）
               </span>
             ) : (
               <Link

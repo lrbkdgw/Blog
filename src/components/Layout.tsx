@@ -322,7 +322,7 @@ function Footer() {
           <p className="text-xs text-ink-400">
             © {new Date().getFullYear()} {siteConfig.author.name}
             {siteConfig.footerNote ? ` · ${siteConfig.footerNote}` : ''} ·{' '}
-            {OFFLINE ? '离线单文件版（不联网）' : '由 React + Vite 驱动，托管于 GitHub Pages'}
+            {OFFLINE ? '离线单文件版（无互联网依赖）' : '由 React + Vite 驱动，托管于 GitHub Pages'}
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -379,7 +379,7 @@ function OfflineBadge() {
   return (
     <Link
       to="/admin?tab=export"
-      title={`离线版：本站不发起任何网络请求。本机已写 ${count} 篇${local && local.images > 0 ? `、暂存 ${local.images} 张图片` : ''}；点这里导出文章包后在线上站点导入`}
+      title={`离线版：本站不访问互联网；仅主动协作时直连局域网设备。本机已写 ${count} 篇${local && local.images > 0 ? `、暂存 ${local.images} 张图片` : ''}；点这里导出文章包后在线上站点导入`}
       className="btn-ghost h-9 gap-1.5 !px-2.5 text-xs"
     >
       <HardDrive size={15} />

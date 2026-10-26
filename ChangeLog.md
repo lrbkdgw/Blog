@@ -1,5 +1,38 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-26 · 修复目录与编辑器体验，支持离线免登录和局域网共同编辑（#110 / #111 / #112 / #113）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 新增
+
+- **Issue #112：离线版局域网共同编辑**：
+  - 新增 `LanCollaboration.tsx` 与 `lanCollaboration.ts`，使用手动交换邀请码 / 应答码的 WebRTC DataChannel 点对点连接；`iceServers` 显式为空，不使用 STUN、TURN 或外部信令服务器；
+  - 使用 Yjs CRDT 同步正文、标题、slug、日期、标签、摘要、作者、封面、草稿与置顶状态；支持多设备邀请、更新转发、断线重连后的全量状态收敛，以及大更新分片与重组；
+  - 远端修改接入既有自动保存路径，各设备分别保存本机副本；加密文章仍须先解锁，密码与解锁密钥不参与同步。关闭协作面板不断开连接，结束协作或离开文章才清理会话。
+- 新增 `headingSlug.ts` 作为目录与正文共享的唯一标题锚点生成器；新增 `github-slugger`、`hast-util-to-string` 与 `yjs` 直接依赖。
+
+### 修复
+
+- **Issue #110：目录点击无法跳转**：目录不再用摘要清洗逻辑猜测标题文本，而是保留行内代码、公式、链接等实际文字，并与正文共用 github-slugger 去重规则；为 `???` 等空 slug 标题增加 `section` / `section-1` 回退锚点，同时保留普通标题的既有锚点。
+- **Issue #111：编辑体验**：引用行（含嵌套引用与引用中的列表）按 Enter 自动延续；空引用 / 空列表项正确退出；空白无序、有序及任务列表项按 Tab 从行首缩进，Shift+Tab 反缩进；所有已处理按键统一阻止原生行为叠加。多级无序列表依次使用 `disc` / `circle` / `square` marker。
+- **Issue #113：离线免登录入口**：首页空状态、文章页编辑按钮、设置页返回入口均识别离线模式；离线访问 `/login` 直接进入本机内容管理，不再形成登录门槛。
+
+### 调整
+
+- 离线口径从「完全不联网」明确为「无互联网依赖」：正常读写不访问互联网，只有用户主动交换连接码后才进行局域网点对点直连；同步更新 README、离线 README、AI 协作维护规范与离线构建自检。
+- `verify-offline.mjs` 新增协作标记检查，并强制核验空 `iceServers` 与无 STUN / TURN 地址；重新生成并提交 `offline/index.html`。
+
+### 验证
+
+- `npm test` 通过：Web 17 组测试（含全部 13 篇内置文章的目录 / 正文锚点逐篇核验、编辑器按键、CRDT 并发收敛与分片重组、离线入口）及 VS Code 插件 71 项测试；4 项 Chromium 测试因环境未配置浏览器而跳过。
+- `npm --prefix vscode_extensions/v1 run typecheck` 与 `npm run build` 通过。
+- `npm run build:offline` 与 `scripts/verify-offline.mjs` 自检通过：单文件 3.31 MB、13 篇内置文章、20 组 KaTeX 字体、无在线端点；已将 `dist-offline/index.html` 同步到 `offline/index.html`。
+
 ## 2026-10-23 · 修复全屏编辑冲突、美化历史版本渲染对比、首页下滑自动加载更多及 main 自动发布离线版 Release（#104 / #105 / #106）
 
 | 模型信息 | |

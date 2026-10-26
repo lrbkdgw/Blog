@@ -6,10 +6,12 @@
  *
  * 它与线上版的差异只有三条：
  *
- *   1. **完全不联网**：`hasNetwork()` 恒为 `false`，`github.ts` 的请求出口在离线构建里
+ *   1. **不访问互联网**：`hasNetwork()` 恒为 `false`，`github.ts` 的请求出口在离线构建里
  *      直接抛错，端点字符串（api.github.com / Google Fonts / OAuth）经构建期常量替换后
  *      根本不会出现在产物中——`scripts/verify-offline.mjs` 会硬检查这一点。
  *      因此没有在线登录、在线评论、远端历史版本、PR 流程，也不请求云端字体与远程图片。
+ *      唯一的主动连接能力是 issue #112 的局域网协作：用户交换连接码后才建立 WebRTC 点对点
+ *      DataChannel，`iceServers` 为空，不经过互联网、STUN / TURN 或外部信令服务。
  *   2. **路由用 hash**：`file://` 下没有服务端 rewrite，History API 的路径不可用。
  *   3. **写作与阅读都在本机**：文章读写走 `offlineStorage`（IndexedDB，降级 localStorage），
  *      评论变成本机笔记，历史版本用本机快照。要把内容带到线上站点，用「导出文章包」→
@@ -23,9 +25,9 @@ export const OFFLINE: boolean =
   typeof __STARLOG_OFFLINE__ !== 'undefined' && __STARLOG_OFFLINE__ === true
 
 /**
- * 是否可以发起网络请求。
+ * 是否可以使用依赖互联网的在线能力。
  *
- * 离线版按设计**不使用网络**，所以即使设备其实连着网也返回 `false`：
+ * 离线版的在线功能按设计**不访问互联网**，所以即使设备其实连着网也返回 `false`：
  * 这样所有「先判断再请求」的路径（字体、账号偏好、评论、历史版本）都会直接走本机实现，
  * 而不是先试一下再失败。真正的请求出口另有硬拦截（见 `github.ts` 的 `net()`）。
  */
@@ -36,7 +38,7 @@ export function hasNetwork(): boolean {
 }
 
 /** 离线版里禁止联网的统一说明文案（错误提示与界面提示共用，措辞保持一致） */
-export const OFFLINE_NO_NETWORK_HINT = '离线版不会发起任何网络请求'
+export const OFFLINE_NO_NETWORK_HINT = '离线版不会访问互联网'
 
 /**
  * 解析离线版中的图片地址。

@@ -37,6 +37,8 @@ const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
 const echoCaveMod = await importTsModule('src/lib/echoCave.ts')
 const echoAshMod = await importTsModule('src/lib/echoAsh.ts')
+const editorMod = await importTsModule('src/lib/editor.ts')
+const lanCollaborationMod = await importTsModule('src/lib/lanCollaboration.ts')
 
 function makeMock2dContext(strokeSink, drawSink) {
   const stack = []
@@ -312,7 +314,7 @@ test('全站所有路由页面与悬浮门户组件均已接入顶部防冲突�
     assert.match(content, /data-yield-list/, `${rel} 缺少 data-yield-list 标记`)
   }
 
-  for (const portalFile of ['src/components/LatexPicker.tsx', 'src/components/BundleImportDialog.tsx']) {
+  for (const portalFile of ['src/components/LatexPicker.tsx', 'src/components/BundleImportDialog.tsx', 'src/components/LanCollaboration.tsx']) {
     const content = readFileSync(join(root, portalFile), 'utf8')
     assert.match(content, /createPortal\(/, `${portalFile} 应使用 createPortal 避免祖先 mask 裁切`)
   }
@@ -2841,6 +2843,221 @@ test('issue #106 & offline CI：首页下滑自动加载更多 + main 更新自�
   }
 })
 
+/* ------------------- 14–17. Issues #110 / #111 / #112 / #113 回归测试 ------------------- */
 
+test('issue #110：目录与真实 React Markdown 正文使用完全一致的标题锚点', async () => {
+  const markdown = [
+    '## 使用 `foo_bar` 与 **加粗**',
+    '## 重复',
+    '## 重复',
+    '## 重复-1',
+    '## 重复',
+    '## 公式 $a_b$',
+    '## 实体 &amp; 测试',
+    '## ???',
+    '## ???',
+    '## section',
+  ].join('\n\n')
+  const items = postsMod.extractToc(markdown)
+  assert.equal(items.length, 10)
 
+  const env = setupJsdomTestEnv()
+  const { React, renderToStaticMarkup, Markdown, parseFrontmatter } = await loadSharedAppBundle()
+  const html = renderToStaticMarkup(React.createElement(Markdown, { content: markdown }))
+  env.dom.window.document.body.innerHTML = html
+  try {
+    for (const item of items) {
+      const heading = env.dom.window.document.getElementById(item.id)
+      assert.ok(heading, `目录项「${item.text}」的 #${item.id} 在正文中不存在，点击必然无法跳转`)
+      assert.equal(heading.tagName.toLowerCase(), `h${item.level}`)
+    }
+    assert.deepEqual(
+      items.slice(1, 5).map((item) => item.id),
+      ['重复', '重复-1', '重复-1-1', '重复-2'],
+      '重复标题与显式重复-1 标题冲突时也必须遵循 github-slugger 的去重顺序',
+    )
+    assert.deepEqual(
+      items.slice(7).map((item) => item.id),
+      ['section', 'section-1', 'section-2'],
+      '空 slug 标题必须获得稳定回退锚点，并与正常 section 标题继续去重',
+    )
 
+    // 仓库现有文章也逐篇渲染核验，避免只对人工样例有效。
+    const { readdirSync } = await import('node:fs')
+    const postsDir = join(root, 'content/posts')
+    for (const file of readdirSync(postsDir).filter((name) => name.endsWith('.md'))) {
+      const raw = readFileSync(join(postsDir, file), 'utf8')
+      const article = parseFrontmatter(raw).content
+      const articleToc = postsMod.extractToc(article)
+      env.dom.window.document.body.innerHTML = renderToStaticMarkup(
+        React.createElement(Markdown, { content: article }),
+      )
+      for (const item of articleToc) {
+        assert.ok(
+          env.dom.window.document.getElementById(item.id),
+          `${file} 的目录项「${item.text}」对应锚点 #${item.id} 不存在`,
+        )
+      }
+    }
+  } finally {
+    env.cleanup()
+  }
+})
+
+test('issue #111：引用续行、空列表 Tab 缩进/反缩进与多级列表 marker', () => {
+  const press = (value, start, key, options = {}) => {
+    let prevented = false
+    const action = editorMod.handleEditorKey({
+      currentTarget: {
+        value,
+        selectionStart: start,
+        selectionEnd: options.end ?? start,
+      },
+      key,
+      shiftKey: options.shift ?? false,
+      nativeEvent: { isComposing: false },
+      preventDefault() { prevented = true },
+    })
+    return { action, prevented }
+  }
+
+  let result = press('> 第一段', 5, 'Enter')
+  assert.equal(result.action.value, '> 第一段\n> ')
+  assert.equal(result.action.selectionStart, 8)
+  assert.equal(result.prevented, true)
+  result = press('> > 嵌套', 6, 'Enter')
+  assert.equal(result.action.value, '> > 嵌套\n> > ')
+  result = press('> ', 2, 'Enter')
+  assert.equal(result.action.value, '', '空引用行应退出引用且不能叠加原生换行')
+  assert.equal(result.action.selectionStart, 0)
+  result = press('> 2. 第二项', 8, 'Enter')
+  assert.equal(result.action.value, '> 2. 第二项\n> 3. ')
+  result = press('- [x] 已完成', 9, 'Enter')
+  assert.equal(result.action.value, '- [x] 已完成\n- [ ] ')
+  result = press('- ', 2, 'Enter')
+  assert.equal(result.action.value, '', '空列表项应结束列表')
+  assert.equal(result.prevented, true)
+
+  result = press('- ', 2, 'Tab')
+  assert.equal(result.action.value, '  - ', 'Tab 必须缩进整行，而不是把空格插到列表符号之后')
+  assert.equal(result.action.selectionStart, 4)
+  result = press(result.action.value, result.action.selectionStart, 'Tab', { shift: true })
+  assert.equal(result.action.value, '- ')
+  assert.equal(result.action.selectionStart, 2)
+  result = press('1. ', 3, 'Tab')
+  assert.equal(result.action.value, '  1. ')
+  assert.equal(result.action.selectionStart, 5)
+  result = press('普通文本', 2, 'Tab')
+  assert.equal(result.action.value, '普通  文本', '非列表行仍保留光标处插入两个空格的行为')
+  result = press('第一行\n第二行', 0, 'Tab', { end: 7 })
+  assert.equal(result.action.value, '  第一行\n  第二行')
+  result = press(result.action.value, 0, 'Tab', { end: result.action.value.length, shift: true })
+  assert.equal(result.action.value, '第一行\n第二行')
+
+  const css = readFileSync(join(root, 'src/styles/index.css'), 'utf8')
+  assert.match(css, /\.prose ul ul\s*\{[^}]*list-style-type:\s*circle/s)
+  assert.match(css, /\.prose ul ul ul\s*\{[^}]*list-style-type:\s*square/s)
+})
+
+test('issue #112：离线协作连接码、CRDT 并发合并与大更新分片重组', () => {
+  const base = (content = '第一段\n共享\n结尾') => ({
+    content,
+    title: '共同文章',
+    slug: 'shared-post',
+    date: '2026-10-26',
+    tagsText: '协作',
+    summary: '',
+    author: '',
+    cover: '',
+    draft: false,
+    pinned: false,
+  })
+  const {
+    LanUpdateAssembler,
+    applyLocalCollaborationValue,
+    applyRemoteCollaborationUpdate,
+    createCollaborationDoc,
+    decodeLanSignal,
+    encodeLanSignal,
+    encodeLanUpdate,
+    encodeCollaborationState,
+    readCollaborationValue,
+  } = lanCollaborationMod
+
+  const signal = {
+    v: 1,
+    kind: 'offer',
+    session: 'session-测试',
+    document: 'shared-post',
+    description: { type: 'offer', sdp: 'v=0\r\na=candidate:lan-only' },
+  }
+  assert.deepEqual(decodeLanSignal(encodeLanSignal(signal), 'offer'), signal)
+  assert.throws(() => decodeLanSignal(encodeLanSignal(signal), 'answer'), /邀请码/)
+  assert.throws(() => decodeLanSignal('not-a-signal'), /STARLOG-LAN1/)
+
+  const host = createCollaborationDoc(base())
+  const guest = createCollaborationDoc()
+  applyRemoteCollaborationUpdate(guest, encodeCollaborationState(host), 'initial-host')
+  const hostUpdates = []
+  const guestUpdates = []
+  host.on('update', (update, origin) => { if (origin === 'host-local') hostUpdates.push(update) })
+  guest.on('update', (update, origin) => { if (origin === 'guest-local') guestUpdates.push(update) })
+
+  applyLocalCollaborationValue(host, {
+    ...base('第一段\n主机增加\n共享\n结尾'),
+    title: '主机修改的标题',
+  }, 'host-local')
+  applyLocalCollaborationValue(guest, {
+    ...base('第一段\n共享\n访客增加\n结尾'),
+    tagsText: '协作, 局域网',
+  }, 'guest-local')
+  for (const update of hostUpdates) applyRemoteCollaborationUpdate(guest, update, 'host-remote')
+  for (const update of guestUpdates) applyRemoteCollaborationUpdate(host, update, 'guest-remote')
+
+  const hostValue = readCollaborationValue(host)
+  const guestValue = readCollaborationValue(guest)
+  assert.deepEqual(hostValue, guestValue, '双向并发更新后两篇 CRDT 文档必须完全收敛')
+  assert.match(hostValue.content, /主机增加/)
+  assert.match(hostValue.content, /访客增加/)
+  assert.equal(hostValue.title, '主机修改的标题')
+  assert.equal(hostValue.tagsText, '协作, 局域网')
+
+  const large = createCollaborationDoc()
+  let largeUpdate
+  large.on('update', (update) => { largeUpdate = update })
+  const largeContent = `开头\n${'汉'.repeat(20_000)}\n结尾`
+  applyLocalCollaborationValue(large, base(largeContent), 'large-local')
+  const messages = encodeLanUpdate(largeUpdate, 'large-update')
+  assert.ok(messages.length > 1, '大文章必须拆成多条 DataChannel 消息')
+  const assembler = new LanUpdateAssembler()
+  let restored = null
+  for (const message of [...messages].reverse()) restored = assembler.push(message) ?? restored
+  assert.ok(restored)
+  assert.equal(Buffer.compare(Buffer.from(restored), Buffer.from(largeUpdate)), 0, '分片重组后必须逐字节一致')
+  const replica = createCollaborationDoc()
+  applyRemoteCollaborationUpdate(replica, restored, 'large-remote')
+  assert.equal(readCollaborationValue(replica).content, largeContent)
+  assert.throws(() => assembler.push('{bad json'), /JSON/)
+
+  const componentSource = readFileSync(join(root, 'src/components/LanCollaboration.tsx'), 'utf8')
+  assert.match(componentSource, /new RTCPeerConnection\(\{ iceServers: \[\] \}\)/)
+  assert.doesNotMatch(componentSource, /\b(?:stun|turn):/i, '离线局域网协作不得依赖 STUN / TURN 互联网服务')
+
+  host.destroy()
+  guest.destroy()
+  large.destroy()
+  replica.destroy()
+})
+
+test('issue #113：离线版首页、文章页、设置与登录入口均可免登录写作和进入管理', () => {
+  const home = readFileSync(join(root, 'src/pages/Home.tsx'), 'utf8')
+  const post = readFileSync(join(root, 'src/pages/PostPage.tsx'), 'utf8')
+  const settings = readFileSync(join(root, 'src/pages/SettingsPage.tsx'), 'utf8')
+  const login = readFileSync(join(root, 'src/pages/Login.tsx'), 'utf8')
+  assert.match(home, /isAuthed \|\| OFFLINE \? '\/admin\/new' : '\/login'/)
+  assert.match(post, /\{\(isAuthed \|\| OFFLINE\) && <button[^>]*onClick=\{editCurrentVersion\}/)
+  assert.match(settings, /isAuthed \|\| OFFLINE \? '\/admin' : '\/'/)
+  assert.match(login, /if \(OFFLINE\) return <Navigate to="\/admin" replace \/>/)
+  const editor = readFileSync(join(root, 'src/pages/Editor.tsx'), 'utf8')
+  assert.match(editor, /OFFLINE && \([\s\S]*?<LanCollaboration/, '协作入口必须只在离线构建渲染')
+})

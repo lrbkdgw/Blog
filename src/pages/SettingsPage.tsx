@@ -627,13 +627,13 @@ export default function SettingsPage() {
         <h1 className="font-serif text-3xl font-bold tracking-tight text-ink-900 dark:text-white">设置</h1>
         <p className="mt-1.5 text-sm text-ink-500">
           {OFFLINE
-            ? '个性化设置使用浏览器本地存储与即时更新机制。离线版不联网，因此没有账号同步：偏好只保存在这台设备的这个文件里。'
+            ? '个性化设置使用浏览器本地存储与即时更新机制。离线版不访问互联网，因此没有账号同步：偏好只保存在这台设备的这个文件里。'
             : '个性化设置使用浏览器本地存储与即时更新机制；连接 GitHub 后仍可选择同步偏好至账号。'}
           <Link
-            to={isAuthed ? '/admin' : '/'}
+            to={isAuthed || OFFLINE ? '/admin' : '/'}
             className="ml-2 text-brand-600 hover:underline dark:text-brand-300"
           >
-            ← {isAuthed ? '返回内容管理' : '返回首页'}
+            ← {isAuthed || OFFLINE ? '返回内容管理' : '返回首页'}
           </Link>
         </p>
       </header>
@@ -895,7 +895,7 @@ export default function SettingsPage() {
           ) : (
             <p className="text-xs leading-relaxed text-ink-400">
               {OFFLINE
-                ? '离线版的外观偏好只保存在本机（这个文件不联网，也就没有账号同步）。'
+                ? '离线版的外观偏好只保存在本机（不访问互联网，也就没有账号同步）。'
                 : '访客设置已直接保存在本地。登录并连接 GitHub 账号后，可在这里把外观偏好同步到云端。'}
             </p>
           )}
@@ -1074,7 +1074,7 @@ export default function SettingsPage() {
             <li>所有访客与已登录用户均可自由配置字体、背景与深浅色模式。</li>
             {OFFLINE ? (
               <>
-                <li>离线版不联网：不登录、不请求云端字体、不加载远程图片，也不提交仓库。</li>
+                <li>离线版不访问互联网：不登录、不请求云端字体、不加载远程图片，也不提交仓库；可选协作仅直连局域网设备。</li>
                 <li>全部数据只存在这台设备的浏览器里；清除浏览器数据会一并删掉，请在上方「离线版」卡片导出档案备份。</li>
               </>
             ) : (
