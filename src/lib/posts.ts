@@ -445,6 +445,29 @@ function parseFence(line: string): MarkdownFence | null {
   return { marker: match[1][0] as '`' | '~', length: match[1].length }
 }
 
+/**
+ * 从标题原始文本里取出「用于生成锚点 id 的纯文本」。
+ *
+ * 目录展示用的文本与正文里的锚点 id 必须来自**同一份**纯文本：`stripMarkdown`
+ * 会剥掉 `**粗体**` 这类装饰，但也会把内联公式 `$E=mc^2$` 整个吞掉——那会让
+ * 锚点 id 里的公式凭空消失，相邻文字黏在一起，两个标题甚至可能撞成同一个 id，
+ * 目录点击自然找不到对应元素（issue #110）。
+ * 这里先做最小的装饰剥离，再把公式 / 行内代码换成**自身内容**（与渲染后的
+ * 文本节点一致），随后由 `slugHeading` 压缩空白，与 github-slugger 的行为对齐。
+ */
+function headingText(raw: string): string {
+  return raw
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .replace(/~~([^~]+)~~/g, '$1')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\$\$([^$]+)\$\$/g, '$1')
+    .replace(/\$([^$\n]+)\$/g, '$1')
+    .replace(/<[^>]+>/g, ' ')
+}
+
 function slugHeading(text: string, used: Map<string, number>): string {
   // 与 rehype-slug（github-slugger）保持一致的 id 生成规则
   let id = text
@@ -536,7 +559,9 @@ export function extractToc(md: string): TocItem[] {
 
     const text = stripMarkdown(heading[2])
     const level = heading[1].length
-    const id = slugHeading(text, used)
+    // 锚点 id 用「与正文渲染后完全一致」的纯文本（见 headingText），
+    // 展示文本仍用 stripMarkdown 的结果。
+    const id = slugHeading(headingText(heading[2]), used)
     // 折叠框内的标题不显示在目录中；仍参与 slug 计数，以匹配正文渲染后的锚点后缀。
     if (callouts.length === 0 && level >= 2 && level <= 4) {
       items.push({ id, text, level })

@@ -60,6 +60,7 @@ import { STORAGE_KEYS } from '../lib/config'
 import { clearRememberedPostUnlocks } from '../lib/crypto'
 import { useEditorScrollSync } from '../lib/editorSettings'
 import { OfflineSettingsCard } from '../components/OfflineSettingsCard'
+import { LanCollabCard } from '../components/LanCollabCard'
 import { OFFLINE } from '../lib/runtime'
 
 type LocalFontData = { family?: string }
@@ -1035,6 +1036,7 @@ export default function SettingsPage() {
 
         {/* ------------------------------ 离线版专属 ------------------------------ */}
         {OFFLINE && <OfflineSettingsCard />}
+        {OFFLINE && <LanCollabCard />}
 
         {/* ------------------------------ 本地数据 ------------------------------- */}
         <Section

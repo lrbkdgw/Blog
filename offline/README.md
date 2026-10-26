@@ -16,6 +16,10 @@
 没有在线登录，不请求云端字体，也不加载远程图片。打开后顶部有「离线版」徽标，
 点进去是「管理 → 离线文章包」：导出文章包给线上站点，或把别的设备导出的包导进来。
 
+唯一例外是「设置 → 局域网协作」：只有你**显式点「连接中继」**才会建立 WebSocket 连接，
+用于同一局域网里多台设备共同编辑同一份文档；不点就一个包都不发。用法见根目录 README 的
+「📴 离线版 → 局域网协作（预览能力）」。
+
 ## 内容如何带到线上站点
 
 ```
@@ -59,5 +63,8 @@ cp dist-offline/index.html offline/index.html
 | `src/components/OfflineExportPanel.tsx` | 离线版「管理 → 离线文章包」：勾选并导出、查看本机内容 |
 | `src/components/BundleImportDialog.tsx` | 「导入离线文章包」对话框（线上站点与离线版本都用它） |
 | `src/components/StorageGuard.tsx` | 存储不可用时拦住页面，绝不假装保存成功 |
+| `src/lib/collab.ts` | 局域网协作客户端：地址规范化、连接状态机、收发协议（仅在显式连接时使用） |
+| `src/components/LanCollabCard.tsx` | 「设置 → 局域网协作」卡片：连接 / 断开、文档 ID、推送本机文章、接收并导入协作文章 |
+| `scripts/lan-collab-server.mjs` | 局域网协作中继（零依赖 Node 脚本，手写 RFC 6455 服务端），供同一文档里的多台设备互推文章；也可用 `npm run lan-collab` 启动 |
 
 功能范围与限制见仓库根目录 README 的「📴 离线版」一节。
