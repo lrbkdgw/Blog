@@ -798,6 +798,19 @@ details[open] .callout-chevron {
 .prose ul > li::marker {
   @apply text-brand-500;
 }
+/* 嵌套列表明确区分层级，避免所有层级都渲染成相同圆点。 */
+.prose ul ul {
+  list-style-type: circle;
+}
+.prose ul ul ul {
+  list-style-type: square;
+}
+.prose ol ol {
+  list-style-type: lower-alpha;
+}
+.prose ol ol ol {
+  list-style-type: lower-roman;
+}
 .prose :where(input[type='checkbox']) {
   @apply mr-1 h-4 w-4 rounded accent-brand-500;
 }

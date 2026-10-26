@@ -82,7 +82,7 @@ function OfflineLoginNotice() {
         </div>
         <h1 className="font-serif text-xl font-bold">离线版没有在线登录</h1>
         <p className="mt-2 text-sm leading-relaxed text-ink-500">
-          这个 HTML 被设计成<strong>完全不联网</strong>：不请求 GitHub、不请求云端字体、不加载远程图片。
+          这个 HTML 默认<strong>不访问互联网</strong>：不请求 GitHub、不请求云端字体、不加载远程图片；局域网协作仅在你主动开启时建立设备间直连。
           所以这里没有 Device Flow 授权，也没有「登录后才能用」的功能。
         </p>
         <ul className="mt-3 space-y-1.5 text-sm leading-relaxed text-ink-500">

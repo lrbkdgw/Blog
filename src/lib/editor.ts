@@ -64,10 +64,43 @@ export function handleEditorKey(
 
   if (e.key === 'Tab') {
     e.preventDefault()
-    if (start !== end || e.shiftKey) {
-      return toggleLinePrefix(value, start, end, '  ')
+    const lineStart = value.lastIndexOf('\n', start - 1) + 1
+    const lineEndIndex = value.indexOf('\n', end)
+    const lineEnd = lineEndIndex === -1 ? value.length : lineEndIndex
+    const currentLine = value.slice(lineStart, lineEnd)
+
+    // 在列表项后面的空白行按 Tab，创建真正的嵌套列表项，而不是只插入空格。
+    // 这使得继续输入时 Markdown 能识别为二级列表，且编号列表也能正常续写。
+    if (start === end && !e.shiftKey && lineStart > 0 && /^\s*$/.test(currentLine)) {
+      const previousLineEnd = lineStart - 1
+      const previousLineStart = value.lastIndexOf('\n', previousLineEnd - 1) + 1
+      const previousLine = value.slice(previousLineStart, previousLineEnd)
+      const parent = previousLine.match(/^(\s*)([-*+]\s(?:\[[ x]\]\s)?|\d+\.\s).+$/)
+      if (parent) {
+        const marker = /^\d+\./.test(parent[2]) ? '1. ' : parent[2].includes('[') ? '- [ ] ' : '- '
+        const indent = `${parent[1]}  `
+        const replacement = `${indent}${marker}`
+        const next = value.slice(0, lineStart) + replacement + value.slice(lineEnd)
+        const cursor = lineStart + replacement.length
+        return { value: next, selectionStart: cursor, selectionEnd: cursor }
+      }
     }
-    return { value: value.slice(0, start) + '  ' + value.slice(end), selectionStart: start + 2, selectionEnd: start + 2 }
+
+    // Tab 缩进当前行/选区；Shift+Tab 只撤销缩进，不能在未缩进时反向缩进。
+    const firstLine = value.lastIndexOf('\n', start - 1) + 1
+    const lastLineIndex = value.indexOf('\n', end)
+    const lastLine = lastLineIndex === -1 ? value.length : lastLineIndex
+    const block = value.slice(firstLine, lastLine)
+    const lines = block.split('\n')
+    const nextLines = lines.map((line) => {
+      if (!e.shiftKey) return `  ${line}`
+      return line.startsWith('  ') ? line.slice(2) : line.startsWith('\t') ? line.slice(1) : line
+    })
+    const nextBlock = nextLines.join('\n')
+    const next = value.slice(0, firstLine) + nextBlock + value.slice(lastLine)
+    const selectionStart = Math.min(next.length, start + (e.shiftKey ? -Math.min(2, value.slice(firstLine, start).match(/^ {0,2}/)?.[0].length ?? 0) : 2))
+    const selectionEnd = Math.max(selectionStart, end + nextBlock.length - block.length)
+    return { value: next, selectionStart, selectionEnd }
   }
 
   if (e.key === 'Enter' && !e.shiftKey && start === end) {
@@ -78,6 +111,7 @@ export function handleEditorKey(
       const [, indent, marker, num] = m
       // 空列表项 → 结束列表
       if (line.trim() === marker.trim()) {
+        e.preventDefault()
         const next = value.slice(0, lineStart) + value.slice(start)
         return { value: next, selectionStart: lineStart, selectionEnd: lineStart }
       }
@@ -87,6 +121,22 @@ export function handleEditorKey(
       const next = value.slice(0, start) + insert + value.slice(end)
       const pos = start + insert.length
       return { value: next, selectionStart: pos, selectionEnd: pos }
+    }
+
+    // 引用块续行；空引用行再次回车则退出引用。
+    const quote = line.match(/^(\s*(?:>\s*)+)/)
+    if (quote) {
+      const prefix = quote[1]
+      if (line.slice(prefix.length).trim() === '') {
+        e.preventDefault()
+        const next = value.slice(0, lineStart) + value.slice(start)
+        return { value: next, selectionStart: lineStart, selectionEnd: lineStart }
+      }
+      e.preventDefault()
+      const insert = `\n${prefix}`
+      const next = value.slice(0, start) + insert + value.slice(end)
+      const cursor = start + insert.length
+      return { value: next, selectionStart: cursor, selectionEnd: cursor }
     }
   }
 

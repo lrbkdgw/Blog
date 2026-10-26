@@ -38,6 +38,7 @@ import { Archive,
   Upload,
 } from 'lucide-react'
 import { Markdown } from '../components/Markdown'
+import { LanCollaboration } from '../components/LanCollaboration'
 import { LatexPicker } from '../components/LatexPicker'
 import { setEditorFullscreenActive } from '../components/Layout'
 import { PasswordPrompt } from '../components/PasswordPrompt'
@@ -500,6 +501,13 @@ export default function Editor() {
   }, [dirty])
 
   const markDirty = () => setDirty(true)
+
+  const applySharedDocument = useCallback((shared: { title: string; content: string }) => {
+    setTitle(shared.title)
+    setContent(shared.content)
+    setDebouncedContent(shared.content)
+    setDirty(true)
+  }, [])
 
   const handlePreviewContentChange = useCallback(
     (updater: (prevMarkdown: string) => string) => {
@@ -1244,6 +1252,7 @@ export default function Editor() {
           />
 
           <div className="flex items-center gap-2">
+            {OFFLINE && <LanCollaboration title={title} content={content} onChange={applySharedDocument} />}
             {/* 视图模式切换 */}
             <div className="flex rounded-lg bg-ink-100 p-0.5 dark:bg-white/10">
               {(
