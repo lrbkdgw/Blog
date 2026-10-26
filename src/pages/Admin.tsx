@@ -705,7 +705,7 @@ export default function Admin() {
                       ) : (
                         <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
                           <Clock size={12} />
-                          未发布到 GitHub（仅本地草稿）
+                          {OFFLINE ? '本机文章库（离线版不提交仓库）' : '未发布到 GitHub（仅本地草稿）'}
                           {post.savedAt && ` · 本地修改于 ${relativeTime(post.savedAt)}`}
                         </span>
                       )}
@@ -948,7 +948,8 @@ export default function Admin() {
             </div>
           </div>
 
-          {!canPublish && (
+          {/* 离线版不提交仓库：这里不出现「请先登录 GitHub」的提示，避免把离线用户引向登录页（issue #113） */}
+          {!canPublish && !OFFLINE && (
             <div className="rounded-xl border border-amber-200/70 bg-amber-50/50 px-4 py-3 text-xs text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
               更新仓库需要先 <Link to="/login" className="font-medium underline underline-offset-2">登录 GitHub</Link>；队列中的更改已保存在本机，不会丢失。
             </div>
@@ -960,7 +961,9 @@ export default function Admin() {
                 <ListTodo size={28} className="text-ink-300" />
                 <p className="text-sm text-ink-500">待更新队列为空</p>
                 <p className="max-w-sm text-xs leading-relaxed text-ink-400">
-                  在编辑器或文章列表中发布、删除文章，或上传图片后，更改会先出现在这里，等待统一更新到 GitHub。
+                  {OFFLINE
+                    ? '上传的图片、从内置文章改出来的文章都会先出现在这里，随「导出文章包」一起带走。'
+                    : '在编辑器或文章列表中发布、删除文章，或上传图片后，更改会先出现在这里，等待统一更新到 GitHub。'}
                 </p>
               </div>
             ) : (

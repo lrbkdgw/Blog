@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { List } from 'lucide-react'
 import type { TocItem } from '../lib/posts'
+import { OFFLINE } from '../lib/runtime'
 
-export function Toc({ items }: { items: TocItem[] }) {
+export function Toc({ items, id = 'starlog-toc' }: { items: TocItem[]; id?: string }) {
   const [activeId, setActiveId] = useState<string>('')
 
   useEffect(() => {
@@ -32,8 +33,31 @@ export function Toc({ items }: { items: TocItem[] }) {
 
   if (items.length < 2) return null
 
+  /**
+   * 点击目录项跳转到对应标题（issue #110）。
+   *
+   * 用 `scrollIntoView` 而不是手写 `window.scrollTo`：滚动会带上
+   * `scroll-margin-top`，标题不会钻到吸顶页头下面；元素万一还没渲染出来
+   * （正文是延迟渲染的），稍后再试一次。hash 只在 History 路由下同步，
+   * 离线版的 hash 路由里改 hash 会连带改路由，必须避免。
+   */
+  const jump = (item: TocItem) => {
+    const target = document.getElementById(item.id)
+    if (!target) {
+      window.setTimeout(() => {
+        const retry = document.getElementById(item.id)
+        retry?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 140)
+      return
+    }
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (!OFFLINE && window.location.hash) {
+      history.replaceState(null, '', `#${item.id}`)
+    }
+  }
+
   return (
-    <nav className="no-print hidden xl:block">
+    <nav id={id} className="no-print hidden xl:block" aria-label="目录">
       <div className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto pr-2">
         <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-400">
           <List size={13} />
@@ -46,12 +70,7 @@ export function Toc({ items }: { items: TocItem[] }) {
                 href={`#${item.id}`}
                 onClick={(e) => {
                   e.preventDefault()
-                  const el = document.getElementById(item.id)
-                  if (el) {
-                    const top = el.getBoundingClientRect().top + window.scrollY - 100
-                    window.scrollTo({ top, behavior: 'smooth' })
-                    history.replaceState(null, '', `#${item.id}`)
-                  }
+                  jump(item)
                 }}
                 className={`-ml-px block border-l-2 py-1 text-[13px] leading-snug transition-all duration-200 ${
                   activeId === item.id

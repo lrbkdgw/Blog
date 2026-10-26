@@ -28,6 +28,33 @@ async function importTsModule(entryPath) {
   return import(dataUrl)
 }
 
+/**
+ * Node 内置的 Event 系类。
+ *
+ * 个别 jsdom 用例会把全局 `Event` / `MessageEvent` 换成 jsdom 的实现（并在 cleanup 里还原），
+ * 而 undici 的 WebSocket 在分发事件时会做 `event instanceof Event` 判断——两边类不一致时
+ * 会抛 `ERR_INVALID_ARG_TYPE`。这里在文件最前面先留住 Node 的版本，供真实 WebSocket 连接前还原。
+ */
+const nodeEventGlobals = Object.fromEntries(
+  ['Event', 'MessageEvent', 'CloseEvent', 'CustomEvent', 'EventTarget'].map((key) => [key, globalThis[key]]),
+)
+
+async function withNodeEventGlobals(run) {
+  const previous = {}
+  for (const [key, value] of Object.entries(nodeEventGlobals)) {
+    if (!value) continue
+    previous[key] = globalThis[key]
+    globalThis[key] = value
+  }
+  try {
+    return await run()
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      Object.defineProperty(globalThis, key, { value, configurable: true, writable: true })
+    }
+  }
+}
+
 const weatherMod = await importTsModule('src/components/WeatherBackdrops.ts')
 const headerYieldMod = await importTsModule('src/lib/headerYield.ts')
 const uiCcsMod = await importTsModule('src/lib/uiCcs.ts')
@@ -2844,3 +2871,269 @@ test('issue #106 & offline CI：首页下滑自动加载更多 + main 更新自�
 
 
 
+
+/* ---------------- 14–17. Issues #110 / #111 / #112 / #113 回归测试 --------------- */
+
+const editorMod = await importTsModule('src/lib/editor.ts')
+const collabMod = await importTsModule('src/lib/collab.ts')
+
+/** 渲染端（rehype-slug / github-slugger）生成锚点 id 的规则 */
+function sluggerId(text) {
+  return text.toLowerCase().replace(/\s+/g, '-').replace(/[^\p{L}\p{N}\-_]+/gu, '')
+}
+
+test('issue #110：目录锚点与正文渲染出的 id 一致（内联公式 / 行内代码不会让锚点丢失或撞名）', () => {
+  const headings = [
+    '## 行内公式 $E = mc^2$ 与 `code`',
+    '### 矩阵 $$A = \\begin{pmatrix} 1 & 0 \\end{pmatrix}$$',
+    '## 重复',
+    '## 重复',
+    '### 引用 > 文本',
+  ]
+  const toc = postsMod.extractToc(headings.join('\n'))
+  assert.deepEqual(toc.map((t) => t.text), ['行内公式 与', '矩阵', '重复', '重复', '引用 > 文本'])
+
+  // 公式与行内代码不再被吞掉：锚点必须包含它们的内容
+  assert.equal(toc[0].id, sluggerId('行内公式 E = mc^2 与 code'))
+  assert.equal(toc[1].id, sluggerId('矩阵 A = \\begin{pmatrix} 1 & 0 \\end{pmatrix}'))
+
+  // 只差一个公式的两个标题必须得到不同的锚点（修复前会撞成同一个 id）
+  assert.notEqual(
+    postsMod.extractToc('## 公式 $x$ 与 $y$')[0].id,
+    postsMod.extractToc('## 公式 $z$ 与 $w$')[0].id,
+  )
+
+  // 同名标题按出现顺序加序号，与正文渲染一致（github-slugger：第二次出现是 -1）
+  assert.equal(toc[2].id, '重复')
+  assert.equal(toc[3].id, '重复-1')
+
+  // 目录跳转实现：scrollIntoView（带 scroll-margin），离线 hash 路由下不改 hash
+  const tocSource = readFileSync(join(root, 'src/components/Toc.tsx'), 'utf8')
+  assert.match(tocSource, /scrollIntoView/, '目录点击应使用 scrollIntoView 跳转')
+  assert.match(tocSource, /if \(!OFFLINE && window\.location\.hash\)/, '离线 hash 路由下不应改写 hash')
+})
+
+test('issue #111：引用框内回车自动续引用、列表 Tab 按层级缩进、一级与二级列表标记不同', () => {
+  /** 用最小事件对象驱动编辑器按键处理 */
+  function pressKey(value, { key, start, end = start, shiftKey = false } = {}) {
+    const prevented = []
+    const action = editorMod.handleEditorKey({
+      key,
+      shiftKey,
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      nativeEvent: { isComposing: false },
+      currentTarget: { value, selectionStart: start, selectionEnd: end },
+      preventDefault: () => prevented.push(key),
+    })
+    return { action, prevented }
+  }
+
+  // 引用：回车自动补上引用标记
+  const quote = pressKey('> 第一行', { key: 'Enter', start: 5 })
+  assert.equal(quote.action.value, '> 第一行\n> ')
+  assert.equal(quote.action.selectionStart, quote.action.value.length)
+  assert.ok(quote.prevented.includes('Enter'))
+
+  // 引用里套列表：列表的自动续行照常工作
+  const quoteList = pressKey('> - 项目', { key: 'Enter', start: 7 })
+  assert.equal(quoteList.action.value, '> - 项目\n> - ')
+
+  // 列表 Tab 缩进：按列表层级缩进，而不是整块加两个空格（光标在行内时只缩进当前行）
+  const list = pressKey('- 第一项\n- 第二项', { key: 'Tab', start: 2 })
+  assert.equal(list.action.value, '  - 第一项\n- 第二项')
+  // 缩进后光标保持在行内的相对位置，不会跳回行首
+  assert.equal(list.action.selectionStart, 4)
+  assert.equal(list.action.selectionEnd, 4)
+
+  // 选中多行时整块一起缩进，选区两端同步平移
+  const multi = pressKey('- 第一项\n- 第二项', { key: 'Tab', start: 2, end: 13 })
+  assert.equal(multi.action.value, '  - 第一项\n  - 第二项')
+  assert.equal(multi.action.selectionStart, 4)
+  assert.equal(multi.action.selectionEnd, multi.action.value.length)
+
+  // Shift+Tab 反缩进回到原位
+  const outdent = pressKey('  - 第一项\n- 第二项', { key: 'Tab', start: 3, shiftKey: true })
+  assert.equal(outdent.action.value, '- 第一项\n- 第二项')
+
+  // 空列表项行里按 Tab 也能缩进
+  const emptyItem = pressKey('- 项目\n- ', { key: 'Tab', start: 8 })
+  assert.equal(emptyItem.action.value, '- 项目\n  - ')
+
+  // 列表里的空行按 Tab 会续成下一层列表项
+  const blankLine = pressKey('- 项目\n\n- 项目', { key: 'Tab', start: 5 })
+  assert.equal(blankLine.action.value, '- 项目\n  - \n- 项目')
+
+  // 有序列表同样支持
+  const ordered = pressKey('1. 第一\n2. 第二', { key: 'Tab', start: 2 })
+  assert.equal(ordered.action.value, '  1. 第一\n2. 第二')
+  const orderedMulti = pressKey('1. 第一\n2. 第二', { key: 'Tab', start: 2, end: 12 })
+  assert.equal(orderedMulti.action.value, '  1. 第一\n  2. 第二')
+
+  // 非列表文本：退回「在光标处插入两个空格」
+  const plain = pressKey('普通文字', { key: 'Tab', start: 5 })
+  assert.equal(plain.action.value, '普通文字  ')
+  assert.equal(plain.action.selectionStart, 7)
+
+  // 一级 / 二级列表使用不同标记
+  const css = readFileSync(join(root, 'src/styles/index.css'), 'utf8')
+  assert.match(css, /\.prose ul\s*\{[^}]*list-style-type: disc;/, '一级无序列表应为实心圆点')
+  assert.match(css, /\.prose ul ul\s*\{[^}]*list-style-type: circle;/, '二级无序列表应为空心圆点')
+  assert.match(css, /\.prose ol\s*\{[^}]*list-style-type: decimal;/, '一级有序列表应为数字')
+  assert.match(css, /\.prose ol ol\s*\{[^}]*list-style-type: lower-alpha;/, '二级有序列表应为小写字母')
+})
+
+test('issue #112：局域网协作中继转发文章（零依赖 WebSocket 服务端 + 客户端协议）', async () => {
+  // 地址规范化：http(s) 自动换成 ws(s)，拒绝其它协议
+  assert.equal(collabMod.normalizeServerUrl('http://192.168.1.5:8787'), 'ws://192.168.1.5:8787/')
+  assert.equal(collabMod.normalizeServerUrl('https://example.com/path?a=1'), 'wss://example.com/')
+  assert.equal(collabMod.normalizeServerUrl('ftp://example.com'), null)
+  assert.equal(collabMod.normalizeServerUrl('   '), null)
+  assert.equal(collabMod.defaultServerUrl(), 'ws://localhost:8787')
+
+  if (typeof WebSocket === 'undefined') {
+    // Node 20 没有内置 WebSocket 客户端，跳过真实连接部分
+    return
+  }
+
+  await withNodeEventGlobals(async () => {
+    await runLanCollabRelay()
+  })
+})
+
+/** 真实起中继 + 多客户端往返（需要 Node 内置 WebSocket，且全局 Event 未被 jsdom 污染） */
+async function runLanCollabRelay() {
+  const { spawn } = await import('node:child_process')
+  const port = 8791
+  const server = spawn(process.execPath, [join(root, 'scripts/lan-collab-server.mjs'), '--port', String(port)], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let serverLog = ''
+  server.stdout.on('data', (chunk) => { serverLog += String(chunk) })
+  server.stderr.on('data', (chunk) => { serverLog += String(chunk) })
+
+  const clients = []
+  const closeAll = () => {
+    for (const client of clients) client.close()
+    server.kill()
+  }
+
+  try {
+    for (let i = 0; i < 100 && !serverLog.includes('已启动'); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    assert.match(serverLog, /已启动/, `中继应正常启动：${serverLog}`)
+
+    const createClient = (name) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${port}`)
+      const inbox = []
+      const waiters = []
+      socket.addEventListener('message', (event) => {
+        const message = JSON.parse(String(event.data))
+        const index = waiters.findIndex((waiter) => waiter.predicate(message))
+        if (index >= 0) {
+          const [waiter] = waiters.splice(index, 1)
+          waiter.resolve(message)
+        } else {
+          inbox.push(message)
+        }
+      })
+      const client = {
+        ready: new Promise((resolve, reject) => {
+          socket.addEventListener('open', resolve)
+          socket.addEventListener('error', reject)
+        }),
+        send: (message) => socket.send(JSON.stringify(message)),
+        next: (predicate, timeoutMs = 4000) =>
+          new Promise((resolve, reject) => {
+            const index = inbox.findIndex((message) => predicate(message))
+            if (index >= 0) {
+              resolve(inbox.splice(index, 1)[0])
+              return
+            }
+            const timer = setTimeout(() => reject(new Error('等待中继消息超时')), timeoutMs)
+            waiters.push({
+              predicate,
+              resolve: (message) => {
+                clearTimeout(timer)
+                resolve(message)
+              },
+            })
+          }),
+        close: () => socket.close(),
+      }
+      clients.push(client)
+      return client
+    }
+
+    const docId = 'starlog-lan-test'
+    const a = createClient('A')
+    const b = createClient('B')
+    await Promise.all([a.ready, b.ready])
+    a.send({ kind: 'hello', docId, name: 'A' })
+    b.send({ kind: 'hello', docId, name: 'B' })
+    assert.equal((await a.next((m) => m.kind === 'hello')).docId, docId)
+    assert.equal((await b.next((m) => m.kind === 'hello')).docId, docId)
+
+    // A 保存文章 → 同文档的 B 收到
+    a.send({ kind: 'post', docId, post: { slug: 'p1', raw: '# 标题' } })
+    const update = await b.next((m) => m.kind === 'update')
+    assert.equal(update.docId, docId)
+    assert.equal(update.post.slug, 'p1')
+
+    // 后加入的设备请求一次即可拿到已有文章
+    const c = createClient('C')
+    await c.ready
+    c.send({ kind: 'request', docId })
+    const sync = await c.next((m) => m.kind === 'sync')
+    assert.equal(sync.posts.length, 1)
+    assert.equal(sync.posts[0].slug, 'p1')
+
+    // 超过 64KB 的正文（触发 16 位长度帧）也要完整送达
+    const big = 'x'.repeat(200_000)
+    a.send({ kind: 'post', docId, post: { slug: 'big', raw: big } })
+    const bigUpdate = await b.next((m) => m.kind === 'update' && m.post.slug === 'big')
+    assert.equal(bigUpdate.post.raw.length, 200_000)
+
+    // 未知消息类型返回错误而不是静默断开
+    c.send({ kind: 'nope', docId })
+    const error = await c.next((m) => m.kind === 'error')
+    assert.match(error.message, /未知消息类型/)
+
+    // 断开后同文档的设备不应再收到推送
+    c.close()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    a.send({ kind: 'post', docId, post: { slug: 'p2', raw: '# 第二篇' } })
+    const stillServed = await b.next((m) => m.kind === 'update' && m.post.slug === 'p2')
+    assert.equal(stillServed.post.slug, 'p2')
+  } finally {
+    closeAll()
+  }
+}
+
+test('issue #113：离线版的写作与管理入口都不再被引向登录页', () => {
+  const home = readFileSync(join(root, 'src/pages/Home.tsx'), 'utf8')
+  assert.match(
+    home,
+    /isAuthed \|\| OFFLINE \? '\/admin\/new' : '\/login'/,
+    '首页写作入口在离线版应直接进编辑器',
+  )
+
+  const admin = readFileSync(join(root, 'src/pages/Admin.tsx'), 'utf8')
+  assert.match(admin, /!canPublish && !OFFLINE && \(/, '离线版待更新队列不应提示登录 GitHub')
+
+  const editor = readFileSync(join(root, 'src/pages/Editor.tsx'), 'utf8')
+  assert.match(editor, /if \(OFFLINE\) return publishOffline\(\)/, '离线版发布走本机文章库，不触碰 GitHub')
+
+  const layout = readFileSync(join(root, 'src/components/Layout.tsx'), 'utf8')
+  assert.match(layout, /!OFFLINE && <UserMenu \/>/, '离线版页头不渲染登录入口')
+
+  const login = readFileSync(join(root, 'src/pages/Login.tsx'), 'utf8')
+  assert.match(login, /if \(OFFLINE\) return <OfflineLoginNotice \/>/, '离线版登录页只给说明，不给授权按钮')
+
+  // 离线版入口齐全：页头与移动端菜单都提供「管理 / 写文章」
+  assert.match(layout, /<Link to="\/admin\/new" className="btn-primary hidden h-9 sm:inline-flex">/)
+  assert.match(layout, /<Link to="\/admin" className="btn-outline flex-1">/)
+})
