@@ -46,11 +46,18 @@ export function Toc({ items }: { items: TocItem[] }) {
                 href={`#${item.id}`}
                 onClick={(e) => {
                   e.preventDefault()
-                  const el = document.getElementById(item.id)
+                  // rehype-slug 与目录解析器在链接、HTML、表情符号等复杂标题上可能
+                  // 得出不同的 id。先按 id 精确定位，找不到时以标题文本匹配真实标题。
+                  const headings = Array.from(document.querySelectorAll<HTMLElement>('.prose h2, .prose h3, .prose h4'))
+                  const normalized = (text: string) => text.replace(/\s+/g, ' ').trim().toLocaleLowerCase()
+                  const el = document.getElementById(item.id) ?? headings.find(
+                    (heading) => normalized(heading.textContent ?? '') === normalized(item.text),
+                  )
                   if (el) {
-                    const top = el.getBoundingClientRect().top + window.scrollY - 100
+                    // 以真实标题坐标滚动，并预留固定导航栏的高度。
+                    const top = el.getBoundingClientRect().top + window.scrollY - 96
                     window.scrollTo({ top, behavior: 'smooth' })
-                    history.replaceState(null, '', `#${item.id}`)
+                    history.replaceState(null, '', `#${el.id || item.id}`)
                   }
                 }}
                 className={`-ml-px block border-l-2 py-1 text-[13px] leading-snug transition-all duration-200 ${

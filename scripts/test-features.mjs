@@ -34,9 +34,42 @@ const uiCcsMod = await importTsModule('src/lib/uiCcs.ts')
 const uiWidgetsMod = await importTsModule('src/lib/uiWidgets.ts')
 const uiGraphMod = await importTsModule('src/lib/uiGraph.ts')
 const postsMod = await importTsModule('src/lib/posts.ts')
+const editorMod = await importTsModule('src/lib/editor.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
 const echoCaveMod = await importTsModule('src/lib/echoCave.ts')
 const echoAshMod = await importTsModule('src/lib/echoAsh.ts')
+
+test('文章编辑快捷键：引用续行、空引用退出、Tab 嵌套列表与 Shift+Tab 撤销缩进', () => {
+  const key = (value, cursor, pressedKey, shiftKey = false) => {
+    let prevented = false
+    const action = editorMod.handleEditorKey({
+      key: pressedKey,
+      shiftKey,
+      currentTarget: { value, selectionStart: cursor, selectionEnd: cursor },
+      preventDefault() { prevented = true },
+    })
+    return { action, prevented }
+  }
+
+  const quoteText = '> 引用文字'
+  const quote = key(quoteText, quoteText.length, 'Enter')
+  assert.equal(quote.action.value, '> 引用文字\n> ')
+  assert.equal(quote.action.selectionStart, quote.action.value.length)
+  assert.equal(quote.prevented, true)
+
+  const exitQuote = key('> ', 2, 'Enter')
+  assert.equal(exitQuote.action.value, '')
+
+  const nestedList = key('- 父级项目\n', '- 父级项目\n'.length, 'Tab')
+  assert.equal(nestedList.action.value, '- 父级项目\n  - ')
+  assert.equal(nestedList.action.selectionStart, nestedList.action.value.length)
+
+  const indent = key('普通段落', 4, 'Tab')
+  assert.equal(indent.action.value, '  普通段落')
+  const outdent = key(indent.action.value, indent.action.selectionStart, 'Tab', true)
+  assert.equal(outdent.action.value, '普通段落')
+  assert.equal(outdent.action.selectionStart, 4)
+})
 
 function makeMock2dContext(strokeSink, drawSink) {
   const stack = []
