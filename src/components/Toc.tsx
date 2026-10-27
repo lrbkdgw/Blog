@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { List } from 'lucide-react'
 import type { TocItem } from '../lib/posts'
-import { scrollToHeading } from '../lib/scrollAnchor'
 
 export function Toc({ items }: { items: TocItem[] }) {
   const [activeId, setActiveId] = useState<string>('')
@@ -47,8 +46,12 @@ export function Toc({ items }: { items: TocItem[] }) {
                 href={`#${item.id}`}
                 onClick={(e) => {
                   e.preventDefault()
-                  // 离线版为 HashRouter，不能改写 URL hash（会摧毁当前路由，issue #110）
-                  scrollToHeading(item.id)
+                  const el = document.getElementById(item.id)
+                  if (el) {
+                    const top = el.getBoundingClientRect().top + window.scrollY - 100
+                    window.scrollTo({ top, behavior: 'smooth' })
+                    history.replaceState(null, '', `#${item.id}`)
+                  }
                 }}
                 className={`-ml-px block border-l-2 py-1 text-[13px] leading-snug transition-all duration-200 ${
                   activeId === item.id

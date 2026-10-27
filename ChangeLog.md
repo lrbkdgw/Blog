@@ -1,45 +1,5 @@
 # 更新日志 · ChangeLog
 
-## 2026-10-27 · 修复离线版目录跳转失效、编辑器引用续行与列表缩进/层级渲染，并开放离线版免登录写作入口（#110 / #111 / #113）
-
-| 模型信息 | |
-| --- | --- |
-| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
-| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
-| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
-
-### 背景
-
-- **Issue #110（文章界面点击目录无法跳转到对应部分）**：
-  1. 离线单文件版在 `file://` 下只能使用 `HashRouter`，**整条路由就放在 URL hash 里**（形如 `index.html#/posts/slug`）；而目录点击处理执行 `history.replaceState(null, '', '#标题id')`，会把路由 hash 整个覆盖成 `#标题id` 并触发 `hashchange`，HashRouter 随即将其解析为不存在的路径，当前文章页直接卸载，跳转自然失败；
-  2. 标题上的「锚点链接」小图标（`<a href="#id">`）使用浏览器默认 fragment 跳转，在 HashRouter 下同样会覆盖文章路由。
-- **Issue #111（文章编辑修复）**：
-  1. 在引用块（`> `）内按回车不会自动补上 `>` 续行，换行即退出引用格式；空引用行也没有「回车结束引用」的收敛行为；
-  2. 光标位于**没有正文的空列表项**（如 `- `、`1. `）时按 Tab，只是在标记后插入两个空格，无法把整项缩进为子列表，Shift+Tab 也不能反缩进；
-  3. Tailwind Preflight 把所有 `ul / ol` 重置为 `list-style: none`，typography 插件又把任意层级的 `.prose ul` 统一恢复成 `disc`、`.prose ol` 统一恢复成 `decimal`，浏览器默认的 disc → circle → square 层级被抹平，一级、二级列表的点看起来完全一样。
-- **Issue #113（离线版应可以不登录就编辑文章或进入文章管理界面）**：
-  - 离线版按设计完全不联网，不存在可用的 GitHub 登录，但桌面端页头在未登录时只渲染「登录」按钮（点击后进入仅展示说明的离线登录页），首页空状态「写下第一篇」与文章页「编辑」按钮也都把未登录用户导向 `/login`，写作入口被人为切断；移动端导航与 `Admin` / `Editor` 页面本身其实已经做好离线适配。
-
-### 调整
-
-- **修复 HashRouter 下的锚点跳转（`src/lib/scrollAnchor.ts`（新增）、`src/components/Toc.tsx`、`src/components/Markdown.tsx`、`src/pages/PostPage.tsx`，#110）**：
-  - 抽出统一的 `scrollToHeading(id)`：平滑滚动到标题（保留 100px 顶部净空），**仅在线上版（BrowserRouter）把锚点同步进 URL hash**；离线版只滚动、绝不改写承载路由的 hash；
-  - 目录项与标题锚点图标统一改走该 helper，并对锚点图标 `preventDefault()` 拦住浏览器默认 fragment 导航；
-  - PostPage 的「打开带 `#id` 链接自动定位」effect 在离线版直接跳过（此时 `location.hash` 是路由而非锚点），线上版深链行为不变。
-- **编辑器按键与列表渲染修复（`src/lib/editor.ts`、`src/styles/index.css`，#111）**：
-  - 引用块内回车自动插入带原缩进的 `> ` 续行；在空引用行（`>` / `> `）回车则删除空标记、退出引用，与列表现有的「空项回车结束列表」交互对齐；
-  - 重写 Tab 处理：光标落在任意列表项（无序 / 有序 / 任务列表，含空项）时，Tab 把**整项**右移两格成为子列表、Shift+Tab 左移两格反缩进（已顶格则无操作），有选区时仍按原逻辑对每一行整体切换缩进，普通行的 Tab 插空格 / Shift+Tab 行为保持不变；
-  - `.prose` 内显式补回嵌套标记分级：`ul ul` 用 `circle`、`ul ul ul` 用 `square`，`ol ol` 用 `lower-alpha`、`ol ol ol` 用 `lower-roman`，明暗主题与紧凑排版同时生效。
-- **开放离线版免登录写作入口（`src/components/Layout.tsx`、`src/pages/Home.tsx`、`src/pages/PostPage.tsx`，#113）**：
-  - 桌面端页头在离线版改为「本机管理」下拉菜单，直接提供内容管理 / 写新文章 / 设置三个入口，不再出现必然不可用的登录按钮（移动端导航本就有离线入口，保持不变）；
-  - 首页空状态「写下第一篇」与文章页「编辑」按钮在离线版不再要求登录；离线登录说明页保留「去管理本机文章」出口，`Admin` / `Editor` 的本机存储读写逻辑无需改动即全部可达。
-
-### 验证
-
-- `scripts/test-features.mjs` 新增 2 组回归测试：① 引用续行 / 空引用退出、列表项 Tab 整项缩进与 Shift+Tab 反缩进（含任务列表、有序列表与普通行行为不变的回归断言）；② 用 esbuild 分别以 `__STARLOG_OFFLINE__` 开 / 关打包 `scrollAnchor`，在 jsdom 中断言离线版点击目录只滚动且 hash 路由原样保留、线上版正常写入锚点。
-- 通过 `npm test`（Web 15 组测试 + VS Code 插件测试，0 失败）、`npx tsc --noEmit`、`npm run build`、`npm run build:offline` 及 `node scripts/verify-offline.mjs` 离线自检；离线单文件 `offline/index.html` 由 `.github/workflows/offline.yml` 在合入 main 后自动构建同步。
-- Issue #112（离线版局域网协同编辑）属于需要信令通道与并发合并策略的大型功能，本次不合入，将在该 issue 下单独给出分阶段设计方案。
-
 ## 2026-10-23 · 修复全屏编辑冲突、美化历史版本渲染对比、首页下滑自动加载更多及 main 自动发布离线版 Release（#104 / #105 / #106）
 
 | 模型信息 | |
