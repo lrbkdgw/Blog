@@ -50,7 +50,6 @@ import {
   type UiWriteWidgetDef,
 } from '../lib/uiWidgets'
 import { updateUiGraphBlockPositions } from '../lib/uiGraph'
-import { scrollToHeading } from '../lib/scrollAnchor'
 import {
   WifiOff,
   AlertCircle,
@@ -237,11 +236,6 @@ function Heading({
         <a
           href={`#${id}`}
           aria-label="锚点链接"
-          onClick={(e) => {
-            // 离线版是 HashRouter，默认的 hash 跳转会覆盖文章路由（issue #110）
-            e.preventDefault()
-            scrollToHeading(id)
-          }}
           className="ml-2 inline-flex translate-y-[-1px] items-center align-middle text-ink-300 opacity-0 transition
                      hover:text-brand-500 group-hover/heading:opacity-100 dark:text-ink-600"
           style={{ borderBottom: 'none' }}

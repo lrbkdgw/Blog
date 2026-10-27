@@ -95,41 +95,6 @@ function UserMenu() {
   }, [])
 
   if (!isAuthed) {
-    // 离线版没有账号体系且不联网：直接给出本机内容管理入口，不把用户导向必然不可用的登录页（issue #113）
-    if (OFFLINE) {
-      return (
-        <div ref={ref} className="relative">
-          <button
-            onClick={() => setOpen((v) => !v)}
-            className="btn-outline hidden h-9 sm:inline-flex"
-            aria-haspopup="menu"
-            aria-expanded={open}
-          >
-            <HardDrive size={15} />
-            本机管理
-          </button>
-          {open && (
-            <div className="card absolute right-0 top-11 w-56 animate-scale-in overflow-hidden p-1.5 !bg-white/95 dark:!bg-ink-900/95">
-              {[
-                { to: '/admin', icon: LayoutDashboard, label: '内容管理' },
-                { to: '/admin/new', icon: PenLine, label: '写新文章' },
-                { to: '/admin/settings', icon: Settings, label: '设置' },
-              ].map((item) => (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  onClick={() => setOpen(false)}
-                  className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-600 transition hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-white/5"
-                >
-                  <item.icon size={15} />
-                  {item.label}
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-      )
-    }
     return (
       <Link to="/login" className="btn-outline hidden h-9 sm:inline-flex">
         <LogIn size={15} />

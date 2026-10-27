@@ -5,7 +5,6 @@ import { PostCard } from '../components/PostCard'
 import { siteConfig } from '../lib/config'
 import { usePosts } from '../lib/usePosts'
 import { useAuth } from '../lib/auth'
-import { OFFLINE } from '../lib/runtime'
 
 /** 距离视口底部多少像素时提前触发下一页加载，避免用户滑到底部后等待。 */
 const AUTO_LOAD_ROOT_MARGIN_PX = 240
@@ -75,7 +74,7 @@ export default function Home() {
         <div className="card flex flex-col items-center gap-3 px-6 py-20 text-center">
           <PenLine size={28} className="text-ink-300" />
           <p className="text-sm text-ink-500">还没有任何文章。</p>
-          <Link to={isAuthed || OFFLINE ? '/admin/new' : '/login'} className="btn-primary mt-2">
+          <Link to={isAuthed ? '/admin/new' : '/login'} className="btn-primary mt-2">
             写下第一篇
           </Link>
         </div>
