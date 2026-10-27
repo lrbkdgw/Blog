@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -37,6 +37,7 @@ const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
 const echoCaveMod = await importTsModule('src/lib/echoCave.ts')
 const echoAshMod = await importTsModule('src/lib/echoAsh.ts')
+const editorMod = await importTsModule('src/lib/editor.ts')
 
 function makeMock2dContext(strokeSink, drawSink) {
   const stack = []
@@ -2844,3 +2845,152 @@ test('issue #106 & offline CI：首页下滑自动加载更多 + main 更新自�
 
 
 
+
+test('issue #111：引用框回车自动续行 / 空引用回车结束引用，列表项 Tab 整体缩进与反缩进', () => {
+  const fire = (key, { value, start, end = start, shiftKey = false }) => {
+    let prevented = false
+    const event = {
+      key,
+      shiftKey,
+      preventDefault() { prevented = true },
+      currentTarget: { value, selectionStart: start, selectionEnd: end },
+    }
+    const action = editorMod.handleEditorKey(event)
+    return { action, prevented }
+  }
+
+  // —— 引用框：回车自动补 `> ` 续行 ——
+  let r = fire('Enter', { value: '> 引用内容', start: 6 })
+  assert.equal(r.action.value, '> 引用内容\n> ')
+  assert.equal(r.action.selectionStart, 9)
+  assert.equal(r.prevented, true)
+
+  // 多行文档里只处理当前行
+  r = fire('Enter', { value: '前文\n> 引用', start: 8 })
+  assert.equal(r.action.value, '前文\n> 引用\n> ')
+
+  // 空引用行回车：结束引用（删掉空的 > 标记）
+  r = fire('Enter', { value: '> ', start: 2 })
+  assert.equal(r.action.value, '')
+  assert.equal(r.action.selectionStart, 0)
+
+  // 只有一个 > 的空行同样结束引用
+  r = fire('Enter', { value: '>', start: 1 })
+  assert.equal(r.action.value, '')
+
+  // —— Tab：空列表项整体缩进为子列表（而非在标记后插空格） ——
+  r = fire('Tab', { value: '- ', start: 2 })
+  assert.equal(r.action.value, '  - ')
+  assert.equal(r.action.selectionStart, 4)
+
+  r = fire('Tab', { value: '1. ', start: 3 })
+  assert.equal(r.action.value, '  1. ')
+  assert.equal(r.action.selectionStart, 5)
+
+  r = fire('Tab', { value: '- [ ] ', start: 6 })
+  assert.equal(r.action.value, '  - [ ] ')
+  assert.equal(r.action.selectionStart, 8)
+
+  // 已有正文的列表项同样整体缩进
+  r = fire('Tab', { value: '- foo', start: 5 })
+  assert.equal(r.action.value, '  - foo')
+  assert.equal(r.action.selectionStart, 7)
+
+  // 嵌套项继续缩进
+  r = fire('Tab', { value: '  - ', start: 4 })
+  assert.equal(r.action.value, '    - ')
+  assert.equal(r.action.selectionStart, 6)
+
+  // Shift+Tab 反缩进，光标跟随左移
+  r = fire('Tab', { value: '  - foo', start: 7, shiftKey: true })
+  assert.equal(r.action.value, '- foo')
+  assert.equal(r.action.selectionStart, 5)
+
+  // 已顶格时 Shift+Tab 不产生改动（返回 null）
+  r = fire('Tab', { value: '- foo', start: 5, shiftKey: true })
+  assert.equal(r.action, null)
+
+  // 普通行 Tab 仍在光标处插空格（保持原行为）
+  r = fire('Tab', { value: 'abc', start: 3 })
+  assert.equal(r.action.value, 'abc  ')
+  assert.equal(r.action.selectionStart, 5)
+
+  // —— 回归：列表回车续行 / 空列表项回车结束列表 ——
+  r = fire('Enter', { value: '- foo', start: 5 })
+  assert.equal(r.action.value, '- foo\n- ')
+  r = fire('Enter', { value: '- ', start: 2 })
+  assert.equal(r.action.value, '')
+})
+
+test('issue #110：目录锚点在 HashRouter（离线版）下只滚动不破坏路由 hash，线上版同步锚点', async () => {
+  const bundleAnchor = async (offline) => {
+    const result = await build({
+      entryPoints: [join(root, 'src/lib/scrollAnchor.ts')],
+      bundle: true,
+      write: false,
+      format: 'esm',
+      platform: 'browser',
+      target: 'es2022',
+      define: { __STARLOG_OFFLINE__: String(offline) },
+    })
+    const tmp = join(root, 'scripts/tmp-anchor-bundle.mjs')
+    writeFileSync(tmp, result.outputFiles[0].text)
+    try {
+      return (await import(`file://${tmp}?v=${offline}-${Date.now()}`)).scrollToHeading
+    } finally {
+      rmSync(tmp)
+    }
+  }
+
+  // 离线版：HashRouter 场景，URL hash 承载路由，点击目录后必须原样保留
+  {
+    const dom = new JSDOM('<!doctype html><html><body><h2 id="sec-a">A</h2></body></html>', {
+      url: 'file:///x/index.html#/posts/hello',
+    })
+    const scrolls = []
+    dom.window.scrollTo = (opts) => scrolls.push(opts)
+    const prevWindow = globalThis.window
+    const prevDocument = globalThis.document
+    const prevHistory = globalThis.history
+    globalThis.window = dom.window
+    globalThis.document = dom.window.document
+    globalThis.history = dom.window.history
+    try {
+      const scrollToHeading = await bundleAnchor(true)
+      scrollToHeading('sec-a')
+      assert.equal(scrolls.length, 1, '离线版点击目录仍应平滑滚动')
+      assert.equal(dom.window.location.hash, '#/posts/hello', '离线版不得改写承载路由的 hash')
+      scrollToHeading('missing-id')
+      assert.equal(scrolls.length, 1, '找不到标题时不应触发滚动')
+    } finally {
+      globalThis.window = prevWindow
+      globalThis.document = prevDocument
+      globalThis.history = prevHistory
+    }
+  }
+
+  // 线上版：BrowserRouter，锚点正常写入 URL hash
+  {
+    const dom = new JSDOM('<!doctype html><html><body><h2 id="sec-b">B</h2></body></html>', {
+      url: 'http://localhost/posts/hello',
+    })
+    const scrolls = []
+    dom.window.scrollTo = (opts) => scrolls.push(opts)
+    const prevWindow = globalThis.window
+    const prevDocument = globalThis.document
+    const prevHistory = globalThis.history
+    globalThis.window = dom.window
+    globalThis.document = dom.window.document
+    globalThis.history = dom.window.history
+    try {
+      const scrollToHeading = await bundleAnchor(false)
+      scrollToHeading('sec-b')
+      assert.equal(scrolls.length, 1)
+      assert.equal(dom.window.location.hash, '#sec-b', '线上版应把锚点同步到 URL')
+    } finally {
+      globalThis.window = prevWindow
+      globalThis.document = prevDocument
+      globalThis.history = prevHistory
+    }
+  }
+})

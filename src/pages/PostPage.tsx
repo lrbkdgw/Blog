@@ -413,7 +413,8 @@ export default function PostPage() {
   }, [])
 
   useEffect(() => {
-    if (!visiblePost || isEncryptedPost(visiblePost) || !window.location.hash) return
+    // 离线版用 HashRouter：location.hash 承载的是路由（#/posts/slug），不是标题锚点
+    if (OFFLINE || !visiblePost || isEncryptedPost(visiblePost) || !window.location.hash) return
     let id = window.location.hash.slice(1)
     try {
       id = decodeURIComponent(id)
@@ -628,7 +629,9 @@ export default function PostPage() {
                   )}
                 </div>
                 {repoPost && <button onClick={openHistory} className="btn-ghost no-print h-7 !px-2 text-xs"><History size={13} />历史</button>}
-                {isAuthed && <button type="button" onClick={editCurrentVersion} className="btn-ghost no-print h-7 !px-2 text-xs"><PenLine size={13} />编辑</button>}
+                {(isAuthed || OFFLINE) && (
+                  <button type="button" onClick={editCurrentVersion} className="btn-ghost no-print h-7 !px-2 text-xs"><PenLine size={13} />编辑</button>
+                )}
               </div>
             </div>
           </header>
