@@ -596,6 +596,22 @@
   content: '';
 }
 
+/* 嵌套列表标记分级（issue #111）：Tailwind Preflight 把所有 ul/ol 重置为 list-style:none，
+   typography 插件又统一恢复成 disc / decimal，浏览器默认的层级区分被抹平，
+   一级、二级列表的点看起来完全一样。这里显式补回 disc → circle → square 等分层。 */
+.prose ul ul {
+  list-style-type: circle;
+}
+.prose ul ul ul {
+  list-style-type: square;
+}
+.prose ol ol {
+  list-style-type: lower-alpha;
+}
+.prose ol ol ol {
+  list-style-type: lower-roman;
+}
+
 /* -------------------------------------------------------------------------- */
 /*              1. 标准表格 & 合并表格（靠左、浅淡边框、表头无底色）                 */
 /* -------------------------------------------------------------------------- */
