@@ -1,7 +1,7 @@
 ---
 title: "OI 十月计划"
 date: "2026-10-19"
-updated: "2026-10-22"
+updated: "2026-10-27"
 summary: "-"
 tags: ["OI"]
 ---
@@ -44,4 +44,9 @@ WQS 二分还没写完，明天补
 - 打模拟赛。
 - 学习 SA 和 SAM。
 - 做一些杂题。
+
+### 10/26~27
+
+- 模拟赛
+- 复习 [模板](https://www.luogu.com.cn/contest/367097#problems)。
 
