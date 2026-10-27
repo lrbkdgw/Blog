@@ -546,6 +546,7 @@ $\texttt{吃}$！
 │   ├── App.tsx                    # 路由
 │   └── main.tsx                   # 入口
 ├── vscode_extensions/v1/         # Markdown 语法拓展插件与可安装 VSIX
+├── Test/                          # AI 测试产物与结果存放处（所有测试的结果请放在这，见 Test/AI_README.md）
 ├── AI_README.md                   # AI 协作维护规范（更新时必读）
 ├── ChangeLog.md                   # 更新日志（每次更新必须补充）
 ├── README.md                      # 项目说明（每次更新必须同步）
