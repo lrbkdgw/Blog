@@ -1613,6 +1613,7 @@ test('双栏编辑器滚动同步引擎（#101）：全层级源码行区间标�
       import Editor from '../../src/pages/Editor'
       import Home from '../../src/pages/Home'
       import { VersionCompare } from '../../src/components/VersionCompare'
+      import { LanCollabDialog } from '../../src/components/LanCollabDialog'
       import { Toc } from '../../src/components/Toc'
       import { scrollToHeading } from '../../src/lib/headingSlug'
       import { splitMarkdownBlocks, diffMarkdownHunks, renderedDiffSummary } from '../../src/lib/diff'
@@ -1642,6 +1643,7 @@ test('双栏编辑器滚动同步引擎（#101）：全层级源码行区间标�
         Editor,
         Home,
         VersionCompare,
+        LanCollabDialog,
         splitMarkdownBlocks,
         diffMarkdownHunks,
         renderedDiffSummary,
@@ -3396,6 +3398,7 @@ test('issue #112：离线版局域网合作文档：线上构建严格禁用，�
     BackgroundProvider,
     ToastProvider,
     Editor,
+    LanCollabDialog,
   } = await loadSharedAppBundle()
 
   try {
@@ -3515,8 +3518,32 @@ test('issue #112：离线版局域网合作文档：线上构建严格禁用，�
     const shiftedCursor = offlineCollabMod.transformCursorPosition(cursorAtEnd, opA, false)
     assert.equal(shiftedCursor, cursorAtEnd + '（房主补充）'.length, '上方插入文本后下方协作者光标应精确顺移相同字数')
 
-    // 4) 多终端完整实时协同会话：房主 + 两位协作者同时编辑正文、修改标题标签与广播光标
-    const makePeerHarness = (name, initialContent, initialTitle) => {
+    // 4) 智能 IP / 房间号 / 直达链接解析 + 秒开房间无卡死验证
+    const parsedIpOnly = offlineCollabMod.parseLanTargetInput('192.168.1.23', '')
+    assert.deepEqual(parsedIpOnly.wsUrls, [
+      'ws://192.168.1.23:8765/__starlog_lan_ws',
+      'ws://192.168.1.23:5180/__starlog_lan_ws',
+    ])
+    assert.equal(parsedIpOnly.roomCode, '')
+
+    const parsedShorthand = offlineCollabMod.parseLanTargetInput('192.168.1.23/4829', '')
+    assert.equal(parsedShorthand.displayHost, '192.168.1.23')
+    assert.equal(parsedShorthand.roomCode, '4829')
+
+    const parsedFullUrl = offlineCollabMod.parseLanTargetInput(
+      'http://192.168.1.23:8765/#/admin/new?collab=join&ip=192.168.1.23%3A8765&room=8848',
+      '',
+    )
+    assert.deepEqual(parsedFullUrl.wsUrls, ['ws://192.168.1.23:8765/__starlog_lan_ws'])
+    assert.equal(parsedFullUrl.roomCode, '8848')
+
+    // 校验嵌入式零依赖独立脚本语法合法且不含任何禁止外联或内联闭合标签
+    const standaloneScriptSrc = offlineCollabMod.buildStandaloneHubMjsSource()
+    assert.ok(!standaloneScriptSrc.includes('</script'), '独立脚本源码不得包含闭合 script 标签')
+    assert.ok(!standaloneScriptSrc.includes('<!--'), '独立脚本源码不得包含 HTML 注释')
+
+    // 5) 同机多终端房间号直连（BroadcastChannel）+ 大厅房间自动发现 + 绝不卡在「正在生成局域网邀请码…」
+    const makePeerHarness = (name, initialContent, initialTitle, extraOpts = {}) => {
       const state = {
         content: initialContent,
         meta: {
@@ -3534,6 +3561,7 @@ test('issue #112：离线版局域网合作文档：线上构建严格禁用，�
       const session = offlineCollabMod.createLanCollabSession({
         initialName: name,
         _BroadcastChannelImpl: MockBroadcastChannel,
+        ...extraOpts,
         getInitialSnapshot: () => ({ content: state.content, meta: { ...state.meta } }),
         onRemoteContentOperation(nextContent) {
           state.content = nextContent
@@ -3550,20 +3578,84 @@ test('issue #112：离线版局域网合作文档：线上构建严格禁用，�
       return { state, session }
     }
 
-    const host = makePeerHarness('笔记本-房主', '# 初始标题\n\n第一段内容。\n\n第二段内容。', '局域网协同初稿')
-    const guestB = makePeerHarness('平板-成员B', '', '')
-    const guestC = makePeerHarness('台式机-成员C', '', '')
+    const host = makePeerHarness(
+      '笔记本-房主',
+      '# 初始标题\n\n第一段内容。\n\n第二段内容。',
+      '局域网协同初稿',
+      { _WebSocketImpl: null },
+    )
+    const guestB = makePeerHarness('平板-成员B', '', '', { _WebSocketImpl: null })
+    const guestC = makePeerHarness('台式机-成员C', '', '', { _WebSocketImpl: null })
 
     try {
+      const startedAt = Date.now()
       await host.session.startHosting()
-      const roomCode = host.session.getState().roomCode
-      assert.equal(roomCode.length, 6)
-      guestB.session.joinLocalRoom(roomCode)
+      const elapsedMs = Date.now() - startedAt
+      assert.ok(elapsedMs < 50, `开启协作房间必须毫秒级无阻塞完成，实际耗时 ${elapsedMs}ms`)
+      const hostInitState = host.session.getState()
+      assert.match(hostInitState.roomCode, /^\d{4}$/, '默认房间号应为简洁好记的 4 位数字')
+      assert.equal(hostInitState.status, 'waiting', '开启房间后应立即进入 waiting 就绪态')
+      assert.equal(hostInitState.inviteCode, '', '开启房间时绝不自动阻塞生成长邀请码')
+
+      // 验证开启房间后的弹窗 UI 绝不显示「正在生成局域网邀请码…」
+      const dialogRootEl = env.dom.window.document.createElement('div')
+      env.dom.window.document.body.appendChild(dialogRootEl)
+      const dialogRoot = createRoot(dialogRootEl)
+      dialogRoot.render(
+        React.createElement(
+          MemoryRouter,
+          { initialEntries: ['/admin/new'] },
+          React.createElement(
+            ToastProvider,
+            null,
+            React.createElement(LanCollabDialog, {
+              open: true,
+              state: hostInitState,
+              onClose() {},
+              onChangeSelfName() {},
+              async onStartHosting() {},
+              async onProbeLocalHub() {
+                return false
+              },
+              async onRefreshRooms() {
+                return []
+              },
+              async onJoinByIpOrRoom() {},
+              async onRefreshInvite() {},
+              async onAcceptAnswer() {},
+              async onJoinWithInvite() {
+                return ''
+              },
+              onDisconnect() {},
+            }),
+          ),
+        ),
+      )
+      await new Promise((r) => setTimeout(r, 40))
+      assert.ok(
+        !dialogRootEl.textContent.includes('正在生成局域网邀请码'),
+        '开启局域网协作后绝不能卡在「正在生成局域网邀请码…」',
+      )
+      assert.ok(
+        dialogRootEl.textContent.includes(hostInitState.roomCode),
+        '房主弹窗应清晰展示 4 位房间号',
+      )
+      dialogRoot.unmount()
+      dialogRootEl.remove()
+
+      // 验证自动发现同机活跃房间
+      const discovered = await guestB.session.refreshDiscoveredRooms()
+      assert.ok(
+        discovered.some((r) => r.roomCode === hostInitState.roomCode && r.docTitle === '局域网协同初稿'),
+        '协作者打开加入面板应自动发现同机已开启的房间',
+      )
+
+      const roomCode = hostInitState.roomCode
+      await guestB.session.joinByIpOrRoom('', roomCode)
       guestC.session.joinLocalRoom(roomCode)
       await new Promise((r) => setTimeout(r, 30))
 
-      // 加入后应立即收到房主完整快照
-      assert.equal(guestB.state.content, host.state.content, '成员 B 加入房间后应立即同步房主正文')
+      assert.equal(guestB.state.content, host.state.content, '成员 B 输入房间号后应立即同步房主正文')
       assert.equal(guestC.state.meta.title, '局域网协同初稿', '成员 C 加入房间后应立即同步房主元数据')
       assert.equal(host.session.getState().peers.length, 3, '房间在线成员列表应包含房主与 2 位协作者共 3 人')
 
@@ -3596,6 +3688,241 @@ test('issue #112：离线版局域网合作文档：线上构建严格禁用，�
     }
   } finally {
     env.cleanup()
+  }
+
+  // 6) 在原生 Node TCP/HTTP 环境下验证真实跨设备局域网 IP + RFC 6455 WebSocket 直连（仅填房主 IP 自动进房 + IP+房间号进房 + 16-bit 大帧）
+  const httpMod = await import('node:http')
+  const cryptoMod = await import('node:crypto')
+
+  class NodeRawWebSocket {
+    constructor(url) {
+      this.url = url
+      this.readyState = 0
+      this.onopen = null
+      this.onmessage = null
+      this.onerror = null
+      this.onclose = null
+      this._socket = null
+
+      const parsed = new URL(url)
+      const key = cryptoMod.randomBytes(16).toString('base64')
+      const req = httpMod.request({
+        hostname: parsed.hostname,
+        port: parsed.port,
+        path: parsed.pathname + parsed.search,
+        headers: {
+          Connection: 'Upgrade',
+          Upgrade: 'websocket',
+          'Sec-WebSocket-Version': '13',
+          'Sec-WebSocket-Key': key,
+        },
+      })
+      this._req = req
+
+      req.on('upgrade', (_res, socket, head) => {
+        this._socket = socket
+        this.readyState = 1
+        let recvBuf = Buffer.alloc(0)
+        const onData = (chunk) => {
+          recvBuf = recvBuf.length ? Buffer.concat([recvBuf, chunk]) : chunk
+          while (recvBuf.length >= 2) {
+            const opcode = recvBuf[0] & 0x0f
+            let len = recvBuf[1] & 0x7f
+            let off = 2
+            if (len === 126) {
+              if (recvBuf.length < 4) break
+              len = recvBuf.readUInt16BE(2)
+              off = 4
+            } else if (len === 127) {
+              if (recvBuf.length < 10) break
+              len = Number(recvBuf.readBigUInt64BE(2))
+              off = 10
+            }
+            if (recvBuf.length < off + len) break
+            const body = recvBuf.subarray(off, off + len)
+            recvBuf = recvBuf.subarray(off + len)
+            if (opcode === 0x08) {
+              this.close()
+              return
+            }
+            if (opcode === 0x01) {
+              this.onmessage?.({ data: body.toString('utf8') })
+            }
+          }
+        }
+        socket.on('data', onData)
+        socket.on('close', () => {
+          if (this.readyState !== 3) {
+            this.readyState = 3
+            this.onclose?.()
+          }
+        })
+        socket.on('error', () => {
+          this.onerror?.()
+        })
+        this.onopen?.()
+        if (head && head.length > 0) {
+          onData(head)
+        }
+      })
+
+      req.on('error', () => {
+        this.readyState = 3
+        this.onerror?.()
+      })
+      req.end()
+    }
+
+    send(text) {
+      if (this.readyState !== 1 || !this._socket) return
+      const payload = Buffer.from(String(text), 'utf8')
+      const mask = cryptoMod.randomBytes(4)
+      const masked = Buffer.allocUnsafe(payload.length)
+      for (let i = 0; i < payload.length; i++) masked[i] = payload[i] ^ mask[i & 3]
+      let header
+      if (payload.length < 126) {
+        header = Buffer.from([0x81, 0x80 | payload.length])
+      } else {
+        header = Buffer.allocUnsafe(4)
+        header[0] = 0x81
+        header[1] = 0x80 | 126
+        header.writeUInt16BE(payload.length, 2)
+      }
+      this._socket.write(Buffer.concat([header, mask, masked]))
+    }
+
+    close() {
+      if (this.readyState === 3) return
+      this.readyState = 3
+      try {
+        this._req?.destroy()
+        this._socket?.destroy()
+      } catch {
+        // ignore
+      }
+      this.onclose?.()
+    }
+  }
+
+  const makeNodePeerHarness = (name, initialContent, initialTitle) => {
+    const state = {
+      content: initialContent,
+      meta: {
+        title: initialTitle,
+        slug: 'lan-ip-doc',
+        date: '2026-10-28',
+        summary: 'IP直连摘要',
+        author: name,
+        tagsText: '协作',
+        cover: '',
+        draft: false,
+        pinned: false,
+      },
+    }
+    const session = offlineCollabMod.createLanCollabSession({
+      initialName: name,
+      _BroadcastChannelImpl: null,
+      _WebSocketImpl: NodeRawWebSocket,
+      getInitialSnapshot: () => ({ content: state.content, meta: { ...state.meta } }),
+      onRemoteContentOperation(nextContent) {
+        state.content = nextContent
+      },
+      onRemoteSnapshot(snapshot) {
+        state.content = snapshot.content
+        state.meta = { ...snapshot.meta }
+      },
+      onRemoteMetaPatch(patch) {
+        state.meta = { ...state.meta, ...patch }
+      },
+      onStateChange() {},
+    })
+    return { state, session }
+  }
+
+  const { startStandaloneLanHub } = await import('./lan-collab-hub.mjs')
+  const hubInstance = await startStandaloneLanHub(0)
+  const hubAddr = `127.0.0.1:${hubInstance.port}`
+  const lanHost = makeNodePeerHarness(
+    'MacBook-房主',
+    '# 跨设备 IP 直连文档\n\n章节 A：初始文本。\n\n章节 B：等待协同。',
+    'IP直连测试文稿',
+  )
+  const lanGuestIpOnly = makeNodePeerHarness('iPad-仅填IP客端', '', '')
+  const lanGuestIpAndRoom = makeNodePeerHarness('Windows-填IP加房间号客端', '', '')
+
+  try {
+    const hostedCode = await lanHost.session.startHosting('6688')
+    assert.equal(hostedCode, '6688')
+    const attached = await lanHost.session.tryAttachHostToLocalHub(hubAddr)
+    assert.equal(attached, true, '房主应成功挂载到局域网 WebSocket 直连服务')
+    assert.equal(lanHost.session.getState().hubConnected, true)
+
+    // 验证 HTTP /__starlog_lan_info 接口正常返回房间列表
+    const infoJson = await new Promise((resolve, reject) => {
+      httpMod
+        .get(`http://${hubAddr}/__starlog_lan_info`, (res) => {
+          let raw = ''
+          res.setEncoding('utf8')
+          res.on('data', (c) => (raw += c))
+          res.on('end', () => resolve(JSON.parse(raw)))
+        })
+        .on('error', reject)
+    })
+    assert.equal(infoJson.ok, true)
+    assert.equal(infoJson.rooms.length, 1)
+    assert.equal(infoJson.rooms[0].roomCode, '6688')
+
+    // 客端 1：仅输入房主 IP（房间号完全留空），单房间自动进房！
+    await lanGuestIpOnly.session.joinByIpOrRoom(hubAddr, '')
+    // 客端 2：输入房主 IP + 房间号 6688
+    await lanGuestIpAndRoom.session.joinByIpOrRoom(hubAddr, '6688')
+
+    for (let i = 0; i < 30 && lanGuestIpAndRoom.session.getState().status !== 'connected'; i++) {
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    for (let i = 0; i < 30 && lanGuestIpOnly.session.getState().status !== 'connected'; i++) {
+      await new Promise((r) => setTimeout(r, 20))
+    }
+
+    assert.equal(lanGuestIpOnly.session.getState().roomCode, '6688', '仅填 IP 的客端应自动进入唯一活跃房间 6688')
+    assert.equal(lanGuestIpOnly.state.content, lanHost.state.content, '仅填 IP 的客端应完整同步房主初始正文')
+    assert.equal(lanGuestIpAndRoom.state.meta.title, 'IP直连测试文稿', 'IP+房间号客端应完整同步房主元数据')
+
+    // 测试超过 126 字节（触发 RFC 6455 16-bit 长度帧）的并发实时编辑同步
+    const longParagraph = '局域网高速实时同步段落——'.repeat(30)
+    lanGuestIpOnly.state.content = lanGuestIpOnly.state.content.replace(
+      '章节 A：初始文本。',
+      `章节 A：${longParagraph}`,
+    )
+    lanGuestIpOnly.session.notifyLocalContentChange(lanGuestIpOnly.state.content)
+
+    lanGuestIpAndRoom.state.content = lanGuestIpAndRoom.state.content.replace(
+      '章节 B：等待协同。',
+      '章节 B：Windows 客端已完成补充！',
+    )
+    lanGuestIpAndRoom.session.notifyLocalContentChange(lanGuestIpAndRoom.state.content)
+
+    for (let i = 0; i < 40; i++) {
+      if (
+        lanHost.state.content.includes('Windows 客端已完成补充！') &&
+        lanHost.state.content.includes(longParagraph) &&
+        lanGuestIpOnly.state.content === lanHost.state.content &&
+        lanGuestIpAndRoom.state.content === lanHost.state.content
+      ) {
+        break
+      }
+      await new Promise((r) => setTimeout(r, 20))
+    }
+
+    assert.ok(lanHost.state.content.includes(longParagraph), '16-bit 长度 WebSocket 帧长文本修改应完整同步至房主')
+    assert.equal(lanGuestIpOnly.state.content, lanHost.state.content, '跨设备三端正文应 100% 收敛一致')
+    assert.equal(lanGuestIpAndRoom.state.content, lanHost.state.content, '跨设备三端正文应 100% 收敛一致')
+  } finally {
+    lanHost.session.disconnect()
+    lanGuestIpOnly.session.disconnect()
+    lanGuestIpAndRoom.session.disconnect()
+    hubInstance.server.closeAllConnections?.()
+    hubInstance.server.close()
   }
 })
 

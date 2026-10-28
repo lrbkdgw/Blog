@@ -293,6 +293,9 @@ export default function Editor() {
   /* ----------------------- 离线版局域网合作文档（issue #112） ----------------------- */
   const [collabOpen, setCollabOpen] = useState(false)
   const [collabInitialTab, setCollabInitialTab] = useState<'host' | 'join'>('host')
+  const [collabInitialIp, setCollabInitialIp] = useState('')
+  const [collabInitialRoom, setCollabInitialRoom] = useState('')
+  const autoJoinedQueryRef = useRef('')
   const [collabState, setCollabState] = useState<LanCollabState>(() => ({
     role: 'idle',
     status: 'idle',
@@ -300,6 +303,11 @@ export default function Editor() {
     selfPeerId: '',
     selfName: OFFLINE ? loadSavedCollaboratorName() : '',
     selfColor: '#3563f6',
+    hubConnected: false,
+    hubPort: 8765,
+    lanIps: [],
+    connectedHostAddress: '',
+    discoveredRooms: [],
     inviteCode: '',
     answerCode: '',
     peers: [],
@@ -399,9 +407,28 @@ export default function Editor() {
     const params = new URLSearchParams(location.search)
     const collabMode = params.get('collab')
     if (collabMode === 'join' || collabMode === 'host') {
-      getOrCreateCollabManager()
+      const mgr = getOrCreateCollabManager()
+      const ipParam = (params.get('ip') || '').trim()
+      const roomParam = (params.get('room') || '').trim().toUpperCase()
+      if (ipParam) setCollabInitialIp(ipParam)
+      if (roomParam) setCollabInitialRoom(roomParam)
       setCollabInitialTab(collabMode === 'join' ? 'join' : 'host')
-      setCollabOpen(true)
+
+      // 若通过房主分享的直达链接打开（携带 ip 或 room 参数），自动发起连接，免手动再点一次
+      if (
+        collabMode === 'join' &&
+        (ipParam || roomParam) &&
+        mgr &&
+        mgr.getState().role === 'idle' &&
+        autoJoinedQueryRef.current !== location.search
+      ) {
+        autoJoinedQueryRef.current = location.search
+        mgr.joinByIpOrRoom(ipParam, roomParam).catch(() => {
+          setCollabOpen(true)
+        })
+      } else {
+        setCollabOpen(true)
+      }
     }
   }, [location.search, getOrCreateCollabManager, encryptedSource, unlocked])
 
@@ -1976,14 +2003,28 @@ export default function Editor() {
         <LanCollabDialog
           open={collabOpen}
           initialTab={collabInitialTab}
+          initialIp={collabInitialIp}
+          initialRoom={collabInitialRoom}
           state={collabState}
           onClose={() => setCollabOpen(false)}
           onChangeSelfName={(name) => {
             getOrCreateCollabManager()?.setSelfName(name)
           }}
-          onStartHosting={async () => {
+          onStartHosting={async (customRoomCode) => {
             const mgr = getOrCreateCollabManager()
-            if (mgr) await mgr.startHosting()
+            if (mgr) await mgr.startHosting(customRoomCode)
+          }}
+          onProbeLocalHub={async () => {
+            const mgr = getOrCreateCollabManager()
+            return mgr ? await mgr.tryAttachHostToLocalHub() : false
+          }}
+          onRefreshRooms={async (ipInput) => {
+            const mgr = getOrCreateCollabManager()
+            return mgr ? await mgr.refreshDiscoveredRooms(ipInput) : []
+          }}
+          onJoinByIpOrRoom={async (ipInput, roomCodeInput) => {
+            const mgr = getOrCreateCollabManager()
+            if (mgr) await mgr.joinByIpOrRoom(ipInput, roomCodeInput)
           }}
           onRefreshInvite={async () => {
             const mgr = getOrCreateCollabManager()
@@ -1996,10 +2037,6 @@ export default function Editor() {
           onJoinWithInvite={async (code) => {
             const mgr = getOrCreateCollabManager()
             return mgr ? await mgr.joinWithInviteCode(code) : ''
-          }}
-          onJoinLocalRoom={(room) => {
-            const mgr = getOrCreateCollabManager()
-            if (mgr) mgr.joinLocalRoom(room)
           }}
           onDisconnect={() => {
             collabManagerRef.current?.disconnect()

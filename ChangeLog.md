@@ -11,9 +11,9 @@
 ### 新增
 
 - **离线版局域网合作文档（Issue #112，严格仅在离线版启用）**：
-  - 新增 `src/lib/lanCollab.ts` 与 `src/components/LanCollabDialog.tsx`，并在 `src/pages/Editor.tsx`、`src/pages/Admin.tsx` 接入（通过 `OFFLINE` 编译期与运行期双重守卫，线上构建 `isLanCollabSupportedInBuild() === false` 且完全不暴露协作入口）；
-  - 采用纯局域网 `RTCPeerConnection({ iceServers: [] })` 主机候选 `RTCDataChannel` 点对点传输（零公网 STUN/TURN 依赖，完全符合离线单文件不联网约束），并提供 `DeflateRaw` + Base64URL 紧凑连接码（`SL1Z.` / `SL1P.`）双向握手及同设备多窗口 6 位房间码（`BroadcastChannel`）免粘贴直连；
-  - 实现星型多终端协同状态机、单段文本 OT（Operational Transformation）变换、光标偏移保真映射（`transformCursorPosition`）与 FNV-1a 校验自愈，支持多人同时编辑正文、同步文章标题/摘要/标签等元数据，以及实时查看并一键跳转到协作者光标所在行列。
+  - 新增 `src/lib/lanCollab.ts`、`src/components/LanCollabDialog.tsx` 与零依赖本地直连服务 `scripts/lan-collab-hub.mjs`（`npm run lan` / `vite.offline.config.ts` 自动挂载 / 弹窗一键下载独立脚本），并在 `src/pages/Editor.tsx`、`src/pages/Admin.tsx` 接入（通过 `OFFLINE` 编译期与运行期双重守卫，线上构建 `isLanCollabSupportedInBuild() === false` 且完全不暴露协作入口）；
+  - **秒开房间 + 输入房间号或房主 IP 直接协作**：房主点击「开启协作房间」毫秒级就绪并生成简洁 4 位房间号（亦可自定义），绝不阻塞等待长邀请码或卡在「正在生成局域网邀请码…」；同机窗口通过 `BroadcastChannel` 房间自动发现与房间号秒连，跨局域网设备只需输入**房主局域网 IP**（单活跃房间时连房间号都可省略）或打开房主直达链接即可通过纯局域网 RFC 6455 WebSocket 实时协作；同时在折叠面板保留并发流安全的按需离线 WebRTC 配对码作为无服务兜底；
+  - 实现星型多终端协同状态机、跨通道消息幂等去重、单段文本 OT（Operational Transformation）变换、光标偏移保真映射（`transformCursorPosition`）与 FNV-1a 校验自愈，支持多人同时编辑正文、同步文章标题/摘要/标签等元数据，以及实时查看并一键跳转到协作者光标所在行列。
 
 ### 修复
 
@@ -36,7 +36,7 @@
 
 ### 验证
 
-- `scripts/test-features.mjs` 新增 4 组专项回归测试（覆盖 `#110` 全部真实文章与极端标题语法的目录/DOM 锚点 100% 对齐及离线路由保护、`#111` 引用/列表快捷键与多级圆点样式、`#113` 离线免登录管理/编辑/历史与搜索日期守卫、`#112` 线上禁用守卫、连接码编解码、并发 OT 收敛与多端实时协同），Web 特性测试 **17 / 17 全部通过**。
+- `scripts/test-features.mjs` 新增 4 组专项回归测试（覆盖 `#110` 全部真实文章与极端标题语法的目录/DOM 锚点 100% 对齐及离线路由保护、`#111` 引用/列表快捷键与多级圆点样式、`#113` 离线免登录管理/编辑/历史与搜索日期守卫、`#112` 线上禁用守卫、房间秒开无阻塞、同机房间发现与直连、真实局域网 IP + 房间号 WebSocket 直连及并发 OT 收敛），Web 特性测试 **17 / 17 全部通过**。
 - VS Code 插件 `npm run extension:test` **75 项测试通过（71 项执行通过、4 项无外部浏览器环境按预期跳过）**，`npm --prefix vscode_extensions/v1 run typecheck` 通过。
 - `npm run build`（`tsc --noEmit && vite build`）通过；`npm run build:offline` 构建并通过 `scripts/verify-offline.mjs` 单文件离线自检（`3.26 MB`，零外部请求残留），已同步更新 `offline/index.html`。
 

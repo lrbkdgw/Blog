@@ -2,646 +2,992 @@ import { useEffect, useState } from 'react'
 import {
   Check,
   Copy,
+  Download,
   Laptop,
-  Loader2,
-  LogOut,
-  Plus,
   RefreshCw,
-  Share2,
-  Sparkles,
+  Terminal,
+  Unplug,
   UserCheck,
   Users,
   Wifi,
   X,
 } from 'lucide-react'
-import { useToast } from './Toast'
 import {
+  DEFAULT_LAN_HUB_PORT,
+  buildStandaloneHubMjsSource,
   hasWebRtcSupport,
+  loadSavedHostIp,
+  type DiscoveredLanRoom,
   type LanCollabPeer,
   type LanCollabState,
 } from '../lib/lanCollab'
+import { useToast } from './Toast'
 
-interface LanCollabDialogProps {
+async function copyText(text: string): Promise<boolean> {
+  if (!text) return false
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // file:// 或非安全上下文回退到选区复制
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    const ok = document.execCommand('copy')
+    ta.remove()
+    return ok
+  } catch {
+    return false
+  }
+}
+
+export interface LanCollabDialogProps {
   open: boolean
   initialTab?: 'host' | 'join'
+  initialIp?: string
+  initialRoom?: string
   state: LanCollabState
   onClose: () => void
   onChangeSelfName: (name: string) => void
-  onStartHosting: () => Promise<void>
+  onStartHosting: (customRoomCode?: string) => Promise<void>
+  onProbeLocalHub: () => Promise<boolean>
+  onRefreshRooms: (ipInput?: string) => Promise<DiscoveredLanRoom[]>
+  onJoinByIpOrRoom: (ipInput: string, roomCodeInput: string) => Promise<void>
   onRefreshInvite: () => Promise<void>
   onAcceptAnswer: (answerCode: string) => Promise<void>
   onJoinWithInvite: (inviteCode: string) => Promise<string>
-  onJoinLocalRoom: (roomCode: string) => void
   onDisconnect: () => void
   onJumpToPeer?: (peer: LanCollabPeer) => void
-}
-
-async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text)
-      return
-    } catch {
-      // 回退到选区复制
-    }
-  }
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.setAttribute('readonly', '')
-  ta.style.position = 'fixed'
-  ta.style.opacity = '0'
-  document.body.appendChild(ta)
-  ta.select()
-  document.execCommand('copy')
-  ta.remove()
 }
 
 export function LanCollabDialog({
   open,
   initialTab = 'host',
+  initialIp = '',
+  initialRoom = '',
   state,
   onClose,
   onChangeSelfName,
   onStartHosting,
+  onProbeLocalHub,
+  onRefreshRooms,
+  onJoinByIpOrRoom,
   onRefreshInvite,
   onAcceptAnswer,
   onJoinWithInvite,
-  onJoinLocalRoom,
   onDisconnect,
   onJumpToPeer,
 }: LanCollabDialogProps) {
   const toast = useToast()
   const [tab, setTab] = useState<'host' | 'join'>(initialTab)
   const [nameDraft, setNameDraft] = useState(state.selfName)
-  const [inviteInput, setInviteInput] = useState('')
+
+  const [customHostRoom, setCustomHostRoom] = useState('')
+  const [joinIpInput, setJoinIpInput] = useState(() => initialIp || loadSavedHostIp())
+  const [joinRoomInput, setJoinRoomInput] = useState(() => initialRoom)
+
   const [answerInput, setAnswerInput] = useState('')
-  const [roomInput, setRoomInput] = useState('')
-  const [busy, setBusy] = useState<string | null>(null)
-  const [copiedField, setCopiedField] = useState<string | null>(null)
+  const [inviteInput, setInviteInput] = useState('')
+
+  const [busy, setBusy] = useState(false)
+  const [webrtcBusy, setWebrtcBusy] = useState(false)
+  const [probingHub, setProbingHub] = useState(false)
+  const [localError, setLocalError] = useState('')
+  const [copiedKey, setCopiedKey] = useState<string>('')
 
   useEffect(() => {
-    if (open) {
-      setTab(initialTab)
-      setNameDraft(state.selfName)
-    }
-  }, [open, initialTab, state.selfName])
+    setNameDraft(state.selfName)
+  }, [state.selfName])
 
   useEffect(() => {
     if (!open) return
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        onClose()
-      }
+    setLocalError('')
+    if (initialIp) setJoinIpInput(initialIp)
+    if (initialRoom) setJoinRoomInput(initialRoom)
+    if (state.role === 'idle') {
+      setTab(initialTab)
+      void onRefreshRooms(initialIp || loadSavedHostIp())
+    } else if (state.role === 'host') {
+      setTab('host')
+    } else {
+      setTab('join')
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialTab, initialIp, initialRoom, state.role])
+
+  // 房主打开弹窗且尚未检测到本机局域网直连服务时，每 2 秒静默探测一次，启动即秒亮绿灯
+  useEffect(() => {
+    if (!open || state.role !== 'host' || state.hubConnected) return
+    const timer = window.setInterval(() => {
+      void onProbeLocalHub()
+    }, 2000)
+    return () => window.clearInterval(timer)
+  }, [open, state.role, state.hubConnected, onProbeLocalHub])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
   if (!open) return null
 
-  const webRtcAvailable = hasWebRtcSupport()
   const activeSession = state.role !== 'idle'
-  const onlineCount = Math.max(1, state.peers.length)
+  const remotePeers = state.peers.filter((p) => p.peerId !== state.selfPeerId)
+  const webrtcAvailable = hasWebRtcSupport()
 
-  const handleCopy = async (label: string, key: string, value: string) => {
-    if (!value) return
-    try {
-      await copyText(value)
-      setCopiedField(key)
-      toast(`${label}已复制到剪贴板`, 'success')
-      window.setTimeout(() => {
-        setCopiedField((curr) => (curr === key ? null : curr))
-      }, 1800)
-    } catch {
-      toast('复制失败，请手动全选复制', 'warning')
+  const markCopied = (key: string) => {
+    setCopiedKey(key)
+    window.setTimeout(() => {
+      setCopiedKey((prev) => (prev === key ? '' : prev))
+    }, 1800)
+  }
+
+  const handleCopy = async (key: string, text: string, label: string) => {
+    if (!text) return
+    const ok = await copyText(text)
+    if (ok) {
+      markCopied(key)
+      toast(`已复制${label}`, 'success')
+    } else {
+      toast('复制失败，请手动选中复制', 'error')
     }
   }
 
-  const commitName = () => {
-    const trimmed = nameDraft.trim()
-    if (trimmed && trimmed !== state.selfName) {
-      onChangeSelfName(trimmed)
-      toast(`协作昵称已更新为「${trimmed}」`, 'info')
-    }
+  const commitNameIfNeeded = () => {
+    if (nameDraft.trim()) onChangeSelfName(nameDraft.trim())
   }
 
   const handleStartHost = async () => {
-    commitName()
-    setBusy('host')
+    setLocalError('')
+    setBusy(true)
     try {
-      await onStartHosting()
-      toast('已开启局域网协作房间', 'success')
+      commitNameIfNeeded()
+      await onStartHosting(customHostRoom)
+      toast('协作房间已开启', 'success')
     } catch (err) {
-      toast(err instanceof Error ? err.message : '开启协作失败', 'error')
+      setLocalError(err instanceof Error ? err.message : '开启房间失败')
     } finally {
-      setBusy(null)
+      setBusy(false)
+    }
+  }
+
+  const handleDirectJoin = async (overrideIp?: string, overrideRoom?: string) => {
+    const ip = (overrideIp !== undefined ? overrideIp : joinIpInput).trim()
+    const room = (overrideRoom !== undefined ? overrideRoom : joinRoomInput).trim().toUpperCase()
+    setLocalError('')
+    setBusy(true)
+    try {
+      commitNameIfNeeded()
+      await onJoinByIpOrRoom(ip, room)
+      toast('已发起协作连接', 'success')
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : '连接失败，请检查 IP 或房间号')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleManualProbeHub = async () => {
+    setProbingHub(true)
+    try {
+      const ok = await onProbeLocalHub()
+      if (ok) {
+        toast('已连接局域网直连服务！同伴现在可直接输入你的 IP 加入', 'success')
+      } else {
+        toast('尚未检测到本机局域网直连服务，请先在终端运行启动命令', 'info')
+      }
+    } finally {
+      setProbingHub(false)
+    }
+  }
+
+  const handleDownloadHubScript = () => {
+    try {
+      const source = buildStandaloneHubMjsSource(DEFAULT_LAN_HUB_PORT)
+      const blob = new Blob([source], { type: 'text/javascript;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'starlog-lan-hub.mjs'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      toast('已下载 starlog-lan-hub.mjs，终端运行 node starlog-lan-hub.mjs 即可', 'success')
+    } catch {
+      toast('下载脚本失败', 'error')
+    }
+  }
+
+  const handleGenerateWebrtcInvite = async () => {
+    setLocalError('')
+    setWebrtcBusy(true)
+    try {
+      await onRefreshInvite()
+      toast('已生成配对码', 'success')
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : '生成配对码失败')
+    } finally {
+      setWebrtcBusy(false)
     }
   }
 
   const handleAcceptAnswer = async () => {
     if (!answerInput.trim()) {
-      toast('请先粘贴协作者发回的响应码', 'warning')
+      setLocalError('请先粘贴协作者回传的响应码')
       return
     }
-    setBusy('accept')
+    setLocalError('')
+    setWebrtcBusy(true)
     try {
       await onAcceptAnswer(answerInput)
       setAnswerInput('')
-      toast('已确认响应码，正在建立局域网点对点连接…', 'success')
+      toast('协作者已接入房间', 'success')
     } catch (err) {
-      toast(err instanceof Error ? err.message : '响应码校验失败', 'error')
+      setLocalError(err instanceof Error ? err.message : '响应码校验失败')
     } finally {
-      setBusy(null)
+      setWebrtcBusy(false)
     }
   }
 
-  const handleJoinInvite = async () => {
+  const handleJoinByWebrtcInvite = async () => {
     if (!inviteInput.trim()) {
-      toast('请先粘贴房主分享的邀请码', 'warning')
+      setLocalError('请先粘贴房主发来的配对码')
       return
     }
-    commitName()
-    setBusy('join-webrtc')
+    setLocalError('')
+    setWebrtcBusy(true)
     try {
+      commitNameIfNeeded()
       const answer = await onJoinWithInvite(inviteInput)
-      await copyText(answer).catch(() => undefined)
-      toast('响应码已生成并自动复制，请发给房主完成配对', 'success')
+      if (answer) {
+        const copied = await copyText(answer)
+        toast(
+          copied ? '响应码已生成并自动复制，请发回给房主' : '响应码已生成，请复制发回给房主',
+          'success',
+        )
+      }
     } catch (err) {
-      toast(err instanceof Error ? err.message : '解析邀请码失败', 'error')
+      setLocalError(err instanceof Error ? err.message : '配对码解析失败')
     } finally {
-      setBusy(null)
+      setWebrtcBusy(false)
     }
   }
 
-  const handleJoinRoomCode = () => {
-    if (!roomInput.trim()) {
-      toast('请输入 6 位房间号', 'warning')
-      return
-    }
-    commitName()
-    try {
-      onJoinLocalRoom(roomInput)
-      toast(`正在连接房间 ${roomInput.trim().toUpperCase()}…`, 'info')
-    } catch (err) {
-      toast(err instanceof Error ? err.message : '连接房间失败', 'error')
-    }
+  const formatHostAddressForDisplay = (ip: string) =>
+    state.hubPort === DEFAULT_LAN_HUB_PORT ? ip : `${ip}:${state.hubPort}`
+
+  const buildDirectJoinUrl = (ip: string) => {
+    const hostPart = `${ip}:${state.hubPort}`
+    return `http://${hostPart}/#/admin/new?collab=join&ip=${encodeURIComponent(hostPart)}&room=${encodeURIComponent(state.roomCode)}`
   }
+
+  const statusBadge = (() => {
+    if (state.status === 'connected') {
+      return {
+        text: `协作已连接 · 在线 ${state.peers.length} 人`,
+        cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
+      }
+    }
+    if (state.status === 'waiting') {
+      return {
+        text: `房间 ${state.roomCode} 已就绪 · 等待加入`,
+        cls: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30',
+      }
+    }
+    if (state.status === 'connecting' || state.status === 'preparing') {
+      return {
+        text: '正在连接…',
+        cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30',
+      }
+    }
+    if (state.status === 'closed') {
+      return {
+        text: '连接已断开',
+        cls: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30',
+      }
+    }
+    return {
+      text: '未开启',
+      cls: 'bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300/60 dark:border-slate-700',
+    }
+  })()
 
   return (
     <div
-      className="fixed inset-0 z-[95] flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 backdrop-blur-xs p-4"
+      onClick={(ev) => {
+        if (ev.target === ev.currentTarget) onClose()
+      }}
       role="dialog"
       aria-modal="true"
-      aria-label="局域网合作文档"
+      aria-labelledby="lan-collab-title"
     >
-      <div
-        className="absolute inset-0 animate-fade-in bg-ink-950/45 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      <div className="card relative z-10 flex max-h-[88vh] w-full max-w-2xl animate-scale-in flex-col overflow-hidden !bg-white/95 shadow-2xl dark:!bg-ink-900/95">
-        {/* 标题栏 */}
-        <div className="flex items-center justify-between gap-3 border-b border-ink-200/70 px-5 py-4 dark:border-white/10">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-500/12 text-brand-600 dark:text-brand-300">
-              <Users size={17} />
+      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl">
+        {/* 顶部标题栏 */}
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-950/60 text-brand-600 dark:text-brand-300">
+              <Wifi className="w-4 h-4" />
             </span>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="font-serif text-lg font-bold text-ink-900 dark:text-white">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2
+                  id="lan-collab-title"
+                  className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                >
                   局域网合作文档
                 </h2>
-                <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                  仅离线版
+                <span className="text-[11px] font-medium px-2 py-0.5 rounded-full border bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/25">
+                  离线版专属
                 </span>
-                {activeSession && (
-                  <span
-                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                      state.status === 'connected'
-                        ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
-                        : state.status === 'closed'
-                          ? 'bg-rose-500/12 text-rose-600 dark:text-rose-300'
-                          : 'bg-brand-500/12 text-brand-600 dark:text-brand-300'
-                    }`}
-                  >
-                    <span
-                      className={`h-1.5 w-1.5 rounded-full ${
-                        state.status === 'connected'
-                          ? 'bg-emerald-500'
-                          : state.status === 'closed'
-                            ? 'bg-rose-500'
-                            : 'animate-pulse bg-brand-500'
-                      }`}
-                    />
-                    {state.status === 'connected'
-                      ? `${onlineCount} 台设备协同中`
-                      : state.status === 'closed'
-                        ? '连接已断开'
-                        : '等待协作者接入'}
-                  </span>
-                )}
+                <span
+                  className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${statusBadge.cls}`}
+                >
+                  {statusBadge.text}
+                </span>
               </div>
-              <p className="text-xs text-ink-500 dark:text-ink-400">
-                无需互联网与中心服务器，同一 Wi-Fi / 局域网设备直接点对点实时共编同一篇文章
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                输入房间号或房主局域网 IP 即可多人实时协同编辑，全程不连接任何外网。
               </p>
             </div>
           </div>
-
           <button
             type="button"
             onClick={onClose}
-            className="btn-ghost h-8 w-8 !px-0"
-            aria-label="关闭"
+            className="btn-ghost px-2 py-1.5 rounded-lg"
+            title="关闭窗口（不会中断正在进行的协作）"
+            aria-label="关闭局域网协作窗口"
           >
-            <X size={16} />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* 主体区 */}
-        <div className="space-y-4 overflow-y-auto p-5">
-          {/* 协作者昵称 */}
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-ink-200/70 bg-ink-50/60 px-3.5 py-2.5 dark:border-white/10 dark:bg-white/[0.03]">
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: state.selfColor }}
-            />
-            <label className="text-xs font-medium text-ink-600 dark:text-ink-300">
+        <div className="p-5 space-y-4">
+          {/* 协作者昵称栏 */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800 p-3">
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300 shrink-0">
+              <span
+                className="inline-block w-2.5 h-2.5 rounded-full"
+                style={{ backgroundColor: state.selfColor }}
+              />
               我的协作昵称
-            </label>
-            <input
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onBlur={commitName}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  commitName()
-                }
-              }}
-              maxLength={24}
-              placeholder="输入显示给同伴的昵称…"
-              className="min-w-[10rem] flex-1 rounded-lg border border-ink-200 bg-white px-2.5 py-1 text-xs text-ink-900 outline-none focus:border-brand-400 dark:border-white/12 dark:bg-white/[0.05] dark:text-white"
-            />
-            {nameDraft.trim() && nameDraft.trim() !== state.selfName && (
-              <button type="button" onClick={commitName} className="btn-outline h-7 !px-2.5 text-xs">
-                保存昵称
-              </button>
-            )}
+            </div>
+            <div className="flex items-center gap-2 flex-1">
+              <input
+                type="text"
+                value={nameDraft}
+                maxLength={24}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onBlur={() => {
+                  if (nameDraft.trim() && nameDraft.trim() !== state.selfName) {
+                    onChangeSelfName(nameDraft.trim())
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && nameDraft.trim()) {
+                    e.currentTarget.blur()
+                  }
+                }}
+                placeholder="输入展示给同伴的名字"
+                className="input py-1.5 text-sm flex-1"
+              />
+              {activeSession && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDisconnect()
+                    setAnswerInput('')
+                    setInviteInput('')
+                    toast('已退出局域网协作会话', 'info')
+                  }}
+                  className="btn-ghost text-rose-600 dark:text-rose-400 text-xs px-2.5 py-1.5 shrink-0"
+                >
+                  <Unplug className="w-3.5 h-3.5" />
+                  断开协作
+                </button>
+              )}
+            </div>
           </div>
 
-          {state.error && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50/80 px-3.5 py-2.5 text-xs text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
-              {state.error}
+          {/* 错误提示 */}
+          {(localError || state.error) && (
+            <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-700 dark:text-rose-300">
+              {localError || state.error}
             </div>
           )}
 
-          {!activeSession ? (
-            <>
-              {/* 模式切换 */}
-              <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-ink-100/80 p-1 dark:bg-white/[0.06]">
-                <button
-                  type="button"
-                  onClick={() => setTab('host')}
-                  className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition ${
-                    tab === 'host'
-                      ? 'bg-white text-ink-900 shadow-sm dark:bg-ink-800 dark:text-white'
-                      : 'text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-white'
-                  }`}
-                >
-                  <Share2 size={14} />
-                  发起协作（我是房主）
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTab('join')}
-                  className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition ${
-                    tab === 'join'
-                      ? 'bg-white text-ink-900 shadow-sm dark:bg-ink-800 dark:text-white'
-                      : 'text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-white'
-                  }`}
-                >
-                  <UserCheck size={14} />
-                  加入协作（接入他人文档）
-                </button>
-              </div>
+          {/* 未开始协作时：创建房间 / 加入协作 切换 */}
+          {!activeSession && (
+            <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80">
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('host')
+                  setLocalError('')
+                }}
+                className={`py-2 px-3 rounded-lg text-xs font-medium transition ${
+                  tab === 'host'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                我是房主（创建房间）
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('join')
+                  setLocalError('')
+                  void onRefreshRooms(joinIpInput)
+                }}
+                className={`py-2 px-3 rounded-lg text-xs font-medium transition ${
+                  tab === 'join'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                输入 IP / 房间号加入
+              </button>
+            </div>
+          )}
 
-              {tab === 'host' ? (
-                <div className="space-y-3 rounded-2xl border border-ink-200/70 bg-white/60 p-4 dark:border-white/10 dark:bg-white/[0.02]">
-                  <div className="flex items-start gap-3">
-                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-500/10 text-brand-600 dark:text-brand-300">
-                      <Wifi size={16} />
-                    </span>
-                    <div className="space-y-1 text-xs leading-relaxed text-ink-600 dark:text-ink-300">
-                      <p className="font-semibold text-ink-900 dark:text-white">
-                        将当前编辑器内的文章共享给局域网伙伴共同编辑
-                      </p>
-                      <p>
-                        开启后会同时生成<strong>局域网设备邀请码</strong>（供同一路由器 / 热点下的电脑、平板、手机点对点直连）与<strong>6 位房间号</strong>（同设备多窗口免粘贴秒连）。双方修改标题、标签、摘要和正文都会毫秒级双向同步。
-                      </p>
+          {/* 在线协作者列表 */}
+          {activeSession && (
+            <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-brand-500" />
+                  房间 <code className="font-mono font-bold text-brand-600 dark:text-brand-300">{state.roomCode}</code> 成员（{state.peers.length}）
+                </span>
+                <span className="text-slate-400 dark:text-slate-500 font-mono">
+                  {state.connectedHostAddress ? `${state.connectedHostAddress} · ` : ''}版本 #{state.seq}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {state.peers.map((peer) => {
+                  const isMe = peer.peerId === state.selfPeerId
+                  const canJump = !isMe && Boolean(peer.cursor && onJumpToPeer)
+                  return (
+                    <button
+                      key={peer.peerId}
+                      type="button"
+                      disabled={!canJump}
+                      onClick={() => {
+                        if (canJump && onJumpToPeer) {
+                          onJumpToPeer(peer)
+                          onClose()
+                        }
+                      }}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs transition ${
+                        canJump
+                          ? 'hover:border-brand-400 cursor-pointer bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700'
+                          : 'cursor-default bg-slate-50 dark:bg-slate-800/60 border-slate-200/70 dark:border-slate-800'
+                      }`}
+                      title={
+                        canJump && peer.cursor
+                          ? `点击跳转到 ${peer.name} 当前编辑位置（第 ${peer.cursor.line} 行）`
+                          : undefined
+                      }
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: peer.color }}
+                      />
+                      <span className="font-medium text-slate-800 dark:text-slate-100">
+                        {peer.name}
+                        {isMe ? '（我）' : ''}
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/70 dark:bg-slate-700/70 text-slate-600 dark:text-slate-300">
+                        {peer.role === 'host' ? '房主' : '协作者'}
+                      </span>
+                      {peer.cursor && !isMe && (
+                        <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                          行 {peer.cursor.line}:{peer.cursor.column}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+              {remotePeers.length === 0 && state.role === 'host' && (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  房间已开启！同伴输入下方房间号或本机局域网 IP 后即可实时看到彼此输入。你现在就可以直接关闭弹窗开始写文章。
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* ============================== 房主视图 ============================== */}
+          {(activeSession ? state.role === 'host' : tab === 'host') && (
+            <div className="space-y-3.5">
+              {state.role !== 'host' ? (
+                <div className="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-5 space-y-4">
+                  <div className="text-center space-y-1.5">
+                    <div className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-50 dark:bg-brand-950/60 text-brand-600 dark:text-brand-300">
+                      <Laptop className="w-5 h-5" />
                     </div>
+                    <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      将当前文章开启为局域网协作房间
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                      毫秒级秒开，不阻塞编辑器。开启后同伴只需输入<strong>房间号</strong>或你的<strong>局域网 IP</strong> 即可直接加入共同编辑。
+                    </p>
                   </div>
-                  <div className="flex justify-end pt-1">
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 max-w-md mx-auto">
+                    <input
+                      type="text"
+                      value={customHostRoom}
+                      maxLength={12}
+                      onChange={(e) => setCustomHostRoom(e.target.value.toUpperCase())}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void handleStartHost()
+                      }}
+                      placeholder="可选自定义房间号（留空自动生成 4 位数字）"
+                      className="input text-xs font-mono flex-1"
+                    />
                     <button
                       type="button"
+                      disabled={busy}
                       onClick={handleStartHost}
-                      disabled={busy === 'host'}
-                      className="btn-primary h-9 text-xs"
+                      className="btn-primary px-5 py-2 text-sm shrink-0 justify-center"
                     >
-                      {busy === 'host' ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Sparkles size={14} />
-                      )}
-                      {busy === 'host' ? '正在准备局域网通道…' : '开启局域网协作房间'}
+                      <Wifi className="w-4 h-4" />
+                      开启协作房间
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {/* 跨设备邀请码接入 */}
-                  <div className="space-y-2.5 rounded-2xl border border-ink-200/70 bg-white/60 p-4 dark:border-white/10 dark:bg-white/[0.02]">
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-xs font-semibold text-ink-900 dark:text-white">
-                        <Wifi size={14} className="text-brand-500" />
-                        方式一：局域网跨设备点对点接入
-                      </span>
-                      {!webRtcAvailable && (
-                        <span className="text-[11px] text-amber-600 dark:text-amber-400">
-                          当前环境未开放 WebRTC
-                        </span>
-                      )}
+                <>
+                  {/* 核心卡片：房间号 + 局域网 IP */}
+                  <div className="rounded-xl border border-brand-200/80 dark:border-brand-900/60 bg-brand-50/40 dark:bg-brand-950/20 p-4 space-y-3.5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                          当前房间号（同电脑窗口或同页面直连只需输入此号码）
+                        </div>
+                        <div className="mt-1 flex items-center gap-2.5">
+                          <span className="font-mono text-2xl font-bold tracking-widest text-brand-600 dark:text-brand-300">
+                            {state.roomCode}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy('room', state.roomCode, '房间号')}
+                            className="btn-ghost text-xs px-2.5 py-1 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                          >
+                            {copiedKey === 'room' ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-500" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                            复制房间号
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-xs text-ink-500 dark:text-ink-400">
-                      粘贴房主发来的 <code className="rounded bg-ink-100 px-1 dark:bg-white/10">SL1...</code> 邀请码，生成响应码发回给房主即可直接连通（无需外网）：
-                    </p>
-                    <textarea
-                      value={inviteInput}
-                      onChange={(e) => setInviteInput(e.target.value)}
-                      rows={3}
-                      placeholder="在此粘贴房主的局域网邀请码（SL1Z... 或 SL1P...）"
-                      className="input font-mono text-xs"
-                    />
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={handleJoinInvite}
-                        disabled={!webRtcAvailable || busy === 'join-webrtc'}
-                        className="btn-primary h-9 text-xs"
-                      >
-                        {busy === 'join-webrtc' ? (
-                          <Loader2 size={14} className="animate-spin" />
-                        ) : (
-                          <UserCheck size={14} />
-                        )}
-                        {busy === 'join-webrtc' ? '正在生成响应码…' : '解析邀请码并生成响应码'}
-                      </button>
-                    </div>
-                  </div>
 
-                  {/* 同设备多窗口房间号秒连 */}
-                  <div className="space-y-2.5 rounded-2xl border border-ink-200/70 bg-white/60 p-4 dark:border-white/10 dark:bg-white/[0.02]">
-                    <span className="flex items-center gap-1.5 text-xs font-semibold text-ink-900 dark:text-white">
-                      <Laptop size={14} className="text-emerald-500" />
-                      方式二：同机浏览器多窗口房间号秒连
-                    </span>
-                    <div className="flex gap-2">
-                      <input
-                        value={roomInput}
-                        onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault()
-                            handleJoinRoomCode()
-                          }
-                        }}
-                        maxLength={12}
-                        placeholder="输入 6 位房间号，例如 A7K9M2"
-                        className="input flex-1 font-mono text-xs uppercase tracking-wider"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleJoinRoomCode}
-                        className="btn-outline h-10 shrink-0 text-xs"
-                      >
-                        房间号直连
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            /* ---------------------- 已处于活跃协作会话中 ---------------------- */
-            <div className="space-y-4">
-              {/* 房间概要与成员列表 */}
-              <div className="rounded-2xl border border-ink-200/70 bg-white/60 p-4 dark:border-white/10 dark:bg-white/[0.02]">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-200/60 pb-3 dark:border-white/10">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-ink-500">房间号</span>
-                    <code className="rounded-lg bg-brand-500/10 px-2.5 py-1 font-mono text-sm font-bold tracking-wider text-brand-700 dark:text-brand-300">
-                      {state.roomCode}
-                    </code>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy('房间号', 'room', state.roomCode)}
-                      className="btn-ghost h-7 !px-2 text-xs"
-                    >
-                      {copiedField === 'room' ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
-                      复制
-                    </button>
-                  </div>
-                  <span className="font-mono text-[11px] text-ink-400">
-                    同步版本 #{state.seq}
-                  </span>
-                </div>
-
-                <div className="mt-3 space-y-1.5">
-                  <p className="text-xs font-medium text-ink-500 dark:text-ink-400">
-                    在线成员（{state.peers.length}）
-                  </p>
-                  <div className="grid gap-1.5 sm:grid-cols-2">
-                    {state.peers.map((peer) => {
-                      const isSelf = peer.peerId === state.selfPeerId
-                      const canJump = !isSelf && Boolean(peer.cursor && onJumpToPeer)
-                      return (
-                        <div
-                          key={peer.peerId}
-                          onClick={() => {
-                            if (canJump && onJumpToPeer) {
-                              onJumpToPeer(peer)
-                              onClose()
-                            }
-                          }}
-                          className={`flex items-center justify-between gap-2 rounded-xl border border-ink-200/60 bg-white/80 px-3 py-2 text-xs dark:border-white/10 dark:bg-white/[0.03] ${
-                            canJump ? 'cursor-pointer transition hover:border-brand-400' : ''
-                          }`}
-                          title={canJump ? '点击跳转到该协作者正在编辑的位置' : undefined}
-                        >
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span
-                              className="h-2.5 w-2.5 shrink-0 rounded-full"
-                              style={{ backgroundColor: peer.color }}
-                            />
-                            <span className="truncate font-medium text-ink-900 dark:text-white">
-                              {peer.name}
-                              {isSelf ? '（我）' : ''}
+                    <div className="border-t border-slate-200/80 dark:border-slate-800 pt-3">
+                      {state.hubConnected ? (
+                        <div className="space-y-2.5">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                              跨设备局域网 IP 直连已就绪
                             </span>
-                            <span className="shrink-0 rounded bg-ink-100 px-1.5 py-0.5 text-[10px] text-ink-600 dark:bg-white/10 dark:text-ink-300">
-                              {peer.role === 'host' ? '房主' : '协作者'}
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                              同伴在「加入协作」直接输入下方 IP 即可进入（单房间连房间号都可不填）
                             </span>
                           </div>
-                          {peer.cursor && (
-                            <span className="shrink-0 font-mono text-[11px] text-ink-400">
-                              行 {peer.cursor.line}:{peer.cursor.column}
-                            </span>
+
+                          {state.lanIps.length > 0 ? (
+                            <div className="space-y-2">
+                              {state.lanIps.map((ip) => {
+                                const displayAddr = formatHostAddressForDisplay(ip)
+                                const directUrl = buildDirectJoinUrl(ip)
+                                return (
+                                  <div
+                                    key={ip}
+                                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/25 bg-white dark:bg-slate-900 px-3 py-2"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                                        房主 IP：
+                                      </span>
+                                      <code className="font-mono text-sm font-bold text-slate-900 dark:text-slate-100">
+                                        {displayAddr}
+                                      </code>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCopy(`ip-${ip}`, displayAddr, '房主 IP')}
+                                        className="btn-primary text-xs px-2.5 py-1"
+                                      >
+                                        {copiedKey === `ip-${ip}` ? (
+                                          <Check className="w-3.5 h-3.5" />
+                                        ) : (
+                                          <Copy className="w-3.5 h-3.5" />
+                                        )}
+                                        复制 IP
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleCopy(`url-${ip}`, directUrl, '浏览器一键直达链接')
+                                        }
+                                        className="btn-ghost text-xs px-2.5 py-1 border border-slate-200 dark:border-slate-700"
+                                        title="其他手机/电脑无需先存离线 HTML，直接在浏览器打开此链接即可自动加入房间"
+                                      >
+                                        {copiedKey === `url-${ip}` ? (
+                                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                        ) : (
+                                          <Copy className="w-3.5 h-3.5" />
+                                        )}
+                                        复制一键直达链接
+                                      </button>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-600 dark:text-slate-300">
+                              本机直连服务已运行于端口 <code className="font-mono">{state.hubPort}</code>，请将本机局域网 IP（如 <code className="font-mono">192.168.x.x</code>）发给同伴输入即可。
+                            </p>
                           )}
                         </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {/* 房主：继续邀请更多局域网设备 */}
-              {state.role === 'host' && webRtcAvailable && (
-                <div className="space-y-3 rounded-2xl border border-brand-200/70 bg-brand-50/35 p-4 dark:border-brand-500/20 dark:bg-brand-500/[0.05]">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="flex items-center gap-1.5 text-xs font-semibold text-ink-900 dark:text-white">
-                      <Plus size={14} className="text-brand-500" />
-                      接入局域网设备（支持多台设备依次加入）
-                    </span>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setBusy('refresh')
-                        try {
-                          await onRefreshInvite()
-                          toast('已生成新的局域网邀请码', 'info')
-                        } catch (err) {
-                          toast(err instanceof Error ? err.message : '刷新邀请码失败', 'error')
-                        } finally {
-                          setBusy(null)
-                        }
-                      }}
-                      disabled={busy === 'refresh'}
-                      className="btn-ghost h-7 !px-2 text-xs"
-                    >
-                      <RefreshCw size={12} className={busy === 'refresh' ? 'animate-spin' : ''} />
-                      刷新邀请码
-                    </button>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs text-ink-600 dark:text-ink-300">
-                      <span>第一步：复制下方邀请码发给同一局域网内的同伴</span>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy('邀请码', 'invite', state.inviteCode)}
-                        disabled={!state.inviteCode}
-                        className="btn-outline h-7 !px-2.5 text-xs"
-                      >
-                        {copiedField === 'invite' ? (
-                          <Check size={12} className="text-emerald-500" />
-                        ) : (
-                          <Copy size={12} />
-                        )}
-                        复制邀请码
-                      </button>
-                    </div>
-                    <input
-                      readOnly
-                      value={state.inviteCode || '正在生成局域网邀请码…'}
-                      onFocus={(e) => e.currentTarget.select()}
-                      className="input font-mono text-[11px]"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5 pt-1">
-                    <span className="block text-xs text-ink-600 dark:text-ink-300">
-                      第二步：将同伴回传的「响应码」粘贴到下方并确认接入
-                    </span>
-                    <div className="flex gap-2">
-                      <input
-                        value={answerInput}
-                        onChange={(e) => setAnswerInput(e.target.value)}
-                        placeholder="粘贴协作者生成的响应码（SL1...）"
-                        className="input flex-1 font-mono text-xs"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleAcceptAnswer}
-                        disabled={busy === 'accept'}
-                        className="btn-primary h-10 shrink-0 text-xs"
-                      >
-                        {busy === 'accept' ? (
-                          <Loader2 size={14} className="animate-spin" />
-                        ) : (
-                          <UserCheck size={14} />
-                        )}
-                        确认接入
-                      </button>
+                      ) : (
+                        <div className="space-y-2.5">
+                          <div className="text-xs text-slate-700 dark:text-slate-200 font-medium">
+                            需要让同一 Wi-Fi / 局域网下的其他电脑、手机输入 IP 直连？
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                            由于单文件离线网页（<code className="font-mono">file://</code>）本身不能直接在电脑网卡监听端口，在房主电脑终端运行下面一行零依赖本地命令后，此处会<strong>自动变绿并显示你的局域网 IP</strong>（同时其他设备还能直接浏览器访问你的 IP 打开离线博客）：
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleCopy('cmd', 'npm run lan', '局域网直连启动命令')
+                              }
+                              className="btn-primary text-xs px-3 py-1.5"
+                            >
+                              {copiedKey === 'cmd' ? (
+                                <Check className="w-3.5 h-3.5" />
+                              ) : (
+                                <Terminal className="w-3.5 h-3.5" />
+                              )}
+                              复制命令：npm run lan
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleDownloadHubScript}
+                              className="btn-ghost text-xs px-2.5 py-1.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                              title="若只下载了单个 offline/index.html 文件而没有仓库目录，下载此零依赖脚本运行 node starlog-lan-hub.mjs 即可"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              下载独立脚本（无仓库时用）
+                            </button>
+                            <button
+                              type="button"
+                              disabled={probingHub}
+                              onClick={handleManualProbeHub}
+                              className="btn-ghost text-xs px-2.5 py-1.5"
+                            >
+                              <RefreshCw
+                                className={`w-3.5 h-3.5 ${probingHub ? 'animate-spin' : ''}`}
+                              />
+                              重新检测
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
-                </div>
-              )}
 
-              {/* 协作者：等待房主确认响应码时展示复制面板 */}
-              {state.role === 'guest' && state.answerCode && state.status !== 'connected' && (
-                <div className="space-y-2 rounded-2xl border border-amber-200/80 bg-amber-50/60 p-4 dark:border-amber-500/25 dark:bg-amber-500/[0.07]">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold text-amber-900 dark:text-amber-200">
-                      请将下方响应码发送给房主粘贴确认
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy('响应码', 'answer', state.answerCode)}
-                      className="btn-primary h-7 !px-2.5 text-xs"
-                    >
-                      {copiedField === 'answer' ? <Check size={12} /> : <Copy size={12} />}
-                      复制响应码
-                    </button>
-                  </div>
-                  <textarea
-                    readOnly
-                    rows={3}
-                    value={state.answerCode}
-                    onFocus={(e) => e.currentTarget.select()}
-                    className="input font-mono text-[11px]"
-                  />
-                  <p className="text-[11px] text-amber-800/80 dark:text-amber-200/80">
-                    房主点击「确认接入」后，连接会自动建立并将房主当前编辑的文档同步至本窗口。
-                  </p>
-                </div>
+                  {/* 折叠备用方案：纯无服务配对码（按需点击才生成，绝不默认阻塞） */}
+                  {webrtcAvailable && (
+                    <details className="rounded-xl border border-slate-200/80 dark:border-slate-800 px-3.5 py-2.5 text-xs">
+                      <summary className="cursor-pointer select-none font-medium text-slate-600 dark:text-slate-400">
+                        备用方式：不启动本地服务，使用离线配对码手动连接
+                      </summary>
+                      <div className="mt-3 space-y-3 pt-2 border-t border-slate-200/70 dark:border-slate-800">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-slate-500 dark:text-slate-400">
+                            1. 点击生成一次性配对码发给同伴：
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              disabled={webrtcBusy}
+                              onClick={handleGenerateWebrtcInvite}
+                              className="btn-ghost text-xs px-2.5 py-1 border border-slate-200 dark:border-slate-700"
+                            >
+                              <RefreshCw
+                                className={`w-3.5 h-3.5 ${webrtcBusy ? 'animate-spin' : ''}`}
+                              />
+                              {state.inviteCode ? '重新生成配对码' : '生成配对码'}
+                            </button>
+                            {state.inviteCode && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleCopy('invite', state.inviteCode, '配对邀请码')
+                                }
+                                className="btn-primary text-xs px-2.5 py-1"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                                复制配对码
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {state.inviteCode && (
+                          <textarea
+                            readOnly
+                            rows={2}
+                            value={state.inviteCode}
+                            onFocus={(e) => e.currentTarget.select()}
+                            className="input font-mono text-[11px] leading-relaxed resize-none"
+                          />
+                        )}
+                        <div className="space-y-1.5">
+                          <span className="text-slate-500 dark:text-slate-400 block">
+                            2. 粘贴同伴回传的响应码完成直连：
+                          </span>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={answerInput}
+                              onChange={(e) => setAnswerInput(e.target.value)}
+                              placeholder="粘贴 SL1Z. 或 SL1P. 开头的响应码…"
+                              className="input font-mono text-xs flex-1"
+                            />
+                            <button
+                              type="button"
+                              disabled={webrtcBusy || !answerInput.trim()}
+                              onClick={handleAcceptAnswer}
+                              className="btn-primary text-xs px-3 py-1.5 shrink-0"
+                            >
+                              <UserCheck className="w-3.5 h-3.5" />
+                              确认接入
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </details>
+                  )}
+                </>
               )}
             </div>
           )}
-        </div>
 
-        {/* 底部栏 */}
-        <div className="flex items-center justify-between gap-3 border-t border-ink-200/70 px-5 py-3.5 dark:border-white/10">
-          {activeSession ? (
-            <button
-              type="button"
-              onClick={() => {
-                onDisconnect()
-                toast('已退出局域网协作房间，当前文档内容仍保留在编辑器中', 'info')
-              }}
-              className="btn-danger h-8 !px-3 text-xs"
-            >
-              <LogOut size={13} />
-              退出协作房间
-            </button>
-          ) : (
-            <span className="text-[11px] text-ink-400">
-              提示：协作过程中任意一方均可随时点击「保存到本机」留存副本
-            </span>
+          {/* ============================== 协作者加入视图 ============================== */}
+          {(activeSession ? state.role === 'guest' : tab === 'join') && (
+            <div className="space-y-3.5">
+              {state.role === 'guest' && state.status === 'connected' ? (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs text-emerald-800 dark:text-emerald-200 space-y-1">
+                  <div className="font-semibold">
+                    已连入房间 {state.roomCode}
+                    {state.connectedHostAddress ? `（${state.connectedHostAddress}）` : ''}，正在实时协同编辑！
+                  </div>
+                  <p className="opacity-90">
+                    现在可以直接关闭此弹窗，在编辑器里正常输入正文、修改标题或标签，所有更改都会实时双向同步。
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* 自动发现的活跃房间列表（一键加入） */}
+                  {state.discoveredRooms.length > 0 && (
+                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 space-y-2">
+                      <div className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                        发现可直接加入的房间（点击即连）
+                      </div>
+                      <div className="space-y-1.5">
+                        {state.discoveredRooms.map((r) => (
+                          <div
+                            key={`${r.source}-${r.roomCode}`}
+                            className="flex items-center justify-between gap-2 rounded-lg border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-xs"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-brand-600 dark:text-brand-300">
+                                  房间 {r.roomCode}
+                                </span>
+                                <span className="text-slate-700 dark:text-slate-200 truncate font-medium">
+                                  《{r.docTitle}》
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                房主：{r.hostName} · 在线 {r.peerCount} 人 ·{' '}
+                                {r.source === 'local' ? '本机窗口直连' : r.hostAddress || '局域网直连'}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() =>
+                                handleDirectJoin(
+                                  r.source === 'lan' ? r.hostAddress || joinIpInput : '',
+                                  r.roomCode,
+                                )
+                              }
+                              className="btn-primary text-xs px-3 py-1.5 shrink-0"
+                            >
+                              一键加入
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 主加入表单：输入 IP 或房间号即可 */}
+                  <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 p-4 space-y-3.5">
+                    <div>
+                      <div className="text-xs font-semibold text-slate-800 dark:text-slate-100">
+                        输入房主 IP 或房间号直接连接
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        • <strong>跨设备（不同电脑/手机）</strong>：填房主显示的局域网 IP（如{' '}
+                        <code className="font-mono">192.168.1.23</code>）；若对方只开了一个房间，房间号可留空。
+                        <br />• <strong>同电脑窗口 / 已通过房主链接打开本页</strong>：IP 留空，直接填 4 位房间号即可。
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5">
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                          房主局域网 IP（同机可留空）
+                        </label>
+                        <input
+                          type="text"
+                          value={joinIpInput}
+                          onChange={(e) => setJoinIpInput(e.target.value)}
+                          onBlur={() => {
+                            if (joinIpInput.trim()) void onRefreshRooms(joinIpInput)
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void handleDirectJoin()
+                          }}
+                          placeholder="例如 192.168.1.23"
+                          className="input font-mono text-xs"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2 space-y-1">
+                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                          房间号（单房间可留空）
+                        </label>
+                        <input
+                          type="text"
+                          value={joinRoomInput}
+                          maxLength={12}
+                          onChange={(e) => setJoinRoomInput(e.target.value.toUpperCase())}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void handleDirectJoin()
+                          }}
+                          placeholder="例如 4829"
+                          className="input font-mono text-xs uppercase tracking-wider"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => void onRefreshRooms(joinIpInput)}
+                        className="btn-ghost text-xs px-2.5 py-1.5"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        查找可用房间
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void handleDirectJoin()}
+                        className="btn-primary text-xs px-5 py-2"
+                      >
+                        <Wifi className="w-3.5 h-3.5" />
+                        {busy ? '正在连接…' : '立即连接协作'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 折叠备用方案：纯无服务配对码加入 */}
+                  {webrtcAvailable && (
+                    <details className="rounded-xl border border-slate-200/80 dark:border-slate-800 px-3.5 py-2.5 text-xs">
+                      <summary className="cursor-pointer select-none font-medium text-slate-600 dark:text-slate-400">
+                        备用方式：粘贴房主配对码加入（无需局域网服务）
+                      </summary>
+                      <div className="mt-3 space-y-2.5 pt-2 border-t border-slate-200/70 dark:border-slate-800">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={inviteInput}
+                            onChange={(e) => setInviteInput(e.target.value)}
+                            placeholder="粘贴 SL1Z. 或 SL1P. 开头的房主配对码…"
+                            className="input font-mono text-xs flex-1"
+                          />
+                          <button
+                            type="button"
+                            disabled={webrtcBusy || !inviteInput.trim()}
+                            onClick={handleJoinByWebrtcInvite}
+                            className="btn-primary text-xs px-3 py-1.5 shrink-0"
+                          >
+                            生成响应码
+                          </button>
+                        </div>
+                        {state.answerCode && (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-500 dark:text-slate-400">
+                                将以下响应码发回给房主确认即可连通：
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleCopy('answer', state.answerCode, '响应码')
+                                }
+                                className="btn-ghost text-xs px-2 py-0.5"
+                              >
+                                <Copy className="w-3 h-3" />
+                                复制响应码
+                              </button>
+                            </div>
+                            <textarea
+                              readOnly
+                              rows={2}
+                              value={state.answerCode}
+                              onFocus={(e) => e.currentTarget.select()}
+                              className="input font-mono text-[11px] leading-relaxed resize-none"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  )}
+                </>
+              )}
+            </div>
           )}
-          <button type="button" onClick={onClose} className="btn-outline h-8 !px-4 text-xs">
-            完成
-          </button>
         </div>
       </div>
     </div>
   )
 }
+
+export default LanCollabDialog

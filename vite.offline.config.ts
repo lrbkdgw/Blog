@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { singleHtmlPlugin } from './scripts/vite-plugin-single-html.mjs'
+import { attachLanCollabHub } from './scripts/lan-collab-hub.mjs'
 
 /**
  * 离线单文件版构建配置：`npm run build:offline`
@@ -38,6 +39,26 @@ export default defineConfig({
             /<title>([^<]*)<\/title>/i,
             '<title>$1 · 离线版</title>\n    <meta name="starlog:build" content="offline-single-file" />',
           )
+      },
+    },
+    {
+      // 预览或开发离线版时，自动在同端口挂载局域网 IP + 房间号 WebSocket 协同中枢
+      name: 'starlog:offline-lan-collab-hub',
+      configureServer(server) {
+        if (!server.httpServer) return
+        const hub = attachLanCollabHub(server.httpServer)
+        server.middlewares.use((req, res, next) => {
+          if (hub.handleInfoRequest(req, res)) return
+          next()
+        })
+      },
+      configurePreviewServer(server) {
+        if (!server.httpServer) return
+        const hub = attachLanCollabHub(server.httpServer)
+        server.middlewares.use((req, res, next) => {
+          if (hub.handleInfoRequest(req, res)) return
+          next()
+        })
       },
     },
     singleHtmlPlugin({ maxBytes: MAX_OFFLINE_BYTES }),

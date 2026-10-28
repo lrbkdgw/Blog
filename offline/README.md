@@ -59,5 +59,6 @@ cp dist-offline/index.html offline/index.html
 | `src/components/OfflineExportPanel.tsx` | 离线版「管理 → 离线文章包」：勾选并导出、查看本机内容 |
 | `src/components/BundleImportDialog.tsx` | 「导入离线文章包」对话框（线上站点与离线版本都用它） |
 | `src/components/StorageGuard.tsx` | 存储不可用时拦住页面，绝不假装保存成功 |
+| `src/lib/lanCollab.ts` / `scripts/lan-collab-hub.mjs` | 离线版专属局域网合作文档引擎与零依赖本地 IP / 房间号直连中枢 |
 
 功能范围与限制见仓库根目录 README 的「📴 离线版」一节。
