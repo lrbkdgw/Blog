@@ -222,6 +222,13 @@ function Header({ onSearch }: { onSearch: () => void }) {
 
           <ThemeToggle />
 
+          {OFFLINE && (
+            <Link to="/admin" className="btn-outline hidden h-9 sm:inline-flex">
+              <LayoutDashboard size={15} />
+              管理
+            </Link>
+          )}
+
           <Link to="/admin/new" className="btn-primary hidden h-9 sm:inline-flex">
             <PenLine size={15} />
             写文章

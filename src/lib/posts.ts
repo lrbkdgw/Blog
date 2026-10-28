@@ -1,6 +1,7 @@
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter'
 import { stripArticleDirectives } from './articleDirectives'
 import { STORAGE_KEYS } from './config'
+import { extractTocFromMarkdown } from './headingSlug'
 import { hiddenSeedSlugs } from './offlineLibrary'
 import { OFFLINE } from './runtime'
 import type { Post, PostMeta } from './types'
@@ -427,122 +428,15 @@ export function searchPosts(posts: Post[], query: string): Post[] {
   )
 }
 
-/** 从 Markdown 中抽取标题，生成目录 */
+/** 从 Markdown 中抽取标题，生成目录（与 Markdown 组件共享同一套预处理与锚点生成管线） */
 export interface TocItem {
   id: string
   text: string
   level: number
 }
 
-interface MarkdownFence {
-  marker: '`' | '~'
-  length: number
-}
-
-function parseFence(line: string): MarkdownFence | null {
-  const match = line.match(/^\s*([`~]{3,})/)
-  if (!match) return null
-  return { marker: match[1][0] as '`' | '~', length: match[1].length }
-}
-
-function slugHeading(text: string, used: Map<string, number>): string {
-  // 与 rehype-slug（github-slugger）保持一致的 id 生成规则
-  let id = text
-    .toLowerCase()
-    .replace(/[\s]+/g, '-')
-    .replace(/[^\p{L}\p{N}\-_]+/gu, '')
-  const seen = used.get(id)
-  if (seen !== undefined) {
-    used.set(id, seen + 1)
-    id = `${id}-${seen + 1}`
-  } else {
-    used.set(id, 0)
-  }
-  return id
-}
-
 export function extractToc(md: string): TocItem[] {
-  const lines = md.split('\n')
-  const items: TocItem[] = []
-  const used = new Map<string, number>()
-  const callouts: number[] = []
-  let fence: MarkdownFence | null = null
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]
-    const parsedFence = parseFence(line)
-    if (parsedFence) {
-      if (!fence) {
-        fence = parsedFence
-      } else if (parsedFence.marker === fence.marker && parsedFence.length >= fence.length) {
-        fence = null
-      }
-      continue
-    }
-    if (fence) continue
-
-    // 展示框与直角坐标系内容由独立组件渲染，不参与正文标题锚点计数，也不进入目录。
-    const showStart = line.match(/^\s*::show_begin\{([^}]*)\}\{([\s\S]*)\}\s*$/i)
-    if (showStart) {
-      let end = index + 1
-      while (end < lines.length && !/^\s*::show_end\s*$/i.test(lines[end])) end += 1
-      if (end < lines.length) {
-        index = end
-        continue
-      }
-    }
-
-    const ccsStart = line.match(/^\s*::begin_ui-ccs(?:\{[^}]*\})?\s*$/i)
-    if (ccsStart) {
-      let end = index + 1
-      while (end < lines.length && !/^\s*::end_ui-ccs\s*$/i.test(lines[end])) end += 1
-      if (end < lines.length) {
-        index = end
-        continue
-      }
-    }
-
-    const uiBlockStart = line.match(/^\s*::begin_ui-(graph|choose|select|if)(?=$|\[|\s)/i)
-    if (uiBlockStart) {
-      const endRe = new RegExp(`^\\s*::end_ui-${uiBlockStart[1]}\\s*$`, 'i')
-      let end = index + 1
-      while (end < lines.length && !endRe.test(lines[end])) end += 1
-      if (end < lines.length) {
-        index = end
-        continue
-      }
-    }
-
-    const calloutClose = line.match(/^ *(:{3,})\s*$/)
-    if (calloutClose && callouts.length > 0) {
-      const colons = calloutClose[1].length
-      const top = callouts[callouts.length - 1]
-      if (colons >= top) {
-        callouts.pop()
-        continue
-      }
-    }
-
-    const calloutOpen = line.match(
-      /^ *(:{3,})(info|success|warning|error|note|tip|danger)(?:\[([\s\S]*?)\])?(?:\{open\})?\s*$/i,
-    )
-    if (calloutOpen) {
-      callouts.push(calloutOpen[1].length)
-      continue
-    }
-
-    const heading = line.match(/^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/)
-    if (!heading) continue
-
-    const text = stripMarkdown(heading[2])
-    const level = heading[1].length
-    const id = slugHeading(text, used)
-    // 折叠框内的标题不显示在目录中；仍参与 slug 计数，以匹配正文渲染后的锚点后缀。
-    if (callouts.length === 0 && level >= 2 && level <= 4) {
-      items.push({ id, text, level })
-    }
-  }
-  return items
+  return extractTocFromMarkdown(md)
 }
 
 export function formatDate(iso: string, style: 'full' | 'short' = 'full'): string {

@@ -1,5 +1,45 @@
 # 更新日志 · ChangeLog
 
+## 2026-10-28 · 全站问题排查修复、目录锚点对齐、编辑器列表/引用优化、离线免登录管理及离线版局域网合作文档（#110 / #111 / #112 / #113）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 新增
+
+- **离线版局域网合作文档（Issue #112，严格仅在离线版启用）**：
+  - 新增 `src/lib/lanCollab.ts` 与 `src/components/LanCollabDialog.tsx`，并在 `src/pages/Editor.tsx`、`src/pages/Admin.tsx` 接入（通过 `OFFLINE` 编译期与运行期双重守卫，线上构建 `isLanCollabSupportedInBuild() === false` 且完全不暴露协作入口）；
+  - 采用纯局域网 `RTCPeerConnection({ iceServers: [] })` 主机候选 `RTCDataChannel` 点对点传输（零公网 STUN/TURN 依赖，完全符合离线单文件不联网约束），并提供 `DeflateRaw` + Base64URL 紧凑连接码（`SL1Z.` / `SL1P.`）双向握手及同设备多窗口 6 位房间码（`BroadcastChannel`）免粘贴直连；
+  - 实现星型多终端协同状态机、单段文本 OT（Operational Transformation）变换、光标偏移保真映射（`transformCursorPosition`）与 FNV-1a 校验自愈，支持多人同时编辑正文、同步文章标题/摘要/标签等元数据，以及实时查看并一键跳转到协作者光标所在行列。
+
+### 修复
+
+- **修复文章界面点击目录无法正常跳转到对应章节（Issue #110）**：
+  - 新增零 DOM 依赖、无循环引用的 `src/lib/headingSlug.ts`，统一 `Markdown.tsx`（`rehypeHeadingSlug`）与 `posts.ts`（`extractTocFromMarkdown`）的预处理管线与标题锚点生成器 `createHeadingSlugger()`，彻底消除中英符号混合标题、纯标点标题（如 `### ???` 回退为 `#section`）、行内代码/数学公式/链接标题、单行反引号代码、CRLF 换行、条件块 `::IF[...]` 及折叠框内部标题重名计数偏差导致的目录与正文 DOM `id` 不一致；
+  - 重写 `Toc.tsx` 与 `scrollToHeading`：滚动监听动态查询最新标题节点（兼容交互控件展开/收起标题），点击目录预留 `100px` 吸顶页头让路偏移并刷新 `headerYield` 遮罩；线上模式更新 `#hash` 时完整保留 React Router `history.state`，离线版 `HashRouter`（`#/posts/...`）下绝不覆盖路由 hash；正文标题点击锚点按钮同步接入安全跳转。
+- **修复文章编辑器引用续行、列表 Tab 缩进及多级无序列表圆点样式无区分问题（Issue #111）**：
+  - 重构 `src/lib/editor.ts`：补充 IME 输入法 `isComposing` 守卫；支持单层/多层引用框（`> `、`> > `）及引用内嵌列表（`> - `）按 `Enter` 自动续行、空行逐级退层与退出；修复无序/有序/任务列表按 `Enter` 漏调 `e.preventDefault()` 残留多余空行及行中按 `Enter` 误判退出列表的问题；支持在**空白列表行**与非空列表行按 `Tab` / `Shift + Tab` 多级缩进与反缩进，且有序列表自动按父级标记宽度缩进（如 `1. ` 下缩进 3 空格、`10. ` 下缩进 4 空格并重置子项序号为 `1. `），确保符合 CommonMark 嵌套列表规范；改进单光标 `toggleLinePrefix` 光标保持与 `toggleWrap` 内外双向解包；
+  - 在 `src/styles/index.css` 与 VS Code 插件 `vscode_extensions/v1/media/mpe.css` 中同步为多级无序列表 `.prose ul:not(.contains-task-list)` 逐级设置 `disc`（实心圆）→ `circle`（空心圆）→ `square`（实心方块），同时保持 GFM 任务列表无圆点。
+- **修复离线版需登录才能编辑文章或进入管理后台的问题（Issue #113）及全站审计缺陷**：
+  - `src/lib/auth.tsx`：离线模式下跳过线上 GitHub Token 网络会话初始化；
+  - `src/components/Layout.tsx`：桌面端顶栏在离线模式下无需登录即常驻展示「文章管理」与「写文章」入口，移除无效的 GitHub 登录按钮；
+  - `src/pages/PostPage.tsx`：离线模式下未登录即可直接显示文章「编辑」按钮、新建文章的「本机版本」历史按钮，并修复历史版本自定义重命名后提示跳转线上不存在的 `/admin?tab=queue` 队列页问题；
+  - `src/components/SearchDialog.tsx`：通过 `hasPublicDate(p)` 守卫搜索结果日期展示，修复未公开日期的加密文章在搜索弹窗中显示占位日期 `1970 年 1 月 1 日` 的问题；
+  - `src/pages/Home.tsx`、`src/pages/SettingsPage.tsx`、`src/pages/About.tsx`、`src/pages/Admin.tsx`、`src/pages/Editor.tsx`、`src/components/Toast.tsx`：全面清理离线版中指向线上 `/login`、`/admin?tab=queue` 的残余入口与在线草稿提示文案，并为未解锁加密文章补充协作弹窗防提前打开保护。
+
+### 调整
+
+- 将 `scripts/test-features.mjs` 中 `VersionCompare` 子测试的固定 `90ms` 等待替换为有界轮询等待，消除高负载环境下的偶发时序竞争。
+
+### 验证
+
+- `scripts/test-features.mjs` 新增 4 组专项回归测试（覆盖 `#110` 全部真实文章与极端标题语法的目录/DOM 锚点 100% 对齐及离线路由保护、`#111` 引用/列表快捷键与多级圆点样式、`#113` 离线免登录管理/编辑/历史与搜索日期守卫、`#112` 线上禁用守卫、连接码编解码、并发 OT 收敛与多端实时协同），Web 特性测试 **17 / 17 全部通过**。
+- VS Code 插件 `npm run extension:test` **75 项测试通过（71 项执行通过、4 项无外部浏览器环境按预期跳过）**，`npm --prefix vscode_extensions/v1 run typecheck` 通过。
+- `npm run build`（`tsc --noEmit && vite build`）通过；`npm run build:offline` 构建并通过 `scripts/verify-offline.mjs` 单文件离线自检（`3.26 MB`，零外部请求残留），已同步更新 `offline/index.html`。
+
 ## 2026-10-23 · 修复全屏编辑冲突、美化历史版本渲染对比、首页下滑自动加载更多及 main 自动发布离线版 Release（#104 / #105 / #106）
 
 | 模型信息 | |

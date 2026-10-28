@@ -286,3 +286,16 @@ table td[colspan] {
   width: 100%;
   height: auto;
 }
+
+ul:not(.contains-task-list) {
+  list-style-type: disc;
+}
+
+ul:not(.contains-task-list) ul:not(.contains-task-list) {
+  list-style-type: circle;
+}
+
+ul:not(.contains-task-list) ul:not(.contains-task-list) ul:not(.contains-task-list) {
+  list-style-type: square;
+}
+

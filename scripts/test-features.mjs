@@ -11,7 +11,7 @@ const root = resolve(__dirname, '..')
 const requireExt = createRequire(join(root, 'vscode_extensions/v1/package.json'))
 const { JSDOM } = requireExt('jsdom')
 
-async function importTsModule(entryPath) {
+async function importTsModule(entryPath, { offline = false } = {}) {
   const result = await build({
     entryPoints: [join(root, entryPath)],
     bundle: true,
@@ -20,7 +20,7 @@ async function importTsModule(entryPath) {
     platform: 'browser',
     target: 'es2022',
     define: {
-      __STARLOG_OFFLINE__: 'false',
+      __STARLOG_OFFLINE__: offline ? 'true' : 'false',
     },
   })
   const code = result.outputFiles[0].text
@@ -1613,8 +1613,10 @@ test('双栏编辑器滚动同步引擎（#101）：全层级源码行区间标�
       import Editor from '../../src/pages/Editor'
       import Home from '../../src/pages/Home'
       import { VersionCompare } from '../../src/components/VersionCompare'
+      import { Toc } from '../../src/components/Toc'
+      import { scrollToHeading } from '../../src/lib/headingSlug'
       import { splitMarkdownBlocks, diffMarkdownHunks, renderedDiffSummary } from '../../src/lib/diff'
-      import { saveLocalPost, deleteLocalPost } from '../../src/lib/posts'
+      import { extractToc, saveLocalPost, deleteLocalPost } from '../../src/lib/posts'
       import { siteConfig } from '../../src/lib/config'
       export {
         React,
@@ -1624,6 +1626,8 @@ test('双栏编辑器滚动同步引擎（#101）：全层级源码行区间标�
         Routes,
         Route,
         Markdown,
+        Toc,
+        scrollToHeading,
         parseFrontmatter,
         collectScrollSyncAnchors,
         createBidirectionalScrollMapper,
@@ -1641,6 +1645,7 @@ test('双栏编辑器滚动同步引擎（#101）：全层级源码行区间标�
         splitMarkdownBlocks,
         diffMarkdownHunks,
         renderedDiffSummary,
+        extractToc,
         saveLocalPost,
         deleteLocalPost,
         siteConfig,
@@ -2692,7 +2697,13 @@ test('issue #105：历史版本渲染对比保持多行容器块完整并支持�
         onClose: () => {},
       }),
     )
-    await new Promise((r) => setTimeout(r, 90))
+    const compareDeadline = Date.now() + 4000
+    while (
+      Date.now() < compareDeadline &&
+      (rootEl.textContent.includes('正在读取两个版本') || !rootEl.textContent.includes('修改段落'))
+    ) {
+      await new Promise((r) => setTimeout(r, 20))
+    }
 
     assert.equal(
       rootEl.querySelectorAll('.overflow-y-auto').length,
@@ -2840,6 +2851,754 @@ test('issue #106 & offline CI：首页下滑自动加载更多 + main 更新自�
     env.cleanup()
   }
 })
+
+/* ------------------- 14–17. Issues #110 / #111 / #112 / #113 & 全站审计回归测试 ------------------- */
+
+test('issue #110：目录抽取与正文渲染标题 ID 100% 一致，点击目录平滑滚动避让顶栏且离线 HashRouter 不篡改路由', async () => {
+  const { readdirSync } = await import('node:fs')
+  const env = setupJsdomTestEnv('https://blog-apa.pages.dev/posts/toc-test')
+  const {
+    React,
+    createRoot,
+    renderToStaticMarkup,
+    Markdown,
+    Toc,
+    extractToc,
+    parseFrontmatter,
+  } = await loadSharedAppBundle()
+  const offlineHeadingMod = await importTsModule('src/lib/headingSlug.ts', { offline: true })
+
+  try {
+    const collectRenderedTocIds = (md) => {
+      const html = renderToStaticMarkup(React.createElement(Markdown, { content: md }))
+      const host = env.dom.window.document.createElement('div')
+      host.innerHTML = html
+      return Array.from(host.querySelectorAll('h2, h3, h4'))
+        .filter((el) => !el.closest('details.callout'))
+        .map((el) => el.id)
+    }
+
+    // 1) 扫描仓库全部真实文章：确保 extractToc 与 <Markdown> 渲染出的标题 ID 100% 严格一致
+    const postsDir = join(root, 'content/posts')
+    for (const file of readdirSync(postsDir).filter((f) => f.endsWith('.md'))) {
+      const raw = readFileSync(join(postsDir, file), 'utf8')
+      const { body } = parseFrontmatter(raw)
+      if (!body || body.includes('encrypted:')) continue
+      const tocIds = extractToc(body).map((item) => item.id)
+      const domIds = collectRenderedTocIds(body)
+      assert.deepEqual(tocIds, domIds, `文章 ${file} 的目录 ID 与正文 DOM 标题 ID 必须完全一致`)
+      for (const id of tocIds) {
+        assert.ok(id.length > 0, `文章 ${file} 的每个标题都必须生成非空锚点 ID`)
+      }
+    }
+
+    // 2) 极端语法边界压力测试：纯标点标题、中英混合标点、行内代码/数学/链接、单行反引号围栏、CRLF、折叠框标题隔离与条件块
+    const tortureMd = [
+      '## 第一章：概述 & 原理！',
+      '### ???',
+      '### !!!',
+      '### ???',
+      '## 深入理解 `infer` 与 `keyof`',
+      '### 复杂度 $O(n \\log n)$ 证明',
+      '## 致敬 [愿所爱都幸福](https://example.com)',
+      '## **加粗** 与 *斜体* 与 ~~删除线~~ 与 my_var_name',
+      '## 简介',
+      '## 简介-1',
+      '## 简介',
+      '```inline-not-a-fence```',
+      '## 单行反引号后仍应正常入目录',
+      ':::info[提示]',
+      '## 框内标题不应入目录也不占用重名计数',
+      ':::',
+      '## 框内标题不应入目录也不占用重名计数',
+      '::IF[1 == 0]',
+      '## 隐藏条件块标题不应出现',
+      '::IF_END',
+      '::IF[1 == 1]',
+      '### 激活条件块标题应出现',
+      '::IF_END',
+    ].join('\r\n')
+
+    const tortureToc = extractToc(tortureMd)
+    const tortureDomIds = collectRenderedTocIds(tortureMd)
+    assert.deepEqual(
+      tortureToc.map((x) => x.id),
+      tortureDomIds,
+      '极端标题边界场景下目录抽取 ID 应与正文渲染 DOM ID 逐项精确相等',
+    )
+    assert.ok(tortureDomIds.includes('section'), '纯标点标题 ### ??? 应回退生成非空 #section 锚点')
+    assert.ok(tortureDomIds.includes('section-1') && tortureDomIds.includes('section-2'), '多个纯标点标题应依次去重')
+    assert.ok(tortureDomIds.includes('框内标题不应入目录也不占用重名计数'), '折叠框外同名标题不应被框内标题抢占为基础计数 -1')
+    assert.ok(!tortureDomIds.includes('隐藏条件块标题不应出现'), '未命中的 ::IF 条件块内标题不应进入目录')
+    assert.ok(tortureDomIds.includes('激活条件块标题应出现'), '命中的 ::IF 条件块内标题应进入目录')
+
+    // 3) 真实挂载 <Markdown> + <Toc>：点击目录项应平滑滚动并预留 100px 吸顶页头让路偏移，且保留 history.state
+    let lastScrollArgs = null
+    env.dom.window.scrollTo = (arg1, arg2) => {
+      lastScrollArgs = typeof arg1 === 'object' ? arg1 : { top: arg2, behavior: 'auto' }
+    }
+    env.dom.window.history.replaceState({ usr: { fromArchive: true }, idx: 3 }, '', '/posts/toc-test')
+
+    const rootEl = env.dom.window.document.getElementById('root')
+    const reactRoot = createRoot(rootEl)
+    reactRoot.render(
+      React.createElement(
+        'div',
+        null,
+        React.createElement(Toc, { items: tortureToc }),
+        React.createElement(Markdown, { content: tortureMd }),
+      ),
+    )
+    await new Promise((r) => setTimeout(r, 60))
+
+    const targetHeading = env.dom.window.document.getElementById('section')
+    assert.ok(targetHeading, '正文中应存在 id="section" 的纯标点标题节点')
+    targetHeading.getBoundingClientRect = () => ({
+      top: 540,
+      bottom: 580,
+      left: 0,
+      right: 600,
+      width: 600,
+      height: 40,
+    })
+
+    const tocLinks = Array.from(rootEl.querySelectorAll('nav[aria-label="文章目录"] a'))
+    const qLink = tocLinks.find((a) => a.textContent?.trim() === '???')
+    assert.ok(qLink, '目录组件应渲染出纯标点标题 ??? 的可点击项')
+    qLink.click()
+
+    assert.ok(lastScrollArgs, '点击目录链接后应触发 window.scrollTo')
+    assert.equal(lastScrollArgs.top, 440, '滚动目标高度应精确扣除 100px 顶栏安全距离（540 - 100 = 440）')
+    assert.equal(env.dom.window.location.hash, '#section', '线上模式点击目录应同步更新地址栏 #hash')
+    assert.deepEqual(
+      env.dom.window.history.state,
+      { usr: { fromArchive: true }, idx: 3 },
+      '更新 #hash 时不得清空 React Router 的 history.state',
+    )
+
+    // 4) 离线版 HashRouter 防护：在 #/posts/... 路由下点击目录绝不能把路由篡改成 #section
+    env.dom.window.location.hash = '#/posts/toc-test'
+    const jumpedOffline = offlineHeadingMod.scrollToHeading('section')
+    assert.equal(jumpedOffline, true)
+    assert.equal(
+      env.dom.window.location.hash,
+      '#/posts/toc-test',
+      '离线版 HashRouter 下点击目录绝不能覆盖 #/posts/... 路由 hash',
+    )
+
+    reactRoot.unmount()
+    await new Promise((r) => setTimeout(r, 30))
+  } finally {
+    env.cleanup()
+  }
+})
+
+test('issue #111：编辑器引用自动续行/退层、空列表项 Tab 缩进、有序列表 CommonMark 嵌套与多级圆点样式', async () => {
+  const env = setupJsdomTestEnv('https://blog-apa.pages.dev/admin/new')
+  const editorMod = await importTsModule('src/lib/editor.ts')
+  const { React, renderToStaticMarkup, Markdown } = await loadSharedAppBundle()
+
+  try {
+    const makeTa = (value, selStart, selEnd = selStart) => {
+      const ta = env.dom.window.document.createElement('textarea')
+      env.dom.window.document.body.appendChild(ta)
+      ta.value = value
+      ta.setSelectionRange(selStart, selEnd)
+      return ta
+    }
+    const fireKey = (ta, key, opts = {}) => {
+      let prevented = false
+      const fakeEvent = {
+        key,
+        shiftKey: Boolean(opts.shiftKey),
+        ctrlKey: Boolean(opts.ctrlKey),
+        metaKey: Boolean(opts.metaKey),
+        altKey: Boolean(opts.altKey),
+        isComposing: Boolean(opts.isComposing),
+        nativeEvent: { isComposing: Boolean(opts.isComposing), keyCode: opts.keyCode ?? 0 },
+        currentTarget: ta,
+        preventDefault() {
+          prevented = true
+        },
+      }
+      const action = editorMod.handleEditorKey(fakeEvent)
+      if (action) {
+        ta.value = action.value
+        ta.setSelectionRange(action.selectionStart, action.selectionEnd)
+      }
+      return {
+        handled: action !== null,
+        prevented,
+        value: ta.value,
+        start: ta.selectionStart,
+        end: ta.selectionEnd,
+      }
+    }
+
+    // 1) IME 输入法组合态保护：组合输入期间按 Enter / Tab 绝不误触续行或缩进
+    {
+      const ta = makeTa('> 引用输入中', 6)
+      const res = fireKey(ta, 'Enter', { isComposing: true })
+      assert.equal(res.handled, false, 'IME 组合输入期间按 Enter 不应被编辑器拦截')
+      assert.equal(res.prevented, false)
+    }
+
+    // 2) 引用框换行自动续写、嵌套退层与空行退出
+    {
+      const ta = makeTa('> 第一行引用', 7)
+      let res = fireKey(ta, 'Enter')
+      assert.equal(res.handled, true)
+      assert.equal(res.prevented, true)
+      assert.equal(res.value, '> 第一行引用\n> ', '在引用框内按 Enter 应自动续写 `> `')
+
+      // 在空引用行再按 Enter 应干净退出引用
+      res = fireKey(ta, 'Enter')
+      assert.equal(res.value, '> 第一行引用\n', '在空单层引用行按 Enter 应退出引用前缀')
+
+      // 嵌套引用 `> > `：续行 -> 退回 `> ` -> 再退回普通行
+      const nestedTa = makeTa('> > 内层引用', 8)
+      res = fireKey(nestedTa, 'Enter')
+      assert.equal(res.value, '> > 内层引用\n> > ', '双层引用按 Enter 应续写 `> > `')
+      res = fireKey(nestedTa, 'Enter')
+      assert.equal(res.value, '> > 内层引用\n> ', '空双层引用按 Enter 应先退回单层 `> `')
+      res = fireKey(nestedTa, 'Enter')
+      assert.equal(res.value, '> > 内层引用\n', '再次按 Enter 应彻底退出引用')
+
+      // 引用内嵌列表 `> - 列表项`：续行 -> 退回 `> `
+      const quoteListTa = makeTa('> - 框内列表', 8)
+      res = fireKey(quoteListTa, 'Enter')
+      assert.equal(res.value, '> - 框内列表\n> - ', '引用内列表按 Enter 应续写 `> - `')
+      res = fireKey(quoteListTa, 'Enter')
+      assert.equal(res.value, '> - 框内列表\n> ', '空引用内列表按 Enter 应退回外层引用 `> `')
+    }
+
+    // 3) 列表 Enter：行中拆分不误退、空子列表退回上级、空顶层列表退出且阻止原生换行
+    {
+      const midTa = makeTa('- hello world', 7) // 光标在 hello 与 world 之间
+      const midRes = fireKey(midTa, 'Enter')
+      assert.equal(midRes.prevented, true)
+      assert.equal(midRes.value, '- hello\n-  world', '在列表行中间按 Enter 应保留后半行并续写列表')
+
+      const nestedEmptyTa = makeTa('- 父项\n  - ', 9)
+      let res = fireKey(nestedEmptyTa, 'Enter')
+      assert.equal(res.prevented, true, '空嵌套列表按 Enter 必须调用 preventDefault 防止残留多余空行')
+      assert.equal(res.value, '- 父项\n- ', '空二级列表按 Enter 应先退回一级列表 `- `')
+      res = fireKey(nestedEmptyTa, 'Enter')
+      assert.equal(res.prevented, true)
+      assert.equal(res.value, '- 父项\n', '空一级列表再按 Enter 应干净退出列表且无多余换行')
+    }
+
+    // 4) 空白行无序列表 / 任务列表 / 有序列表按 Tab 与 Shift+Tab 缩进与反缩进
+    {
+      const ulTa = makeTa('- 一级项\n- ', 8)
+      let res = fireKey(ulTa, 'Tab')
+      assert.equal(res.prevented, true)
+      assert.equal(res.value, '- 一级项\n  - ', '空白无序列表项按 Tab 应缩进为二级列表 `  - `')
+      res = fireKey(ulTa, 'Tab', { shiftKey: true })
+      assert.equal(res.value, '- 一级项\n- ', '按 Shift+Tab 应反缩进回一级列表 `- `')
+
+      const taskTa = makeTa('- [ ] 父任务\n- [ ] ', 16)
+      res = fireKey(taskTa, 'Tab')
+      assert.equal(res.value, '- [ ] 父任务\n  - [ ] ', '空白任务列表项按 Tab 应正常缩进')
+
+      // 有序列表关键语义：`1. ` 下子列表必须至少缩进 3 空格（`10. ` 下至少 4 空格）才能被 CommonMark 解析为嵌套 <ol>，且编号重置为 `1. `
+      const olTa = makeTa('1. 父步骤\n2. ', 10)
+      res = fireKey(olTa, 'Tab')
+      assert.equal(res.value, '1. 父步骤\n   1. ', '有序列表按 Tab 应按父级 `1. ` 宽度缩进 3 空格并重置子项编号为 `1. `')
+
+      const ol10Ta = makeTa('10. 第十步\n11. 子步骤', 15)
+      res = fireKey(ol10Ta, 'Tab')
+      assert.equal(res.value, '10. 第十步\n    1. 子步骤', '两位数有序列表 `10. ` 下按 Tab 应缩进 4 空格')
+      const renderedOlHtml = renderToStaticMarkup(React.createElement(Markdown, { content: res.value }))
+      assert.match(renderedOlHtml, /<ol[\s>][\s\S]*<ol[\s>]/, '缩进后的有序列表必须被 CommonMark 真正渲染为嵌套双层 <ol>')
+    }
+
+    // 5) 工具栏辅助：折叠光标 toggleLinePrefix 保持光标折叠，toggleWrap 支持内包裹与外包裹双向撤销
+    {
+      const pfxAct = editorMod.toggleLinePrefix('普通段落', 2, 2, '> ')
+      assert.equal(pfxAct.value, '> 普通段落')
+      assert.equal(pfxAct.selectionStart, pfxAct.selectionEnd, '无选区切换行首前缀后光标应保持折叠而非全选整行')
+
+      const wrapAct = editorMod.toggleWrap('前文 **加粗文字** 后文', 3, 11, '**')
+      assert.equal(wrapAct.value, '前文 加粗文字 后文', '选中含外层 ** 的文本再次触发加粗应正确解包而非叠加为 ****')
+    }
+
+    // 6) 多级无序列表圆点样式验证（网页端与 VS Code 插件 MPE 同步区分 disc -> circle -> square，且不影响任务列表）
+    const webCss = readFileSync(join(root, 'src/styles/index.css'), 'utf8')
+    const mpeCss = readFileSync(join(root, 'vscode_extensions/v1/media/mpe.css'), 'utf8')
+    for (const [label, css] of [['web index.css', webCss], ['vscode mpe.css', mpeCss]]) {
+      assert.match(css, /ul:not\(\.contains-task-list\)\s*\{\s*list-style-type:\s*disc/, `${label} 一级列表应为实心圆 disc`)
+      assert.match(
+        css,
+        /ul:not\(\.contains-task-list\)\s+ul:not\(\.contains-task-list\)\s*\{\s*list-style-type:\s*circle/,
+        `${label} 二级列表应为空心圆 circle`,
+      )
+      assert.match(
+        css,
+        /ul:not\(\.contains-task-list\)\s+ul:not\(\.contains-task-list\)\s+ul:not\(\.contains-task-list\)\s*\{\s*list-style-type:\s*square/,
+        `${label} 三级列表应为实心方块 square`,
+      )
+    }
+  } finally {
+    env.cleanup()
+  }
+})
+
+test('issue #113 & 全站审计：离线版免登录即可编辑文章/进入管理后台/查看本机历史，且搜索绝不泄露加密文章日期', async () => {
+  const env = setupJsdomTestEnv('https://blog-apa.pages.dev/')
+
+  try {
+    // 1) 构建离线模式测试包（__STARLOG_OFFLINE__ = true），验证未登录状态下完整管理与编辑链路畅通
+    const offlineHarness = await build({
+      stdin: {
+        contents: `
+          import React from 'react'
+          import { createRoot } from 'react-dom/client'
+          import { MemoryRouter, Routes, Route } from 'react-router-dom'
+          import { ThemeProvider } from './src/lib/theme'
+          import { FontProvider } from './src/lib/font'
+          import { BackgroundProvider } from './src/lib/background'
+          import { AuthProvider } from './src/lib/auth'
+          import { ToastProvider } from './src/components/Toast'
+          import { Layout } from './src/components/Layout'
+          import Admin from './src/pages/Admin'
+          import PostPage from './src/pages/PostPage'
+          import { saveLocalPost, deleteLocalPost } from './src/lib/posts'
+          export {
+            React, createRoot, MemoryRouter, Routes, Route,
+            ThemeProvider, FontProvider, BackgroundProvider, AuthProvider,
+            ToastProvider, Layout, Admin, PostPage, saveLocalPost, deleteLocalPost,
+          }
+        `,
+        resolveDir: root,
+        loader: 'tsx',
+      },
+      bundle: true,
+      write: false,
+      format: 'esm',
+      platform: 'browser',
+      target: 'es2022',
+      plugins: [
+        {
+          name: 'vite-raw-md-offline-test',
+          setup(b) {
+            b.onResolve({ filter: /\?raw$/ }, (args) => ({
+              path: join(root, args.path.replace(/^\//, '').replace(/\?raw$/, '')),
+            }))
+          },
+        },
+      ],
+      loader: { '.jpg': 'dataurl', '.png': 'dataurl', '.svg': 'dataurl', '.md': 'text' },
+      define: {
+        'process.env.NODE_ENV': '"production"',
+        __STARLOG_OFFLINE__: 'true',
+      },
+    })
+
+    const offlineMod = await import(
+      `data:text/javascript;base64,${Buffer.from(offlineHarness.outputFiles[0].text, 'utf8').toString('base64')}`
+    )
+    const {
+      React,
+      createRoot,
+      MemoryRouter,
+      Routes,
+      Route,
+      ThemeProvider,
+      FontProvider,
+      BackgroundProvider,
+      AuthProvider,
+      ToastProvider,
+      Layout,
+      Admin,
+      PostPage,
+      saveLocalPost,
+      deleteLocalPost,
+    } = offlineMod
+
+    // 确保 localStorage 中没有任何登录会话或 GitHub token
+    env.dom.window.localStorage.clear()
+    env.dom.window.sessionStorage.clear()
+
+    const testSlug = 'offline-no-auth-post'
+    saveLocalPost({
+      slug: testSlug,
+      title: '离线免登录测试文章',
+      date: '2026-10-28',
+      summary: '离线版无需登录即可直接管理与编辑',
+      tags: ['离线测试'],
+      draft: false,
+      content: '## 离线章节\n\n离线正文内容。',
+    })
+
+    const rootEl = env.dom.window.document.getElementById('root')
+    const reactRoot = createRoot(rootEl)
+
+    try {
+      const renderOfflineRoute = async (initialPath) => {
+        reactRoot.render(
+          React.createElement(
+            AuthProvider,
+            null,
+            React.createElement(
+              ThemeProvider,
+              null,
+              React.createElement(
+                FontProvider,
+                null,
+                React.createElement(
+                  BackgroundProvider,
+                  null,
+                  React.createElement(
+                    MemoryRouter,
+                    { key: initialPath, initialEntries: [initialPath] },
+                    React.createElement(
+                      ToastProvider,
+                      null,
+                      React.createElement(
+                        Routes,
+                        null,
+                        React.createElement(
+                          Route,
+                          { element: React.createElement(Layout) },
+                          React.createElement(Route, {
+                            path: 'admin',
+                            element: React.createElement(Admin),
+                          }),
+                          React.createElement(Route, {
+                            path: 'admin/edit/:slug',
+                            element: React.createElement('div', null, 'OFFLINE_EDITOR_OPENED'),
+                          }),
+                          React.createElement(Route, {
+                            path: 'posts/:slug',
+                            element: React.createElement(PostPage),
+                          }),
+                          React.createElement(Route, {
+                            path: 'login',
+                            element: React.createElement('div', null, 'LOGIN_REDIRECTED'),
+                          }),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        )
+        await new Promise((r) => setTimeout(r, 80))
+      }
+
+      // a) 未登录直接访问 /admin：不应跳转到 /login，顶栏应暴露「文章管理」入口，管理页应暴露「局域网协作」与「写新文章」
+      await renderOfflineRoute('/admin')
+      assert.ok(!rootEl.textContent.includes('LOGIN_REDIRECTED'), '离线版未登录访问 /admin 绝不能被重定向到登录页')
+      assert.ok(rootEl.textContent.includes('文章与内容管理'), '离线版未登录应直接进入文章与内容管理界面')
+      assert.ok(rootEl.textContent.includes('局域网协作'), '离线版管理后台应展示局域网协作入口')
+      assert.ok(!rootEl.textContent.includes('发表申请 (PR 审核)'), '离线版管理后台不应展示线上专属的 PR 审核页签')
+      assert.ok(!rootEl.textContent.includes('GitHub 登录'), '离线版顶栏不应显示线上 GitHub OAuth 登录按钮')
+      assert.ok(
+        rootEl.querySelector('header a[href="/admin"]'),
+        '离线版桌面端顶栏应始终暴露直达 /admin 的文章管理入口',
+      )
+
+      // b) 未登录浏览离线文章详情页：应直接显示「编辑」按钮与「本机版本」历史按钮，且点击「编辑」直接跳转编辑页
+      await renderOfflineRoute(`/posts/${testSlug}`)
+      const editBtn = Array.from(rootEl.querySelectorAll('button')).find(
+        (b) => b.textContent?.trim() === '编辑',
+      )
+      assert.ok(editBtn, '离线版未登录查看文章详情页应直接显示「编辑」按钮')
+      const historyBtn = Array.from(rootEl.querySelectorAll('button')).find((b) =>
+        b.textContent?.includes('本机版本'),
+      )
+      assert.ok(historyBtn, '离线版本机新建文章也应显示「本机版本」历史入口')
+
+      editBtn.click()
+      await new Promise((r) => setTimeout(r, 40))
+      assert.ok(
+        rootEl.textContent.includes('OFFLINE_EDITOR_OPENED'),
+        '点击文章详情页「编辑」按钮应无需登录直接进入编辑器路由',
+      )
+    } finally {
+      deleteLocalPost(testSlug)
+      reactRoot.unmount()
+      await new Promise((r) => setTimeout(r, 30))
+    }
+
+    // 2) 安全审计不变量：SearchDialog 必须通过 hasPublicDate 守卫日期展示，且 searchPosts 绝不因加密文章合成日期而泄露元数据
+    const searchSrc = readFileSync(join(root, 'src/components/SearchDialog.tsx'), 'utf8')
+    assert.match(searchSrc, /hasPublicDate\(p\)/, '搜索结果列表对加密文章必须通过 hasPublicDate 守卫日期展示')
+    const encryptedMock = {
+      slug: 'secret-post',
+      title: '公开标题',
+      date: postsMod.ENCRYPTED_PLACEHOLDER_DATE,
+      summary: '',
+      tags: ['随笔'],
+      draft: false,
+      content: '',
+      encryption: { v: 1, alg: 'AES-GCM', kdf: 'PBKDF2', iter: 210000, salt: 'aa', iv: 'bb', ct: 'cc' },
+    }
+    assert.equal(postsMod.hasPublicDate(encryptedMock), false, '未公开日期的加密文章 hasPublicDate 必须为 false（不再在搜索列表展示 1970 年 1 月 1 日占位日期）')
+    assert.equal(
+      postsMod.searchPosts([encryptedMock], '1970').length,
+      0,
+      '按占位年份 1970 搜索不得命中加密文章',
+    )
+  } finally {
+    env.cleanup()
+  }
+})
+
+test('issue #112：离线版局域网合作文档：线上构建严格禁用，离线版支持信号编解码、并发 OT 收敛与多端实时协同', async () => {
+  const env = setupJsdomTestEnv('https://blog-apa.pages.dev/admin/new')
+
+  // 构造进程内同步送达的模拟 BroadcastChannel，验证多标签页/多终端完整协议状态机
+  const channelHub = new Map()
+  class MockBroadcastChannel {
+    constructor(name) {
+      this.name = name
+      this.onmessage = null
+      this.closed = false
+      if (!channelHub.has(name)) channelHub.set(name, new Set())
+      channelHub.get(name).add(this)
+    }
+    postMessage(data) {
+      if (this.closed) return
+      const peers = channelHub.get(this.name)
+      if (!peers) return
+      const cloned = JSON.parse(JSON.stringify(data))
+      for (const peer of peers) {
+        if (peer !== this && !peer.closed) {
+          queueMicrotask(() => {
+            if (!peer.closed) peer.onmessage?.({ data: cloned })
+          })
+        }
+      }
+    }
+    close() {
+      this.closed = true
+      channelHub.get(this.name)?.delete(this)
+    }
+  }
+  globalThis.BroadcastChannel = MockBroadcastChannel
+  env.dom.window.BroadcastChannel = MockBroadcastChannel
+
+  const onlineCollabMod = await importTsModule('src/lib/lanCollab.ts', { offline: false })
+  const offlineCollabMod = await importTsModule('src/lib/lanCollab.ts', { offline: true })
+  const {
+    React,
+    createRoot,
+    MemoryRouter,
+    Routes,
+    Route,
+    AuthProvider,
+    ThemeProvider,
+    FontProvider,
+    BackgroundProvider,
+    ToastProvider,
+    Editor,
+  } = await loadSharedAppBundle()
+
+  try {
+    // 1) 严格仅离线版支持：线上构建（__STARLOG_OFFLINE__ = false）必须禁用并拦截
+    assert.equal(
+      onlineCollabMod.isLanCollabSupportedInBuild(),
+      false,
+      '线上构建中 isLanCollabSupportedInBuild() 必须返回 false',
+    )
+    assert.throws(
+      () =>
+        onlineCollabMod.createLanCollabSession({
+          getInitialSnapshot: () => ({
+            content: '',
+            meta: {
+              title: '',
+              slug: '',
+              date: '2026-10-28',
+              summary: '',
+              author: '',
+              tagsText: '',
+              cover: '',
+              draft: false,
+              pinned: false,
+            },
+          }),
+          onRemoteContentOperation() {},
+          onRemoteSnapshot() {},
+          onRemoteMetaPatch() {},
+          onStateChange() {},
+        }),
+      /仅在离线版中支持/,
+      '线上构建调用 createLanCollabSession 必须直接抛出离线专属保护异常',
+    )
+
+    // 验证线上版 <Editor> 界面绝不渲染「局域网协作」按钮
+    const rootEl = env.dom.window.document.getElementById('root')
+    const reactRoot = createRoot(rootEl)
+    reactRoot.render(
+      React.createElement(
+        AuthProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(
+            FontProvider,
+            null,
+            React.createElement(
+              BackgroundProvider,
+              null,
+              React.createElement(
+                MemoryRouter,
+                { initialEntries: ['/admin/new'] },
+                React.createElement(
+                  ToastProvider,
+                  null,
+                  React.createElement(
+                    Routes,
+                    null,
+                    React.createElement(Route, { path: '/admin/new', element: React.createElement(Editor) }),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    )
+    await new Promise((r) => setTimeout(r, 60))
+    assert.ok(
+      !rootEl.textContent.includes('局域网协作'),
+      '线上版编辑器绝不能展示「局域网协作」入口按钮',
+    )
+    reactRoot.unmount()
+    await new Promise((r) => setTimeout(r, 20))
+
+    // 2) 离线版构建支持验证 + 邀请码/响应码编解码往返校验
+    assert.equal(offlineCollabMod.isLanCollabSupportedInBuild(), true, '离线构建应启用局域网合作文档支持')
+    const sampleToken = {
+      v: 1,
+      kind: 'offer',
+      roomCode: 'ROOM88',
+      peerId: 'host-01',
+      peerName: '房主设备',
+      sdp: 'v=0\r\no=- 12345 2 IN IP4 192.168.1.10\r\ns=-\r\na=candidate:1 1 udp 2122260223 192.168.1.10 54321 typ host\r\n',
+    }
+    const encodedSignal = await offlineCollabMod.encodeCollabSignal(sampleToken)
+    assert.match(encodedSignal, /^SL1[ZP]\./, '连接码应带有 SL1Z. 或 SL1P. 版本前缀')
+    const decodedSignal = await offlineCollabMod.decodeCollabSignal(encodedSignal)
+    assert.deepEqual(decodedSignal, sampleToken, '局域网连接码编解码往返应完全无损')
+    await assert.rejects(
+      () => offlineCollabMod.decodeCollabSignal('INVALID_CODE'),
+      /协作码格式不正确/,
+      '非法连接码应给出清晰的中文校验报错',
+    )
+
+    // 3) 并发文本变更 OT 收敛与光标偏移保真测试
+    const baseDoc = '第一段：引言\n\n第二段：核心算法\n\n第三段：总结'
+    const opA = offlineCollabMod.computeTextSplice(
+      baseDoc,
+      '第一段：引言（房主补充）\n\n第二段：核心算法\n\n第三段：总结',
+    )
+    const opB = offlineCollabMod.computeTextSplice(
+      baseDoc,
+      '第一段：引言\n\n第二段：核心算法\n\n第三段：总结与展望',
+    )
+    assert.ok(opA && opB)
+    const opBPrime = offlineCollabMod.transformSplice(opB, opA, false)
+    const opAPrime = offlineCollabMod.transformSplice(opA, opB, true)
+    const docAfterAB = offlineCollabMod.applyTextSplice(offlineCollabMod.applyTextSplice(baseDoc, opA), opBPrime)
+    const docAfterBA = offlineCollabMod.applyTextSplice(offlineCollabMod.applyTextSplice(baseDoc, opB), opAPrime)
+    assert.equal(docAfterAB, docAfterBA, '两端同时编辑不同段落经 OT 变换后必须严格收敛到同一文本')
+    assert.equal(docAfterAB, '第一段：引言（房主补充）\n\n第二段：核心算法\n\n第三段：总结与展望')
+
+    const cursorAtEnd = baseDoc.length
+    const shiftedCursor = offlineCollabMod.transformCursorPosition(cursorAtEnd, opA, false)
+    assert.equal(shiftedCursor, cursorAtEnd + '（房主补充）'.length, '上方插入文本后下方协作者光标应精确顺移相同字数')
+
+    // 4) 多终端完整实时协同会话：房主 + 两位协作者同时编辑正文、修改标题标签与广播光标
+    const makePeerHarness = (name, initialContent, initialTitle) => {
+      const state = {
+        content: initialContent,
+        meta: {
+          title: initialTitle,
+          slug: 'lan-collab-doc',
+          date: '2026-10-28',
+          summary: '局域网协同摘要',
+          author: name,
+          tagsText: '协作',
+          cover: '',
+          draft: false,
+          pinned: false,
+        },
+      }
+      const session = offlineCollabMod.createLanCollabSession({
+        initialName: name,
+        _BroadcastChannelImpl: MockBroadcastChannel,
+        getInitialSnapshot: () => ({ content: state.content, meta: { ...state.meta } }),
+        onRemoteContentOperation(nextContent) {
+          state.content = nextContent
+        },
+        onRemoteSnapshot(snapshot) {
+          state.content = snapshot.content
+          state.meta = { ...snapshot.meta }
+        },
+        onRemoteMetaPatch(patch) {
+          state.meta = { ...state.meta, ...patch }
+        },
+        onStateChange() {},
+      })
+      return { state, session }
+    }
+
+    const host = makePeerHarness('笔记本-房主', '# 初始标题\n\n第一段内容。\n\n第二段内容。', '局域网协同初稿')
+    const guestB = makePeerHarness('平板-成员B', '', '')
+    const guestC = makePeerHarness('台式机-成员C', '', '')
+
+    try {
+      await host.session.startHosting()
+      const roomCode = host.session.getState().roomCode
+      assert.equal(roomCode.length, 6)
+      guestB.session.joinLocalRoom(roomCode)
+      guestC.session.joinLocalRoom(roomCode)
+      await new Promise((r) => setTimeout(r, 30))
+
+      // 加入后应立即收到房主完整快照
+      assert.equal(guestB.state.content, host.state.content, '成员 B 加入房间后应立即同步房主正文')
+      assert.equal(guestC.state.meta.title, '局域网协同初稿', '成员 C 加入房间后应立即同步房主元数据')
+      assert.equal(host.session.getState().peers.length, 3, '房间在线成员列表应包含房主与 2 位协作者共 3 人')
+
+      // 三端并发修改：房主改第一段，成员 B 改第二段，成员 C 修改文章标题与标签并上报光标
+      host.state.content = host.state.content.replace('第一段内容。', '第一段内容（已由房主修订）。')
+      host.session.notifyLocalContentChange(host.state.content)
+
+      guestB.state.content = guestB.state.content.replace('第二段内容。', '第二段内容（已由成员B补充）。')
+      guestB.session.notifyLocalContentChange(guestB.state.content)
+
+      guestC.state.meta = { ...guestC.state.meta, title: '局域网多人协同终稿', tagsText: '协作, 离线版' }
+      guestC.session.notifyLocalMetaChange(guestC.state.meta)
+      guestC.session.notifyLocalCursor(5, 5)
+
+      await new Promise((r) => setTimeout(r, 50))
+
+      const expectedContent = '# 初始标题\n\n第一段内容（已由房主修订）。\n\n第二段内容（已由成员B补充）。'
+      assert.equal(host.state.content, expectedContent, '房主端应融合所有协作者的实时修改')
+      assert.equal(guestB.state.content, expectedContent, '成员 B 端应与房主端严格一致')
+      assert.equal(guestC.state.content, expectedContent, '成员 C 端应与房主端严格一致')
+      assert.equal(host.state.meta.title, '局域网多人协同终稿', '房主端应同步收到成员 C 的标题修改')
+      assert.equal(guestB.state.meta.tagsText, '协作, 离线版', '成员 B 端应同步收到成员 C 的标签修改')
+
+      const peerCOnHost = host.session.getState().peers.find((p) => p.name === '台式机-成员C')
+      assert.ok(peerCOnHost?.cursor, '房主端应实时看到成员 C 的光标位置')
+    } finally {
+      host.session.disconnect()
+      guestB.session.disconnect()
+      guestC.session.disconnect()
+    }
+  } finally {
+    env.cleanup()
+  }
+})
+
 
 
 

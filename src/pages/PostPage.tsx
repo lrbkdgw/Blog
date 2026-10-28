@@ -51,6 +51,7 @@ import { useToast } from '../components/Toast'
 import { siteConfig } from '../lib/config'
 import { convertMarkdownForCopy, type MarkdownCopyTarget } from '../lib/markdownSource'
 import { articleFontStyle, parseArticleDirectives } from '../lib/articleDirectives'
+import { scrollToHeading } from '../lib/headingSlug'
 import { setAnimatedSceneOverride } from '../lib/animatedBackground'
 import { warmFontFamilies } from '../lib/font'
 
@@ -149,13 +150,22 @@ function HistoryDialog({
       // 把本机快照 id 提交上去没有任何意义，因此不入队。
       if (!OFFLINE) enqueueVersionRename({ slug, title: postTitle }, version.sha, trimmed || null)
       setEditingSha(null)
-      toast(
-        trimmed
-          ? `版本名称已改为「${trimmed}」，已加入待更新队列`
-          : '已恢复默认版本名称，更改已加入待更新队列',
-        'success',
-        { label: '查看队列', href: '/admin?tab=queue' },
-      )
+      if (OFFLINE) {
+        toast(
+          trimmed
+            ? `版本名称已改为「${trimmed}」（已保存在本机）`
+            : '已恢复默认版本名称（已保存在本机）',
+          'success',
+        )
+      } else {
+        toast(
+          trimmed
+            ? `版本名称已改为「${trimmed}」，已加入待更新队列`
+            : '已恢复默认版本名称，更改已加入待更新队列',
+          'success',
+          { label: '查看队列', href: '/admin?tab=queue' },
+        )
+      }
     } catch (err) {
       toast(err instanceof Error ? err.message : '保存版本名称失败', 'error')
     }
@@ -413,19 +423,12 @@ export default function PostPage() {
   }, [])
 
   useEffect(() => {
-    if (!visiblePost || isEncryptedPost(visiblePost) || !window.location.hash) return
-    let id = window.location.hash.slice(1)
-    try {
-      id = decodeURIComponent(id)
-    } catch {
-      // 畸形的百分号编码直接按原文查找锚点
-    }
+    if (OFFLINE || !visiblePost || isEncryptedPost(visiblePost) || !window.location.hash) return
+    if (window.location.hash.startsWith('#/')) return
+    const rawHash = window.location.hash.slice(1)
+    if (!rawHash) return
     const timer = window.setTimeout(() => {
-      const element = document.getElementById(id)
-      if (element) {
-        const top = element.getBoundingClientRect().top + window.scrollY - 100
-        window.scrollTo({ top, behavior: 'smooth' })
-      }
+      scrollToHeading(rawHash, { updateHash: false })
     }, 120)
     return () => window.clearTimeout(timer)
   }, [visiblePost])
@@ -627,8 +630,8 @@ export default function PostPage() {
                     </div>
                   )}
                 </div>
-                {repoPost && <button onClick={openHistory} className="btn-ghost no-print h-7 !px-2 text-xs"><History size={13} />历史</button>}
-                {isAuthed && <button type="button" onClick={editCurrentVersion} className="btn-ghost no-print h-7 !px-2 text-xs"><PenLine size={13} />编辑</button>}
+                {(repoPost || OFFLINE) && <button onClick={openHistory} className="btn-ghost no-print h-7 !px-2 text-xs"><History size={13} />{OFFLINE ? '本机版本' : '历史'}</button>}
+                {(isAuthed || OFFLINE) && <button type="button" onClick={editCurrentVersion} className="btn-ghost no-print h-7 !px-2 text-xs"><PenLine size={13} />编辑</button>}
               </div>
             </div>
           </header>

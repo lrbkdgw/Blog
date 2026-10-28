@@ -36,9 +36,11 @@ import { Archive,
   Table2,
   Trash2,
   Upload,
+  Users,
 } from 'lucide-react'
 import { Markdown } from '../components/Markdown'
 import { LatexPicker } from '../components/LatexPicker'
+import { LanCollabDialog } from '../components/LanCollabDialog'
 import { setEditorFullscreenActive } from '../components/Layout'
 import { PasswordPrompt } from '../components/PasswordPrompt'
 import { useToast } from '../components/Toast'
@@ -85,6 +87,15 @@ import { focusWithoutScroll, restoreCaret } from '../lib/caret'
 import { latexSymbolInsert, type LatexSymbol } from '../lib/latexSymbols'
 import { handleEditorKey, insertBlock, toggleLinePrefix, toggleWrap } from '../lib/editor'
 import type { EditAction } from '../lib/editor'
+import {
+  createLanCollabSession,
+  loadSavedCollaboratorName,
+  transformCursorPosition,
+  type LanCollabMeta,
+  type LanCollabPeer,
+  type LanCollabSessionManager,
+  type LanCollabState,
+} from '../lib/lanCollab'
 import { useEditorScrollSync } from '../lib/editorSettings'
 import { useRepoTarget } from '../lib/useRepoTarget'
 import type { Post } from '../lib/types'
@@ -278,6 +289,168 @@ export default function Editor() {
   // LaTeX 符号选择框（issue #60）：打开时记住当时的选区，符号就插回那里。
   const [latexPickerOpen, setLatexPickerOpen] = useState(false)
   const latexSelectionRef = useRef<{ start: number; end: number } | null>(null)
+
+  /* ----------------------- 离线版局域网合作文档（issue #112） ----------------------- */
+  const [collabOpen, setCollabOpen] = useState(false)
+  const [collabInitialTab, setCollabInitialTab] = useState<'host' | 'join'>('host')
+  const [collabState, setCollabState] = useState<LanCollabState>(() => ({
+    role: 'idle',
+    status: 'idle',
+    roomCode: '',
+    selfPeerId: '',
+    selfName: OFFLINE ? loadSavedCollaboratorName() : '',
+    selfColor: '#3563f6',
+    inviteCode: '',
+    answerCode: '',
+    peers: [],
+    seq: 0,
+    error: '',
+  }))
+  const collabManagerRef = useRef<LanCollabSessionManager | null>(null)
+  const applyingRemoteContentRef = useRef(false)
+  const applyingRemoteMetaRef = useRef(false)
+  const cursorBroadcastTimerRef = useRef<number | null>(null)
+
+  const currentCollabMeta = useMemo<LanCollabMeta>(
+    () => ({
+      title,
+      slug,
+      date,
+      summary,
+      author,
+      tagsText,
+      cover,
+      draft,
+      pinned,
+    }),
+    [title, slug, date, summary, author, tagsText, cover, draft, pinned],
+  )
+  const latestCollabSnapshotRef = useRef<{ content: string; meta: LanCollabMeta }>({
+    content,
+    meta: currentCollabMeta,
+  })
+  latestCollabSnapshotRef.current = { content, meta: currentCollabMeta }
+
+  const getOrCreateCollabManager = useCallback((): LanCollabSessionManager | null => {
+    if (!OFFLINE) return null
+    if (collabManagerRef.current) return collabManagerRef.current
+    const mgr = createLanCollabSession({
+      getInitialSnapshot: () => ({
+        content: latestCollabSnapshotRef.current.content,
+        meta: { ...latestCollabSnapshotRef.current.meta },
+      }),
+      onRemoteContentOperation: (nextContent, transformedSplice) => {
+        const ta = textareaRef.current
+        const wasFocused = typeof document !== 'undefined' && document.activeElement === ta
+        const selStart = ta?.selectionStart ?? 0
+        const selEnd = ta?.selectionEnd ?? 0
+        applyingRemoteContentRef.current = true
+        setContent(nextContent)
+        setDirty(true)
+        if (ta && wasFocused) {
+          const nextStart = transformCursorPosition(selStart, transformedSplice, false)
+          const nextEnd = transformCursorPosition(selEnd, transformedSplice, false)
+          requestAnimationFrame(() => {
+            restoreCaret(textareaRef.current, nextStart, nextEnd)
+          })
+        }
+      },
+      onRemoteSnapshot: (snapshot) => {
+        applyingRemoteContentRef.current = true
+        applyingRemoteMetaRef.current = true
+        setContent(snapshot.content)
+        setDebouncedContent(snapshot.content)
+        setTitle(snapshot.meta.title)
+        setSlug(snapshot.meta.slug)
+        setDate(snapshot.meta.date)
+        setSummary(snapshot.meta.summary)
+        setAuthor(snapshot.meta.author)
+        setTagsText(snapshot.meta.tagsText)
+        setCover(snapshot.meta.cover)
+        setDraft(snapshot.meta.draft)
+        setPinned(snapshot.meta.pinned)
+        setDirty(true)
+      },
+      onRemoteMetaPatch: (patch) => {
+        applyingRemoteMetaRef.current = true
+        if (patch.title !== undefined) setTitle(patch.title)
+        if (patch.slug !== undefined) setSlug(patch.slug)
+        if (patch.date !== undefined) setDate(patch.date)
+        if (patch.summary !== undefined) setSummary(patch.summary)
+        if (patch.author !== undefined) setAuthor(patch.author)
+        if (patch.tagsText !== undefined) setTagsText(patch.tagsText)
+        if (patch.cover !== undefined) setCover(patch.cover)
+        if (patch.draft !== undefined) setDraft(patch.draft)
+        if (patch.pinned !== undefined) setPinned(patch.pinned)
+        setDirty(true)
+      },
+      onStateChange: (nextState) => {
+        setCollabState(nextState)
+      },
+    })
+    collabManagerRef.current = mgr
+    setCollabState(mgr.getState())
+    return mgr
+  }, [])
+
+  useEffect(() => {
+    if (!OFFLINE) return
+    if (encryptedSource && !unlocked) return
+    const params = new URLSearchParams(location.search)
+    const collabMode = params.get('collab')
+    if (collabMode === 'join' || collabMode === 'host') {
+      getOrCreateCollabManager()
+      setCollabInitialTab(collabMode === 'join' ? 'join' : 'host')
+      setCollabOpen(true)
+    }
+  }, [location.search, getOrCreateCollabManager, encryptedSource, unlocked])
+
+  useEffect(() => {
+    if (!OFFLINE || collabState.role === 'idle') return
+    if (applyingRemoteContentRef.current) {
+      applyingRemoteContentRef.current = false
+      return
+    }
+    collabManagerRef.current?.notifyLocalContentChange(content)
+  }, [content, collabState.role])
+
+  useEffect(() => {
+    if (!OFFLINE || collabState.role === 'idle') return
+    if (applyingRemoteMetaRef.current) {
+      applyingRemoteMetaRef.current = false
+      return
+    }
+    collabManagerRef.current?.notifyLocalMetaChange(currentCollabMeta)
+  }, [currentCollabMeta, collabState.role])
+
+  const scheduleCursorBroadcast = useCallback(() => {
+    if (!OFFLINE || collabManagerRef.current?.getState().role === 'idle') return
+    if (cursorBroadcastTimerRef.current !== null) return
+    cursorBroadcastTimerRef.current = window.setTimeout(() => {
+      cursorBroadcastTimerRef.current = null
+      const ta = textareaRef.current
+      if (!ta) return
+      collabManagerRef.current?.notifyLocalCursor(ta.selectionStart, ta.selectionEnd)
+    }, 80)
+  }, [])
+
+  const jumpToCollaboratorCursor = useCallback((peer: LanCollabPeer) => {
+    const ta = textareaRef.current
+    if (!ta || !peer.cursor) return
+    const offset = Math.max(0, Math.min(ta.value.length, peer.cursor.selectionStart))
+    ta.focus()
+    ta.setSelectionRange(offset, offset)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (cursorBroadcastTimerRef.current !== null) {
+        window.clearTimeout(cursorBroadcastTimerRef.current)
+      }
+      collabManagerRef.current?.disconnect()
+      collabManagerRef.current = null
+    }
+  }, [])
 
   // 加密文章是否已把解密后的内容载入编辑器（防止解锁完成前把空白表单存成草稿）。
   const hydratedRef = useRef(false)
@@ -1283,9 +1456,26 @@ export default function Editor() {
               <span className="hidden sm:inline">保存草稿</span>
             </button>
 
-            {/* 离线版：写入本机文章库；线上：更改先加入待更新队列，由内容管理统一更新 */}
+            {/* 离线版：写入本机文章库 + 局域网协作；线上：更改先加入待更新队列，由内容管理统一更新 */}
             {OFFLINE ? (
               <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    getOrCreateCollabManager()
+                    setCollabInitialTab(collabState.role === 'idle' ? 'host' : 'host')
+                    setCollabOpen(true)
+                  }}
+                  className={collabState.role !== 'idle' ? 'btn-primary h-9' : 'btn-outline h-9'}
+                  title="与同一局域网内的其他设备实时协同编辑当前文档（仅离线版支持）"
+                >
+                  <Users size={15} />
+                  <span className="hidden sm:inline">
+                    {collabState.role !== 'idle'
+                      ? `协作中 (${Math.max(1, collabState.peers.length)})`
+                      : '局域网协作'}
+                  </span>
+                </button>
                 <button
                   onClick={publishOrSubmitPR}
                   disabled={publishing}
@@ -1364,7 +1554,7 @@ export default function Editor() {
               )}
               {!canPublish && (
                 <span className="rounded-full bg-ink-100 px-2 py-0.5 text-[11px] text-ink-600 dark:bg-white/10 dark:text-ink-300">
-                  本地草稿模式
+                  {OFFLINE ? '本机离线库' : '本地草稿模式'}
                 </span>
               )}
             </span>
@@ -1530,6 +1720,66 @@ export default function Editor() {
         </div>
         )}
 
+        {/* 离线局域网协作实时在线状态条 */}
+        {OFFLINE && collabState.role !== 'idle' && (
+          <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-brand-200/70 bg-brand-50/50 px-3.5 py-2 text-xs dark:border-brand-500/20 dark:bg-brand-500/[0.08]">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 font-semibold text-brand-700 dark:text-brand-300">
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    collabState.status === 'connected'
+                      ? 'bg-emerald-500'
+                      : collabState.status === 'closed'
+                        ? 'bg-rose-500'
+                        : 'animate-pulse bg-brand-500'
+                  }`}
+                />
+                房间 {collabState.roomCode}
+              </span>
+              <span className="text-ink-300 dark:text-ink-700">|</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {collabState.peers.map((peer) => {
+                  const isSelf = peer.peerId === collabState.selfPeerId
+                  return (
+                    <button
+                      key={peer.peerId}
+                      type="button"
+                      onClick={() => {
+                        if (!isSelf) jumpToCollaboratorCursor(peer)
+                      }}
+                      className={`inline-flex items-center gap-1.5 rounded-full border border-ink-200/70 bg-white/90 px-2.5 py-0.5 text-[11px] text-ink-700 dark:border-white/10 dark:bg-white/[0.06] dark:text-ink-200 ${
+                        !isSelf && peer.cursor ? 'hover:border-brand-400' : 'cursor-default'
+                      }`}
+                      title={!isSelf && peer.cursor ? '点击跳转到对方光标位置' : undefined}
+                    >
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ backgroundColor: peer.color }}
+                      />
+                      <span className="font-medium">
+                        {peer.name}
+                        {isSelf ? '（我）' : ''}
+                      </span>
+                      {peer.cursor && (
+                        <span className="font-mono text-[10px] text-ink-400">
+                          L{peer.cursor.line}:{peer.cursor.column}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCollabOpen(true)}
+              className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-300"
+            >
+              管理连接 / 邀请设备 →
+            </button>
+          </div>
+        )}
+
         {/* -------------------------------- 编辑区 ------------------------------- */}
         {/* 全屏：编辑区铺满整个屏幕（顶部只保留一条紧凑工具栏），不再有页边距与最大宽度限制。 */}
         <div
@@ -1613,6 +1863,9 @@ export default function Editor() {
                     markScrollDriver('editor')
                     onKeyDown(e)
                   }}
+                  onKeyUp={scheduleCursorBroadcast}
+                  onSelect={scheduleCursorBroadcast}
+                  onMouseUp={scheduleCursorBroadcast}
                   onWheel={() => markScrollDriver('editor')}
                   onPointerDown={() => markScrollDriver('editor')}
                   onTouchStart={() => markScrollDriver('editor')}
@@ -1719,6 +1972,41 @@ export default function Editor() {
         }}
         onInsert={insertLatexSymbol}
       />
+      {OFFLINE && (
+        <LanCollabDialog
+          open={collabOpen}
+          initialTab={collabInitialTab}
+          state={collabState}
+          onClose={() => setCollabOpen(false)}
+          onChangeSelfName={(name) => {
+            getOrCreateCollabManager()?.setSelfName(name)
+          }}
+          onStartHosting={async () => {
+            const mgr = getOrCreateCollabManager()
+            if (mgr) await mgr.startHosting()
+          }}
+          onRefreshInvite={async () => {
+            const mgr = getOrCreateCollabManager()
+            if (mgr) await mgr.prepareNextHostOffer()
+          }}
+          onAcceptAnswer={async (code) => {
+            const mgr = getOrCreateCollabManager()
+            if (mgr) await mgr.acceptGuestAnswer(code)
+          }}
+          onJoinWithInvite={async (code) => {
+            const mgr = getOrCreateCollabManager()
+            return mgr ? await mgr.joinWithInviteCode(code) : ''
+          }}
+          onJoinLocalRoom={(room) => {
+            const mgr = getOrCreateCollabManager()
+            if (mgr) mgr.joinLocalRoom(room)
+          }}
+          onDisconnect={() => {
+            collabManagerRef.current?.disconnect()
+          }}
+          onJumpToPeer={jumpToCollaboratorCursor}
+        />
+      )}
     </div>
   )
 }

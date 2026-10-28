@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { STORAGE_KEYS } from './config'
 import { getToken, setToken, verifyToken } from './github'
 import type { GhUser } from './github'
+import { OFFLINE } from './runtime'
 
 export type AuthMode = 'github'
 
@@ -39,6 +40,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // 恢复会话
   useEffect(() => {
+    if (OFFLINE) {
+      setLoading(false)
+      return
+    }
     let alive = true
     ;(async () => {
       try {
