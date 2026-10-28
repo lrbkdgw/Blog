@@ -584,8 +584,11 @@
 .prose h2 {
   @apply mt-12 scroll-mt-24 border-b border-ink-200/70 pb-2 dark:border-white/10;
 }
+.prose h1,
 .prose h3,
-.prose h4 {
+.prose h4,
+.prose h5,
+.prose h6 {
   @apply scroll-mt-24;
 }
 .prose blockquote {
@@ -594,6 +597,24 @@
 .prose blockquote p:first-of-type::before,
 .prose blockquote p:last-of-type::after {
   content: '';
+}
+
+/* 多级无序列表逐级区分圆点样式（实心圆 → 空心圆 → 实心方块），保留 GFM 任务列表无圆点 */
+.prose ul:not(.contains-task-list) {
+  list-style-type: disc;
+}
+.prose ul:not(.contains-task-list) ul:not(.contains-task-list) {
+  list-style-type: circle;
+}
+.prose ul:not(.contains-task-list) ul:not(.contains-task-list) ul:not(.contains-task-list) {
+  list-style-type: square;
+}
+.prose ul.contains-task-list,
+.prose li.task-list-item {
+  list-style-type: none;
+}
+.prose ul.contains-task-list {
+  padding-left: 0.35rem;
 }
 
 /* -------------------------------------------------------------------------- */

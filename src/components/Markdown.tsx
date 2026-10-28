@@ -6,10 +6,9 @@ import type { UrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeRaw from 'rehype-raw'
-import rehypeSanitize, { defaultSchema, type Options as SanitizeOptions } from 'rehype-sanitize'
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
-import rehypeSlug from 'rehype-slug'
 import { ShowBox } from './ShowBox'
 import { CoordinatePlane } from './CoordinatePlane'
 import { GraphPlane } from './GraphPlane'
@@ -23,25 +22,19 @@ import {
   type UiWidgetsContextValue,
 } from './UiWidgets'
 import { resolvePendingImageSrc } from '../lib/updateQueue'
+import { articleFontStyle } from '../lib/articleDirectives'
 import {
-  EMPTY_ARTICLE_DIRECTIVES,
-  articleFontStyle,
-  scanArticleDirectives,
-  type ArticleDirectives,
-} from '../lib/articleDirectives'
+  preprocessMarkdown,
+  preprocessMarkdownDetailed,
+  rehypeHeadingSlug,
+  scrollToHeading,
+  type PreprocessedMarkdown,
+} from '../lib/headingSlug'
 import {
   buildUiValueLookup,
   createInitialWidgetState,
   decodeUiPayload,
-  encodeUiPayload,
-  evaluateUiCondition,
-  expandInlineIfDirectives,
   extractUiWidgetDefs,
-  parseUiChooseBlock,
-  parseUiIfBlock,
-  parseUiSelectBlock,
-  parseUiWriteToken,
-  substituteUiPlaceholdersInLine,
   type UiChooseWidgetDef,
   type UiIfWidgetDef,
   type UiSelectWidgetDef,
@@ -62,56 +55,76 @@ import {
   Link2,
 } from 'lucide-react'
 
-/**
- * 原始 HTML 的净化规则（用于文章与评论）。
- *
- * 评论来自 GitHub Discussions，任何能评论的人都能提交内容，所以不能原样放行 HTML：
- * 否则可以插入 <iframe>、<form> 或全屏遮罩来做钓鱼。这里以 GitHub 默认规则为基础，
- * 只额外放行站内渲染需要的标签与属性（折叠框 callout、表格包裹、kbd 等）。
- * 脚本、事件属性（onerror 等）、style 以及 iframe/form 等依然会被移除。
- *
- * 注意：本规则只作用于用户写的原始 HTML（rehype-raw 之后）；KaTeX、代码高亮、
- * 标题锚点等由本项目自己生成的结构在之后的插件中添加，不会被过滤。
- */
-const sanitizeSchema: SanitizeOptions = {
+export { preprocessMarkdown, preprocessMarkdownDetailed }
+export type { PreprocessedMarkdown }
+
+const markdownSanitizeSchema = {
   ...defaultSchema,
-  tagNames: [
-    ...(defaultSchema.tagNames ?? []),
-    'details',
-    'summary',
-    'kbd',
-    'mark',
-    'figure',
-    'figcaption',
-  ],
+  tagNames: [...(defaultSchema.tagNames || []), 'details', 'summary', 'div', 'span', 'kbd'],
   attributes: {
     ...defaultSchema.attributes,
-    '*': [
-      ...(defaultSchema.attributes?.['*'] ?? []),
-      'className',
-      // 站内预处理生成的结构属性：折叠框、交互展示框、直角坐标系、交互表单控件与图论画布
+    '*': [...(defaultSchema.attributes?.['*'] || []), 'className', 'id'],
+    details: [
+      ...(defaultSchema.attributes?.details || []),
+      'open',
       'dataCallout',
+      'data-callout',
       'dataTitle',
-      'dataShowBox',
-      'dataShowTitle',
-      'dataShowVars',
-      'dataShowContent',
-      'dataUiCcs',
-      'dataCcsTitle',
-      'dataCcsContent',
-      'dataUiChoose',
-      'dataUiSelect',
-      'dataUiIf',
-      'dataUiWrite',
-      'dataUiWriteRow',
-      'dataUiPayload',
-      'dataUiId',
-      'dataUiGraph',
-      'dataGraphHeader',
-      'dataGraphSource',
-      'dataGraphIndex',
+      'data-title',
     ],
-    details: [...(defaultSchema.attributes?.details ?? []), 'open'],
+    summary: [
+      ...(defaultSchema.attributes?.summary || []),
+      'dataCallout',
+      'data-callout',
+      'dataTitle',
+      'data-title',
+    ],
+    div: [
+      ...(defaultSchema.attributes?.div || []),
+      'dataShowBox',
+      'data-show-box',
+      'dataShowTitle',
+      'data-show-title',
+      'dataShowVars',
+      'data-show-vars',
+      'dataShowContent',
+      'data-show-content',
+      'dataUiCcs',
+      'data-ui-ccs',
+      'dataCcsTitle',
+      'data-ccs-title',
+      'dataCcsContent',
+      'data-ccs-content',
+      'dataUiChoose',
+      'data-ui-choose',
+      'dataUiIf',
+      'data-ui-if',
+      'dataUiWriteRow',
+      'data-ui-write-row',
+      'dataUiId',
+      'data-ui-id',
+      'dataUiPayload',
+      'data-ui-payload',
+      'dataUiGraph',
+      'data-ui-graph',
+      'dataGraphIndex',
+      'data-graph-index',
+      'dataGraphHeader',
+      'data-graph-header',
+      'dataGraphSource',
+      'data-graph-source',
+    ],
+    span: [
+      ...(defaultSchema.attributes?.span || []),
+      'dataUiSelect',
+      'data-ui-select',
+      'dataUiWrite',
+      'data-ui-write',
+      'dataUiId',
+      'data-ui-id',
+      'dataUiPayload',
+      'data-ui-payload',
+    ],
   },
 }
 
@@ -234,8 +247,13 @@ function Heading({
       {children}
       {id && (
         <a
-          href={`#${id}`}
+          href={`#${encodeURIComponent(id)}`}
           aria-label="锚点链接"
+          onClick={(e) => {
+            if (scrollToHeading(id)) {
+              e.preventDefault()
+            }
+          }}
           className="ml-2 inline-flex translate-y-[-1px] items-center align-middle text-ink-300 opacity-0 transition
                      hover:text-brand-500 group-hover/heading:opacity-100 dark:text-ink-600"
           style={{ borderBottom: 'none' }}
@@ -259,20 +277,6 @@ function classNames(value: unknown): string[] {
   if (Array.isArray(value)) return value.map(String)
   if (typeof value === 'string') return value.split(/\s+/).filter(Boolean)
   return []
-}
-
-function isHeadingNode(node: RehypeNode): boolean {
-  return node.type === 'element' && /^h[1-6]$/.test(node.tagName || '')
-}
-
-function isCalloutNode(node: RehypeNode): boolean {
-  if (node.type !== 'element' || node.tagName !== 'details') return false
-  const properties = node.properties || {}
-  return Boolean(
-    properties.dataCallout ||
-      properties['data-callout'] ||
-      classNames(properties.className).includes('callout'),
-  )
 }
 
 const LINED_BLOCK_CONTAINERS = new Set([
@@ -387,22 +391,6 @@ function rehypeWrapLinedRuns() {
   }
 }
 
-// 折叠框/展示框里的标题不作为正文锚点暴露，避免目录滚动定位命中框内标题。
-function rehypeRemoveHeadingIds({ calloutsOnly = false }: { calloutsOnly?: boolean } = {}) {
-  return function removeHeadingIdsPlugin() {
-    return (tree: RehypeNode) => {
-      const visit = (node: RehypeNode, insideCallout: boolean) => {
-        const nextInsideCallout = insideCallout || isCalloutNode(node)
-        if (isHeadingNode(node) && (!calloutsOnly || nextInsideCallout)) {
-          delete node.properties?.id
-        }
-        for (const child of node.children || []) visit(child, nextInsideCallout)
-      }
-      visit(tree, false)
-    }
-  }
-}
-
 function isBlockMathElement(node: RehypeNode): boolean {
   if (node.type !== 'element') return false
   const cls = classNames(node.properties?.className)
@@ -483,428 +471,6 @@ function rehypeInheritPositions() {
   }
 }
 
-export interface PreprocessedMarkdown {
-  text: string
-  /**
-   * lineMap[i] 为处理后第 i 行（0 基）对应的原始 Markdown 起始行号（0 基）。
-   * 指令（折叠框、Tuack 表格等）展开出的行都会映射回其指令行，
-   * 供编辑器把渲染结果对齐回源文本行号。
-   */
-  lineMap: number[]
-  /**
-   * endLineMap[i] 为处理后第 i 行（0 基）对应的原始 Markdown 结束行号（0 基）。
-   * 多行指令（如 ::show_begin、::begin_ui-ccs、::begin_ui-graph 等）压缩为单行 HTML 时，
-   * 记录其闭合指令所在源行号，使双栏同步能精确对齐整个块的起止高度。
-   */
-  endLineMap: number[]
-  /** 文首文章排版指令（issue #59：::set-font / ::set-code-font / ::set-background）。 */
-  directives: ArticleDirectives
-}
-
-/** 判断某行是否为独占一行的块级 `[new]` 填空框指令。 */
-function matchStandaloneNewWrite(line: string): UiWriteWidgetDef | null {
-  const trimmed = line.trim()
-  if (!trimmed.startsWith('::ui-write[')) return null
-  const parsed = parseUiWriteToken(trimmed.slice('::ui-write'.length))
-  if (!parsed) return null
-  if (parsed.consumedLength + '::ui-write'.length !== trimmed.length) return null
-  return parsed.def.isNew ? parsed.def : null
-}
-
-/** 将普通文本行中的 `::ui-write[...]` 替换为内联或独立行组件标签（跳过反引号行内代码）。 */
-function expandInlineWriteDirectives(line: string): string {
-  if (!line.includes('::ui-write[')) return line
-  let out = ''
-  let inInlineCode = false
-  let pos = 0
-
-  while (pos < line.length) {
-    const ch = line[pos]
-    if (ch === '`') {
-      inInlineCode = !inInlineCode
-      out += ch
-      pos += 1
-      continue
-    }
-    if (!inInlineCode && line.startsWith('::ui-write[', pos)) {
-      const parsed = parseUiWriteToken(line.slice(pos + '::ui-write'.length))
-      if (parsed) {
-        if (parsed.def.isNew) {
-          out += `\n\n<div data-ui-write-row="true" data-ui-id="${encodeURIComponent(parsed.def.id)}" data-ui-payload="${encodeUiPayload([parsed.def])}"></div>\n\n`
-        } else {
-          out += `<span data-ui-write="true" data-ui-id="${encodeURIComponent(parsed.def.id)}" data-ui-payload="${encodeUiPayload(parsed.def)}"></span>`
-        }
-        pos += '::ui-write'.length + parsed.consumedLength
-        continue
-      }
-    }
-    out += ch
-    pos += 1
-  }
-
-  return out
-}
-
-/** 预处理 Markdown，支持折叠框、Tuack 表格、坐标系、交互表单控件、条件映射与图论画布 */
-export function preprocessMarkdownDetailed(
-  md: string,
-  options: {
-    articleDirectives?: boolean
-    uiLookup?: { exact: Map<string, string>; lower: Map<string, string> }
-  } = {},
-): PreprocessedMarkdown {
-  if (!md) return { text: '', lineMap: [], endLineMap: [], directives: EMPTY_ARTICLE_DIRECTIVES }
-  const lines = md.split('\n')
-  // 文章排版指令只认文首（见 articleDirectives.ts）：先整段扫描出要移除的指令行，
-  // 代码围栏、正文之后的同形文字都不会被当成指令。评论、展示框片段等非文章
-  // 内容关闭此项，指令样文字按普通文本显示、不执行也不吞掉。
-  const scanned =
-    options.articleDirectives !== false
-      ? scanArticleDirectives(lines)
-      : { directives: EMPTY_ARTICLE_DIRECTIVES, directiveLines: new Set<number>() }
-
-  // 若调用方未显式传入 uiLookup，则自动按本文声明的 UI 控件初始状态构建映射表
-  const lookup =
-    options.uiLookup ??
-    (() => {
-      const defs = extractUiWidgetDefs(md)
-      const defaults: UiStateMap = {}
-      for (const d of defs) defaults[d.id] = createInitialWidgetState(d)
-      return buildUiValueLookup(defs, defaults)
-    })()
-
-  const result: string[] = []
-  const lineMap: number[] = []
-  const endLineMap: number[] = []
-  const stack: { colonsCount: number; type: string }[] = []
-  const ifStack: boolean[] = []
-  let inCodeFence = false
-  let rawGraphIndex = -1
-
-  const isIfActive = () => ifStack.every(Boolean)
-
-  const push = (line: string, sourceLine: number, sourceEndLine: number = sourceLine) => {
-    result.push(line)
-    lineMap.push(sourceLine)
-    endLineMap.push(Math.max(sourceLine, sourceEndLine))
-  }
-
-  const transformLineText = (rawLine: string) =>
-    expandInlineIfDirectives(substituteUiPlaceholdersInLine(rawLine, lookup))
-
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i]
-
-    // 扩展指令不应解析代码示例；否则文档中的语法会被执行而无法展示源码。
-    if (/^\s*(`{3,}|~{3,})/.test(rawLine)) {
-      inCodeFence = !inCodeFence
-      if (isIfActive()) push(rawLine, i)
-      continue
-    }
-    if (inCodeFence) {
-      if (isIfActive()) push(rawLine, i)
-      continue
-    }
-
-    // 文首排版指令行（::set-font[…] 等）不是正文：整体移除，
-    // 只留一个映射回原行的空行，保持编辑器双栏的行号对齐。
-    if (scanned.directiveLines.has(i)) {
-      push('', i)
-      continue
-    }
-
-    // 最高优先级替换 <<id>> / <id> / <<id-number>> / <id-number>
-    const subLine = substituteUiPlaceholdersInLine(rawLine, lookup)
-
-    // 块级条件渲染：::IF[<a>] … ::IF_END（支持任意多层嵌套）
-    const blockIfOpen = subLine.match(/^\s*::IF\[([\s\S]*)\]\s*$/)
-    if (blockIfOpen) {
-      const condHolds = isIfActive() && evaluateUiCondition(blockIfOpen[1])
-      ifStack.push(condHolds)
-      continue
-    }
-    if (/^\s*::IF_END\s*$/.test(subLine)) {
-      if (ifStack.length > 0) ifStack.pop()
-      continue
-    }
-
-    // 图论画布（issue #83）：::begin_ui-graph[<附加项>] … ::end_ui-graph
-    // 注意：即使位于条件为假的 ::IF 块中，也要递增 rawGraphIndex 以保证源码写回索引严格对齐！
-    const graphMatch = subLine.match(/^\s*::begin_ui-graph(?=$|\[|\s)([\s\S]*)$/)
-    if (graphMatch) {
-      const body: string[] = []
-      let end = i + 1
-      while (end < lines.length && !/^\s*::end_ui-graph\s*$/.test(lines[end])) {
-        body.push(transformLineText(lines[end]))
-        end += 1
-      }
-      if (end < lines.length) {
-        rawGraphIndex += 1
-        if (isIfActive()) {
-          push(
-            `<div data-ui-graph="true" data-graph-index="${rawGraphIndex}" data-graph-header="${encodeURIComponent(graphMatch[1])}" data-graph-source="${encodeURIComponent(body.join('\n'))}"></div>`,
-            i,
-            end,
-          )
-          push('', end)
-        }
-        i = end
-        continue
-      }
-    }
-
-    if (!isIfActive()) {
-      continue
-    }
-
-    const line = expandInlineIfDirectives(subLine)
-
-    // 选择框（issue #82）：::begin_ui-choose[<id>][<name>][<附加项>] … ::end_ui-choose
-    const chooseMatch = line.match(/^\s*::begin_ui-choose([\s\S]*)$/)
-    if (chooseMatch) {
-      const body: string[] = []
-      let end = i + 1
-      while (end < lines.length && !/^\s*::end_ui-choose\s*$/.test(lines[end])) {
-        body.push(transformLineText(lines[end]))
-        end += 1
-      }
-      if (end < lines.length) {
-        const def = parseUiChooseBlock(chooseMatch[1], body)
-        if (def) {
-          push('', i)
-          push(
-            `<div data-ui-choose="true" data-ui-id="${encodeURIComponent(def.id)}" data-ui-payload="${encodeUiPayload(def)}"></div>`,
-            i,
-            end,
-          )
-          push('', end)
-        }
-        i = end
-        continue
-      }
-    }
-
-    // 下拉选择框（issue #82）：::begin_ui-select[<id>][<附加项>] … ::end_ui-select（紧跟在上一行文本后）
-    const selectMatch = line.match(/^\s*::begin_ui-select([\s\S]*)$/)
-    if (selectMatch) {
-      const body: string[] = []
-      let end = i + 1
-      while (end < lines.length && !/^\s*::end_ui-select\s*$/.test(lines[end])) {
-        body.push(transformLineText(lines[end]))
-        end += 1
-      }
-      if (end < lines.length) {
-        const def = parseUiSelectBlock(selectMatch[1], body)
-        if (def) {
-          const selectHtml = `<span data-ui-select="true" data-ui-id="${encodeURIComponent(def.id)}" data-ui-payload="${encodeUiPayload(def)}"></span>`
-          const prevLine = result.length > 0 ? result[result.length - 1] : ''
-          const canAttachPrev =
-            result.length > 0 &&
-            prevLine.trim() !== '' &&
-            !prevLine.trim().startsWith('<div') &&
-            !prevLine.trim().startsWith('</')
-          if (canAttachPrev) {
-            result[result.length - 1] = `${prevLine}${selectHtml}`
-          } else {
-            push(selectHtml, i)
-          }
-        }
-        i = end
-        continue
-      }
-    }
-
-    // 是否框（issue #82）：::begin_ui-if[<id>][<附加项>] … ::end_ui-if
-    const uiIfMatch = line.match(/^\s*::begin_ui-if([\s\S]*)$/)
-    if (uiIfMatch) {
-      const body: string[] = []
-      let end = i + 1
-      while (end < lines.length && !/^\s*::end_ui-if\s*$/.test(lines[end])) {
-        body.push(transformLineText(lines[end]))
-        end += 1
-      }
-      if (end < lines.length) {
-        const def = parseUiIfBlock(uiIfMatch[1], body)
-        if (def) {
-          push('', i)
-          push(
-            `<div data-ui-if="true" data-ui-id="${encodeURIComponent(def.id)}" data-ui-payload="${encodeUiPayload(def)}"></div>`,
-            i,
-            end,
-          )
-          push('', end)
-        }
-        i = end
-        continue
-      }
-    }
-
-    // 块级填空框（issue #82）：`new` 独占一行；后续紧接且中间无任何非空内容的 `new` + `merge` 共用同一行
-    const standaloneNewWrite = matchStandaloneNewWrite(line)
-    if (standaloneNewWrite) {
-      const rowDefs: UiWriteWidgetDef[] = [standaloneNewWrite]
-      let lastConsumed = i
-      let scan = i + 1
-      while (scan < lines.length) {
-        if (lines[scan].trim() === '') {
-          scan += 1
-          continue
-        }
-        const candidateLine = transformLineText(lines[scan])
-        const nextWrite = matchStandaloneNewWrite(candidateLine)
-        if (nextWrite && nextWrite.merge) {
-          rowDefs.push(nextWrite)
-          lastConsumed = scan
-          scan += 1
-          continue
-        }
-        break
-      }
-      push('', i)
-      push(
-        `<div data-ui-write-row="true" data-ui-id="${encodeURIComponent(rowDefs[0].id)}" data-ui-payload="${encodeUiPayload(rowDefs)}"></div>`,
-        i,
-        lastConsumed,
-      )
-      push('', lastConsumed)
-      i = lastConsumed
-      continue
-    }
-
-    // 交互展示框：::show_begin{标题}{变量定义} … ::show_end
-    // 编码到 data attribute 后再由 React component 接管，可保留框内完整 Markdown。
-    const showMatch = line.match(/^\s*::show_begin\{([^}]*)\}\{([\s\S]*)\}\s*$/i)
-    if (showMatch) {
-      const body: string[] = []
-      let end = i + 1
-      while (end < lines.length && !/^\s*::show_end\s*$/i.test(lines[end])) {
-        body.push(transformLineText(lines[end]))
-        end += 1
-      }
-      if (end < lines.length) {
-        push(
-          `<div data-show-box="true" data-show-title="${encodeURIComponent(showMatch[1])}" data-show-vars="${encodeURIComponent(showMatch[2])}" data-show-content="${encodeURIComponent(body.join('\n'))}"></div>`,
-          i,
-          end,
-        )
-        push('', end)
-        i = end
-        continue
-      }
-    }
-
-    // 直角坐标系（issue #76）：::begin_ui-ccs … ::end_ui-ccs（可选 {标题}）
-    const ccsMatch = line.match(/^\s*::begin_ui-ccs(?:\{([^}]*)\})?\s*$/i)
-    if (ccsMatch) {
-      const body: string[] = []
-      let end = i + 1
-      while (end < lines.length && !/^\s*::end_ui-ccs\s*$/i.test(lines[end])) {
-        body.push(transformLineText(lines[end]))
-        end += 1
-      }
-      if (end < lines.length) {
-        push(
-          `<div data-ui-ccs="true" data-ccs-title="${encodeURIComponent(ccsMatch[1] ?? '')}" data-ccs-content="${encodeURIComponent(body.join('\n'))}"></div>`,
-          i,
-          end,
-        )
-        push('', end)
-        i = end
-        continue
-      }
-    }
-
-    // ::cute-table{tuack} 或 :::cute-table{tuack}
-    const tuackMatch = line.match(/^ *(?:::+|:::+)(?:cute-table)\s*\{([^}]+)\}\s*$/i)
-    if (tuackMatch) {
-      push('<div class="table-tuack-wrapper">', i)
-      push('', i)
-      let j = i + 1
-      while (j < lines.length && lines[j].trim() === '') {
-        j++
-      }
-      while (
-        j < lines.length &&
-        (lines[j].trim().startsWith('|') || lines[j].trim().includes('|'))
-      ) {
-        push(expandInlineWriteDirectives(transformLineText(lines[j])), j)
-        j++
-      }
-      const tableEnd = Math.max(i, j - 1)
-      push('', tableEnd)
-      push('</div>', tableEnd)
-      push('', tableEnd)
-      i = j - 1
-      continue
-    }
-
-    // Callout 闭合行：:::、:::: 等
-    const closeMatch = line.match(/^ *(:{3,})\s*$/)
-    if (closeMatch && stack.length > 0) {
-      const colons = closeMatch[1].length
-      const top = stack[stack.length - 1]
-      if (colons >= top.colonsCount) {
-        stack.pop()
-        push('', i)
-        push('</div>', i)
-        push('</details>', i)
-        push('', i)
-        continue
-      }
-    }
-
-    // Callout 开启行：::::info[标题]{open}
-    const openMatch = line.match(
-      /^ *(:{3,})(info|success|warning|error|note|tip|danger)(?:\[([\s\S]*?)\])?(?:\{(open)\})?\s*$/i,
-    )
-    if (openMatch) {
-      const colonsCount = openMatch[1].length
-      const type = openMatch[2].toLowerCase()
-      const rawTitle = openMatch[3] !== undefined ? openMatch[3] : ''
-      const isOpen = Boolean(openMatch[4])
-
-      stack.push({ colonsCount, type })
-      const encodedTitle = encodeURIComponent(rawTitle)
-      push('', i)
-      push(
-        `<details class="callout callout-${type}" data-callout="${type}" data-title="${encodedTitle}" ${
-          isOpen ? 'open' : ''
-        }>`,
-        i,
-      )
-      push(
-        `<summary class="callout-summary" data-callout="${type}" data-title="${encodedTitle}">${rawTitle}</summary>`,
-        i,
-      )
-      push('<div class="callout-content">', i)
-      push('', i)
-      continue
-    }
-
-    // 行内 ::ui-write[...]（若嵌在行中带 [new] 则自动拆行）
-    const expandedWriteLine = expandInlineWriteDirectives(line)
-    if (expandedWriteLine.includes('\n')) {
-      for (const piece of expandedWriteLine.split('\n')) {
-        push(piece, i)
-      }
-    } else {
-      push(expandedWriteLine, i)
-    }
-  }
-
-  while (stack.pop()) {
-    const last = lines.length - 1
-    push('', last)
-    push('</div>', last)
-    push('</details>', last)
-  }
-
-  return { text: result.join('\n'), lineMap, endLineMap, directives: scanned.directives }
-}
-
-export function preprocessMarkdown(md: string): string {
-  return preprocessMarkdownDetailed(md).text
-}
 
 function decodeShowAttribute(value: string | undefined): string {
   if (!value) return ''
@@ -1229,12 +795,31 @@ function buildComponents(
         </p>
       )
     },
-    a: ({ node, href, children, ...rest }: { node?: unknown; href?: string; children?: ReactNode }) => {
+    a: ({
+      node: _node,
+      href,
+      children,
+      onClick,
+      ...rest
+    }: {
+      node?: unknown
+      href?: string
+      children?: ReactNode
+    } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
       const external = !!href && /^https?:\/\//.test(href)
+      const inPageAnchor = !!href && href.startsWith('#') && !href.startsWith('#/') && href.length > 1
       return (
         <a
           href={href}
           {...rest}
+          onClick={(e) => {
+            onClick?.(e)
+            if (!e.defaultPrevented && inPageAnchor && href) {
+              if (scrollToHeading(href)) {
+                e.preventDefault()
+              }
+            }
+          }}
           {...(external ? { target: '_blank', rel: 'noreferrer noopener' } : {})}
         >
           {children}
@@ -1504,10 +1089,8 @@ export const Markdown = memo(function Markdown({
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[
             rehypeRaw,
-            [rehypeSanitize, sanitizeSchema],
-            ...(headingAnchors
-              ? [rehypeSlug, rehypeRemoveHeadingIds({ calloutsOnly: true })]
-              : [rehypeRemoveHeadingIds()]),
+            [rehypeSanitize, markdownSanitizeSchema],
+            rehypeHeadingSlug({ enabled: headingAnchors, skipCallouts: true }),
             ...(sourceLineMarkers ? [rehypeMarkBlockMath()] : []),
             [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
             [rehypeHighlight, { detect: true, ignoreMissing: true }],

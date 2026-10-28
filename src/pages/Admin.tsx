@@ -23,6 +23,7 @@ import {
   Square,
   Trash2,
   UploadCloud,
+  Users,
   XCircle,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
@@ -196,10 +197,14 @@ export default function Admin() {
     })
   }, [ghUser, target])
 
-  // 支持 /admin?tab=queue 等入口直达指定标签页
+  // 支持 /admin?tab=queue 等入口直达指定标签页（离线版仅开放文章列表与离线文章包）
   useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab === 'posts' || tab === 'prs' || tab === 'queue' || tab === 'export') setMainTab(tab)
+    if (tab === 'posts' || tab === 'export') {
+      setMainTab(tab)
+    } else if (!OFFLINE && (tab === 'prs' || tab === 'queue')) {
+      setMainTab(tab)
+    }
   }, [searchParams])
 
   // 加载 PR 列表
@@ -346,10 +351,10 @@ export default function Admin() {
 
   const removePost = async (post: Post) => {
     if (post.source === 'local') {
-      if (!confirm(`删除本地草稿「${post.title}」？`)) return
+      if (!confirm(OFFLINE ? `从本机文章库删除「${post.title}」？` : `删除本地草稿「${post.title}」？`)) return
       deleteLocalPost(post.slug)
       reloadPosts()
-      toast('本地草稿已删除', 'info')
+      toast(OFFLINE ? '已从本机文章库删除' : '本地草稿已删除', 'info')
       return
     }
     if (OFFLINE) {
@@ -452,11 +457,17 @@ export default function Admin() {
             )}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link to="/settings" className="btn-outline h-9">
             <Settings size={15} />
             设置
           </Link>
+          {OFFLINE && (
+            <Link to="/admin/new?collab=join" className="btn-outline h-9">
+              <Users size={15} />
+              局域网协作
+            </Link>
+          )}
           <Link to="/admin/new" className="btn-primary h-9">
             <Plus size={15} />
             写新文章
@@ -551,23 +562,25 @@ export default function Admin() {
             </span>
           )}
         </button>
-        <button
-          type="button"
-          onClick={() => setMainTab('queue')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
-            mainTab === 'queue'
-              ? 'border-brand-500 text-brand-600 dark:text-brand-300'
-              : 'border-transparent text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
-          }`}
-        >
-          <ListTodo size={16} />
-          待更新队列
-          {queue.length > 0 && (
-            <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
-              {queue.length} 待更新
-            </span>
-          )}
-        </button>
+        {!OFFLINE && (
+          <button
+            type="button"
+            onClick={() => setMainTab('queue')}
+            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+              mainTab === 'queue'
+                ? 'border-brand-500 text-brand-600 dark:text-brand-300'
+                : 'border-transparent text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
+            }`}
+          >
+            <ListTodo size={16} />
+            待更新队列
+            {queue.length > 0 && (
+              <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
+                {queue.length} 待更新
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {mainTab === 'posts' ? (
@@ -640,9 +653,17 @@ export default function Admin() {
                         ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
                         : 'bg-brand-500/10 text-brand-600 dark:text-brand-300'
                     }`}
-                    title={isLocalDraft ? '浏览器本地草稿' : '已发布到 GitHub 仓库'}
+                    title={
+                      OFFLINE
+                        ? isLocalDraft
+                          ? '保存在本机离线文章库'
+                          : '打包在 HTML 文件内的内置文章'
+                        : isLocalDraft
+                          ? '浏览器本地草稿'
+                          : '已发布到 GitHub 仓库'
+                    }
                   >
-                    {isLocalDraft ? <HardDrive size={16} /> : <Github size={16} />}
+                    {isLocalDraft ? <HardDrive size={16} /> : OFFLINE ? <FileText size={16} /> : <Github size={16} />}
                   </span>
 
                   <div className="min-w-0 flex-1">
@@ -655,14 +676,14 @@ export default function Admin() {
                       </Link>
                       {isLocalDraft ? (
                         <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                          本地草稿
+                          {OFFLINE ? '离线文章库' : '本地草稿'}
                         </span>
                       ) : (
                         <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                          已发布到 GitHub
+                          {OFFLINE ? '文件内置' : '已发布到 GitHub'}
                         </span>
                       )}
-                      {hasPending && (
+                      {!OFFLINE && hasPending && (
                         <span
                           className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400"
                           title="该文章在待更新队列中有尚未提交到仓库的更改"
@@ -673,7 +694,7 @@ export default function Admin() {
                       {isLocalDraft && encryptedRepoSlugs.has(post.slug) && (
                         <span
                           className="shrink-0 rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] font-medium text-brand-600 dark:text-brand-300"
-                          title="仓库中同名文章为加密文章；发布时会在编辑器中重新加密"
+                          title="同名内置/仓库文章为加密文章；保存时会在编辑器中重新加密"
                         >
                           加密文章草稿
                         </span>
@@ -695,8 +716,21 @@ export default function Admin() {
                       <span>·</span>
                       <span>{post.wordCount} 字</span>
                       <span>·</span>
-                      {/* 上次发布到 Github 的时间 */}
-                      {publishedTime ? (
+                      {OFFLINE ? (
+                        isLocalDraft ? (
+                          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                            <HardDrive size={12} />
+                            保存在本机浏览器
+                            {post.savedAt ? ` · 修改于 ${relativeTime(post.savedAt)}` : ''}
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                            <FileText size={12} />
+                            HTML 内置文章
+                            {post.updated || post.date ? ` · ${formatDate(post.updated || post.date)}` : ''}
+                          </span>
+                        )
+                      ) : publishedTime ? (
                         <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                           <CloudUpload size={12} />
                           上次发布到 GitHub：{formatDate(new Date(publishedTime).toISOString().slice(0, 10))}（
@@ -727,7 +761,7 @@ export default function Admin() {
                     >
                       <PenLine size={15} />
                     </Link>
-                    {isLocalDraft && (
+                    {!OFFLINE && isLocalDraft && (
                       <button
                         onClick={() => queueOne(post)}
                         className="btn-ghost h-8 w-8 !px-0 text-brand-600 dark:text-brand-300"
@@ -739,7 +773,15 @@ export default function Admin() {
                     <button
                       onClick={() => removePost(post)}
                       className="btn-ghost h-8 w-8 !px-0 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10"
-                      title={isLocalDraft ? '删除本地草稿' : '加入待更新队列（更新后从 GitHub 仓库删除）'}
+                      title={
+                        OFFLINE
+                          ? isLocalDraft
+                            ? '从本机离线文章库删除'
+                            : '在本机隐藏这篇内置文章'
+                          : isLocalDraft
+                            ? '删除本地草稿'
+                            : '加入待更新队列（更新后从 GitHub 仓库删除）'
+                      }
                     >
                       <Trash2 size={15} />
                     </button>
@@ -750,7 +792,9 @@ export default function Admin() {
           </div>
 
           <p className="mb-16 mt-4 text-xs leading-relaxed text-ink-400">
-            当同一文章存在已发布的仓库版本与本地编辑的草稿时，列表中会同时显示为两条记录，方便分别查看与管理。发布与删除等仓库操作会先进入「待更新队列」，统一更新后才会真正提交到 GitHub。
+            {OFFLINE
+              ? '离线版无需登录即可直接新建、编辑和管理文章：本机修改会保存在当前浏览器的离线文章库中，也可在「离线文章包」中导出文件带到线上站点导入，或在编辑器内发起局域网多人协同编辑。'
+              : '当同一文章存在已发布的仓库版本与本地编辑的草稿时，列表中会同时显示为两条记录，方便分别查看与管理。发布与删除等仓库操作会先进入「待更新队列」，统一更新后才会真正提交到 GitHub。'}
           </p>
         </>
       ) : mainTab === 'export' ? (

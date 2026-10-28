@@ -1,9 +1,10 @@
 import aboutRaw from '/content/about.md?raw'
-import { BookOpen, Compass, ExternalLink, Github, PenLine, Settings, Sparkles } from 'lucide-react'
+import { BookOpen, Compass, ExternalLink, Github, LayoutDashboard, PenLine, Settings, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Markdown } from '../components/Markdown'
 import { parseFrontmatter } from '../lib/frontmatter'
 import { siteConfig } from '../lib/config'
+import { OFFLINE } from '../lib/runtime'
 
 export default function About() {
   const { data, content } = parseFrontmatter(aboutRaw)
@@ -31,7 +32,7 @@ export default function About() {
           <div className="flex flex-wrap gap-2 sm:flex-col sm:items-end">
             <Link to="/admin/new" className="btn-primary h-9 px-4 text-xs">
               <PenLine size={14} />
-              在线创作
+              {OFFLINE ? '开始写作' : '在线创作'}
             </Link>
             <Link to="/settings" className="btn-outline h-9 px-4 text-xs">
               <Settings size={14} />
@@ -49,7 +50,13 @@ export default function About() {
             <BookOpen size={12} />
             文章归档
           </Link>
-          {social.github && (
+          {OFFLINE && (
+            <Link to="/admin" className="chip">
+              <LayoutDashboard size={12} />
+              内容管理
+            </Link>
+          )}
+          {!OFFLINE && social.github && (
             <a
               href={social.github}
               target="_blank"

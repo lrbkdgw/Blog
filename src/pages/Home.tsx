@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ArrowRight, PenLine } from 'lucide-react'
 import { PostCard } from '../components/PostCard'
 import { siteConfig } from '../lib/config'
+import { OFFLINE } from '../lib/runtime'
 import { usePosts } from '../lib/usePosts'
 import { useAuth } from '../lib/auth'
 
@@ -74,7 +75,7 @@ export default function Home() {
         <div className="card flex flex-col items-center gap-3 px-6 py-20 text-center">
           <PenLine size={28} className="text-ink-300" />
           <p className="text-sm text-ink-500">还没有任何文章。</p>
-          <Link to={isAuthed ? '/admin/new' : '/login'} className="btn-primary mt-2">
+          <Link to={isAuthed || OFFLINE ? '/admin/new' : '/login'} className="btn-primary mt-2">
             写下第一篇
           </Link>
         </div>

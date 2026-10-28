@@ -630,10 +630,10 @@ export default function SettingsPage() {
             ? '个性化设置使用浏览器本地存储与即时更新机制。离线版不联网，因此没有账号同步：偏好只保存在这台设备的这个文件里。'
             : '个性化设置使用浏览器本地存储与即时更新机制；连接 GitHub 后仍可选择同步偏好至账号。'}
           <Link
-            to={isAuthed ? '/admin' : '/'}
+            to={isAuthed || OFFLINE ? '/admin' : '/'}
             className="ml-2 text-brand-600 hover:underline dark:text-brand-300"
           >
-            ← {isAuthed ? '返回内容管理' : '返回首页'}
+            ← {isAuthed || OFFLINE ? '返回内容管理' : '返回首页'}
           </Link>
         </p>
       </header>

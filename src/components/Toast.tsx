@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react'
+import { OFFLINE } from '../lib/runtime'
 
 type ToastKind = 'success' | 'error' | 'info' | 'warning'
 
@@ -72,7 +73,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               <p className="whitespace-pre-line break-words">{t.message}</p>
               {t.action && (
                 <a
-                  href={t.action.href}
+                  href={OFFLINE && t.action.href.startsWith('/') ? `#${t.action.href}` : t.action.href}
                   {...(/^https?:\/\//.test(t.action.href)
                     ? { target: '_blank', rel: 'noreferrer' }
                     : {

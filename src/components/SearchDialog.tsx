@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CornerDownLeft, FileText, Search } from 'lucide-react'
-import { excerpt, formatDate, getPublishedPosts, searchPosts } from '../lib/posts'
+import { CornerDownLeft, FileText, LockKeyhole, Search } from 'lucide-react'
+import { excerpt, formatDate, getPublishedPosts, hasPublicDate, searchPosts } from '../lib/posts'
 
 export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [query, setQuery] = useState('')
@@ -83,11 +83,23 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
                   i === active ? 'bg-brand-500/10 dark:bg-brand-400/10' : 'hover:bg-ink-100/70 dark:hover:bg-white/5'
                 }`}
               >
-                <FileText size={16} className="mt-1 shrink-0 text-brand-500" />
+                {p.encryption ? (
+                  <LockKeyhole size={16} className="mt-1 shrink-0 text-brand-500" />
+                ) : (
+                  <FileText size={16} className="mt-1 shrink-0 text-brand-500" />
+                )}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-ink-900 dark:text-white">{p.title}</span>
                   <span className="mt-0.5 block truncate text-xs text-ink-500 dark:text-ink-400">
-                    {formatDate(p.date)} · {excerpt(p.summary, 60)}
+                    {hasPublicDate(p)
+                      ? p.summary
+                        ? `${formatDate(p.date)} · ${excerpt(p.summary, 60)}`
+                        : formatDate(p.date)
+                      : p.summary
+                        ? excerpt(p.summary, 60)
+                        : p.encryption
+                          ? '已加密文章'
+                          : ''}
                   </span>
                 </span>
                 {i === active && <CornerDownLeft size={14} className="mt-1 shrink-0 text-ink-400" />}

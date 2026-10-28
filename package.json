@@ -12,7 +12,8 @@
     "extension:test": "npm --prefix vscode_extensions/v1 test",
     "extension:package": "npm --prefix vscode_extensions/v1 run package",
     "build:offline": "vite build --config vite.offline.config.ts && node scripts/verify-offline.mjs",
-    "preview:offline": "vite preview --config vite.offline.config.ts --port 5180",
+    "preview:offline": "vite preview --config vite.offline.config.ts --host 0.0.0.0 --port 5180",
+    "lan": "node scripts/lan-collab-hub.mjs",
     "verify:offline": "node scripts/verify-offline.mjs"
   },
   "dependencies": {
