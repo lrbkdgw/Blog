@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>飞机降落 · 3D 动画</title>
+<meta name="description" content="用原生 WebGL2 手写的实时三维动画：一架双发客机沿 3° 下滑道进近、拉平、接地、减速滑跑并脱离跑道。单文件、零依赖、可离线打开。">
+<meta name="theme-color" content="#05070c">
+<!--
+  飞机降落 · 3D 动画
+  ─────────────────────────────────────────────────────────────────────────────
+  单个 HTML 文件，零依赖、零外部资源（可以直接双击离线打开）。全部内容都在运行时程序化生成：
+    · 飞机：机身 / 机翼 / 鲨鳍小翼 / 襟翼 / 发动机 / 起落架等网格由参数方程放样而来；
+    · 涂装：用 Canvas 2D 画出舷窗、舱门与文字后投影到机身；
+    · 机场：跑道标线、滑行道、停机坪、草地与农田全部写在一个片元着色器里（解析抗锯齿）；
+    · 天空：渐变 + 太阳 / 月亮 + 分形云 + 远山剪影 + 星空；
+    · 光影：2048² 阴影贴图（机体自阴影 + 地面投影）、建筑的平面投影阴影、天空反射、指数雾；
+    · 灯光：进近灯（含顺序闪光）、PAPI（随视角变红 / 白）、跑道边灯、着陆灯、航行灯与频闪灯；
+    · 飞行：3° 下滑道 → 指数拉平 → 主轮接地（轮胎烟）→ 扰流板 → 前轮接地 → 反推减速 → 快速脱离道。
+  整段动画是时间的纯函数（轨迹预先积分、粒子无状态），所以时间轴可以任意拖动。
+
+  地址参数（可选）：?t=秒  &cam=auto|chase|side|spot|tower|nose|orbit  &tod=day|dusk|night
+                    &speed=0.5|1|2  &paused=1  &ui=0  &q=渲染倍率(0.4–2)
+-->
+<style>
+  :root {
+    color-scheme: dark;
+    --panel: rgba(11, 15, 25, .56);
+    --line: rgba(255, 255, 255, .13);
+    --text: #eef2f8;
+    --dim: #a9b3c6;
+    --accent: #8eb3ff;
+    --accent-strong: #3563f6;
+    --safe-b: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    height: 100%; margin: 0; overflow: hidden; background: #05070c; color: var(--text);
+    font: 13px/1.45 "NotoSC", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+      "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; outline: none; }
+  canvas:active { cursor: grabbing; }
+  #vignette { position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 46%, transparent 52%, rgba(0, 0, 0, .34) 100%); }
+  #fade { position: fixed; inset: 0; pointer-events: none; background: #05070c; opacity: 1; }
+
+  .panel {
+    position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    -webkit-backdrop-filter: blur(14px) saturate(1.25); backdrop-filter: blur(14px) saturate(1.25);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .28);
+    transition: opacity .25s ease, transform .25s ease;
+  }
+  body.ui-hidden .panel:not(#showui) { opacity: 0; pointer-events: none; transform: translateY(6px); }
+
+  /* 左上：标题 + 当前阶段 */
+  .title { top: 14px; left: 14px; padding: 10px 14px 10px; max-width: min(46vw, 320px); }
+  .title h1 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: .02em; }
+  .title h1 span { margin-left: 8px; font-size: 11px; font-weight: 500; color: var(--dim); letter-spacing: .08em; }
+  .title p { margin: 4px 0 0; font-size: 12.5px; color: var(--accent); min-height: 1.45em; }
+  .title p::before { content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 7px 1px 0; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+
+  /* 右上：飞行数据 */
+  .tele { top: 14px; right: 14px; padding: 9px 12px; display: grid; grid-template-columns: repeat(3, auto); gap: 4px 16px; }
+  .tele .num { display: flex; flex-direction: column; align-items: flex-end; min-width: 58px; }
+  .tele .num b { font: 600 19px/1.1 ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .tele .num i { font-style: normal; font-size: 10.5px; color: var(--dim); white-space: nowrap; }
+  .chips { grid-column: 1 / -1; display: flex; gap: 5px; justify-content: flex-end; margin-top: 3px; }
+  .chips span { padding: 1px 7px; border-radius: 999px; font-size: 10.5px; color: var(--dim); border: 1px solid var(--line); transition: all .25s; }
+  .chips span.on { color: #08111f; background: #9be6b4; border-color: transparent; }
+  .chips span.on.warn { background: #ffd27a; }
+
+  /* 底部：控制条 */
+  .bar { left: 50%; bottom: calc(12px + var(--safe-b)); transform: translateX(-50%); width: min(980px, calc(100vw - 24px)); padding: 9px 12px 10px; }
+  body.ui-hidden .bar { transform: translate(-50%, 6px) !important; }
+  .seekrow { display: flex; align-items: center; gap: 8px; }
+  .optrow { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin-top: 8px; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .icon { width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 9px; background: rgba(255, 255, 255, .08); border: 1px solid var(--line); }
+  .icon:hover { background: rgba(255, 255, 255, .16); }
+  .icon svg { width: 15px; height: 15px; fill: currentColor; }
+  #play .i-play { display: none; }
+  #play.paused .i-play { display: block; }
+  #play.paused .i-pause { display: none; }
+  .seek { position: relative; flex: 1; min-width: 80px; padding-bottom: 13px; }
+  .seek input { width: 100%; margin: 0; display: block; height: 18px; accent-color: var(--accent); background: transparent; cursor: pointer; }
+  #marks { position: absolute; left: 8px; right: 8px; bottom: 0; height: 13px; font-size: 10px; color: var(--dim); pointer-events: none; }
+  #marks span { position: absolute; top: 0; padding-left: 5px; border-left: 1px solid rgba(255, 255, 255, .35); white-space: nowrap; line-height: 13px; }
+  #clock { flex: none; font: 12px ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; color: var(--dim); padding-bottom: 13px; }
+  .seg { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: rgba(255, 255, 255, .04); }
+  .seg .lbl { padding: 0 8px 0 9px; font-size: 11px; color: var(--dim); }
+  .seg button { padding: 4px 9px; font-size: 12px; border-left: 1px solid var(--line); white-space: nowrap; }
+  .seg button:hover { background: rgba(255, 255, 255, .1); }
+  .seg button[aria-pressed="true"] { background: var(--accent-strong); color: #fff; }
+  .ghost { padding: 4px 10px; font-size: 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--dim); }
+  .ghost:hover { color: var(--text); background: rgba(255, 255, 255, .1); }
+  .spacer { flex: 1; }
+  #showui { right: 14px; bottom: calc(12px + var(--safe-b)); padding: 6px 12px; opacity: .55; }
+  #showui:hover, #showui:focus-visible { opacity: 1; }
+  .hint { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); padding: 5px 12px; font-size: 12px; color: var(--dim); border-radius: 999px; pointer-events: none; opacity: 0; transition: opacity .4s; }
+  .hint.show { opacity: 1; }
+
+  .overlay { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; text-align: center; padding: 24px; background: rgba(5, 7, 12, .5); }
+  .overlay[hidden] { display: none; }
+  .overlay p { margin: 0; color: var(--dim); max-width: 34em; }
+  #startBtn { padding: 12px 28px; font-size: 16px; font-weight: 600; border-radius: 999px; background: var(--accent-strong); color: #fff; box-shadow: 0 8px 30px rgba(53, 99, 246, .45); }
+  #nogl { background: #05070c; }
+  #nogl h2 { margin: 0; font-size: 18px; }
+
+  @media (max-width: 760px) {
+    .title { padding: 8px 11px; }
+    .title h1 { font-size: 13.5px; }
+    .title h1 span { display: none; }
+    .tele { gap: 2px 10px; padding: 7px 9px; }
+    .tele .num { min-width: 44px; }
+    .tele .num b { font-size: 15px; }
+    .chips span { padding: 0 5px; font-size: 10px; }
+    .optrow { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-right: -12px; padding-right: 12px; }
+    .optrow::-webkit-scrollbar { display: none; }
+    .seg, .ghost { flex: none; }
+    .spacer { display: none; }
+    #marks span { font-size: 9px; }
+  }
+  @media (max-width: 460px) {
+    .tele .num:nth-child(3) { display: none; }
+    .tele { grid-template-columns: repeat(2, auto); }
+  }
+  /* 竖屏手机：顶部两个面板上下排，避免标题和飞行数据互相顶在一起 */
+  @media (max-width: 760px) and (orientation: portrait) {
+    .title { top: calc(8px + env(safe-area-inset-top, 0px)); left: 8px; right: 8px; }
+    .title p { font-size: 11.5px; margin-top: 2px; }
+    /* 底部的播放条在竖屏下大约占 150px，这里把它让出来 */
+    .tele { top: auto; bottom: calc(var(--safe-b) + 176px); left: 8px; right: 8px;
+      grid-template-columns: repeat(2, 1fr); gap: 4px 10px; padding: 8px 10px; }
+    .tele .num { min-width: 0; }
+    .tele .chips { grid-column: 1 / -1; }
+    /* hint 是顶部的胶囊提示，竖屏下不要动它 */
+  }
+  @media (max-height: 420px) { .title p { display: none; } .chips { display: none; } .seek { padding-bottom: 0; } #marks { display: none; } #clock { padding-bottom: 0; } .optrow { margin-top: 6px; } }
+  @media (prefers-reduced-motion: reduce) { .panel, .hint, .chips span { transition: none; } }
+</style>
+</head>
+<body>
+<canvas id="view" tabindex="0" role="img"
+  aria-label="三维动画：黄昏中，一架双发喷气客机放下起落架和襟翼，沿三度下滑道飞向跑道，拉平后主轮接地、轮胎冒出青烟，随后扰流板升起、前轮落地、反推打开，飞机减速滑跑并从快速脱离道驶出跑道。"></canvas>
+<div id="vignette"></div>
+<div id="fade"></div>
+
+<div class="panel title">
+  <h1>飞机降落<span>3D 动画</span></h1>
+  <p id="phase" aria-live="polite">加载中…</p>
+</div>
+
+<div class="panel tele" aria-label="飞行数据">
+  <div class="num"><b id="tAlt">–</b><i>离地高度 ft</i></div>
+  <div class="num"><b id="tSpd">–</b><i>地速 kt</i></div>
+  <div class="num"><b id="tVs">–</b><i>升降率 ft/min</i></div>
+  <div class="chips">
+    <span id="cGear" class="on">起落架</span><span id="cFlap" class="on">襟翼</span><span id="cSpl">扰流板</span><span id="cRev">反推</span><span id="cBrk">刹车</span>
+  </div>
+</div>
+
+<div class="panel hint" id="hint"></div>
+
+<div class="panel bar" role="region" aria-label="播放控制">
+  <div class="seekrow">
+    <button id="play" class="icon" type="button" aria-label="暂停">
+      <svg class="i-pause" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2" width="3.6" height="12" rx="1"/><rect x="9.4" y="2" width="3.6" height="12" rx="1"/></svg>
+      <svg class="i-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.3v11.4a.8.8 0 0 0 1.2.7l9-5.7a.8.8 0 0 0 0-1.4l-9-5.7A.8.8 0 0 0 4 2.3z"/></svg>
+    </button>
+    <button id="restart" class="icon" type="button" aria-label="从头播放">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a5.8 5.8 0 1 1-5.5 7.6.9.9 0 0 1 1.7-.6A4 4 0 1 0 8 4v1.700a.5.5 0 0 1-.8.4L3.900 3.500a.5.5 0 0 1 0-.8L7.200.300a.5.5 0 0 1 .8.4z"/></svg>
+    </button>
+    <div class="seek">
+      <input id="seek" type="range" min="0" max="1000" step="1" value="0" aria-label="时间轴">
+      <div id="marks" aria-hidden="true"></div>
+    </div>
+    <output id="clock" for="seek">0:00 / 0:00</output>
+  </div>
+  <div class="optrow">
+    <div class="seg" role="group" aria-label="镜头">
+      <span class="lbl">镜头</span>
+      <button type="button" data-cam="auto" aria-pressed="true" title="自动切换机位 (1)">导播</button>
+      <button type="button" data-cam="chase" aria-pressed="false" title="机尾后上方 (2)">追尾</button>
+      <button type="button" data-cam="side" aria-pressed="false" title="左侧伴飞 (3)">伴飞</button>
+      <button type="button" data-cam="spot" aria-pressed="false" title="跑道边长焦 (4)">跑道边</button>
+      <button type="button" data-cam="tower" aria-pressed="false" title="塔台俯瞰 (5)">塔台</button>
+      <button type="button" data-cam="nose" aria-pressed="false" title="驾驶舱视角 (6)">机头</button>
+      <button type="button" data-cam="orbit" aria-pressed="false" title="拖动画面自由环绕 (7)">环绕</button>
+    </div>
+    <div class="seg" role="group" aria-label="天色">
+      <span class="lbl">天色</span>
+      <button type="button" data-tod="day" aria-pressed="false">白天</button>
+      <button type="button" data-tod="dusk" aria-pressed="true">黄昏</button>
+      <button type="button" data-tod="night" aria-pressed="false">夜晚</button>
+    </div>
+    <div class="seg" role="group" aria-label="播放速度">
+      <span class="lbl">速度</span>
+      <button type="button" data-speed="0.5" aria-pressed="false">0.5×</button>
+      <button type="button" data-speed="1" aria-pressed="true">1×</button>
+      <button type="button" data-speed="2" aria-pressed="false">2×</button>
+    </div>
+    <span class="spacer"></span>
+    <button id="hideui" class="ghost" type="button" title="隐藏界面 (H)">隐藏界面</button>
+    <button id="fs" class="ghost" type="button" title="全屏 (F)">全屏</button>
+  </div>
+</div>
+<button id="showui" class="panel ghost" type="button" hidden>显示界面</button>
+
+<div id="start" class="overlay" hidden>
+  <button id="startBtn" type="button">▶ 播放动画</button>
+  <p>系统开启了「减少动态效果」，所以没有自动播放。</p>
+</div>
+<div id="nogl" class="overlay" hidden>
+  <h2>无法启动 WebGL2</h2>
+  <p>这段三维动画需要 WebGL2。请换用较新的 Chrome、Edge、Firefox 或 Safari，或在浏览器设置里打开硬件加速后重试。</p>
+</div>
+
