@@ -1157,13 +1157,21 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
 
     await new Promise((r) => setTimeout(r, 120))
 
-    // 1) 顶栏存在「百宝箱」页签，页面中仅展示「回声洞」模块入口
+    // 1) 顶栏存在「百宝箱」页签，页面中展示「回声洞」「鹈鹕骑车」「降落」三个模块入口
     const header = container.querySelector('header.site-header')
     assert.ok(header, '/toolbox 页面应正常渲染顶部导航栏')
     assert.match(header.textContent || '', /百宝箱/, '顶部导航栏应包含「百宝箱」页签')
 
     const echoLink = container.querySelector('a[href="/toolbox/echo"]')
     assert.ok(echoLink, '百宝箱页面应包含指向 /toolbox/echo 的「回声洞」入口')
+    for (const [href, title] of [
+      ['/toolbox/pelican', '鹈鹕骑车'],
+      ['/toolbox/landing', '降落'],
+    ]) {
+      const link = container.querySelector(`a[href="${href}"]`)
+      assert.ok(link, `百宝箱页面应包含指向 ${href} 的「${title}」入口`)
+      assert.ok(link.textContent.includes(title), `${href} 入口卡片应显示标题「${title}」`)
+    }
     assert.match(echoLink.textContent || '', /回声洞/)
 
     // 2) 点击进入回声洞：完全独占全屏，展示用户选择的背景，没有任何多余按键，底部只有一条横线和一个箭头发送按钮
@@ -2841,6 +2849,245 @@ test('issue #106 & offline CI：首页下滑自动加载更多 + main 更新自�
   }
 })
 
+test('百宝箱动画模块：鹈鹕骑车 SVG 自包含且腿部关键帧与 IK 解算一致，降落飞行剖面满足物理约束，无 WebGL 时优雅降级', async () => {
+  const { pathToFileURL } = await import('node:url')
+  const { mkdirSync, writeFileSync } = await import('node:fs')
 
+  // ---------- 1) 鹈鹕骑车：SVG 文件本身 ----------
+  const svg = readFileSync(join(root, 'src/assets/pelican-bicycle.svg'), 'utf8')
+  const svgDom = new JSDOM(svg, { contentType: 'image/svg+xml' })
+  const svgRoot = svgDom.window.document.documentElement
+  assert.equal(svgRoot.localName, 'svg', 'pelican-bicycle.svg 应是合法的 XML，根元素为 <svg>')
+  assert.equal(svgRoot.getAttribute('viewBox'), '0 0 800 500')
+  assert.ok(svgRoot.querySelector('title')?.textContent.includes('鹈鹕'), 'SVG 应带 <title> 供读屏软件朗读')
+  assert.equal(svgRoot.querySelectorAll('script').length, 0, 'SVG 动画不应依赖脚本')
+  assert.ok(!/\son[a-z]+\s*=/.test(svg), 'SVG 不应包含内联事件处理器')
+  assert.ok(!/(?:href|src)\s*=\s*"(?:https?:)?\/\//.test(svg), 'SVG 不应引用外部资源')
+  assert.ok(!/url\(\s*['"]?(?!#)/.test(svg), 'SVG 里的 url() 只能引用文件内的 #id（离线版不允许外链）')
+  assert.ok(!/@import/.test(svg), 'SVG 样式不应 @import 外部样式表')
+  for (const el of svgRoot.querySelectorAll('[id]')) {
+    assert.ok(el.id.startsWith('pb-'), `SVG 内联进页面后 id 会进入全局命名空间，必须带 pb- 前缀：${el.id}`)
+  }
+  for (const [, name] of svg.matchAll(/@keyframes\s+([\w-]+)/g)) {
+    assert.ok(name.startsWith('pb-'), `关键帧名必须带 pb- 前缀：${name}`)
+  }
+  // 每个被引用的动画都要有对应的 @keyframes
+  const defined = new Set([...svg.matchAll(/@keyframes\s+([\w-]+)/g)].map((m) => m[1]))
+  for (const [, name] of svg.matchAll(/animation:\s*(pb-[\w-]+)/g)) {
+    assert.ok(defined.has(name), `animation 引用的关键帧 ${name} 必须已定义`)
+  }
+  assert.ok(svg.includes('.pb-paused'), 'SVG 应支持通过 .pb-paused 暂停')
+  assert.ok(svg.includes('.pb-night'), 'SVG 应内置夜景配色')
 
+  // ---------- 2) 腿部关键帧必须与生成脚本的当前输出一致（防止改了车架却忘了重跑脚本） ----------
+  const ik = await import(pathToFileURL(join(root, 'scripts/gen-pelican-leg.mjs')).href)
+  const block = svg.match(/\/\* IK:BEGIN[^\n]*\*\/\n([\s\S]*?)\n[ \t]*\/\* IK:END \*\//)
+  assert.ok(block, 'SVG 中应保留 IK:BEGIN / IK:END 标记')
+  assert.equal(block[1].trim(), ik.buildKeyframes().trim(), '腿部关键帧已过期：请重新运行 node scripts/gen-pelican-leg.mjs')
+  const { RIG } = ik
+  for (let step = 0; step < RIG.steps; step++) {
+    const pose = ik.solveLeg((step / RIG.steps) * 360)
+    const thigh = Math.hypot(pose.knee[0] - RIG.hip[0], pose.knee[1] - RIG.hip[1])
+    const shin = Math.hypot(pose.ankle[0] - pose.knee[0], pose.ankle[1] - pose.knee[1])
+    assert.ok(Math.abs(thigh - RIG.thigh) < 1e-6 && Math.abs(shin - RIG.shin) < 1e-6, '骨骼长度在整圈中必须保持不变（脚不会离开脚踏）')
+    assert.ok(pose.knee[0] > RIG.hip[0], '膝盖应始终朝前弯（不会反关节）')
+  }
+  // 轮子滚一圈走过的路程 = 路面虚线的位移周期，轮胎才不会打滑
+  assert.ok(Math.abs(2 * Math.PI * 62 - 389.6) < 0.1)
+  assert.ok(svg.includes('389.6'), '路面滚动周期应等于车轮周长 389.6')
 
+  // ---------- 3) 降落：飞行剖面 ----------
+  const flight = await importTsModule('src/lib/landing/flight.ts')
+  const { FLIGHT, sampleFlight } = flight
+  const first = sampleFlight(0)
+  const glide = (Math.atan2(-first.verticalSpeed, first.speed) * 180) / Math.PI
+  assert.ok(Math.abs(glide - FLIGHT.glideSlopeDeg) < 0.05, `进近段应沿 ${FLIGHT.glideSlopeDeg}° 下滑道，实际 ${glide.toFixed(3)}°`)
+  const touchdown = sampleFlight(FLIGHT.touchdown)
+  assert.ok(Math.abs(touchdown.h) < 1e-6, '接地瞬间主轮高度应为 0')
+  assert.ok(Math.abs(touchdown.s - FLIGHT.touchdownPoint) < 0.5, '应接地在瞄准点标志上')
+  assert.ok(touchdown.pitch > (4 * Math.PI) / 180, '接地时应保持抬头姿态（主轮先着地）')
+  assert.ok(Math.abs(touchdown.roll) < 1e-3 && Math.abs(touchdown.yaw) < 1e-3, '接地时机翼放平、机头对正跑道')
+  const beforeTouchdown = sampleFlight(FLIGHT.touchdown - 0.05)
+  assert.ok(beforeTouchdown.verticalSpeed < 0 && beforeTouchdown.verticalSpeed > -1.2, '拉平后的接地下沉率应很小（< 1.2 m/s）')
+
+  let prev = first
+  for (let t = 0.05; t <= FLIGHT.duration; t += 0.05) {
+    const cur = sampleFlight(t)
+    assert.ok(cur.h >= -1e-6, `高度不应为负（t=${t.toFixed(2)}）`)
+    assert.ok(cur.h <= prev.h + 1e-6, `下降过程高度应单调不增（t=${t.toFixed(2)}）`)
+    assert.ok(cur.s > prev.s, `飞机应始终向前（t=${t.toFixed(2)}）`)
+    assert.ok(cur.speed <= prev.speed + 1e-4, `速度应单调不增（t=${t.toFixed(2)}）`)
+    assert.ok(Math.abs(cur.pitch - prev.pitch) < (1.2 * Math.PI) / 180, `俯仰不应突变（t=${t.toFixed(2)}）`)
+    if (t < FLIGHT.touchdown - 0.05) {
+      assert.equal(cur.spoilers, 0, '空中不应放出地面扰流板')
+      assert.equal(cur.reverse, 0, '空中不应打开反推')
+      assert.equal(cur.mainWheelAngle, 0, '接地前机轮不转')
+    }
+    prev = cur
+  }
+  const rollout = sampleFlight(FLIGHT.touchdown + 4.5)
+  assert.ok(rollout.spoilers > 0.99 && rollout.reverse > 0.99, '接地数秒后扰流板与反推应完全展开')
+  assert.ok(rollout.noseOnGround && rollout.pitch <= 0, '前轮接地后机头不再上仰')
+  const last = sampleFlight(FLIGHT.duration)
+  assert.ok(last.speed < FLIGHT.taxiSpeed + 2, `动画结束时应已减到滑行速度，实际 ${last.speed.toFixed(1)} m/s`)
+  assert.ok(last.reverse < 0.01, '低速时应收起反推')
+  assert.ok(last.s < 2400 - 300, '应在跑道内停稳，且离末端留有余量')
+  // 纯函数：同一时刻任意次采样结果一致（进度条可以随意拖动）
+  assert.deepEqual(sampleFlight(17.3), sampleFlight(17.3))
+  assert.deepEqual(sampleFlight(-5), sampleFlight(0))
+  assert.deepEqual(sampleFlight(999), sampleFlight(FLIGHT.duration))
+
+  // ---------- 4) 两个页面的真实 DOM：鹈鹕页内联 SVG 并可暂停；降落页在没有 WebGL 时给出说明而不是白屏 ----------
+  const harnessEntry = join(root, 'node_modules/.cache/toolbox-anim-test-harness.tsx')
+  mkdirSync(dirname(harnessEntry), { recursive: true })
+  writeFileSync(
+    harnessEntry,
+    `
+      import React from 'react'
+      import { createRoot } from 'react-dom/client'
+      import { MemoryRouter } from 'react-router-dom'
+      import { ThemeProvider } from '../../src/lib/theme'
+      import PelicanRide from '../../src/pages/PelicanRide'
+      import PlaneLanding from '../../src/pages/PlaneLanding'
+      export { React, createRoot, MemoryRouter, ThemeProvider, PelicanRide, PlaneLanding }
+    `,
+    'utf8',
+  )
+  const bundled = await build({
+    entryPoints: [harnessEntry],
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    plugins: [
+      {
+        name: 'vite-raw',
+        setup(b) {
+          b.onResolve({ filter: /\?raw$/ }, (args) => ({
+            path: join(root, args.path.replace(/^\//, '').replace(/\?raw$/, '')),
+            namespace: 'raw-text',
+          }))
+          b.onLoad({ filter: /.*/, namespace: 'raw-text' }, (args) => ({
+            contents: readFileSync(args.path, 'utf8'),
+            loader: 'text',
+          }))
+        },
+      },
+    ],
+    define: {
+      'process.env.NODE_ENV': '"production"',
+      __STARLOG_OFFLINE__: 'false',
+    },
+  })
+  const bundlePath = join(dirname(harnessEntry), 'toolbox-anim-test-bundle.mjs')
+  writeFileSync(bundlePath, bundled.outputFiles[0].text, 'utf8')
+  // 降落页必须懒加载 three.js：无 WebGL 的环境不应执行到 3D 场景代码
+  assert.ok(
+    /import\(\s*['"]\.\.\/lib\/landing\/scene['"]\s*\)/.test(readFileSync(join(root, 'src/pages/PlaneLanding.tsx'), 'utf8')),
+    'PlaneLanding 应通过动态 import() 懒加载 3D 场景',
+  )
+
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+    url: 'https://blog-apa.pages.dev/',
+    pretendToBeVisual: true,
+  })
+  const names = [
+    'window',
+    'document',
+    'localStorage',
+    'sessionStorage',
+    'HTMLElement',
+    'SVGElement',
+    'Node',
+    'MutationObserver',
+    'matchMedia',
+    'requestAnimationFrame',
+    'cancelAnimationFrame',
+    'CustomEvent',
+    'Event',
+  ]
+  const prevGlobals = Object.fromEntries(names.map((name) => [name, globalThis[name]]))
+  globalThis.window = dom.window
+  globalThis.document = dom.window.document
+  globalThis.localStorage = dom.window.localStorage
+  globalThis.sessionStorage = dom.window.sessionStorage
+  globalThis.HTMLElement = dom.window.HTMLElement
+  globalThis.SVGElement = dom.window.SVGElement
+  globalThis.Node = dom.window.Node
+  globalThis.MutationObserver = dom.window.MutationObserver
+  globalThis.CustomEvent = dom.window.CustomEvent
+  globalThis.Event = dom.window.Event
+  dom.window.matchMedia = () => ({
+    matches: false,
+    addListener() {},
+    removeListener() {},
+    addEventListener() {},
+    removeEventListener() {},
+  })
+  globalThis.matchMedia = dom.window.matchMedia
+  dom.window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16)
+  dom.window.cancelAnimationFrame = (id) => clearTimeout(id)
+  globalThis.requestAnimationFrame = dom.window.requestAnimationFrame
+  globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame
+  dom.window.scrollTo = () => {}
+  dom.window.HTMLCanvasElement.prototype.getContext = () => null
+
+  const { React, createRoot, MemoryRouter, ThemeProvider, PelicanRide, PlaneLanding } = await import(
+    `${pathToFileURL(bundlePath).href}?t=${Date.now()}`
+  )
+  const container = dom.window.document.getElementById('root')
+  const mount = async (Page) => {
+    const reactRoot = createRoot(container)
+    reactRoot.render(
+      React.createElement(MemoryRouter, null, React.createElement(ThemeProvider, null, React.createElement(Page))),
+    )
+    await new Promise((r) => setTimeout(r, 80))
+    return reactRoot
+  }
+  const click = (el) => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  const findButton = (text) => [...container.querySelectorAll('button')].find((b) => b.textContent.includes(text))
+
+  try {
+    // 鹈鹕页
+    let reactRoot = await mount(PelicanRide)
+    assert.ok(container.querySelector('[data-yield-list]'), '鹈鹕页应带 data-yield-list（顶栏避让）')
+    const inlineSvg = container.querySelector('[data-pelican-stage] > svg.pb-root')
+    assert.ok(inlineSvg, '鹈鹕页应把 SVG 内联进 DOM（而不是 <img>），这样才能跟随主题与暂停')
+    assert.ok(inlineSvg.querySelector('#pb-spokes'), '内联的 SVG 应包含车轮辐条定义')
+    assert.ok(container.querySelector('a[href="/toolbox"]'), '鹈鹕页应提供返回百宝箱的链接')
+    assert.ok(!inlineSvg.classList.contains('pb-paused'), '默认应在播放')
+    click(findButton('暂停'))
+    await new Promise((r) => setTimeout(r, 30))
+    assert.ok(inlineSvg.classList.contains('pb-paused'), '点击「暂停」后 SVG 应带上 pb-paused')
+    assert.ok(findButton('播放'), '暂停后按钮文案应变为「播放」')
+    click(findButton('夜晚'))
+    await new Promise((r) => setTimeout(r, 30))
+    assert.ok(inlineSvg.classList.contains('pb-night'), '选择「夜晚」后应切到夜景')
+    click(findButton('白昼'))
+    await new Promise((r) => setTimeout(r, 30))
+    assert.ok(inlineSvg.classList.contains('pb-day') && !inlineSvg.classList.contains('pb-night'), '选择「白昼」后应强制日景')
+    assert.ok(findButton('下载 SVG'), '应提供下载 SVG 的按钮')
+    reactRoot.unmount()
+
+    // 降落页（jsdom 没有 WebGL）
+    reactRoot = await mount(PlaneLanding)
+    assert.ok(container.querySelector('[data-yield-list]'), '降落页应带 data-yield-list（顶栏避让）')
+    assert.ok(container.querySelector('canvas'), '降落页应渲染画布')
+    const fallback = container.querySelector('[data-landing-fallback]')
+    assert.ok(fallback, '不支持 WebGL 2 时应显示降级说明')
+    assert.ok(fallback.textContent.includes('WebGL'), '降级说明应告诉用户原因')
+    const playButton = container.querySelector('button[aria-label="播放"], button[aria-label="暂停"]')
+    assert.ok(playButton?.disabled, '场景不可用时播放按钮应禁用')
+    for (const label of ['导演', '尾随', '侧面', '塔台', '驾驶舱', '自由']) {
+      assert.ok(findButton(label), `应提供「${label}」机位`)
+    }
+    reactRoot.unmount()
+  } finally {
+    for (const name of names) {
+      if (prevGlobals[name] === undefined) delete globalThis[name]
+      else globalThis[name] = prevGlobals[name]
+    }
+    dom.window.close()
+  }
+})

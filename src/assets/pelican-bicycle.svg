@@ -1,0 +1,730 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" class="pb-root" role="img" aria-labelledby="pb-title pb-desc">
+  <title id="pb-title">骑自行车的鹈鹕</title>
+  <desc id="pb-desc">一只白色鹈鹕系着围巾，沿海滨公路蹬着一辆带车筐的自行车向右骑行，车筐里装着一条鱼；背景是缓缓后退的棕榈树、沙滩、大海与远山。</desc>
+  <!--
+    鹈鹕骑车 · 纯 SVG + CSS 动画，单文件自包含（无脚本、无外链、无位图）。
+
+    · 直接用浏览器打开、<img> 引用或内联进页面都能动；
+    · 内联到本站页面时：围巾颜色跟随配色主题（-brand-500），深色模式自动切到夜景；
+      根元素加 class="pb-night" 可强制夜景，加 "pb-day" 可强制白昼，加 "pb-paused" 暂停；
+    · 所有 id / class / keyframes 都带 pb- 前缀，内联时不会与页面样式冲突；
+    · 腿部的三段旋转角来自反向运动学解算，由 scripts/gen-pelican-leg.mjs 生成并写回
+      IK:BEGIN ~ IK:END 之间，改车架或腿长后重跑脚本，不要手改那一段。
+
+    速度关系（都由 -pb-t 一个变量推导，改它即可整体变速）：
+      曲柄一圈 = -pb-t；齿比 2 → 车轮一圈 = -pb-t / 2；
+      车轮外径 62 → 周长 389.6，路面每 -pb-t / 2 恰好后退 389.6，轮胎不打滑；
+      中景（棕榈）约为路面速度的 45%，远景（山、灯塔）约 4%，云更慢。
+  -->
+  <style>
+    .pb-root {
+      --pb-t: 1.4s;
+      --pb-sky-a: #45a9ea;
+      --pb-sky-b: #a8dcf8;
+      --pb-sky-c: #e4f5fd;
+      --pb-cloud: #ffffff;
+      --pb-hill-a: #7fb6c9;
+      --pb-hill-b: #5f9fb6;
+      --pb-sea-a: #2f93cf;
+      --pb-sea-b: #6fcbe6;
+      --pb-foam: #ffffff;
+      --pb-sand: #f5dfa8;
+      --pb-sand-shade: #e6c988;
+      --pb-trunk: #a8754f;
+      --pb-trunk-shade: #8a5c3b;
+      --pb-leaf-a: #3fa565;
+      --pb-leaf-b: #2c8750;
+      --pb-curb: #dfe4ec;
+      --pb-curb-shade: #b9c1ce;
+      --pb-road: #5a6275;
+      --pb-road-shade: #4c5466;
+      --pb-lane: #f6f1df;
+      --pb-shadow: #1c2233;
+      --pb-body: #ffffff;
+      --pb-body-shade: #d6e0ec;
+      --pb-wing: #eef2f7;
+      --pb-feather-dark: #2f3645;
+      --pb-bill-a: #ffc24a;
+      --pb-bill-b: #ff9838;
+      --pb-bill-tip: #ec6a3a;
+      --pb-pouch-a: #ffd76a;
+      --pb-pouch-b: #ffab45;
+      --pb-leg: #ff9a3c;
+      --pb-leg-far: #d67f2e;
+      --pb-frame: #17a59b;
+      --pb-frame-shade: #108379;
+      --pb-metal: #c9d1dc;
+      --pb-metal-dark: #3b4150;
+      --pb-tire: #2b2f3b;
+      --pb-saddle: #7b4c2f;
+      --pb-wicker: #cf9550;
+      --pb-wicker-shade: #a8743a;
+      --pb-fish: #6fa8c9;
+      --pb-fish-belly: #d9edf5;
+      --pb-umbrella-a: #ff7a59;
+      --pb-umbrella-b: #fff4e0;
+      --pb-lounger: #3f8fd0;
+      --pb-tower: #f7f4ea;
+      --pb-tower-red: #e0564f;
+      --pb-scarf: rgb(var(--brand-500, 229 72 77));
+      --pb-scarf-shade: rgb(var(--brand-700, 176 44 52));
+      --pb-day: 1;
+      --pb-night: 0;
+    }
+    .pb-root.pb-night,
+    .dark .pb-root:not(.pb-day) {
+      --pb-sky-a: #0b1230;
+      --pb-sky-b: #1c2a5e;
+      --pb-sky-c: #3b4b8c;
+      --pb-cloud: #56659e;
+      --pb-hill-a: #1c2850;
+      --pb-hill-b: #141d40;
+      --pb-sea-a: #121d4a;
+      --pb-sea-b: #263f86;
+      --pb-foam: #aebbe6;
+      --pb-sand: #5d6187;
+      --pb-sand-shade: #4a4e72;
+      --pb-trunk: #4c3f4f;
+      --pb-trunk-shade: #3a2f40;
+      --pb-leaf-a: #1f5a55;
+      --pb-leaf-b: #174541;
+      --pb-curb: #6b7396;
+      --pb-curb-shade: #535a7b;
+      --pb-road: #272c40;
+      --pb-road-shade: #1f2335;
+      --pb-lane: #b9b9c9;
+      --pb-shadow: #05070f;
+      --pb-body: #e9eefb;
+      --pb-body-shade: #aab5d6;
+      --pb-wing: #d5dcf0;
+      --pb-feather-dark: #1b2030;
+      --pb-bill-a: #f0b048;
+      --pb-bill-b: #e08a36;
+      --pb-bill-tip: #c95a36;
+      --pb-pouch-a: #f0c462;
+      --pb-pouch-b: #e09a42;
+      --pb-leg: #e88c3a;
+      --pb-leg-far: #b56b2a;
+      --pb-frame: #1b9b93;
+      --pb-frame-shade: #12736c;
+      --pb-metal: #9aa4bb;
+      --pb-metal-dark: #23283a;
+      --pb-tire: #151824;
+      --pb-saddle: #5d3a26;
+      --pb-wicker: #a97a45;
+      --pb-wicker-shade: #835c30;
+      --pb-fish: #5c8fb3;
+      --pb-fish-belly: #b9d0e2;
+      --pb-umbrella-a: #a14f68;
+      --pb-umbrella-b: #8f96bd;
+      --pb-lounger: #2f4f90;
+      --pb-tower: #8e96bd;
+      --pb-tower-red: #8d4160;
+      --pb-day: 0;
+      --pb-night: 1;
+    }
+
+    /* 注意：use 克隆出的元素在部分浏览器里匹配不到「祖先 后代」选择器，这几条必须是单类名 */
+    .pb-day-only { opacity: var(--pb-day); }
+    .pb-night-only { opacity: var(--pb-night); }
+    .pb-o { transform-box: view-box; transform-origin: 0 0; }
+
+    /* 渐变色标 */
+    .pb-s-sky-a { stop-color: var(--pb-sky-a); }
+    .pb-s-sky-b { stop-color: var(--pb-sky-b); }
+    .pb-s-sky-c { stop-color: var(--pb-sky-c); }
+    .pb-s-sea-a { stop-color: var(--pb-sea-a); }
+    .pb-s-sea-b { stop-color: var(--pb-sea-b); }
+    .pb-s-bill-a { stop-color: var(--pb-bill-a); }
+    .pb-s-bill-b { stop-color: var(--pb-bill-b); }
+    .pb-s-pouch-a { stop-color: var(--pb-pouch-a); }
+    .pb-s-pouch-b { stop-color: var(--pb-pouch-b); }
+
+    /* 背景分层滚动 */
+    .pb-clouds { animation: pb-scroll-800 90s linear infinite; }
+    .pb-far { animation: pb-scroll-800 36s linear infinite; }
+    .pb-mid { animation: pb-scroll-800 calc(var(--pb-t) * 2.3) linear infinite; }
+    .pb-roadmark { animation: pb-road calc(var(--pb-t) / 2) linear infinite; }
+    .pb-wave { animation: pb-wave 9s linear infinite; }
+    .pb-wave.pb-w2 { animation-duration: 6s; }
+    .pb-wave.pb-w3 { animation-duration: 4s; }
+    @keyframes pb-scroll-800 { to { transform: translateX(-800px); } }
+    @keyframes pb-road { to { stroke-dashoffset: 389.6; } }
+    @keyframes pb-wave { to { stroke-dashoffset: 128; } }
+
+    /* 天体与星星 */
+    .pb-halo { animation: pb-pulse 5s ease-in-out infinite alternate; }
+    .pb-star { animation: pb-twinkle 2.6s ease-in-out infinite alternate; }
+    .pb-star:nth-of-type(3n) { animation-delay: -0.9s; animation-duration: 3.4s; }
+    .pb-star:nth-of-type(3n + 1) { animation-delay: -1.7s; }
+    .pb-beacon { animation: pb-twinkle 1.8s ease-in-out infinite alternate; }
+    @keyframes pb-pulse { from { transform: scale(0.94); } to { transform: scale(1.08); } }
+    @keyframes pb-twinkle { from { opacity: 0.25; } to { opacity: 1; } }
+
+    /* 传动：曲柄、脚踏、车轮、链条 */
+    .pb-crank { animation: pb-spin var(--pb-t) linear infinite; }
+    .pb-pedal { animation: pb-unspin var(--pb-t) linear infinite; }
+    .pb-wheel { animation: pb-spin calc(var(--pb-t) / 2) linear infinite; }
+    .pb-chain { animation: pb-chain calc(var(--pb-t) / 4) linear infinite; }
+    @keyframes pb-spin { to { transform: rotate(360deg); } }
+    @keyframes pb-unspin { to { transform: rotate(-360deg); } }
+    @keyframes pb-chain { to { stroke-dashoffset: 25; } }
+
+    /* 腿：大腿 / 小腿 / 脚掌三段，角度由 IK 解算（见下） */
+    .pb-thigh { animation: pb-thigh var(--pb-t) linear infinite; }
+    .pb-shin { animation: pb-shin var(--pb-t) linear infinite; }
+    .pb-foot { animation: pb-foot var(--pb-t) linear infinite; }
+    .pb-far-side .pb-crank,
+    .pb-far-side .pb-pedal,
+    .pb-far-side .pb-thigh,
+    .pb-far-side .pb-shin,
+    .pb-far-side .pb-foot { animation-delay: calc(var(--pb-t) / -2); }
+
+    /* IK:BEGIN 由 scripts/gen-pelican-leg.mjs 生成，请勿手改 */
+    @keyframes pb-thigh {
+      0% { transform: rotate(39.23deg) }
+      4.1667% { transform: rotate(44.59deg) }
+      8.3333% { transform: rotate(50.35deg) }
+      12.5% { transform: rotate(56.12deg) }
+      16.6667% { transform: rotate(61.36deg) }
+      20.8333% { transform: rotate(65.37deg) }
+      25% { transform: rotate(67.48deg) }
+      29.1667% { transform: rotate(67.72deg) }
+      33.3333% { transform: rotate(66.58deg) }
+      37.5% { transform: rotate(64.55deg) }
+      41.6667% { transform: rotate(61.90deg) }
+      45.8333% { transform: rotate(58.76deg) }
+      50% { transform: rotate(55.17deg) }
+      54.1667% { transform: rotate(51.18deg) }
+      58.3333% { transform: rotate(46.85deg) }
+      62.5% { transform: rotate(42.30deg) }
+      66.6667% { transform: rotate(37.78deg) }
+      70.8333% { transform: rotate(33.65deg) }
+      75% { transform: rotate(30.33deg) }
+      79.1667% { transform: rotate(28.23deg) }
+      83.3333% { transform: rotate(27.61deg) }
+      87.5% { transform: rotate(28.55deg) }
+      91.6667% { transform: rotate(30.94deg) }
+      95.8333% { transform: rotate(34.58deg) }
+      100% { transform: rotate(39.23deg) }
+    }
+    @keyframes pb-shin {
+      0% { transform: rotate(62.61deg) }
+      4.1667% { transform: rotate(54.22deg) }
+      8.3333% { transform: rotate(45.95deg) }
+      12.5% { transform: rotate(38.33deg) }
+      16.6667% { transform: rotate(32.22deg) }
+      20.8333% { transform: rotate(28.87deg) }
+      25% { transform: rotate(29.35deg) }
+      29.1667% { transform: rotate(33.49deg) }
+      33.3333% { transform: rotate(40.06deg) }
+      37.5% { transform: rotate(47.90deg) }
+      41.6667% { transform: rotate(56.24deg) }
+      45.8333% { transform: rotate(64.60deg) }
+      50% { transform: rotate(72.62deg) }
+      54.1667% { transform: rotate(79.98deg) }
+      58.3333% { transform: rotate(86.37deg) }
+      62.5% { transform: rotate(91.48deg) }
+      66.6667% { transform: rotate(95.01deg) }
+      70.8333% { transform: rotate(96.72deg) }
+      75% { transform: rotate(96.49deg) }
+      79.1667% { transform: rotate(94.32deg) }
+      83.3333% { transform: rotate(90.38deg) }
+      87.5% { transform: rotate(84.94deg) }
+      91.6667% { transform: rotate(78.29deg) }
+      95.8333% { transform: rotate(70.74deg) }
+      100% { transform: rotate(62.61deg) }
+    }
+    @keyframes pb-foot {
+      0% { transform: rotate(-96.84deg) }
+      4.1667% { transform: rotate(-91.22deg) }
+      8.3333% { transform: rotate(-86.29deg) }
+      12.5% { transform: rotate(-82.38deg) }
+      16.6667% { transform: rotate(-79.93deg) }
+      20.8333% { transform: rotate(-79.58deg) }
+      25% { transform: rotate(-81.84deg) }
+      29.1667% { transform: rotate(-86.55deg) }
+      33.3333% { transform: rotate(-92.98deg) }
+      37.5% { transform: rotate(-100.38deg) }
+      41.6667% { transform: rotate(-108.15deg) }
+      45.8333% { transform: rotate(-115.77deg) }
+      50% { transform: rotate(-122.79deg) }
+      54.1667% { transform: rotate(-128.75deg) }
+      58.3333% { transform: rotate(-133.21deg) }
+      62.5% { transform: rotate(-135.85deg) }
+      66.6667% { transform: rotate(-136.45deg) }
+      70.8333% { transform: rotate(-135.03deg) }
+      75% { transform: rotate(-131.82deg) }
+      79.1667% { transform: rotate(-127.21deg) }
+      83.3333% { transform: rotate(-121.66deg) }
+      87.5% { transform: rotate(-115.55deg) }
+      91.6667% { transform: rotate(-109.22deg) }
+      95.8333% { transform: rotate(-102.91deg) }
+      100% { transform: rotate(-96.84deg) }
+    }
+    /* IK:END */
+
+    /* 鹈鹕本体的小动作 */
+    .pb-rider { animation: pb-bob calc(var(--pb-t) / 2) ease-in-out infinite alternate; }
+    .pb-head { animation: pb-nod calc(var(--pb-t) / 2) ease-in-out infinite alternate; }
+    .pb-pouch { animation: pb-pouch calc(var(--pb-t) / 2) ease-in-out infinite alternate; }
+    .pb-crest { animation: pb-flutter 0.42s ease-in-out infinite alternate; }
+    .pb-tail { animation: pb-flutter 0.5s ease-in-out infinite alternate; }
+    .pb-scarf-a { animation: pb-scarf-a 0.62s ease-in-out infinite alternate; }
+    .pb-scarf-b { animation: pb-scarf-b 0.5s ease-in-out infinite alternate; }
+    .pb-eye { animation: pb-blink 4.2s linear infinite; }
+    .pb-fish { animation: pb-fish 0.9s ease-in-out infinite alternate; }
+    .pb-fishtail { animation: pb-fishtail 0.3s ease-in-out infinite alternate; }
+    .pb-bike { animation: pb-bike calc(var(--pb-t) / 2) ease-in-out infinite alternate; }
+    @keyframes pb-bob { from { transform: translateY(-0.8px); } to { transform: translateY(1.4px); } }
+    @keyframes pb-nod { from { transform: rotate(-1.6deg); } to { transform: rotate(1.8deg); } }
+    @keyframes pb-pouch { from { transform: scale(1, 0.97) skewX(-1deg); } to { transform: scale(1, 1.07) skewX(1.5deg); } }
+    @keyframes pb-flutter { from { transform: rotate(-5deg); } to { transform: rotate(6deg); } }
+    @keyframes pb-scarf-a { from { transform: rotate(-7deg) scaleY(0.9); } to { transform: rotate(8deg) scaleY(1.1); } }
+    @keyframes pb-scarf-b { from { transform: rotate(9deg) scaleY(1.1); } to { transform: rotate(-6deg) scaleY(0.88); } }
+    @keyframes pb-blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.08); } }
+    @keyframes pb-fish { from { transform: rotate(-5deg); } to { transform: rotate(6deg) translateY(-2px); } }
+    @keyframes pb-fishtail { from { transform: rotate(-22deg); } to { transform: rotate(20deg); } }
+    @keyframes pb-bike { from { transform: translateY(0); } to { transform: translateY(0.5px); } }
+
+    /* 气氛：风线与车尾扬尘 */
+    .pb-wind { animation: pb-wind 1.9s linear infinite; }
+    .pb-wind.pb-w2 { animation-duration: 2.6s; animation-delay: -0.8s; }
+    .pb-wind.pb-w3 { animation-duration: 2.2s; animation-delay: -1.5s; }
+    .pb-dust { animation: pb-dust 0.9s ease-out infinite; }
+    .pb-dust.pb-d2 { animation-delay: -0.3s; }
+    .pb-dust.pb-d3 { animation-delay: -0.6s; }
+    @keyframes pb-wind { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -1000; } }
+    @keyframes pb-dust {
+      from { transform: translate(0, 0) scale(0.4); opacity: 0.55; }
+      to { transform: translate(-46px, -12px) scale(1.7); opacity: 0; }
+    }
+
+    /* 暂停：页面上的「暂停」按钮给根元素加 pb-paused */
+    .pb-root.pb-paused * { animation-play-state: paused !important; }
+  </style>
+
+  <defs>
+    <clipPath id="pb-clip"><rect width="800" height="500" /></clipPath>
+    <linearGradient id="pb-g-sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" class="pb-s-sky-a" />
+      <stop offset="0.38" class="pb-s-sky-b" />
+      <stop offset="0.56" class="pb-s-sky-c" />
+    </linearGradient>
+    <linearGradient id="pb-g-sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" class="pb-s-sea-a" />
+      <stop offset="1" class="pb-s-sea-b" />
+    </linearGradient>
+    <linearGradient id="pb-g-bill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" class="pb-s-bill-a" />
+      <stop offset="1" class="pb-s-bill-b" />
+    </linearGradient>
+    <linearGradient id="pb-g-pouch" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" class="pb-s-pouch-a" />
+      <stop offset="1" class="pb-s-pouch-b" />
+    </linearGradient>
+    <radialGradient id="pb-g-sun">
+      <stop offset="0" stop-color="#fff3b0" stop-opacity="0.95" />
+      <stop offset="0.45" stop-color="#ffe27a" stop-opacity="0.45" />
+      <stop offset="1" stop-color="#ffe27a" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="pb-g-moon">
+      <stop offset="0" stop-color="#dfe6ff" stop-opacity="0.5" />
+      <stop offset="1" stop-color="#dfe6ff" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="pb-g-lamp">
+      <stop offset="0" stop-color="#ffe9a8" stop-opacity="0.9" />
+      <stop offset="1" stop-color="#ffe9a8" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="pb-g-beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fff0b8" stop-opacity="0.75" />
+      <stop offset="1" stop-color="#fff0b8" stop-opacity="0" />
+    </linearGradient>
+
+    <!-- 云朵 -->
+    <g id="pb-cloud" fill="var(--pb-cloud)">
+      <ellipse cx="0" cy="0" rx="50" ry="15" />
+      <circle cx="-20" cy="-9" r="16" />
+      <circle cx="4" cy="-17" r="21" />
+      <circle cx="28" cy="-7" r="14" />
+    </g>
+
+    <!-- 棕榈树：原点在树根 -->
+    <g id="pb-palm">
+      <path d="M-5 0 C-3 -50 2 -104 15 -152 L23 -150 C12 -102 9 -50 8 0 Z" fill="var(--pb-trunk)" />
+      <path d="M2 -40 l7 -2 M4 -78 l7 -2 M9 -114 l7 -1" stroke="var(--pb-trunk-shade)" stroke-width="2" stroke-linecap="round" fill="none" />
+      <g transform="translate(19 -152)">
+        <path d="M0 0 Q-34 -34 -70 -8 Q-36 -18 0 0 Z" fill="var(--pb-leaf-b)" />
+        <path d="M0 0 Q34 -36 72 -12 Q38 -20 0 0 Z" fill="var(--pb-leaf-b)" />
+        <path d="M0 0 Q-44 -8 -62 30 Q-36 2 0 0 Z" fill="var(--pb-leaf-a)" />
+        <path d="M0 0 Q46 -6 64 28 Q36 2 0 0 Z" fill="var(--pb-leaf-a)" />
+        <path d="M0 0 Q-10 -44 -42 -52 Q-14 -34 0 0 Z" fill="var(--pb-leaf-a)" />
+        <path d="M0 0 Q12 -46 46 -52 Q16 -34 0 0 Z" fill="var(--pb-leaf-a)" />
+        <path d="M0 0 Q-22 16 -24 46 Q-12 20 0 0 Z" fill="var(--pb-leaf-b)" />
+        <path d="M0 0 Q22 14 28 44 Q12 18 0 0 Z" fill="var(--pb-leaf-b)" />
+        <circle cx="-3" cy="5" r="4.5" fill="var(--pb-trunk-shade)" />
+        <circle cx="5" cy="6" r="4" fill="var(--pb-trunk-shade)" />
+      </g>
+    </g>
+
+    <!-- 路灯：原点在灯杆底部 -->
+    <g id="pb-lamp">
+      <path d="M0 0 V-128 Q0 -146 20 -146" fill="none" stroke="var(--pb-metal-dark)" stroke-width="4" stroke-linecap="round" />
+      <rect x="-5" y="-8" width="10" height="8" rx="2" fill="var(--pb-metal-dark)" />
+      <path d="M14 -148 h16 l-3 7 h-10 Z" fill="var(--pb-metal-dark)" />
+      <circle class="pb-night-only" cx="22" cy="-134" r="40" fill="url(#pb-g-lamp)" />
+      <ellipse cx="22" cy="-140" rx="6" ry="2.6" fill="#ffeeb0" />
+    </g>
+
+    <!-- 辐条 -->
+    <g id="pb-spokes">
+      <path d="M-53 0H53M0 -53V53M-45.9 -26.5L45.9 26.5M-26.5 -45.9L26.5 45.9M-45.9 26.5L45.9 -26.5M-26.5 45.9L26.5 -45.9" stroke="var(--pb-metal)" stroke-width="1.2" fill="none" />
+      <rect x="30" y="-3.2" width="15" height="6.4" rx="2" fill="#ff8f3d" />
+      <rect x="-45" y="-3.2" width="15" height="6.4" rx="2" fill="#ffd166" />
+      <rect x="-1.5" y="-54" width="3" height="9" rx="1" fill="var(--pb-metal-dark)" />
+    </g>
+  </defs>
+
+  <g clip-path="url(#pb-clip)">
+    <!-- ============================ 天空 ============================ -->
+    <rect width="800" height="500" fill="url(#pb-g-sky)" />
+
+    <g class="pb-night-only" fill="#ffffff">
+      <circle class="pb-star" cx="60" cy="48" r="1.6" />
+      <circle class="pb-star" cx="132" cy="112" r="1.2" />
+      <circle class="pb-star" cx="204" cy="36" r="1.8" />
+      <circle class="pb-star" cx="262" cy="92" r="1.1" />
+      <circle class="pb-star" cx="318" cy="24" r="1.4" />
+      <circle class="pb-star" cx="372" cy="58" r="1.1" />
+      <circle class="pb-star" cx="468" cy="30" r="1.7" />
+      <circle class="pb-star" cx="530" cy="64" r="1.2" />
+      <circle class="pb-star" cx="588" cy="22" r="1.4" />
+      <circle class="pb-star" cx="716" cy="38" r="1.3" />
+      <circle class="pb-star" cx="760" cy="104" r="1.7" />
+      <circle class="pb-star" cx="94" cy="168" r="1.1" />
+      <circle class="pb-star" cx="228" cy="160" r="1.3" />
+      <circle class="pb-star" cx="560" cy="150" r="1.1" />
+      <circle class="pb-star" cx="742" cy="186" r="1.2" />
+    </g>
+
+    <!-- 太阳 / 月亮 -->
+    <g transform="translate(656 88)">
+      <g class="pb-day-only">
+        <circle class="pb-o pb-halo" r="78" fill="url(#pb-g-sun)" />
+        <circle r="32" fill="#ffe27a" />
+        <circle r="32" fill="#fff6c9" opacity="0.5" transform="translate(-6 -6) scale(0.62)" />
+      </g>
+      <g class="pb-night-only">
+        <circle class="pb-o pb-halo" r="64" fill="url(#pb-g-moon)" />
+        <circle r="26" fill="#f3f1dc" />
+        <circle cx="-8" cy="-6" r="5" fill="#dedcc4" />
+        <circle cx="7" cy="8" r="7" fill="#dedcc4" />
+        <circle cx="10" cy="-11" r="3" fill="#dedcc4" />
+      </g>
+    </g>
+
+    <!-- 云 -->
+    <g class="pb-clouds">
+      <g id="pb-cloud-tile" opacity="0.92">
+        <use href="#pb-cloud" transform="translate(110 78)" />
+        <use href="#pb-cloud" transform="translate(330 44) scale(0.7)" />
+        <use href="#pb-cloud" transform="translate(520 132) scale(1.15)" />
+        <use href="#pb-cloud" transform="translate(718 62) scale(0.85)" />
+      </g>
+      <use href="#pb-cloud-tile" x="800" />
+    </g>
+
+    <!-- ============================ 远景：山与灯塔 ============================ -->
+    <g class="pb-far">
+      <g id="pb-far-tile">
+        <path d="M0 274 C40 262 78 232 128 236 C170 240 190 262 226 258 C262 254 286 226 332 230 C380 234 404 268 450 274 Z" fill="var(--pb-hill-a)" />
+        <path d="M150 274 C196 262 220 246 262 250 C304 254 322 270 372 274 Z" fill="var(--pb-hill-b)" />
+        <path d="M560 274 Q628 240 700 274 Z" fill="var(--pb-hill-b)" />
+        <!-- 灯塔 -->
+        <path d="M622 256 L625 222 H635 L638 256 Z" fill="var(--pb-tower)" />
+        <path d="M623.6 240 H636.4 L637.2 248 H622.8 Z" fill="var(--pb-tower-red)" />
+        <rect x="624" y="215" width="12" height="7" rx="1" fill="#39404f" />
+        <path d="M623 215 L630 208 L637 215 Z" fill="var(--pb-tower-red)" />
+        <circle class="pb-night-only pb-beacon" cx="630" cy="218.5" r="9" fill="url(#pb-g-lamp)" />
+        <rect x="627" y="216.5" width="6" height="4" fill="#ffe9a8" />
+      </g>
+      <use href="#pb-far-tile" x="800" />
+    </g>
+
+    <!-- ============================ 大海 ============================ -->
+    <rect y="272" width="800" height="84" fill="url(#pb-g-sea)" />
+    <g fill="none" stroke="var(--pb-foam)" stroke-linecap="round">
+      <path class="pb-wave" d="M-20 284 H820" stroke-width="1.6" stroke-dasharray="14 50" opacity="0.5" />
+      <path class="pb-wave pb-w2" d="M-20 300 H820" stroke-width="2" stroke-dasharray="20 44" stroke-dashoffset="30" opacity="0.5" />
+      <path class="pb-wave pb-w3" d="M-20 320 H820" stroke-width="2.4" stroke-dasharray="26 38" stroke-dashoffset="12" opacity="0.55" />
+    </g>
+
+    <!-- ============================ 中景：沙滩、棕榈、路灯 ============================ -->
+    <g class="pb-mid">
+      <g id="pb-mid-tile">
+        <path d="M0 348 q25 -7 50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 V380 H0 Z" fill="var(--pb-foam)" opacity="0.85" />
+        <path d="M0 353 q25 -7 50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 V380 H0 Z" fill="var(--pb-sand)" />
+        <g fill="var(--pb-sand-shade)">
+          <ellipse cx="70" cy="366" rx="16" ry="2.2" />
+          <ellipse cx="250" cy="362" rx="11" ry="1.8" />
+          <ellipse cx="436" cy="368" rx="18" ry="2.2" />
+          <ellipse cx="612" cy="363" rx="12" ry="1.8" />
+          <ellipse cx="748" cy="367" rx="14" ry="2" />
+        </g>
+        <!-- 遮阳伞与躺椅 -->
+        <g transform="translate(322 372)">
+          <path d="M0 0 V-62" stroke="var(--pb-metal-dark)" stroke-width="2.6" stroke-linecap="round" />
+          <path d="M-36 -52 Q0 -92 36 -52 Z" fill="var(--pb-umbrella-a)" />
+          <path d="M-12 -52 Q-8 -80 0 -76 Q8 -80 12 -52 Z" fill="var(--pb-umbrella-b)" />
+          <path d="M14 -6 h30 l8 -14" fill="none" stroke="var(--pb-lounger)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+        </g>
+        <!-- 小沙堡 -->
+        <path d="M556 372 v-10 h4 v-4 h4 v4 h5 v-8 h5 v8 h5 v-4 h4 v4 h4 v10 Z" fill="var(--pb-sand-shade)" />
+        <use href="#pb-palm" transform="translate(120 374)" />
+        <use href="#pb-palm" transform="translate(520 374) scale(-0.86 0.86)" />
+        <use href="#pb-lamp" transform="translate(690 376)" />
+      </g>
+      <use href="#pb-mid-tile" x="800" />
+    </g>
+
+    <!-- ============================ 人行道与公路 ============================ -->
+    <rect y="372" width="800" height="14" fill="var(--pb-curb)" />
+    <rect y="383" width="800" height="3.5" fill="var(--pb-curb-shade)" />
+    <path class="pb-roadmark" d="M-10 377.5 H810" stroke="var(--pb-curb-shade)" stroke-width="11" stroke-dasharray="2 95.4" fill="none" />
+    <rect y="386.5" width="800" height="113.5" fill="var(--pb-road)" />
+    <rect y="478" width="800" height="22" fill="var(--pb-road-shade)" />
+    <g fill="none" stroke-linecap="round">
+      <path class="pb-roadmark" d="M-10 452 H810" stroke="var(--pb-lane)" stroke-width="6" stroke-dasharray="96 98.8" />
+      <path class="pb-roadmark" d="M-10 418 H810" stroke="var(--pb-road-shade)" stroke-width="2.5" stroke-dasharray="5 110 2 86 8 178.6" />
+      <path class="pb-roadmark" d="M-10 434 H810" stroke="var(--pb-road-shade)" stroke-width="2" stroke-dasharray="3 201 6 179.6" stroke-dashoffset="90" />
+      <path class="pb-roadmark" d="M-10 470 H810" stroke="var(--pb-road-shade)" stroke-width="3" stroke-dasharray="7 150 3 229.6" stroke-dashoffset="40" />
+    </g>
+
+    <!-- 影子与扬尘 -->
+    <ellipse cx="392" cy="403" rx="150" ry="8" fill="var(--pb-shadow)" opacity="0.22" />
+    <g transform="translate(250 396)" fill="var(--pb-curb)">
+      <circle class="pb-o pb-dust" r="7" />
+      <circle class="pb-o pb-dust pb-d2" r="5.5" cy="2" />
+      <circle class="pb-o pb-dust pb-d3" r="6.5" cy="-1" />
+    </g>
+
+    <!-- 夜间车灯光束 -->
+    <path class="pb-night-only" d="M531 213 L800 196 V372 Z" fill="url(#pb-g-beam)" />
+
+    <!-- 风线（画在骑手身后，不会横穿鹈鹕） -->
+    <g fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" opacity="0.55">
+      <path class="pb-wind" d="M820 118 H-20" stroke-dasharray="46 954" />
+      <path class="pb-wind pb-w2" d="M820 262 H-20" stroke-dasharray="70 930" />
+      <path class="pb-wind pb-w3" d="M820 310 H-20" stroke-dasharray="34 966" />
+    </g>
+
+    <!-- ============================ 自行车 + 鹈鹕 ============================ -->
+    <g class="pb-bike">
+      <!-- 远侧曲柄、脚踏与腿（被车架挡在后面） -->
+      <g class="pb-far-side">
+        <g transform="translate(378 350)">
+          <g class="pb-o pb-crank">
+            <path d="M0 0 H22" stroke="var(--pb-metal-dark)" stroke-width="5" stroke-linecap="round" />
+            <g transform="translate(22 0)">
+              <rect class="pb-o pb-pedal" x="-11" y="-3" width="22" height="6" rx="2" fill="var(--pb-metal-dark)" />
+            </g>
+          </g>
+        </g>
+        <g transform="translate(356 226)">
+          <g class="pb-o pb-thigh">
+            <path d="M0 0 H72" stroke="var(--pb-leg-far)" stroke-width="11" stroke-linecap="round" />
+            <g transform="translate(72 0)">
+              <g class="pb-o pb-shin">
+                <path d="M0 0 H72" stroke="var(--pb-leg-far)" stroke-width="8" stroke-linecap="round" />
+                <g transform="translate(72 0)">
+                  <g class="pb-o pb-foot">
+                    <path d="M-6 -4 Q0 -7 7 -3 L25 5 Q28 10 21 10 H-3 Q-9 4 -6 -4 Z" fill="var(--pb-leg-far)" />
+                  </g>
+                </g>
+              </g>
+            </g>
+          </g>
+        </g>
+      </g>
+
+      <!-- 后轮 -->
+      <g transform="translate(290 338)">
+        <circle r="59" fill="none" stroke="var(--pb-tire)" stroke-width="6" />
+        <circle r="54.5" fill="none" stroke="var(--pb-metal)" stroke-width="2.4" />
+        <g class="pb-o pb-wheel"><use href="#pb-spokes" /></g>
+      </g>
+      <!-- 前轮 -->
+      <g transform="translate(492 338)">
+        <circle r="59" fill="none" stroke="var(--pb-tire)" stroke-width="6" />
+        <circle r="54.5" fill="none" stroke="var(--pb-metal)" stroke-width="2.4" />
+        <g class="pb-o pb-wheel" style="animation-delay: -0.21s"><use href="#pb-spokes" /></g>
+      </g>
+
+      <!-- 链条 -->
+      <g fill="none" stroke="var(--pb-metal-dark)" stroke-width="2" stroke-dasharray="3 2">
+        <path class="pb-chain" d="M378 334 L290 332" />
+        <path class="pb-chain" d="M290 344 L378 366" />
+      </g>
+
+      <!-- 挡泥板 -->
+      <g fill="none" stroke="var(--pb-frame)" stroke-width="5" stroke-linecap="round">
+        <path d="M224.4 324 A67 67 0 0 1 355.6 324" />
+        <path d="M434 304.5 A67 67 0 0 1 550 304.5" />
+      </g>
+
+      <!-- 车架 -->
+      <g fill="none" stroke="var(--pb-frame)" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M378 350 L290 338 L352 252" stroke-width="5" />
+        <path d="M470 264 Q478 302 492 338" stroke-width="5" />
+        <path d="M378 350 L352 252 L463 240" />
+        <path d="M469 261 L378 350" />
+        <path d="M461 234 L471 266" stroke-width="8.5" />
+      </g>
+      <path d="M352 252 L463 240" stroke="var(--pb-frame-shade)" stroke-width="2" stroke-linecap="round" opacity="0.5" transform="translate(0 2.4)" />
+      <circle cx="290" cy="338" r="6.5" fill="var(--pb-metal-dark)" />
+      <circle cx="492" cy="338" r="5.5" fill="var(--pb-metal-dark)" />
+
+      <!-- 座杆与车座 -->
+      <path d="M352 252 L348 236" stroke="var(--pb-metal)" stroke-width="4" stroke-linecap="round" />
+      <path d="M324 233 Q330 225 348 228 L370 230 Q377 233 370 237 L334 239 Q324 239 324 233 Z" fill="var(--pb-saddle)" />
+
+      <!-- 把立、车把与握把 -->
+      <path d="M461 234 L457 216" stroke="var(--pb-metal)" stroke-width="4.5" stroke-linecap="round" />
+      <path d="M476 213 Q458 215 450 209 L440 207" fill="none" stroke="var(--pb-metal)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M448 208.6 L432 206.6" stroke="var(--pb-saddle)" stroke-width="7.5" stroke-linecap="round" />
+
+      <!-- 车筐与鱼 -->
+      <g transform="translate(499 200)">
+        <g class="pb-o pb-fish">
+          <g transform="translate(-9 -4)">
+            <path class="pb-o pb-fishtail" d="M2 0 L-12 -7 Q-8 1 -11 9 Z" fill="var(--pb-fish)" />
+          </g>
+          <path d="M-10 16 C-13 -4 -6 -22 5 -27 C16 -22 20 -4 14 16 Z" fill="var(--pb-fish)" />
+          <path d="M3 16 C0 0 4 -14 10 -22 C17 -14 18 2 14 16 Z" fill="var(--pb-fish-belly)" opacity="0.75" />
+          <circle cx="8" cy="-14" r="4" fill="#ffffff" />
+          <circle cx="9" cy="-15.4" r="1.9" fill="#232838" />
+          <path d="M3 -25.5 q3 2.6 6 0.4" fill="none" stroke="#232838" stroke-width="1.3" stroke-linecap="round" />
+        </g>
+      </g>
+      <path d="M474 199 H525 L518 235 H481 Z" fill="var(--pb-wicker)" />
+      <path d="M476.5 211 H522.5 M479 223 H520.5 M487 200 L490 235 M499.5 200 V235 M512 200 L509 235" fill="none" stroke="var(--pb-wicker-shade)" stroke-width="1.6" />
+      <path d="M472 199 H527" stroke="var(--pb-wicker-shade)" stroke-width="4" stroke-linecap="round" />
+      <!-- 车灯 -->
+      <path d="M524 207 h5 q4 6 0 12 h-5 Z" fill="var(--pb-metal-dark)" />
+      <ellipse cx="530.5" cy="213" rx="2.2" ry="5.4" fill="#ffe9a8" />
+
+      <!-- 近侧牙盘、曲柄与脚踏 -->
+      <g transform="translate(378 350)">
+        <circle r="16" fill="none" stroke="var(--pb-metal-dark)" stroke-width="3.2" />
+        <g class="pb-o pb-crank">
+          <path d="M-13 0 H13 M0 -13 V13" stroke="var(--pb-metal-dark)" stroke-width="2.4" />
+          <path d="M0 0 H22" stroke="var(--pb-metal)" stroke-width="5.5" stroke-linecap="round" />
+          <circle r="4.5" fill="var(--pb-metal-dark)" />
+          <g transform="translate(22 0)">
+            <rect class="pb-o pb-pedal" x="-11" y="-3" width="22" height="6" rx="2" fill="var(--pb-metal-dark)" />
+          </g>
+        </g>
+      </g>
+
+      <!-- 近侧腿 -->
+      <g transform="translate(356 226)">
+        <g class="pb-o pb-thigh">
+          <path d="M0 0 H72" stroke="var(--pb-leg)" stroke-width="11" stroke-linecap="round" />
+          <g transform="translate(72 0)">
+            <g class="pb-o pb-shin">
+              <path d="M0 0 H72" stroke="var(--pb-leg)" stroke-width="8" stroke-linecap="round" />
+              <circle r="6.2" fill="var(--pb-leg)" />
+              <g transform="translate(72 0)">
+                <g class="pb-o pb-foot">
+                  <path d="M-6 -4 Q0 -7 7 -3 L25 5 Q28 10 21 10 H-3 Q-9 4 -6 -4 Z" fill="var(--pb-leg)" />
+                  <path d="M4 -1 L17 9 M9 0 L23 7" stroke="var(--pb-leg-far)" stroke-width="1.3" stroke-linecap="round" fill="none" />
+                </g>
+              </g>
+            </g>
+          </g>
+        </g>
+      </g>
+
+      <!-- 鹈鹕 -->
+      <g class="pb-rider">
+        <!-- 尾羽 -->
+        <g transform="translate(272 204)">
+          <g class="pb-o pb-tail">
+            <path d="M4 -8 L-36 -6 L2 4 Z" fill="var(--pb-body-shade)" />
+            <path d="M4 -2 L-40 8 L4 10 Z" fill="var(--pb-body)" />
+            <path d="M6 4 L-30 22 L10 16 Z" fill="var(--pb-body-shade)" />
+          </g>
+        </g>
+
+        <!-- 身体 -->
+        <path d="M262 206 C278 160 320 136 358 140 C394 144 410 170 402 200 C394 230 356 244 322 238 C296 233 276 222 262 206 Z" fill="var(--pb-body-shade)" transform="translate(-1 4)" />
+        <path d="M262 206 C278 160 320 136 358 140 C394 144 410 170 402 200 C394 230 356 244 322 238 C296 233 276 222 262 206 Z" fill="var(--pb-body)" />
+        <!-- 腹部羽毛（盖住髋关节） -->
+        <path d="M330 228 q6 14 14 6 q4 12 13 4 q5 10 13 0 q4 6 10 -4 L372 214 H334 Z" fill="var(--pb-body)" />
+        <path d="M344 234 q4 6 9 2 M360 238 q4 4 8 0" fill="none" stroke="var(--pb-body-shade)" stroke-width="1.6" stroke-linecap="round" />
+
+        <!-- 围巾飘带 -->
+        <g transform="translate(392 143)">
+          <g class="pb-o pb-scarf-a">
+            <path d="M2 -4 C-14 -12 -30 -2 -44 -8 C-52 -11 -58 -8 -62 -4 L-58 6 C-50 2 -44 4 -36 6 C-22 9 -12 2 2 6 Z" fill="var(--pb-scarf-shade)" />
+          </g>
+          <g class="pb-o pb-scarf-b">
+            <path d="M2 -2 C-12 2 -24 12 -40 10 C-48 9 -54 12 -58 18 L-50 25 C-46 20 -40 19 -34 20 C-20 22 -10 12 4 8 Z" fill="var(--pb-scarf)" />
+          </g>
+        </g>
+
+        <!-- 脖子 -->
+        <path d="M376 178 C404 164 412 140 402 120 C396 108 400 96 412 90" fill="none" stroke="var(--pb-body-shade)" stroke-width="27" stroke-linecap="round" transform="translate(-3 2)" />
+        <path d="M376 178 C404 164 412 140 402 120 C396 108 400 96 412 90" fill="none" stroke="var(--pb-body)" stroke-width="27" stroke-linecap="round" />
+
+        <!-- 围巾 -->
+        <path d="M390 141 Q403 151 420 148" fill="none" stroke="var(--pb-scarf)" stroke-width="11" stroke-linecap="round" />
+        <circle cx="390.5" cy="142" r="6.5" fill="var(--pb-scarf-shade)" />
+
+        <!-- 头 -->
+        <g transform="translate(406 98)">
+          <g class="pb-o pb-head">
+            <g transform="translate(-406 -98)">
+              <!-- 羽冠 -->
+              <g transform="translate(400 76)">
+                <g class="pb-o pb-crest">
+                  <path d="M0 0 Q-16 -10 -26 0 Q-14 -2 0 6 Z" fill="var(--pb-body)" />
+                  <path d="M2 -4 Q-10 -20 -24 -14 Q-10 -12 4 2 Z" fill="var(--pb-body-shade)" />
+                  <path d="M0 4 Q-14 4 -22 14 Q-10 8 2 10 Z" fill="var(--pb-body-shade)" />
+                </g>
+              </g>
+              <ellipse cx="416" cy="86" rx="23" ry="20" fill="var(--pb-body)" />
+              <!-- 喉囊 -->
+              <g transform="translate(432 100)">
+                <g class="pb-o pb-pouch">
+                  <path d="M-2 -6 C38 0 88 10 124 19 C116 46 68 70 30 56 C10 48 -2 24 -2 -6 Z" fill="url(#pb-g-pouch)" />
+                  <path d="M14 22 C36 36 70 38 100 24 M24 38 C42 46 62 46 82 38" fill="none" stroke="var(--pb-bill-b)" stroke-width="1.6" stroke-linecap="round" opacity="0.7" />
+                </g>
+              </g>
+              <!-- 上喙 -->
+              <path d="M432 74 C470 82 520 98 556 110 Q567 114 563 127 L555 120 C520 111 470 101 430 97 Z" fill="url(#pb-g-bill)" />
+              <path d="M556 110 Q567 114 563 127 L555 120 L547 113 Z" fill="var(--pb-bill-tip)" />
+              <path d="M440 82 C474 89 516 101 548 111" fill="none" stroke="#fff1c2" stroke-width="2" stroke-linecap="round" opacity="0.6" />
+              <!-- 眼周裸皮与眼睛 -->
+              <ellipse cx="429" cy="84" rx="10.5" ry="9" fill="var(--pb-pouch-a)" />
+              <g transform="translate(427 82)">
+                <g class="pb-o pb-eye">
+                  <circle r="4.4" fill="#232838" />
+                  <circle cx="1.4" cy="-1.5" r="1.4" fill="#ffffff" />
+                </g>
+              </g>
+            </g>
+          </g>
+        </g>
+
+        <!-- 翅膀（搭在车把上） -->
+        <path d="M336 168 C360 150 398 172 446 201 L441 213 C420 210 400 216 380 222 C356 228 334 216 328 196 C326 184 329 174 336 168 Z" fill="var(--pb-body-shade)" transform="translate(-1 4)" />
+        <path d="M336 168 C360 150 398 172 446 201 L441 213 C420 210 400 216 380 222 C356 228 334 216 328 196 C326 184 329 174 336 168 Z" fill="var(--pb-wing)" />
+        <path d="M344 190 C360 204 382 206 404 200 M352 178 C370 190 392 192 416 190" fill="none" stroke="var(--pb-body-shade)" stroke-width="2" stroke-linecap="round" />
+        <!-- 黑色初级飞羽：握住车把 -->
+        <path d="M398 214 C412 206 428 204 446 201 L449 206 Q452 213 444 214 L438 214 C424 214 410 218 400 220 Z" fill="var(--pb-feather-dark)" />
+      </g>
+    </g>
+
+  </g>
+</svg>
