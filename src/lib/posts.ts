@@ -300,6 +300,22 @@ export function localPostExists(slug: string): boolean {
   return readStore().some((d) => d.slug === slug)
 }
 
+/**
+ * 列出本机文章库的原始 Markdown（局域网协作推送用）。
+ *
+ * 协作同步的是**原始文件内容**（含 frontmatter 与加密字段），不是重新序列化的
+ * Post 对象：`serializePost` 会丢掉 encrypted / encryption 等字段，加密文章
+ * 往返一次就会损坏。这里一次读出全部 {slug, raw}，供推送时按 slug 取用。
+ */
+export function listLocalPostRaws(): { slug: string; raw: string }[] {
+  return readStore().map((d) => ({ slug: d.slug, raw: d.raw }))
+}
+
+/** 读取单篇本机文章的原始 Markdown；不存在时返回 null（局域网协作接收时比对用） */
+export function getLocalPostRaw(slug: string): string | null {
+  return readStore().find((d) => d.slug === slug)?.raw ?? null
+}
+
 /* -------------------------------------------------------------------------- */
 /*                          GitHub 发布时间记录                                 */
 /* -------------------------------------------------------------------------- */

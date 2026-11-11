@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -37,6 +37,9 @@ const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
 const echoCaveMod = await importTsModule('src/lib/echoCave.ts')
 const echoAshMod = await importTsModule('src/lib/echoAsh.ts')
+const editorMod = await importTsModule('src/lib/editor.ts')
+const collabMod = await importTsModule('src/lib/collab.ts')
+const lanServerMod = await import('./lan-collab-server.mjs')
 
 function makeMock2dContext(strokeSink, drawSink) {
   const stack = []
@@ -1567,11 +1570,16 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
     assert.equal(allInputs[0].value, '', '发送成功后底部横线应清空')
     assert.equal(ashCanvas.dataset.ashActive, 'true', '发送新回声时上一句同样应先化灰消散退场')
     await new Promise((r) => setTimeout(r, echoAshMod.ASH_EXIT_STAGE_MS + 40))
-    assert.equal(
-      fullscreenRoot.querySelector('p')?.textContent?.trim(),
-      '今晚的风很轻',
-      '上一句化灰下场后应显示刚写入 Discussions 的回声',
-    )
+    // 化灰退场是 rAF + 定时器驱动的动画，CI 负载高时可能晚几十毫秒才切换新句；
+    // 用带上限的轮询代替瞬时断言，避免这条旧测试偶发假失败。
+    const deadline = Date.now() + 2000
+    let shown = ''
+    while (Date.now() < deadline) {
+      shown = fullscreenRoot.querySelector('p')?.textContent?.trim() ?? ''
+      if (shown === '今晚的风很轻') break
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    assert.equal(shown, '今晚的风很轻', '上一句化灰下场后应显示刚写入 Discussions 的回声')
     assert.equal(
       container.querySelectorAll('button').length,
       1,
@@ -2844,3 +2852,320 @@ test('issue #106 & offline CI：首页下滑自动加载更多 + main 更新自�
 
 
 
+
+test('issue #111：引用框回车自动续行 / 空引用回车结束引用，列表项 Tab 整体缩进与反缩进', () => {
+  const fire = (key, { value, start, end = start, shiftKey = false }) => {
+    let prevented = false
+    const event = {
+      key,
+      shiftKey,
+      preventDefault() { prevented = true },
+      currentTarget: { value, selectionStart: start, selectionEnd: end },
+    }
+    const action = editorMod.handleEditorKey(event)
+    return { action, prevented }
+  }
+
+  // —— 引用框：回车自动补 `> ` 续行 ——
+  let r = fire('Enter', { value: '> 引用内容', start: 6 })
+  assert.equal(r.action.value, '> 引用内容\n> ')
+  assert.equal(r.action.selectionStart, 9)
+  assert.equal(r.prevented, true)
+
+  // 多行文档里只处理当前行
+  r = fire('Enter', { value: '前文\n> 引用', start: 8 })
+  assert.equal(r.action.value, '前文\n> 引用\n> ')
+
+  // 空引用行回车：结束引用（删掉空的 > 标记）
+  r = fire('Enter', { value: '> ', start: 2 })
+  assert.equal(r.action.value, '')
+  assert.equal(r.action.selectionStart, 0)
+
+  // 只有一个 > 的空行同样结束引用
+  r = fire('Enter', { value: '>', start: 1 })
+  assert.equal(r.action.value, '')
+
+  // —— Tab：空列表项整体缩进为子列表（而非在标记后插空格） ——
+  r = fire('Tab', { value: '- ', start: 2 })
+  assert.equal(r.action.value, '  - ')
+  assert.equal(r.action.selectionStart, 4)
+
+  r = fire('Tab', { value: '1. ', start: 3 })
+  assert.equal(r.action.value, '  1. ')
+  assert.equal(r.action.selectionStart, 5)
+
+  r = fire('Tab', { value: '- [ ] ', start: 6 })
+  assert.equal(r.action.value, '  - [ ] ')
+  assert.equal(r.action.selectionStart, 8)
+
+  // 已有正文的列表项同样整体缩进
+  r = fire('Tab', { value: '- foo', start: 5 })
+  assert.equal(r.action.value, '  - foo')
+  assert.equal(r.action.selectionStart, 7)
+
+  // 嵌套项继续缩进
+  r = fire('Tab', { value: '  - ', start: 4 })
+  assert.equal(r.action.value, '    - ')
+  assert.equal(r.action.selectionStart, 6)
+
+  // Shift+Tab 反缩进，光标跟随左移
+  r = fire('Tab', { value: '  - foo', start: 7, shiftKey: true })
+  assert.equal(r.action.value, '- foo')
+  assert.equal(r.action.selectionStart, 5)
+
+  // 已顶格时 Shift+Tab 不产生改动（返回 null）
+  r = fire('Tab', { value: '- foo', start: 5, shiftKey: true })
+  assert.equal(r.action, null)
+
+  // 普通行 Tab 仍在光标处插空格（保持原行为）
+  r = fire('Tab', { value: 'abc', start: 3 })
+  assert.equal(r.action.value, 'abc  ')
+  assert.equal(r.action.selectionStart, 5)
+
+  // —— 回归：列表回车续行 / 空列表项回车结束列表 ——
+  r = fire('Enter', { value: '- foo', start: 5 })
+  assert.equal(r.action.value, '- foo\n- ')
+  r = fire('Enter', { value: '- ', start: 2 })
+  assert.equal(r.action.value, '')
+
+  // —— 嵌套引用：续行保留全部层级，空行只退一层 ——
+  r = fire('Enter', { value: '> > 引用', start: 8 })
+  assert.equal(r.action.value, '> > 引用\n> > ')
+  r = fire('Enter', { value: '> > ', start: 4 })
+  assert.equal(r.action.value, '> ')
+  assert.equal(r.action.selectionStart, 2)
+
+  // —— 引用内列表：回车同时续引用与列表标记 ——
+  r = fire('Enter', { value: '> - foo', start: 7 })
+  assert.equal(r.action.value, '> - foo\n> - ')
+  r = fire('Enter', { value: '> 1. foo', start: 8 })
+  assert.equal(r.action.value, '> 1. foo\n> 2. ')
+  // 空的引用列表项：先退列表、保留引用
+  r = fire('Enter', { value: '> - ', start: 4 })
+  assert.equal(r.action.value, '> ')
+  assert.equal(r.action.selectionStart, 2)
+
+  // —— 行中回车只拆分，不误退出（按整行判断空项）——
+  r = fire('Enter', { value: '> abc', start: 2 })
+  assert.equal(r.action.value, '> \n> abc')
+  r = fire('Enter', { value: '- foo', start: 2 })
+  assert.equal(r.action.value, '- \n- foo')
+
+  // —— 渲染样式：嵌套列表标记分级 + 任务列表不重复出现 disc 圆点 ——
+  const css = readFileSync(join(root, 'src/styles/index.css'), 'utf8')
+  assert.match(css, /\.prose ul ul\s*\{\s*list-style-type:\s*circle/, '二级无序列表应使用 circle 标记')
+  assert.match(css, /\.prose ul ul ul\s*\{\s*list-style-type:\s*square/, '三级无序列表应使用 square 标记')
+  assert.match(css, /\.prose ol ol\s*\{\s*list-style-type:\s*lower-alpha/, '二级有序列表应使用 lower-alpha 标记')
+  assert.match(
+    css,
+    /\.prose ul\.contains-task-list,\s*\.prose ol\.contains-task-list\s*\{[^}]*list-style-type:\s*none/,
+    'GFM 任务列表应去掉 disc 标记，避免 checkbox 旁多出圆点',
+  )
+  assert.match(css, /\.prose li\.task-list-item::marker\s*\{\s*content:\s*''/, '任务列表项应清空 ::marker')
+})
+
+test('issue #110：目录锚点在 HashRouter（离线版）下只滚动不破坏路由 hash，线上版同步锚点', async () => {
+  const bundleAnchor = async (offline) => {
+    const result = await build({
+      entryPoints: [join(root, 'src/lib/scrollAnchor.ts')],
+      bundle: true,
+      write: false,
+      format: 'esm',
+      platform: 'browser',
+      target: 'es2022',
+      define: { __STARLOG_OFFLINE__: String(offline) },
+    })
+    const tmp = join(root, 'scripts/tmp-anchor-bundle.mjs')
+    writeFileSync(tmp, result.outputFiles[0].text)
+    try {
+      return (await import(`file://${tmp}?v=${offline}-${Date.now()}`)).scrollToHeading
+    } finally {
+      rmSync(tmp)
+    }
+  }
+
+  // 离线版：HashRouter 场景，URL hash 承载路由，点击目录后必须原样保留
+  {
+    const dom = new JSDOM('<!doctype html><html><body><h2 id="sec-a">A</h2></body></html>', {
+      url: 'file:///x/index.html#/posts/hello',
+    })
+    const scrolls = []
+    dom.window.scrollTo = (opts) => scrolls.push(opts)
+    const prevWindow = globalThis.window
+    const prevDocument = globalThis.document
+    const prevHistory = globalThis.history
+    globalThis.window = dom.window
+    globalThis.document = dom.window.document
+    globalThis.history = dom.window.history
+    try {
+      const scrollToHeading = await bundleAnchor(true)
+      scrollToHeading('sec-a')
+      assert.equal(scrolls.length, 1, '离线版点击目录仍应平滑滚动')
+      assert.equal(dom.window.location.hash, '#/posts/hello', '离线版不得改写承载路由的 hash')
+      scrollToHeading('missing-id')
+      assert.equal(scrolls.length, 1, '找不到标题时不应触发滚动')
+    } finally {
+      globalThis.window = prevWindow
+      globalThis.document = prevDocument
+      globalThis.history = prevHistory
+    }
+  }
+
+  // 线上版：BrowserRouter，锚点正常写入 URL hash
+  {
+    const dom = new JSDOM('<!doctype html><html><body><h2 id="sec-b">B</h2></body></html>', {
+      url: 'http://localhost/posts/hello',
+    })
+    const scrolls = []
+    dom.window.scrollTo = (opts) => scrolls.push(opts)
+    const prevWindow = globalThis.window
+    const prevDocument = globalThis.document
+    const prevHistory = globalThis.history
+    globalThis.window = dom.window
+    globalThis.document = dom.window.document
+    globalThis.history = dom.window.history
+    try {
+      const scrollToHeading = await bundleAnchor(false)
+      scrollToHeading('sec-b')
+      assert.equal(scrolls.length, 1)
+      assert.equal(dom.window.location.hash, '#sec-b', '线上版应把锚点同步到 URL')
+    } finally {
+      globalThis.window = prevWindow
+      globalThis.document = prevDocument
+      globalThis.history = prevHistory
+    }
+  }
+})
+
+test('issue #112：局域网协作客户端地址规范化与中继房间同步（真实 WebSocket 往返）', async () => {
+  // —— 纯函数：地址规范化与房间号校验 ——
+  assert.equal(collabMod.normalizeServerUrl('http://192.168.1.5:8787'), 'ws://192.168.1.5:8787/')
+  assert.equal(collabMod.normalizeServerUrl('https://192.168.1.5:8787/path?x=1'), 'wss://192.168.1.5:8787/')
+  assert.equal(collabMod.normalizeServerUrl('ws://192.168.1.5:8787'), 'ws://192.168.1.5:8787/')
+  assert.equal(collabMod.normalizeServerUrl('ftp://192.168.1.5:8787'), null)
+  assert.equal(collabMod.normalizeServerUrl('not a url'), null)
+  assert.equal(collabMod.normalizeServerUrl(''), null)
+  assert.equal(collabMod.isValidRoomCode('1234'), true)
+  assert.equal(collabMod.isValidRoomCode('my-room_1'), true)
+  assert.equal(collabMod.isValidRoomCode('bad room!'), false)
+  assert.equal(collabMod.isValidRoomCode(''), false)
+  assert.equal(collabMod.defaultServerUrl(), `ws://localhost:${collabMod.LAN_COLLAB_DEFAULT_PORT}`)
+
+  // —— 中继纯函数：握手 Accept（RFC 6455 示例向量）、帧编解码与房间号校验 ——
+  assert.equal(lanServerMod.websocketAccept('dGhlIHNhbXBsZSBub25jZQ=='), 's3pPLMBiTxaQ9kYGzzhZRbK+xOo=')
+  assert.equal(lanServerMod.isValidRoomCode('1234'), true)
+  assert.equal(lanServerMod.isValidRoomCode('bad room!'), false)
+  assert.ok(Array.isArray(lanServerMod.listLanAddresses()))
+  {
+    const mask = Buffer.from([1, 2, 3, 4])
+    const text = '{"kind":"ping"}'
+    const payload = Buffer.from(text, 'utf8')
+    const masked = Buffer.from(payload.map((byte, i) => byte ^ mask[i % 4]))
+    const frame = Buffer.concat([Buffer.from([0x81, 0x80 | payload.length]), mask, masked])
+    const decoded = lanServerMod.decodeClientFrame(frame)
+    assert.equal(decoded.fin, true)
+    assert.equal(decoded.opcode, 0x1)
+    assert.equal(decoded.payload.toString('utf8'), text)
+    assert.equal(decoded.consumed, frame.length)
+    assert.equal(lanServerMod.decodeClientFrame(frame.subarray(0, 3)), null, '数据不足时应等待更多字节')
+    const unmasked = Buffer.from([0x81, payload.length])
+    assert.throws(() => lanServerMod.decodeClientFrame(unmasked), /未加掩码/)
+    assert.equal(lanServerMod.encodeTextFrame(text)[0], 0x81, '服务端帧 FIN+text，且不加掩码')
+  }
+
+  // —— 真实往返：两个客户端经中继互相同步，新加入者拿到房间已有文章 ——
+  const { server, close } = lanServerMod.createLanCollabServer({ port: 0, host: '127.0.0.1' })
+  await new Promise((resolveListen) => server.listen(0, '127.0.0.1', resolveListen))
+  const port = server.address().port
+  const url = `ws://127.0.0.1:${port}`
+
+  // 每个 socket 从建立开始就缓存所有收到的消息，waitFor 先查缓存再挂等待器，
+  // 避免「消息先到、监听后挂」的竞态（CI 上偶发时序差异会让断言拿到空值）。
+  const openSocket = () =>
+    new Promise((resolveOpen, rejectOpen) => {
+      const socket = new WebSocket(url)
+      const seen = []
+      const waiters = new Set()
+      socket.addEventListener('message', (event) => {
+        let msg
+        try {
+          msg = JSON.parse(String(event.data))
+        } catch {
+          return
+        }
+        for (const waiter of [...waiters]) {
+          if (waiter.predicate(msg)) {
+            waiters.delete(waiter)
+            clearTimeout(waiter.timer)
+            waiter.resolve(msg)
+          }
+        }
+        seen.push(msg)
+      })
+      socket.waitFor = (predicate, timeoutMs = 5000) =>
+        new Promise((resolveWait, rejectWait) => {
+          const found = seen.find(predicate)
+          if (found) {
+            resolveWait(found)
+            return
+          }
+          const waiter = { predicate, resolve: resolveWait, timer: null }
+          waiter.timer = setTimeout(() => {
+            waiters.delete(waiter)
+            rejectWait(new Error('等待协作消息超时'))
+          }, timeoutMs)
+          waiters.add(waiter)
+        })
+      socket.addEventListener('open', () => resolveOpen(socket), { once: true })
+      socket.addEventListener('error', () => rejectOpen(new Error('WebSocket 连接失败')), { once: true })
+    })
+
+  const clientA = await openSocket()
+  const clientB = await openSocket()
+  try {
+    clientA.send(JSON.stringify({ kind: 'hello', room: 'test-room', name: 'A' }))
+    const welcomeA = await clientA.waitFor((m) => m.kind === 'welcome')
+    assert.equal(welcomeA.room, 'test-room')
+    assert.equal(welcomeA.peers, 1)
+    assert.deepEqual(welcomeA.posts, [])
+
+    clientB.send(JSON.stringify({ kind: 'hello', room: 'test-room', name: 'B' }))
+    const welcomeB = await clientB.waitFor((m) => m.kind === 'welcome')
+    assert.equal(welcomeB.peers, 2)
+
+    // A 推送文章，B 应收到 update（且 A 自己不收到回声）
+    const raw = '---\ntitle: 协作测试\ndate: 2026-11-11\n---\n\n正文内容'
+    const updatePromise = clientB.waitFor((m) => m.kind === 'update')
+    clientA.send(JSON.stringify({ kind: 'post', room: 'test-room', slug: 'hello', raw, nonce: 'n1' }))
+    const update = await updatePromise
+    assert.equal(update.slug, 'hello')
+    assert.equal(update.raw, raw)
+    assert.equal(update.from, 'A')
+
+    // 新加入的 C 应在 welcome 里拿到房间已有文章
+    const clientC = await openSocket()
+    try {
+      clientC.send(JSON.stringify({ kind: 'hello', room: 'test-room', name: 'C' }))
+      const welcomeC = await clientC.waitFor((m) => m.kind === 'welcome')
+      assert.equal(welcomeC.posts.length, 1)
+      assert.equal(welcomeC.posts[0].slug, 'hello')
+      assert.equal(welcomeC.posts[0].raw, raw)
+    } finally {
+      clientC.close()
+    }
+
+    // 非法房间号应被拒绝
+    const clientD = await openSocket()
+    try {
+      clientD.send(JSON.stringify({ kind: 'hello', room: 'bad room!', name: 'D' }))
+      const err = await clientD.waitFor((m) => m.kind === 'error')
+      assert.match(err.message, /房间号/)
+    } finally {
+      clientD.close()
+    }
+  } finally {
+    clientA.close()
+    clientB.close()
+    await close()
+  }
+})

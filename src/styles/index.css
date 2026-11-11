@@ -596,6 +596,36 @@
   content: '';
 }
 
+/* 嵌套列表标记分级（issue #111）：Tailwind Preflight 把所有 ul/ol 重置为 list-style:none，
+   typography 插件又统一恢复成 disc / decimal，浏览器默认的层级区分被抹平，
+   一级、二级列表的点看起来完全一样。这里显式补回 disc → circle → square 等分层。 */
+.prose ul ul {
+  list-style-type: circle;
+}
+.prose ul ul ul {
+  list-style-type: square;
+}
+.prose ol ol {
+  list-style-type: lower-alpha;
+}
+.prose ol ol ol {
+  list-style-type: lower-roman;
+}
+/* GFM 任务列表（issue #111）：typography 插件给所有 .prose ul 恢复 disc 标记，
+   但任务列表的每行开头已经是 checkbox，再显示圆点会变成「• ☐ 内容」。
+   按 GitHub 风格去掉任务列表的标记与多余缩进；嵌套任务列表保留一级缩进。 */
+.prose ul.contains-task-list,
+.prose ol.contains-task-list {
+  list-style-type: none;
+  padding-inline-start: 0;
+}
+.prose .contains-task-list .contains-task-list {
+  padding-inline-start: 1.625em;
+}
+.prose li.task-list-item::marker {
+  content: '';
+}
+
 /* -------------------------------------------------------------------------- */
 /*              1. 标准表格 & 合并表格（靠左、浅淡边框、表头无底色）                 */
 /* -------------------------------------------------------------------------- */
