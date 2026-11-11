@@ -1,3 +1,10 @@
+/**
+ * 正文字号缩放：Markdown 正文里的正文字号统一乘以 CSS 变量 --prose-font-scale
+ * （定义与说明见 src/styles/index.css 的 :root；当前 0.95，即原字号的 95%）。
+ * 这里负责正文根字号和折叠框两档字号，表格 / 展示框的固定字号在 index.css 里按同样写法相乘。
+ */
+const proseScaled = (size) => `calc(${size} * var(--prose-font-scale))`
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: 'class',
@@ -11,6 +18,16 @@ export default {
         sans: ['var(--font-sans)'],
         serif: ['var(--font-serif)'],
         mono: ['var(--font-mono)'],
+      },
+      /**
+       * 折叠框的两档字号；表单控件（ui-choose / ui-select / ui-if / ui-write）直接复用，
+       * 因此两者的字号永远一致，并随正文一起缩放：
+       *   text-callout        内容：14.5px（行高另由 leading-relaxed 给出）
+       *   text-callout-label  标题 / 标签：0.875rem，行高 1.25rem（原 text-sm）
+       */
+      fontSize: {
+        callout: proseScaled('14.5px'),
+        'callout-label': [proseScaled('0.875rem'), proseScaled('1.25rem')],
       },
       colors: {
         /**
@@ -72,6 +89,8 @@ export default {
       typography: () => ({
         DEFAULT: {
           css: {
+            // 正文根字号：标题、列表、引用、行内代码、公式与段间距都按 em 跟随它。
+            fontSize: proseScaled('1rem'),
             '--tw-prose-body': '#434b62',
             '--tw-prose-headings': '#191d2b',
             '--tw-prose-links': 'rgb(var(--brand-600))',
@@ -96,6 +115,9 @@ export default {
             'pre code': { background: 'transparent', padding: '0' },
           },
         },
+        // .prose-base / .prose-sm 会再声明一次根字号，同样要乘以缩放系数。
+        base: { css: { fontSize: proseScaled('1rem') } },
+        sm: { css: { fontSize: proseScaled('0.875rem') } },
         invert: {
           css: {
             '--tw-prose-body': '#b0b8c9',

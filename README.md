@@ -279,6 +279,34 @@ Pages 项目 **Settings → Environment variables** 中新增 `VITE_GITHUB_CLIEN
 （见下方「文章排版指令」），优先级高于这里的个人偏好，本机没有的字体会同样在后台尝试
 Google Fonts，离开文章即恢复，不改动已保存的设置。
 
+### 正文字号缩放
+
+Markdown 正文的字号在原始设计的基础上统一乘以一个系数：`src/styles/index.css` 的 `:root` 里的
+`--prose-font-scale`，当前为 **`0.95`**（原字号的 95%；改回 `1` 即恢复原始大小）。
+它是站点级的排版参数，不是访客设置，与上面的「全站字号」相互独立、效果相乘。
+
+| 正文元素 | 原始字号 | 现在（全站字号 100% 时） |
+| --- | --- | --- |
+| 段落 / 列表 / 引用 / 表格 | `1rem`（16px） | 15.2px |
+| 标题、行内代码、KaTeX 公式、段间距 | 相对正文的 `em` | 随正文同比例缩小 |
+| 折叠框标题、表单控件的标题与标签 | `0.875rem`（14px） | 13.3px |
+| 折叠框内容、选择框 / 是否框 / 下拉框 / 填空框 | `14.5px` | 13.775px |
+| 交互展示框里的正文 | `0.95rem`（15.2px） | 14.44px |
+
+- **生效范围**：所有经 `Markdown` 组件渲染的内容——文章页、帮助页、编辑器预览、历史版本对比、评论，
+  以及 VS Code 插件的内置预览（与本站共用同一份样式）。
+- **不受影响**：代码块（属于「代码字体」，沿用 `.prose pre` 的固定字号）、12px 及以下的角标与提示
+  （代码语言标签、展示框变量栏、控件的范围提示等）、直角坐标系 / 图论画布里的标注，
+  以及正文之外的文章标题、摘要、目录、导航等界面文字。
+- **实现**：正文根字号在 `tailwind.config.js` 的 `typography`（`DEFAULT` / `base` / `sm`）里相乘，
+  标题、公式等按 `em` 自动跟随；表格、展示框是固定字号，在 `index.css` 里写成
+  `calc(原字号 * var(--prose-font-scale))`；折叠框的两档字号做成了 Tailwind 的
+  `text-callout` / `text-callout-label`，表单控件（`src/components/UiWidgets.tsx`）直接复用，
+  所以控件与折叠框的字号始终一致。
+- **维护提示**：给正文新增带固定字号的元素时，同样乘上 `--prose-font-scale`，并在
+  `vscode_extensions/v1/test/styles.test.mjs` 的「正文字号缩放」用例里补一行；
+  表单控件里不要再写死 `text-[14.5px]` / `text-sm`（该用例会拦住）。
+
 ---
 
 ## 🧩 VS Code 插件：Markdown 语法拓展
@@ -546,6 +574,7 @@ $\texttt{吃}$！
 │   ├── App.tsx                    # 路由
 │   └── main.tsx                   # 入口
 ├── vscode_extensions/v1/         # Markdown 语法拓展插件与可安装 VSIX
+├── Test/                          # 测试结果存放处（约定见 Test/AI_README.md）
 ├── AI_README.md                   # AI 协作维护规范（更新时必读）
 ├── ChangeLog.md                   # 更新日志（每次更新必须补充）
 ├── README.md                      # 项目说明（每次更新必须同步）

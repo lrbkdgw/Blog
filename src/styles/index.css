@@ -19,6 +19,21 @@
     --font-serif: Georgia, "Songti SC", STSong, SimSun, "Noto Serif SC", serif;
     --font-mono: "Cascadia Code", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
     --site-font-size: 100%;
+    /* ------------------------------------------------------------------ */
+    /*  正文字号缩放系数（1 = 原始大小；当前为原字号的 95%）                 */
+    /*  Markdown 正文（文章、帮助页、编辑器预览、版本对比、评论与 VS Code     */
+    /*  预览）里的正文字号统一乘以它，彼此比例不变：                          */
+    /*    · 正文根字号在 tailwind.config.js 的 typography 里相乘，标题、      */
+    /*      列表、引用、行内代码、公式与段间距按 em 自动跟随；                */
+    /*    · 表格、折叠框、展示框与表单控件有各自的固定字号，在本文件与        */
+    /*      tailwind.config.js 的 text-callout* 里逐个相乘。                  */
+    /*  不参与缩放：代码块（属于「代码字体」，沿用 .prose pre 的固定字号）、  */
+    /*  12px 及以下的角标 / 提示、坐标系与图论画布里的标注，以及正文之外的    */
+    /*  页面标题、导航等界面文字。                                            */
+    /*  它与访客的「全站字体大小」（--site-font-size）相互独立、效果相乘。    */
+    /*  新增带固定字号的正文元素时，记得同样乘上它。                          */
+    /* ------------------------------------------------------------------ */
+    --prose-font-scale: 0.95;
 
     /* ------------------------------------------------------------------ */
     /*  配色主题 · 默认「星野蓝」                                           */
@@ -604,7 +619,9 @@
 }
 
 .prose table.markdown-table {
-  @apply !my-0 w-auto table-auto border-collapse text-left text-base leading-relaxed;
+  @apply !my-0 w-auto table-auto border-collapse text-left leading-relaxed;
+  /* 表格字号与正文保持一致 */
+  font-size: calc(1rem * var(--prose-font-scale));
   border: 1px solid #e5e7eb;
 }
 .dark .prose table.markdown-table {
@@ -649,7 +666,9 @@
 
 .prose table.table-tuack,
 .prose .table-tuack-wrapper table {
-  @apply !my-0 w-auto table-auto border-collapse text-center text-base leading-relaxed;
+  @apply !my-0 w-auto table-auto border-collapse text-center leading-relaxed;
+  /* 表格字号与正文保持一致 */
+  font-size: calc(1rem * var(--prose-font-scale));
   border-top: 3.5px solid #111827 !important;
   border-bottom: 3.5px solid #111827 !important;
   border-left: none !important;
@@ -718,7 +737,7 @@
 /*                               折叠框 (Callouts)                             */
 /* -------------------------------------------------------------------------- */
 .prose details.callout {
-  @apply my-6 overflow-hidden rounded-xl border text-sm transition-all duration-200;
+  @apply my-6 overflow-hidden rounded-xl border text-callout-label transition-all duration-200;
 }
 .prose details.callout summary.callout-summary {
   @apply flex cursor-pointer list-none select-none items-center gap-2.5 px-4 py-3 font-semibold outline-none transition-colors;
@@ -727,7 +746,7 @@
   display: none;
 }
 .prose details.callout .callout-content {
-  @apply border-t px-4 py-3.5 text-[14.5px] leading-relaxed;
+  @apply border-t px-4 py-3.5 text-callout leading-relaxed;
 }
 .prose details.callout .callout-content > :first-child {
   @apply mt-0;
@@ -819,7 +838,7 @@ details[open] .callout-chevron {
 }
 .show-box .show-box-content > .prose {
   max-width: none;
-  font-size: 0.95rem;
+  font-size: calc(0.95rem * var(--prose-font-scale));
 }
 .show-box .show-box-content > .prose > :first-child {
   margin-top: 0;
@@ -831,7 +850,7 @@ details[open] .callout-chevron {
 /* ---------- 交互表单控件（issue #82）与图论画布（issue #83） ---------- */
 .ui-choose-card .prose,
 .ui-if-card .prose {
-  @apply max-w-none text-[14.5px] leading-relaxed;
+  @apply max-w-none text-callout leading-relaxed;
 }
 
 .ui-choose-card .prose p,
