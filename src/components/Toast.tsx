@@ -18,11 +18,11 @@ interface ToastCtx {
 
 const Ctx = createContext<ToastCtx>({ toast: () => {} })
 
-const styles: Record<ToastKind, { icon: ReactNode; ring: string }> = {
-  success: { icon: <CheckCircle2 size={18} className="text-emerald-500" />, ring: 'ring-emerald-500/20' },
-  error: { icon: <XCircle size={18} className="text-rose-500" />, ring: 'ring-rose-500/20' },
-  warning: { icon: <AlertTriangle size={18} className="text-amber-500" />, ring: 'ring-amber-500/20' },
-  info: { icon: <Info size={18} className="text-brand-500" />, ring: 'ring-brand-500/20' },
+const styles: Record<ToastKind, { icon: ReactNode }> = {
+  success: { icon: <CheckCircle2 size={16} className="text-emerald-500" /> },
+  error: { icon: <XCircle size={16} className="text-rose-500" /> },
+  warning: { icon: <AlertTriangle size={16} className="text-amber-500" /> },
+  info: { icon: <Info size={16} className="text-brand-500" /> },
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -64,8 +64,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={t.id}
             role="status"
-            className={`pointer-events-auto flex animate-scale-in items-start gap-3 rounded-xl border border-ink-200/70 bg-white/95 px-4 py-3 text-sm shadow-xl ring-4 backdrop-blur
-                        dark:border-white/10 dark:bg-ink-900/95 dark:text-ink-100 ${styles[t.kind].ring}`}
+            className="card-pop pointer-events-auto flex animate-scale-in items-start gap-3 px-3.5 py-3 text-[13px] text-ink-700 dark:text-ink-200"
           >
             <span className="mt-0.5 shrink-0">{styles[t.kind].icon}</span>
             <div className="flex-1 leading-relaxed">
@@ -82,7 +81,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                           navigate(t.action!.href)
                         },
                       })}
-                  className="mt-1 inline-block font-medium text-brand-600 hover:underline dark:text-brand-300"
+                  className="mt-1 inline-block text-[12.5px] font-medium text-brand-600 hover:underline dark:text-brand-300"
                 >
                   {t.action.label} →
                 </a>

@@ -165,7 +165,7 @@ export default function BundleImportDialog({
 
   const dialog = (
     <div
-      className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto bg-ink-950/45 p-4 pt-[8vh] backdrop-blur-sm"
+      className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto bg-ink-950/40 p-4 pt-[8vh] backdrop-blur-[3px]"
       role="dialog"
       aria-modal="true"
       aria-label="导入离线文章包"
@@ -177,7 +177,7 @@ export default function BundleImportDialog({
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h3 className="flex items-center gap-2 font-serif text-xl font-bold">
+            <h3 className="flex items-center gap-2 text-[16px] font-semibold tracking-tight text-ink-900 dark:text-white">
               <FileJson size={18} />
               导入离线文章包
             </h3>
@@ -199,7 +199,7 @@ export default function BundleImportDialog({
             event.preventDefault()
             void pickFile(event.dataTransfer.files?.[0])
           }}
-          className="mt-5 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-ink-300/70 bg-ink-50/50 px-5 py-7 text-center transition hover:border-brand-400 dark:border-white/15 dark:bg-white/[0.02]"
+          className="mt-5 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-ink-300/70 bg-ink-50/50 px-5 py-7 text-center transition hover:border-ink-400 dark:border-white/[0.12] dark:bg-white/[0.02] dark:hover:border-white/[0.22]"
         >
           <Inbox size={20} className="text-ink-400" />
           <span className="text-sm text-ink-600 dark:text-ink-300">

@@ -84,12 +84,12 @@ function Section({
   return (
     <section className="card animate-fade-up p-6">
       <div className="mb-5 flex items-start gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-500/10 text-brand-600 dark:text-brand-300">
-          <Icon size={17} />
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] border border-ink-200/80 text-ink-500 dark:border-white/[0.09] dark:text-ink-400">
+          <Icon size={15} />
         </span>
-        <div>
-          <h2 className="font-medium text-ink-900 dark:text-white">{title}</h2>
-          {desc && <p className="mt-0.5 text-xs leading-relaxed text-ink-400">{desc}</p>}
+        <div className="min-w-0">
+          <h2 className="text-[14px] font-semibold tracking-tight text-ink-900 dark:text-white">{title}</h2>
+          {desc && <p className="mt-1 text-[11.5px] leading-[1.7] text-ink-400 dark:text-ink-500">{desc}</p>}
         </div>
       </div>
       {children}
@@ -132,30 +132,30 @@ function ColorThemeControls() {
               role="radio"
               aria-checked={active}
               onClick={() => setColorTheme(item.id)}
-              className={`group relative flex items-center gap-2.5 overflow-hidden rounded-xl border p-3 text-left transition ${
+              className={`group relative flex items-center gap-2.5 overflow-hidden rounded-[10px] border p-2.5 text-left transition duration-200 ${
                 active
-                  ? 'border-brand-500/70 bg-brand-500/[0.08] shadow-[0_12px_30px_-20px_rgb(var(--brand-600)/0.9)]'
-                  : 'border-ink-200 bg-white/60 hover:-translate-y-0.5 hover:border-brand-300 dark:border-white/12 dark:bg-white/[0.03] dark:hover:border-brand-400/40'
+                  ? 'border-ink-900/70 bg-ink-900/[0.03] dark:border-white/40 dark:bg-white/[0.06]'
+                  : 'border-ink-200/80 bg-white hover:border-ink-300 dark:border-white/[0.08] dark:bg-white/[0.02] dark:hover:border-white/[0.18]'
               }`}
             >
-              <span className="flex h-9 w-14 shrink-0 overflow-hidden rounded-lg ring-1 ring-black/5 dark:ring-white/10">
+              <span className="flex h-8 w-12 shrink-0 overflow-hidden rounded-[6px] ring-1 ring-ink-900/[0.06] dark:ring-white/[0.08]">
                 {item.swatch.map((color) => (
                   <span key={color} className="h-full flex-1" style={{ backgroundColor: color }} />
                 ))}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  <span className="text-sm font-medium text-ink-900 dark:text-white">{item.name}</span>
-                  <span className="font-mono text-[10px] uppercase tracking-wide text-ink-400">{item.en}</span>
+                  <span className="text-[13px] font-medium text-ink-900 dark:text-white">{item.name}</span>
+                  <span className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-ink-400 dark:text-ink-500">{item.en}</span>
                   {item.darkPreferred && (
                     <span className="rounded-full bg-ink-900/[.06] px-1.5 py-0.5 text-[10px] text-ink-500 dark:bg-white/10 dark:text-ink-300">
                       深色更佳
                     </span>
                   )}
                 </span>
-                <span className="mt-0.5 line-clamp-2 block text-xs leading-relaxed text-ink-400">{item.desc}</span>
+                <span className="mt-0.5 line-clamp-2 block text-[10.5px] leading-snug text-ink-400 dark:text-ink-500">{item.desc}</span>
               </span>
-              {active && <CheckCircle2 size={16} className="shrink-0 text-brand-600 dark:text-brand-300" />}
+              {active && <CheckCircle2 size={14} className="shrink-0 text-ink-700 dark:text-ink-200" />}
             </button>
           )
         })}
@@ -168,12 +168,12 @@ function ColorThemeControls() {
         搭配建议本来就已经写在每张色卡的描述文字里，因此整条提示移除。
       */}
 
-      <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-ink-200/70 pt-4 dark:border-white/10">
-        <span className="text-xs font-medium text-ink-500">明暗模式</span>
+      <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-ink-200/70 pt-4 dark:border-white/[0.07]">
+        <span className="label">明暗模式</span>
         <div
           role="radiogroup"
           aria-label="明暗模式"
-          className="flex gap-1 rounded-xl border border-ink-200/80 bg-ink-50/60 p-1 dark:border-white/10 dark:bg-white/[0.03]"
+          className="segmented"
         >
           {MODE_OPTIONS.map((option) => {
             const Icon = option.icon
@@ -185,11 +185,7 @@ function ColorThemeControls() {
                 role="radio"
                 aria-checked={active}
                 onClick={() => setMode(option.id)}
-                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
-                  active
-                    ? 'bg-brand-500/12 text-brand-700 dark:text-brand-200'
-                    : 'text-ink-500 hover:text-ink-900 dark:text-ink-400 dark:hover:text-white'
-                }`}
+                className={`segmented-item ${active ? 'segmented-item-active' : ''}`}
               >
                 <Icon size={13} />
                 {option.label}
@@ -219,13 +215,13 @@ function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreferen
               role="radio"
               aria-checked={selected}
               onClick={() => setAnimatedScene(option.id)}
-              className={`flex h-11 items-center justify-center gap-2 rounded-xl border text-sm font-medium transition ${
+              className={`flex h-9 items-center justify-center gap-2 rounded-[10px] border text-[12.5px] font-medium transition duration-150 ${
                 selected
-                  ? 'border-brand-500/60 bg-brand-500/10 text-brand-700 dark:text-brand-200'
-                  : 'border-ink-200 bg-white/60 text-ink-600 hover:border-brand-300 dark:border-white/12 dark:bg-white/[0.03] dark:text-ink-300'
+                  ? 'border-ink-900/70 bg-ink-900/[0.04] text-ink-900 dark:border-white/40 dark:bg-white/[0.07] dark:text-white'
+                  : 'border-ink-200/80 bg-white text-ink-500 hover:border-ink-300 hover:text-ink-800 dark:border-white/[0.08] dark:bg-white/[0.02] dark:text-ink-400 dark:hover:border-white/[0.18] dark:hover:text-ink-100'
               }`}
             >
-              <Icon size={15} />
+              <Icon size={14} />
               {option.label}
             </button>
           )
@@ -234,17 +230,17 @@ function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreferen
 
       {active && (
         <div className="mt-5 space-y-5">
-          <p className="text-xs leading-relaxed text-ink-500 dark:text-ink-400">{active.desc}</p>
+          <p className="text-[11.5px] leading-relaxed text-ink-500 dark:text-ink-400">{active.desc}</p>
           {active.params.map((param) => {
             const value = values[param.key] ?? param.default
             const id = `scene-${active.id}-${param.key}`
             return (
               <div key={param.key}>
                 <div className="mb-1.5 flex items-center justify-between gap-4">
-                  <label htmlFor={id} className="text-xs font-medium text-ink-500">
+                  <label htmlFor={id} className="text-[11.5px] font-medium text-ink-500 dark:text-ink-400">
                     {param.label}
                   </label>
-                  <span className="font-mono text-xs font-bold text-brand-600 dark:text-brand-300">
+                  <span className="font-mono text-[11.5px] font-semibold tabular-nums text-ink-700 dark:text-ink-200">
                     {param.min < 0 && value > 0 ? '+' : ''}
                     {value}
                   </span>
@@ -259,7 +255,7 @@ function AnimatedBackgroundControls({ pref }: { pref: AnimatedBackgroundPreferen
                   onChange={(e) => setSceneValue(active.id, param.key, Number(e.target.value))}
                   className="h-2 w-full cursor-pointer accent-brand-500"
                 />
-                <p className="mt-1 text-xs leading-relaxed text-ink-400">{param.hint}</p>
+                <p className="mt-1 text-[10.5px] leading-relaxed text-ink-400 dark:text-ink-500">{param.hint}</p>
               </div>
             )
           })}
@@ -347,12 +343,12 @@ function FontPriorityEditor({
   }
 
   return (
-    <div className="mt-5 border-t border-ink-200/70 pt-5 dark:border-white/10">
+    <div className="mt-5 border-t border-ink-200/70 pt-5 dark:border-white/[0.07]">
       <div className="mb-1 flex flex-wrap items-baseline gap-x-2">
-        <p className="text-xs font-medium text-ink-500">{title}优先级</p>
-        <span className="font-mono text-[10px] text-ink-400">{mono ? '--font-mono' : '--font-sans'}</span>
+        <p className="text-[12px] font-medium text-ink-600 dark:text-ink-300">{title}优先级</p>
+        <span className="font-mono text-[9.5px] text-ink-400 dark:text-ink-600">{mono ? '--font-mono' : '--font-sans'}</span>
       </div>
-      <p className="mb-2.5 text-xs leading-relaxed text-ink-400">{desc}</p>
+      <p className="mb-2.5 text-[10.5px] leading-relaxed text-ink-400 dark:text-ink-500">{desc}</p>
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
@@ -380,7 +376,7 @@ function FontPriorityEditor({
           type="button"
           onClick={() => void handleAdd()}
           disabled={!input.trim()}
-          className="btn-primary h-10 shrink-0"
+          className="btn-primary h-9 shrink-0"
         >
           <Plus size={15} />
           添加字体
@@ -389,7 +385,7 @@ function FontPriorityEditor({
           type="button"
           onClick={onReadLocalFonts}
           disabled={loadingFonts}
-          className="btn-outline h-10 shrink-0"
+          className="btn-outline h-9 shrink-0"
         >
           {loadingFonts ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
           {localFonts.length > 0 ? `本机 (${localFonts.length})` : '读取本机字体'}
@@ -397,14 +393,14 @@ function FontPriorityEditor({
       </div>
 
       {/* 推荐预设字体快捷点击 */}
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-ink-500">
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-500 dark:text-ink-400">
         <span>推荐常用：</span>
         {presets.slice(0, 6).map((fam) => (
           <button
             key={fam}
             type="button"
             onClick={() => void handleAdd(fam)}
-            className="chip hover:bg-brand-50 hover:text-brand-600 dark:hover:bg-white/10"
+            className="chip"
           >
             + {fam}
           </button>
@@ -413,27 +409,27 @@ function FontPriorityEditor({
 
       {/* 已配置的字体列表（优先级排序） */}
       <div className="mt-4 space-y-2">
-        <p className="text-xs font-medium text-ink-500">当前{title}优先级列表（排在前面的优先使用）：</p>
+        <p className="text-[11px] font-medium text-ink-500 dark:text-ink-400">当前{title}优先级列表（排在前面的优先使用）：</p>
         {list.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-ink-200 p-4 text-center text-xs text-ink-400 dark:border-white/10">
+          <div className="rounded-[10px] border border-dashed border-ink-200 p-4 text-center text-[11.5px] text-ink-400 dark:border-white/[0.09] dark:text-ink-500">
             当前使用站点默认{title}栈。可在上方输入字体名称并点击“添加字体”。
           </div>
         ) : (
-          <div className="divide-y divide-ink-200/60 rounded-xl border border-ink-200/80 bg-ink-50/50 dark:divide-white/10 dark:border-white/10 dark:bg-white/[0.02]">
+          <div className="divide-y divide-ink-200/60 rounded-[10px] border border-ink-200/80 dark:divide-white/[0.06] dark:border-white/[0.08]">
             {list.map((fam, idx) => (
               <div key={fam} className="flex items-center justify-between gap-3 px-3.5 py-2.5">
                 <div className="flex min-w-0 items-center gap-2.5">
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-500/10 font-mono text-[11px] font-bold text-brand-600 dark:text-brand-300">
+                  <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-ink-900/[.06] font-mono text-[10px] font-semibold tabular-nums text-ink-500 dark:bg-white/[.08] dark:text-ink-300">
                     {idx + 1}
                   </span>
                   <span
-                    className={`truncate font-medium text-ink-800 dark:text-ink-100 ${mono ? 'font-mono' : ''}`}
+                    className={`truncate text-[13px] font-medium text-ink-800 dark:text-ink-100 ${mono ? 'font-mono' : ''}`}
                     style={{ fontFamily: `"${fam}", ${mono ? 'monospace' : 'sans-serif'}` }}
                   >
                     {fam}
                   </span>
                   {idx === 0 && (
-                    <span className="shrink-0 rounded bg-brand-500/10 px-1.5 py-0.5 text-[10px] text-brand-600 dark:text-brand-300">
+                    <span className="shrink-0 rounded-full border border-ink-200/80 px-1.5 py-px text-[9.5px] text-ink-500 dark:border-white/[0.1] dark:text-ink-400">
                       最高优先级
                     </span>
                   )}
@@ -477,7 +473,7 @@ function FontPriorityEditor({
 
       {/* 实时样例：所见即所得，正文字体也用它检查中西文混排 */}
       <p
-        className={`mt-3 rounded-xl border border-ink-200/70 bg-white/60 px-3 py-2 text-xs leading-relaxed text-ink-600 dark:border-white/10 dark:bg-white/[0.03] dark:text-ink-300 ${
+        className={`mt-3 rounded-[10px] border border-ink-200/70 bg-ink-50/50 px-3 py-2 text-[11.5px] leading-relaxed text-ink-600 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-ink-300 ${
           mono ? 'font-mono' : ''
         }`}
       >
@@ -622,10 +618,11 @@ export default function SettingsPage() {
 
 
   return (
-    <div className="container-page max-w-3xl pt-12" data-yield-list>
+    <div className="container-page max-w-3xl pt-16 sm:pt-20" data-yield-list>
       <header className="mb-8 animate-fade-up">
-        <h1 className="font-serif text-3xl font-bold tracking-tight text-ink-900 dark:text-white">设置</h1>
-        <p className="mt-1.5 text-sm text-ink-500">
+        <p className="text-[11.5px] font-medium uppercase tracking-[0.16em] text-ink-400 dark:text-ink-500">Settings</p>
+        <h1 className="mt-3 text-[2rem] font-semibold tracking-[-0.03em] text-ink-900 dark:text-white">设置</h1>
+        <p className="mt-2 text-[12.5px] leading-relaxed text-ink-500 dark:text-ink-400">
           {OFFLINE
             ? '个性化设置使用浏览器本地存储与即时更新机制。离线版不联网，因此没有账号同步：偏好只保存在这台设备的这个文件里。'
             : '个性化设置使用浏览器本地存储与即时更新机制；连接 GitHub 后仍可选择同步偏好至账号。'}
@@ -772,7 +769,7 @@ export default function SettingsPage() {
           desc="可调整背景颜色与渐变强度。强化渐变效果在 100% 最大效果下将覆盖全屏并完全不透明。"
           icon={Paintbrush}
         >
-          <label className="mb-1.5 block text-xs font-medium text-ink-500" htmlFor="background-color">
+          <label className="label mb-1.5" htmlFor="background-color">
             背景主色调（十六进制）
           </label>
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -792,7 +789,7 @@ export default function SettingsPage() {
               autoComplete="off"
               spellCheck={false}
             />
-            <button type="button" onClick={applyBackground} className="btn-primary h-10 shrink-0">
+            <button type="button" onClick={applyBackground} className="btn-primary h-9 shrink-0">
               <Paintbrush size={15} />
               应用背景
             </button>
@@ -800,10 +797,10 @@ export default function SettingsPage() {
 
           <div className="mt-4">
             <div className="mb-2 flex items-center justify-between gap-4">
-              <label htmlFor="background-intensity" className="text-xs font-medium text-ink-500">
+              <label htmlFor="background-intensity" className="label">
                 渐变强度与覆盖度
               </label>
-              <span className="font-mono text-xs font-bold text-brand-600 dark:text-brand-300">
+              <span className="font-mono text-[11.5px] font-semibold tabular-nums text-ink-700 dark:text-ink-200">
                 {backgroundIntensity}% {backgroundIntensity === 100 ? '（全屏不透明覆盖）' : ''}
               </span>
             </div>
@@ -821,7 +818,7 @@ export default function SettingsPage() {
               }}
               className="h-2 w-full cursor-pointer accent-brand-500"
             />
-            <p className="mt-1.5 text-xs leading-relaxed text-ink-400">
+            <p className="mt-1.5 text-[10.5px] leading-relaxed text-ink-400 dark:text-ink-500">
               0% 默认站点背景，50% 柔和环境光渐变，100% 强化渐变覆盖全屏且完全不透明。
             </p>
           </div>
@@ -832,7 +829,7 @@ export default function SettingsPage() {
               style={{ backgroundColor: background.color || '#FBFBFD' }}
               aria-label={`当前背景颜色：${background.color || '系统默认'}`}
             />
-            <p className="text-xs text-ink-500 dark:text-ink-400">
+            <p className="text-[11.5px] text-ink-500 dark:text-ink-400">
               当前颜色：
               <span className="font-mono font-medium text-ink-800 dark:text-ink-100">
                 {background.color || '系统默认'}
@@ -911,12 +908,12 @@ export default function SettingsPage() {
           desc="调整双栏编辑器的工作方式，设置即时生效并自动保存到当前浏览器。"
           icon={Columns2}
         >
-          <div className="flex items-center justify-between gap-4 rounded-xl border border-ink-200/80 bg-ink-50/60 p-4 dark:border-white/10 dark:bg-white/[0.025]">
+          <div className="flex items-center justify-between gap-4 rounded-[10px] border border-ink-200/80 p-4 dark:border-white/[0.08] dark:bg-white/[0.02]">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-ink-800 dark:text-ink-100">
+              <p className="text-[13px] font-medium text-ink-800 dark:text-ink-100">
                 双栏自动同步滚动
               </p>
-              <p className="mt-0.5 text-xs leading-relaxed text-ink-400 dark:text-ink-500">
+              <p className="mt-1 text-[11px] leading-relaxed text-ink-400 dark:text-ink-500">
                 开启后，编辑区滚动时预览区会跟随到对应内容位置；关闭后两侧各自独立滚动。
               </p>
             </div>
@@ -926,15 +923,15 @@ export default function SettingsPage() {
               aria-checked={editorScrollSync}
               onClick={() => setEditorScrollSync(!editorScrollSync)}
               title={editorScrollSync ? '点击关闭自动同步' : '点击开启自动同步'}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+              className={`relative h-[22px] w-10 shrink-0 rounded-full transition-colors duration-200 ${
                 editorScrollSync
-                  ? 'bg-brand-500'
-                  : 'bg-ink-300 dark:bg-white/15'
+                  ? 'bg-ink-900 dark:bg-white/80'
+                  : 'bg-ink-300 dark:bg-white/[0.18]'
               }`}
             >
               <span
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all duration-150 ${
-                  editorScrollSync ? 'left-[1.375rem]' : 'left-0.5'
+                className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow-sm transition-all duration-200 ease-smooth dark:bg-ink-900 ${
+                  editorScrollSync ? 'left-[21px]' : 'left-[3px]'
                 }`}
               />
             </button>
@@ -952,11 +949,11 @@ export default function SettingsPage() {
           icon={Github}
         >
           {canPublish && ghUser ? (
-            <div className="flex flex-wrap items-center gap-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-500/20 dark:bg-emerald-500/[0.07]">
-              <img src={ghUser.avatar_url} alt="" className="h-11 w-11 rounded-full" />
+            <div className="flex flex-wrap items-center gap-4 rounded-[10px] border border-ink-200/80 p-4 dark:border-white/[0.08] dark:bg-white/[0.02]">
+              <img src={ghUser.avatar_url} alt="" className="h-9 w-9 rounded-full" />
               <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-1.5 text-sm font-medium text-ink-900 dark:text-white">
-                  <CheckCircle2 size={14} className="text-emerald-500" />
+                <p className="flex items-center gap-1.5 text-[13px] font-medium text-ink-900 dark:text-white">
+                  <CheckCircle2 size={13} className="text-emerald-500" />
                   {ghUser.name || ghUser.login}
                 </p>
                 <a
@@ -983,7 +980,7 @@ export default function SettingsPage() {
                   toast(`已连接 GitHub：@${user.login}`, 'success')
                 }}
               />
-              <p className="flex items-center gap-1 text-xs text-ink-400 dark:text-ink-500">
+              <p className="flex items-center gap-1 text-[10.5px] text-ink-400 dark:text-ink-500">
                 通过 OAuth（Device Flow）授权，无需手动创建 Token；可随时在
                 <a
                   href="https://github.com/settings/applications"
@@ -1014,7 +1011,7 @@ export default function SettingsPage() {
               ] as const
             ).map((f) => (
               <div key={f.key}>
-                <label className="mb-1.5 block text-xs font-medium text-ink-500">{f.label}</label>
+                <label className="label mb-1.5">{f.label}</label>
                 <input
                   value={repo[f.key]}
                   onChange={(e) => setRepo({ ...repo, [f.key]: e.target.value })}
@@ -1065,12 +1062,12 @@ export default function SettingsPage() {
         </Section>
 
         {/* -------------------------------- 安全说明 ------------------------------ */}
-        <section className="card animate-fade-up border-amber-200/80 bg-amber-50/50 p-5 dark:border-amber-500/20 dark:!bg-amber-500/[0.06]">
-          <p className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
-            <ShieldAlert size={15} />
+        <section className="card animate-fade-up border-amber-300/50 !bg-amber-50/50 p-5 dark:border-amber-500/20 dark:!bg-amber-500/[0.05]">
+          <p className="flex items-center gap-2 text-[13px] font-medium text-amber-800 dark:text-amber-400">
+            <ShieldAlert size={14} />
             关于安全与权限
           </p>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-relaxed text-ink-600 dark:text-ink-300">
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-[11px] leading-relaxed text-ink-600 dark:text-ink-300">
             <li>所有访客与已登录用户均可自由配置字体、背景与深浅色模式。</li>
             {OFFLINE ? (
               <>

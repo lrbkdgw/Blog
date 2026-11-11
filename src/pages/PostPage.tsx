@@ -66,9 +66,9 @@ function ReadingProgress() {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
   return (
-    <div className="no-print fixed inset-x-0 top-0 z-[60] h-0.5 bg-transparent">
+    <div className="no-print fixed inset-x-0 top-0 z-[60] h-[2px] bg-transparent">
       <div
-        className="h-full bg-gradient-to-r from-brand-400 via-brand-500 to-indigo-500 transition-[width] duration-150"
+        className="h-full bg-brand-500 transition-[width] duration-150 ease-out dark:bg-brand-400"
         style={{ width: `${progress}%` }}
       />
     </div>
@@ -164,15 +164,15 @@ function HistoryDialog({
   void namesVersion
 
   return (
-    <div className="no-print fixed inset-0 z-[90] flex items-center justify-center bg-ink-950/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="文章历史版本">
-      <div className="card flex max-h-[min(40rem,calc(100vh-2rem))] w-full max-w-2xl flex-col overflow-hidden">
-        <div className="flex items-center justify-between border-b border-ink-200/70 px-5 py-4 dark:border-white/10">
+    <div className="no-print fixed inset-0 z-[90] flex items-center justify-center bg-ink-950/40 p-4 backdrop-blur-[3px]" role="dialog" aria-modal="true" aria-label="文章历史版本">
+      <div className="card-pop flex max-h-[min(40rem,calc(100vh-2rem))] w-full max-w-2xl flex-col overflow-hidden">
+        <div className="flex items-start justify-between gap-4 border-b border-ink-200/70 px-5 py-4 dark:border-white/[0.07]">
           <div>
-            <h2 className="flex items-center gap-2 font-serif text-lg font-bold text-ink-900 dark:text-white">
-              <History size={18} className="text-brand-500" />
+            <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-tight text-ink-900 dark:text-white">
+              <History size={16} className="text-brand-500" />
               文章历史版本{OFFLINE ? `（${VERSION_SOURCE_LABEL}）` : ''}
             </h2>
-            <p className="mt-1 text-xs text-ink-400">
+            <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink-400 dark:text-ink-500">
               每次发布都会保留为一个 Git 提交，可在此查看任一版本；点击铅笔可修改版本名称，更改会加入待更新队列，统一更新后保存到 GitHub 对应文章下。
             </p>
           </div>
@@ -191,7 +191,7 @@ function HistoryDialog({
             </button>
           </div>
         </div>
-        <div className="min-h-32 overflow-y-auto divide-y divide-ink-200/60 dark:divide-white/10">
+        <div className="min-h-32 divide-y divide-ink-200/60 overflow-y-auto dark:divide-white/[0.06]">
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-14 text-sm text-ink-500">
               <Loader2 size={16} className="animate-spin" /> 正在读取 Git 历史…
@@ -244,7 +244,7 @@ function HistoryDialog({
               return (
                 <div
                   key={version.sha}
-                  className="flex items-center gap-2 px-5 py-3.5 transition hover:bg-ink-50 dark:hover:bg-white/[0.04]"
+                  className="group flex items-center gap-2 px-5 py-3.5 transition-colors duration-150 hover:bg-ink-900/[.025] dark:hover:bg-white/[0.035]"
                 >
                   <button
                     type="button"
@@ -252,11 +252,11 @@ function HistoryDialog({
                     disabled={Boolean(selecting)}
                     className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-wait"
                   >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-500/10 font-mono text-[11px] font-bold text-brand-600 dark:text-brand-300">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-ink-200/80 font-mono text-[10.5px] font-semibold tabular-nums text-ink-500 dark:border-white/[0.1] dark:text-ink-400">
                       {selecting === version.sha ? <Loader2 size={14} className="animate-spin" /> : index + 1}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-ink-800 dark:text-ink-100">
+                      <span className="block truncate text-[13px] font-medium text-ink-800 dark:text-ink-100">
                         {customName || version.message}
                         {customName && (
                           <span className="ml-2 rounded-full bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-600 dark:text-brand-300">
@@ -270,7 +270,7 @@ function HistoryDialog({
                         {customName ? ` · ${version.message}` : ''}
                       </span>
                     </span>
-                    <span className="shrink-0 text-xs text-brand-600 dark:text-brand-300">查看</span>
+                    <span className="shrink-0 text-[11.5px] text-ink-300 transition-colors group-hover:text-brand-600 dark:text-ink-600 dark:group-hover:text-brand-300">查看</span>
                   </button>
                   {index + 1 < versions.length && (
                     <button
@@ -433,10 +433,10 @@ export default function PostPage() {
   if (!post || !snapshot || !historyBase) {
     return (
       <div className="container-page flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center" data-yield-list>
-        <p className="font-mono text-6xl font-bold text-ink-200 dark:text-ink-800">404</p>
-        <h1 className="font-serif text-xl font-semibold text-ink-800 dark:text-ink-100">这篇文章不存在</h1>
-        <p className="max-w-sm text-sm text-ink-500">它可能已被删除，或者只存在于另一台设备的本地草稿里。</p>
-        <Link to="/" className="btn-primary mt-2"><ArrowLeft size={15} />回到首页</Link>
+        <p className="font-mono text-[11.5px] font-medium uppercase tracking-[0.18em] text-ink-400 dark:text-ink-500">Error 404</p>
+        <h1 className="mt-3 text-[1.6rem] font-semibold tracking-[-0.025em] text-ink-900 dark:text-white">这篇文章不存在</h1>
+        <p className="max-w-sm text-[13.5px] leading-relaxed text-ink-500 dark:text-ink-400">它可能已被删除，或者只存在于另一台设备的本地草稿里。</p>
+        <Link to="/" className="btn-primary mt-2"><ArrowLeft size={14} />回到首页</Link>
       </div>
     )
   }
@@ -518,9 +518,9 @@ export default function PostPage() {
     return (
       <>
         <ReadingProgress />
-        <div className="container-page pt-12" data-yield-list>
-          <Link to="/" className="no-print group mb-8 inline-flex items-center gap-1.5 text-sm text-ink-400 transition hover:text-brand-600 dark:hover:text-brand-300">
-            <ArrowLeft size={14} className="transition-transform group-hover:-translate-x-0.5" /> 返回文章列表
+        <div className="container-prose pt-12" data-yield-list>
+          <Link to="/" className="no-print group mb-9 inline-flex items-center gap-1.5 text-[12.5px] text-ink-400 transition hover:text-brand-600 dark:text-ink-500 dark:hover:text-brand-300">
+            <ArrowLeft size={13} className="transition-transform duration-300 ease-smooth group-hover:-translate-x-0.5" /> 返回文章列表
           </Link>
           {historicalPost && (
             <div className="mx-auto mb-4 flex max-w-md items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
@@ -530,7 +530,7 @@ export default function PostPage() {
           {restoringUnlock ? (
             <div className="card mx-auto flex max-w-md flex-col items-center p-7 text-center">
               <Loader2 size={24} className="animate-spin text-brand-500" />
-              <h1 className="mt-4 font-serif text-xl font-bold text-ink-900 dark:text-white">{snapshot.title}</h1>
+              <h1 className="mt-4 text-[1.15rem] font-semibold tracking-tight text-ink-900 dark:text-white">{snapshot.title}</h1>
               <p className="mt-2 text-sm text-ink-500">正在读取此设备保存的解锁状态…</p>
             </div>
           ) : (
@@ -567,27 +567,28 @@ export default function PostPage() {
   return (
     <>
       <ReadingProgress />
-      <div className="container-page grid grid-cols-1 gap-10 pt-12 xl:grid-cols-[minmax(0,1fr)_14rem]">
+      <div className="container-page grid grid-cols-1 gap-12 pt-12 xl:grid-cols-[minmax(0,1fr)_13rem]">
         {/* ::set-font / ::set-code-font 覆盖整个本文区域（含标题与摘要）；正文本体
             还会在 Markdown 组件根节点重复同一组样式，保证其他渲染入口一致。 */}
         <article className="min-w-0 animate-fade-up" style={articleFontStyle(directives)} data-yield-list>
-          <Link to="/" className="no-print group mb-8 inline-flex items-center gap-1.5 text-sm text-ink-400 transition hover:text-brand-600 dark:hover:text-brand-300">
-            <ArrowLeft size={14} className="transition-transform group-hover:-translate-x-0.5" /> 返回文章列表
+          <div className="mx-auto w-full max-w-[46rem]">
+          <Link to="/" className="no-print group mb-9 inline-flex items-center gap-1.5 text-[12.5px] text-ink-400 transition hover:text-brand-600 dark:text-ink-500 dark:hover:text-brand-300">
+            <ArrowLeft size={13} className="transition-transform duration-300 ease-smooth group-hover:-translate-x-0.5" /> 返回文章列表
           </Link>
-          <header className="border-b border-ink-200/60 pb-8 dark:border-white/[0.08]">
+          <header className="border-b border-ink-200/70 pb-8 dark:border-white/[0.07]">
             {historicalPost && (
               <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                 <FileClock size={14} /> 正在查看历史版本
                 <button type="button" onClick={() => { setHistoricalPost(null); setUnlockedPost(null) }} className="ml-auto underline underline-offset-2">返回最新版本</button>
               </div>
             )}
-            <div className="mb-4 flex flex-wrap items-center gap-2">
-              {article.draft && <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400"><FileEdit size={11} />草稿（仅你可见）</span>}
-              {article.tags.map((tag) => <Link key={tag} to={`/tags/${encodeURIComponent(tag)}`} className="chip"><Hash size={11} />{tag}</Link>)}
+            <div className="mb-4 flex flex-wrap items-center gap-1.5">
+              {article.draft && <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/60 px-2 py-0.5 text-[11.5px] font-medium text-amber-600 dark:border-amber-500/30 dark:text-amber-400"><FileEdit size={10} />草稿（仅你可见）</span>}
+              {article.tags.map((tag) => <Link key={tag} to={`/tags/${encodeURIComponent(tag)}`} className="chip"><Hash size={10} />{tag}</Link>)}
             </div>
-            <h1 className="font-serif text-3xl font-bold leading-tight tracking-tight text-ink-900 sm:text-[2.6rem] dark:text-white">{article.title}</h1>
-            {article.summary && <p className="mt-4 text-[15.5px] leading-relaxed text-ink-500 dark:text-ink-400">{article.summary}</p>}
-            <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-400">
+            <h1 className="text-[1.9rem] font-semibold leading-[1.2] tracking-[-0.032em] text-ink-900 sm:text-[2.45rem] dark:text-white">{article.title}</h1>
+            {article.summary && <p className="mt-4 text-[14.5px] leading-[1.8] text-ink-500 dark:text-ink-400">{article.summary}</p>}
+            <div className="mt-7 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11.5px] text-ink-400 dark:text-ink-500">
               <span className="flex items-center gap-1.5"><User size={13} />{article.author?.trim() || siteConfig.author.name}</span>
               {article.updated && article.updated !== article.date && <span className="flex items-center gap-1.5">更新于 {formatDate(article.updated)}</span>}
               <span className="flex items-center gap-1.5"><Clock size={13} />约 {article.readingTime} 分钟</span>
@@ -596,7 +597,7 @@ export default function PostPage() {
                   <button
                     type="button"
                     onClick={() => setCopyOpen((open) => !open)}
-                    className="btn-ghost h-7 !px-2 text-xs"
+                    className="btn-ghost h-7 !px-2 text-[11.5px]"
                     aria-haspopup="menu"
                     aria-expanded={copyOpen}
                   >
@@ -606,47 +607,48 @@ export default function PostPage() {
                     <div
                       role="menu"
                       aria-label="复制文章"
-                      className="card absolute right-0 top-8 z-40 w-52 animate-scale-in overflow-hidden p-1.5 !bg-white/95 text-left shadow-xl dark:!bg-ink-900/95"
+                      className="card-pop absolute right-0 top-8 z-40 w-56 animate-scale-in overflow-hidden p-1.5 text-left"
                     >
-                      <button type="button" role="menuitem" onClick={() => copyArticle('link')} className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition hover:bg-ink-100 dark:hover:bg-white/5">
+                      <button type="button" role="menuitem" onClick={() => copyArticle('link')} className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition-colors duration-150 hover:bg-ink-900/[.04] dark:hover:bg-white/[0.06]">
                         <Link2 size={14} className="mt-0.5 shrink-0 text-ink-400" />
-                        <span><span className="block text-xs font-medium text-ink-700 dark:text-ink-200">复制链接</span><span className="mt-0.5 block text-[10px] text-ink-400">当前文章地址</span></span>
+                        <span><span className="block text-[12.5px] font-medium text-ink-700 dark:text-ink-200">复制链接</span><span className="mt-0.5 block text-[10.5px] text-ink-400 dark:text-ink-500">当前文章地址</span></span>
                       </button>
-                      <button type="button" role="menuitem" onClick={() => copyArticle('direct')} className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition hover:bg-ink-100 dark:hover:bg-white/5">
+                      <button type="button" role="menuitem" onClick={() => copyArticle('direct')} className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition-colors duration-150 hover:bg-ink-900/[.04] dark:hover:bg-white/[0.06]">
                         <Code2 size={14} className="mt-0.5 shrink-0 text-ink-400" />
-                        <span><span className="block text-xs font-medium text-ink-700 dark:text-ink-200">直接复制源码</span><span className="mt-0.5 block text-[10px] text-ink-400">保留全部扩展语法</span></span>
+                        <span><span className="block text-[12.5px] font-medium text-ink-700 dark:text-ink-200">直接复制源码</span><span className="mt-0.5 block text-[10.5px] text-ink-400 dark:text-ink-500">保留全部扩展语法</span></span>
                       </button>
-                      <button type="button" role="menuitem" onClick={() => copyArticle('luogu')} className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition hover:bg-ink-100 dark:hover:bg-white/5">
+                      <button type="button" role="menuitem" onClick={() => copyArticle('luogu')} className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition-colors duration-150 hover:bg-ink-900/[.04] dark:hover:bg-white/[0.06]">
                         <FileText size={14} className="mt-0.5 shrink-0 text-ink-400" />
-                        <span><span className="block text-xs font-medium text-ink-700 dark:text-ink-200">复制洛谷源码</span><span className="mt-0.5 block text-[10px] text-ink-400">转换 Blog 展示框语法</span></span>
+                        <span><span className="block text-[12.5px] font-medium text-ink-700 dark:text-ink-200">复制洛谷源码</span><span className="mt-0.5 block text-[10.5px] text-ink-400 dark:text-ink-500">转换 Blog 展示框语法</span></span>
                       </button>
-                      <button type="button" role="menuitem" onClick={() => copyArticle('basic')} className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition hover:bg-ink-100 dark:hover:bg-white/5">
+                      <button type="button" role="menuitem" onClick={() => copyArticle('basic')} className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition-colors duration-150 hover:bg-ink-900/[.04] dark:hover:bg-white/[0.06]">
                         <FileText size={14} className="mt-0.5 shrink-0 text-ink-400" />
-                        <span><span className="block text-xs font-medium text-ink-700 dark:text-ink-200">复制基本源码</span><span className="mt-0.5 block text-[10px] text-ink-400">转换全部扩展语法</span></span>
+                        <span><span className="block text-[12.5px] font-medium text-ink-700 dark:text-ink-200">复制基本源码</span><span className="mt-0.5 block text-[10.5px] text-ink-400 dark:text-ink-500">转换全部扩展语法</span></span>
                       </button>
                     </div>
                   )}
                 </div>
-                {repoPost && <button onClick={openHistory} className="btn-ghost no-print h-7 !px-2 text-xs"><History size={13} />历史</button>}
-                {isAuthed && <button type="button" onClick={editCurrentVersion} className="btn-ghost no-print h-7 !px-2 text-xs"><PenLine size={13} />编辑</button>}
+                {repoPost && <button onClick={openHistory} className="btn-ghost no-print h-7 !px-2 text-[11.5px]"><History size={13} />历史</button>}
+                {isAuthed && <button type="button" onClick={editCurrentVersion} className="btn-ghost no-print h-7 !px-2 text-[11.5px]"><PenLine size={13} />编辑</button>}
               </div>
             </div>
           </header>
-          {coverSrc && <img src={coverSrc} alt="" className="mt-8 w-full rounded-2xl object-cover shadow-xl" />}
-          <div className="mt-8" data-yield-list><Markdown content={article.content} /></div>
-          <div className="no-print mt-16 border-t border-ink-200/60 pt-8 dark:border-white/[0.08]">
+          {coverSrc && <img src={coverSrc} alt="" className="mt-8 w-full rounded-xl object-cover" />}
+          <div className="mt-9" data-yield-list><Markdown content={article.content} /></div>
+          <div className="no-print mt-16 border-t border-ink-200/70 pt-8 dark:border-white/[0.07]">
             <div className="grid gap-3 sm:grid-cols-2">
-              {previous ? <Link to={`/posts/${previous.slug}`} className="card group flex flex-col p-4 transition hover:border-brand-300 dark:hover:border-brand-400/30"><span className="text-xs text-ink-400">← 上一篇</span><span className="mt-1 line-clamp-2 text-sm font-medium text-ink-800 group-hover:text-brand-600 dark:text-ink-100 dark:group-hover:text-brand-300">{previous.title}</span></Link> : <span />}
-              {next && <Link to={`/posts/${next.slug}`} className="card group flex flex-col p-4 text-right transition hover:border-brand-300 dark:hover:border-brand-400/30"><span className="text-xs text-ink-400">下一篇 →</span><span className="mt-1 line-clamp-2 text-sm font-medium text-ink-800 group-hover:text-brand-600 dark:text-ink-100 dark:group-hover:text-brand-300">{next.title}</span></Link>}
+              {previous ? <Link to={`/posts/${previous.slug}`} className="card card-hover group flex flex-col p-4"><span className="text-[11px] text-ink-400 dark:text-ink-500">← 上一篇</span><span className="mt-1.5 line-clamp-2 text-[13.5px] font-medium text-ink-800 transition-colors group-hover:text-brand-700 dark:text-ink-100 dark:group-hover:text-brand-200">{previous.title}</span></Link> : <span />}
+              {next && <Link to={`/posts/${next.slug}`} className="card card-hover group flex flex-col p-4 text-right"><span className="text-[11px] text-ink-400 dark:text-ink-500">下一篇 →</span><span className="mt-1.5 line-clamp-2 text-[13.5px] font-medium text-ink-800 transition-colors group-hover:text-brand-700 dark:text-ink-100 dark:group-hover:text-brand-200">{next.title}</span></Link>}
             </div>
           </div>
           <Comments postSlug={article.slug} postTitle={article.title} />
+          </div>
         </article>
         <Toc items={toc} />
       </div>
       {historyOpen && <HistoryDialog versions={history} loading={historyLoading} error={historyError} slug={historyBase.slug} postTitle={historyBase.title} onClose={() => setHistoryOpen(false)} onSelect={selectHistory} onCompare={openCompareDialog} selecting={selectingVersion} />}
       {compareOpen && <VersionCompare versions={history} slug={historyBase.slug} path={historyBase.path} initialBaseSha={comparePair.baseSha} initialTargetSha={comparePair.targetSha} onClose={() => setCompareOpen(false)} />}
-      {showTop && <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="no-print card fixed bottom-6 left-6 z-40 flex h-10 w-10 animate-scale-in items-center justify-center !rounded-full text-ink-500 transition hover:text-brand-600 dark:hover:text-brand-300" aria-label="回到顶部"><ArrowUp size={17} /></button>}
+      {showTop && <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="no-print card-pop fixed bottom-6 left-6 z-40 flex h-9 w-9 animate-scale-in items-center justify-center !rounded-full text-ink-500 transition hover:text-brand-600 dark:text-ink-400 dark:hover:text-brand-300" aria-label="回到顶部"><ArrowUp size={17} /></button>}
     </>
   )
 }

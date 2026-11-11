@@ -416,16 +416,19 @@ export default function Admin() {
   const allSelected = queue.length > 0 && selectedIds.size === queue.length
 
   return (
-    <div className="container-page max-w-5xl pt-12" data-yield-list>
+    <div className="container-page max-w-5xl pt-12 sm:pt-16" data-yield-list>
       {/* 头部 */}
       <header className="flex animate-fade-up flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-serif text-3xl font-bold tracking-tight text-ink-900 dark:text-white">
+          <p className="text-[11.5px] font-medium uppercase tracking-[0.16em] text-ink-400 dark:text-ink-500">
+            Dashboard
+          </p>
+          <h1 className="mt-3 text-[1.9rem] font-semibold tracking-[-0.03em] text-ink-900 dark:text-white">
             文章与内容管理
           </h1>
-          <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-500">
+          <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-ink-500 dark:text-ink-400">
             <span>共 {posts.length} 篇管理条目</span>
-            <span className="text-ink-300 dark:text-ink-700">|</span>
+            <span className="h-3 w-px bg-ink-200 dark:bg-white/[0.12]" />
             {canPublish ? (
               <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
                 <Github size={14} />
@@ -453,12 +456,12 @@ export default function Admin() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link to="/settings" className="btn-outline h-9">
-            <Settings size={15} />
+          <Link to="/settings" className="btn-outline h-8">
+            <Settings size={14} />
             设置
           </Link>
-          <Link to="/admin/new" className="btn-primary h-9">
-            <Plus size={15} />
+          <Link to="/admin/new" className="btn-primary h-8">
+            <Plus size={14} />
             写新文章
           </Link>
         </div>
@@ -466,19 +469,19 @@ export default function Admin() {
 
       {/* 访客提示（离线版：文章本来就存在本机，不需要登录即可写与发布到文章库） */}
       {!canPublish && !OFFLINE && (
-        <div className="card mt-6 flex flex-wrap items-center justify-between gap-3 border-brand-200/60 bg-brand-50/50 p-4 text-sm dark:border-brand-500/20 dark:bg-brand-500/10">
-          <div className="flex items-center gap-2.5 text-brand-900 dark:text-brand-200">
-            <HardDrive size={18} className="shrink-0 text-brand-500" />
-            <span>您当前处于<strong>未登录访客模式</strong>，可以创作并管理保存在本机的本地草稿。登录 GitHub 账号后可发布到远程仓库或提交审核申请。</span>
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-ink-200/80 bg-ink-50/60 px-4 py-3 text-[12.5px] text-ink-600 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-ink-300">
+          <div className="flex items-center gap-2.5">
+            <HardDrive size={15} className="shrink-0 text-ink-400" />
+            <span>当前处于<strong className="font-medium text-ink-800 dark:text-ink-100">未登录访客模式</strong>，可以创作并管理保存在本机的本地草稿。登录 GitHub 账号后可发布到远程仓库或提交审核申请。</span>
           </div>
-          <Link to="/login" className="btn-primary h-8 !px-3 text-xs">
+          <Link to="/login" className="btn-outline h-7 !px-3 text-[11.5px]">
             登录 GitHub
           </Link>
         </div>
       )}
 
       {OFFLINE && hiddenCount > 0 && (
-        <div className="card mt-6 flex flex-wrap items-center justify-between gap-3 border-amber-200/70 bg-amber-50/60 p-4 text-sm dark:border-amber-500/20 dark:!bg-amber-500/[0.06]">
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-amber-300/50 bg-amber-50/60 p-4 text-[12.5px] dark:border-amber-500/20 dark:bg-amber-500/[0.06]">
           <span className="flex items-center gap-2 text-ink-700 dark:text-ink-200">
             <HardDrive size={17} className="text-amber-600" />
             有 <strong>{hiddenCount}</strong> 篇内置文章在本机被隐藏。内置内容写死在 HTML 里，这里只能本机隐藏；要真的从仓库删除，请到线上站点操作。
@@ -490,7 +493,7 @@ export default function Admin() {
               reloadPosts()
               toast('已恢复全部被隐藏的内置文章', 'info')
             }}
-            className="btn-outline h-8 text-xs"
+            className="btn-outline h-8 text-[11.5px]"
           >
             全部恢复显示
           </button>
@@ -498,19 +501,19 @@ export default function Admin() {
       )}
 
       {/* 大标签切换：文章列表 vs 发表申请 (PR 审批) vs 待更新队列 */}
-      <div className="mt-8 flex gap-2 border-b border-ink-200/70 pb-px dark:border-white/10">
+      <div className="mt-8 flex gap-1 overflow-x-auto border-b border-ink-200/70 pb-px dark:border-white/[0.07]">
         <button
           type="button"
           onClick={() => setMainTab('posts')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+          className={`-mb-px flex shrink-0 items-center gap-2 border-b-[1.5px] px-3 py-2.5 text-[13px] font-medium transition-colors duration-150 ${
             mainTab === 'posts'
-              ? 'border-brand-500 text-brand-600 dark:text-brand-300'
-              : 'border-transparent text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
+              ? 'border-ink-900 text-ink-900 dark:border-white dark:text-white'
+              : 'border-transparent text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-ink-100'
           }`}
         >
-          <FileText size={16} />
+          <FileText size={14} />
           文章列表
-          <span className="rounded-full bg-ink-100 px-2 py-0.5 text-xs text-ink-600 dark:bg-white/10 dark:text-ink-300">
+          <span className="rounded-full bg-ink-900/[.06] px-1.5 py-px font-mono text-[10.5px] tabular-nums text-ink-500 dark:bg-white/[0.08] dark:text-ink-400">
             {posts.length}
           </span>
         </button>
@@ -518,17 +521,17 @@ export default function Admin() {
           <button
             type="button"
             onClick={() => setMainTab('prs')}
-            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+            className={`-mb-px flex shrink-0 items-center gap-2 border-b-[1.5px] px-3 py-2.5 text-[13px] font-medium transition-colors duration-150 ${
               mainTab === 'prs'
-                ? 'border-brand-500 text-brand-600 dark:text-brand-300'
-                : 'border-transparent text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
+                ? 'border-ink-900 text-ink-900 dark:border-white dark:text-white'
+                : 'border-transparent text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-ink-100'
             }`}
           >
-            <GitPullRequest size={16} />
+            <GitPullRequest size={14} />
             发表申请 (PR 审核)
             {openPRsCount > 0 && (
-              <span className="rounded-full bg-brand-500 px-2 py-0.5 text-xs font-bold text-white">
-                {openPRsCount} 待审核
+              <span className="rounded-full bg-ink-900 px-1.5 py-px font-mono text-[10.5px] tabular-nums text-white dark:bg-white dark:text-ink-950">
+                {openPRsCount}
               </span>
             )}
           </button>
@@ -537,34 +540,34 @@ export default function Admin() {
         <button
           type="button"
           onClick={() => setMainTab('export')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+          className={`-mb-px flex shrink-0 items-center gap-2 border-b-[1.5px] px-3 py-2.5 text-[13px] font-medium transition-colors duration-150 ${
             mainTab === 'export'
-              ? 'border-brand-500 text-brand-600 dark:text-brand-300'
-              : 'border-transparent text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
+              ? 'border-ink-900 text-ink-900 dark:border-white dark:text-white'
+              : 'border-transparent text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-ink-100'
           }`}
         >
-          <Archive size={16} />
+          <Archive size={14} />
           离线文章包
           {OFFLINE && localCount > 0 && (
-            <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
-              本机 {localCount} 篇
+            <span className="rounded-full bg-ink-900/[.06] px-1.5 py-px font-mono text-[10.5px] tabular-nums text-ink-500 dark:bg-white/[0.08] dark:text-ink-400">
+              {localCount}
             </span>
           )}
         </button>
         <button
           type="button"
           onClick={() => setMainTab('queue')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+          className={`-mb-px flex shrink-0 items-center gap-2 border-b-[1.5px] px-3 py-2.5 text-[13px] font-medium transition-colors duration-150 ${
             mainTab === 'queue'
-              ? 'border-brand-500 text-brand-600 dark:text-brand-300'
-              : 'border-transparent text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
+              ? 'border-ink-900 text-ink-900 dark:border-white dark:text-white'
+              : 'border-transparent text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-ink-100'
           }`}
         >
-          <ListTodo size={16} />
+          <ListTodo size={14} />
           待更新队列
           {queue.length > 0 && (
-            <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
-              {queue.length} 待更新
+            <span className="rounded-full bg-ink-900 px-1.5 py-px font-mono text-[10.5px] tabular-nums text-white dark:bg-white dark:text-ink-950">
+              {queue.length}
             </span>
           )}
         </button>
@@ -579,29 +582,25 @@ export default function Admin() {
           >
             <div className="relative min-w-[12rem] flex-1">
               <Search
-                size={15}
-                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400"
+                size={13}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400"
               />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="搜索文章标题、路径、标签…"
-                className="input !py-2 !pl-10"
+                className="input h-8 !pl-9 text-[12.5px]"
               />
             </div>
-            <div className="flex gap-0.5 rounded-xl bg-ink-100/80 p-1 dark:bg-white/5">
+            <div className="segmented">
               {FILTER_OPTIONS.map((f) => (
                 <button
                   key={f.id}
                   onClick={() => setFilter(f.id)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                    filter === f.id
-                      ? 'bg-white text-ink-900 shadow-sm dark:bg-white/10 dark:text-white'
-                      : 'text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
-                  }`}
+                  className={`segmented-item ${filter === f.id ? 'segmented-item-active' : ''}`}
                 >
                   {f.label}
-                  <span className="ml-1.5 text-ink-400">{counts[f.id]}</span>
+                  <span className="ml-1 font-mono text-[10.5px] tabular-nums text-ink-400 dark:text-ink-500">{counts[f.id]}</span>
                 </button>
               ))}
             </div>
@@ -609,13 +608,13 @@ export default function Admin() {
 
           {/* 文章列表 */}
           <div
-            className="card mt-5 animate-fade-up divide-y divide-ink-200/60 overflow-hidden dark:divide-white/[0.07]"
+            className="card mt-4 animate-fade-up divide-y divide-ink-200/60 overflow-hidden !rounded-xl dark:divide-white/[0.06]"
             style={{ animationDelay: '120ms' }}
           >
             {filtered.length === 0 && (
               <div className="flex flex-col items-center gap-3 px-6 py-20 text-center">
-                <FileText size={26} className="text-ink-300" />
-                <p className="text-sm text-ink-500">没有符合条件的文章</p>
+                <FileText size={22} className="text-ink-300 dark:text-ink-600" />
+                <p className="text-[13px] text-ink-500 dark:text-ink-400">没有符合条件的文章</p>
                 <Link to="/admin/new" className="btn-primary mt-1">
                   <Plus size={15} />
                   写一篇
@@ -632,39 +631,39 @@ export default function Admin() {
               return (
                 <div
                   key={itemKey}
-                  className="group flex flex-wrap items-center gap-3 px-4 py-3.5 transition hover:bg-ink-50/70 dark:hover:bg-white/[.03]"
+                  className="group flex flex-wrap items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-ink-900/[.02] dark:hover:bg-white/[.03]"
                 >
                   <span
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] border ${
                       isLocalDraft
-                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                        : 'bg-brand-500/10 text-brand-600 dark:text-brand-300'
+                        ? 'border-amber-300/50 text-amber-600 dark:border-amber-500/25 dark:text-amber-400'
+                        : 'border-ink-200/80 text-ink-500 dark:border-white/[0.1] dark:text-ink-400'
                     }`}
                     title={isLocalDraft ? '浏览器本地草稿' : '已发布到 GitHub 仓库'}
                   >
-                    {isLocalDraft ? <HardDrive size={16} /> : <Github size={16} />}
+                    {isLocalDraft ? <HardDrive size={14} /> : <Github size={14} />}
                   </span>
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <Link
                         to={`/admin/edit/${post.slug}?source=${post.source}`}
-                        className="truncate text-sm font-semibold text-ink-900 hover:text-brand-600 dark:text-white dark:hover:text-brand-300"
+                        className="truncate text-[13.5px] font-medium text-ink-900 transition-colors hover:text-brand-700 dark:text-white dark:hover:text-brand-200"
                       >
                         {post.title}
                       </Link>
                       {isLocalDraft ? (
-                        <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                        <span className="shrink-0 rounded-full border border-amber-300/60 px-1.5 py-px text-[10.5px] font-medium text-amber-700 dark:border-amber-500/30 dark:text-amber-400">
                           本地草稿
                         </span>
                       ) : (
-                        <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                        <span className="shrink-0 rounded-full border border-emerald-300/60 px-1.5 py-px text-[10.5px] font-medium text-emerald-700 dark:border-emerald-500/25 dark:text-emerald-400">
                           已发布到 GitHub
                         </span>
                       )}
                       {hasPending && (
                         <span
-                          className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400"
+                          className="shrink-0 rounded-full border border-amber-300/60 px-1.5 py-px text-[10.5px] font-medium text-amber-700 dark:border-amber-500/30 dark:text-amber-400"
                           title="该文章在待更新队列中有尚未提交到仓库的更改"
                         >
                           待更新
@@ -672,25 +671,25 @@ export default function Admin() {
                       )}
                       {isLocalDraft && encryptedRepoSlugs.has(post.slug) && (
                         <span
-                          className="shrink-0 rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] font-medium text-brand-600 dark:text-brand-300"
+                          className="shrink-0 rounded-full border border-ink-200/80 px-1.5 py-px text-[10.5px] font-medium text-ink-500 dark:border-white/[0.1] dark:text-ink-400"
                           title="仓库中同名文章为加密文章；发布时会在编辑器中重新加密"
                         >
                           加密文章草稿
                         </span>
                       )}
                       {post.draft && (
-                        <span className="shrink-0 rounded-full bg-rose-500/10 px-2 py-0.5 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                        <span className="shrink-0 rounded-full border border-rose-300/60 px-1.5 py-px text-[10.5px] font-medium text-rose-700 dark:border-rose-500/25 dark:text-rose-400">
                           隐藏草稿
                         </span>
                       )}
                       {post.pinned && (
-                        <span className="shrink-0 rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] text-brand-600 dark:text-brand-300">
+                        <span className="shrink-0 rounded-full border border-ink-200/80 px-1.5 py-px text-[10.5px] text-ink-500 dark:border-white/[0.1] dark:text-ink-400">
                           置顶
                         </span>
                       )}
                     </div>
 
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-ink-400">
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[10.5px] text-ink-400 dark:text-ink-500">
                       <span>/{post.slug}</span>
                       <span>·</span>
                       <span>{post.wordCount} 字</span>
@@ -749,7 +748,7 @@ export default function Admin() {
             })}
           </div>
 
-          <p className="mb-16 mt-4 text-xs leading-relaxed text-ink-400">
+          <p className="mb-16 mt-4 text-[11px] leading-relaxed text-ink-400 dark:text-ink-500">
             当同一文章存在已发布的仓库版本与本地编辑的草稿时，列表中会同时显示为两条记录，方便分别查看与管理。发布与删除等仓库操作会先进入「待更新队列」，统一更新后才会真正提交到 GitHub。
           </p>
         </>
@@ -771,25 +770,25 @@ export default function Admin() {
         /* -------------------------- 发表申请 (PR 审批) -------------------------- */
         <div className="mt-6 space-y-4" data-yield-list>
           <div className="flex items-center justify-between">
-            <p className="text-xs text-ink-500">
+            <p className="text-[11.5px] leading-relaxed text-ink-500 dark:text-ink-400">
               已登录用户即使无仓库权限也可申请发表文章（自动创建 PR）；仓库管理者可在此一键审核合并或关闭。
             </p>
             <button
               type="button"
               onClick={fetchPRs}
               disabled={loadingPrs}
-              className="btn-outline h-8 px-2.5 text-xs"
+              className="btn-outline h-8 px-2.5 text-[11.5px]"
             >
               <RefreshCw size={12} className={loadingPrs ? 'animate-spin' : ''} />
               刷新申请
             </button>
           </div>
 
-          <div className="card divide-y divide-ink-200/60 overflow-hidden dark:divide-white/[0.07]">
+          <div className="card divide-y divide-ink-200/60 overflow-hidden !rounded-xl dark:divide-white/[0.06]">
             {prs.length === 0 ? (
               <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
-                <GitPullRequest size={28} className="text-ink-300" />
-                <p className="text-sm text-ink-500">暂无文章发表申请 PR</p>
+                <GitPullRequest size={22} className="text-ink-300 dark:text-ink-600" />
+                <p className="text-[13px] text-ink-500 dark:text-ink-400">暂无文章发表申请 PR</p>
               </div>
             ) : (
               prs.map((pr) => {
@@ -797,7 +796,7 @@ export default function Admin() {
                 return (
                   <div
                     key={pr.number}
-                    className="flex flex-wrap items-center justify-between gap-4 px-4 py-3.5 transition hover:bg-ink-50/70 dark:hover:bg-white/[.03]"
+                    className="flex flex-wrap items-center justify-between gap-4 px-4 py-3.5 transition-colors duration-150 hover:bg-ink-900/[.02] dark:hover:bg-white/[.03]"
                   >
                     <div className="flex items-start gap-3 min-w-0 flex-1">
                       {pr.author.avatar_url ? (
@@ -807,35 +806,35 @@ export default function Admin() {
                           className="mt-0.5 h-8 w-8 rounded-full object-cover"
                         />
                       ) : (
-                        <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-brand-500/10 text-xs font-bold text-brand-600">
+                        <div className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-ink-900 text-[11px] font-semibold text-white dark:bg-white/[0.14]">
                           {pr.author.login[0]?.toUpperCase() || 'U'}
                         </div>
                       )}
 
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold text-sm text-ink-900 dark:text-white">
+                          <span className="text-[13.5px] font-semibold text-ink-900 dark:text-white">
                             《{pr.articleTitle}》
                           </span>
-                          <span className="font-mono text-xs text-ink-400">#{pr.number}</span>
+                          <span className="font-mono text-[10.5px] text-ink-400 dark:text-ink-500">#{pr.number}</span>
                           {pr.state === 'open' && (
-                            <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] font-bold text-brand-600 dark:text-brand-300">
-                              🟢 待审核
+                            <span className="rounded-full border border-emerald-300/60 px-1.5 py-px text-[10.5px] font-medium text-emerald-700 dark:border-emerald-500/25 dark:text-emerald-400">
+                              待审核
                             </span>
                           )}
                           {pr.state === 'merged' && (
-                            <span className="rounded-full bg-purple-500/10 px-2 py-0.5 text-[11px] font-bold text-purple-600 dark:text-purple-300">
-                              🟣 已合并发布
+                            <span className="rounded-full border border-violet-300/60 px-1.5 py-px text-[10.5px] font-medium text-violet-700 dark:border-violet-500/25 dark:text-violet-300">
+                              已合并发布
                             </span>
                           )}
                           {pr.state === 'closed' && (
-                            <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[11px] font-bold text-rose-600 dark:text-rose-400">
-                              🔴 已关闭
+                            <span className="rounded-full border border-rose-300/60 px-1.5 py-px text-[10.5px] font-medium text-rose-700 dark:border-rose-500/25 dark:text-rose-400">
+                              已关闭
                             </span>
                           )}
                         </div>
 
-                        <p className="mt-1 text-xs text-ink-400">
+                        <p className="mt-1 text-[11.5px] text-ink-400 dark:text-ink-500">
                           由 <span className="font-medium text-ink-700 dark:text-ink-200">@{pr.author.login}</span>{' '}
                           申请发表 · 提交于 {formatDate(pr.created_at.slice(0, 10))}
                           {pr.merged_at ? ` · 于 ${formatDate(pr.merged_at.slice(0, 10))} 合并` : ''}
@@ -848,7 +847,7 @@ export default function Admin() {
                         href={pr.html_url}
                         target="_blank"
                         rel="noreferrer"
-                        className="btn-outline h-8 px-2.5 text-xs"
+                        className="btn-outline h-8 px-2.5 text-[11.5px]"
                       >
                         <Github size={13} />
                         查看 PR
@@ -861,7 +860,7 @@ export default function Admin() {
                             type="button"
                             onClick={() => handleMergePR(pr.number)}
                             disabled={isBusy}
-                            className="btn-primary h-8 px-3 text-xs"
+                            className="btn-primary h-8 px-3 text-[11.5px]"
                           >
                             {isBusy ? (
                               <Loader2 size={13} className="animate-spin" />
@@ -874,7 +873,7 @@ export default function Admin() {
                             type="button"
                             onClick={() => handleClosePR(pr.number)}
                             disabled={isBusy}
-                            className="btn-danger h-8 px-2.5 text-xs"
+                            className="btn-danger h-8 px-2.5 text-[11.5px]"
                           >
                             <XCircle size={13} />
                             关闭
@@ -892,7 +891,7 @@ export default function Admin() {
         /* ---------------------------- 待更新队列 ---------------------------- */
         <div className="mt-6 space-y-4" data-yield-list>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs text-ink-500">
+            <p className="max-w-2xl text-[11.5px] leading-relaxed text-ink-500 dark:text-ink-400">
               {OFFLINE
                 ? '离线版不提交仓库：这里只列出本机暂存的图片等待导出内容，它们会随「导出文章包」一起带走。'
                 : '所有需要更新仓库的操作（发布/删除文章、上传图片、发表申请、账号偏好同步）都会先保存在本机，勾选后可一次批量更新，也可以全部更新。'}
@@ -902,7 +901,7 @@ export default function Admin() {
                 type="button"
                 onClick={toggleSelectAll}
                 disabled={queue.length === 0 || flushing}
-                className="btn-ghost h-8 px-2.5 text-xs"
+                className="btn-ghost h-8 px-2.5 text-[11.5px]"
               >
                 {allSelected ? <Square size={13} /> : <CheckSquare size={13} />}
                 {allSelected ? '取消全选' : '全选'}
@@ -913,7 +912,7 @@ export default function Admin() {
                     type="button"
                     onClick={() => runFlush(queue.filter((item) => selectedIds.has(item.id)))}
                     disabled={flushing || selectedIds.size === 0}
-                    className="btn-outline h-8 px-2.5 text-xs"
+                    className="btn-outline h-8 px-2.5 text-[11.5px]"
                     title={selectedIds.size === 0 ? '勾选要更新的更改' : `更新所选 ${selectedIds.size} 项`}
                   >
                     {flushing ? <Loader2 size={12} className="animate-spin" /> : <UploadCloud size={12} />}
@@ -923,7 +922,7 @@ export default function Admin() {
                     type="button"
                     onClick={() => runFlush(queue)}
                     disabled={flushing || queue.length === 0}
-                    className="btn-primary h-8 px-3 text-xs"
+                    className="btn-primary h-8 px-3 text-[11.5px]"
                   >
                     {flushing ? <Loader2 size={13} className="animate-spin" /> : <CloudUpload size={13} />}
                     全部更新
@@ -940,7 +939,7 @@ export default function Admin() {
                   toast('待更新队列已清空', 'info')
                 }}
                 disabled={queue.length === 0 || flushing}
-                className="btn-danger h-8 px-2.5 text-xs"
+                className="btn-danger h-8 px-2.5 text-[11.5px]"
               >
                 <Trash2 size={12} />
                 清空
@@ -949,17 +948,17 @@ export default function Admin() {
           </div>
 
           {!canPublish && (
-            <div className="rounded-xl border border-amber-200/70 bg-amber-50/50 px-4 py-3 text-xs text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
+            <div className="rounded-[10px] border border-amber-300/50 bg-amber-50/60 px-4 py-3 text-[11.5px] text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/[0.07] dark:text-amber-300">
               更新仓库需要先 <Link to="/login" className="font-medium underline underline-offset-2">登录 GitHub</Link>；队列中的更改已保存在本机，不会丢失。
             </div>
           )}
 
-          <div className="card divide-y divide-ink-200/60 overflow-hidden dark:divide-white/[0.07]">
+          <div className="card divide-y divide-ink-200/60 overflow-hidden !rounded-xl dark:divide-white/[0.06]">
             {queue.length === 0 ? (
               <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
-                <ListTodo size={28} className="text-ink-300" />
-                <p className="text-sm text-ink-500">待更新队列为空</p>
-                <p className="max-w-sm text-xs leading-relaxed text-ink-400">
+                <ListTodo size={22} className="text-ink-300 dark:text-ink-600" />
+                <p className="text-[13px] text-ink-500 dark:text-ink-400">待更新队列为空</p>
+                <p className="max-w-sm text-[11.5px] leading-relaxed text-ink-400 dark:text-ink-500">
                   在编辑器或文章列表中发布、删除文章，或上传图片后，更改会先出现在这里，等待统一更新到 GitHub。
                 </p>
               </div>
@@ -985,15 +984,15 @@ export default function Admin() {
                       event.preventDefault()
                       setDiffItem(item)
                     }}
-                    className={`flex cursor-pointer flex-wrap items-center gap-3 px-4 py-3.5 transition hover:bg-ink-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/40 dark:hover:bg-white/[.03] ${
-                      isSelected ? 'bg-brand-50/40 dark:bg-brand-500/[0.06]' : ''
+                    className={`flex cursor-pointer flex-wrap items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-ink-900/[.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/30 dark:hover:bg-white/[.03] ${
+                      isSelected ? 'bg-brand-500/[0.05] dark:bg-brand-500/[0.06]' : ''
                     }`}
                   >
                     <button
                       type="button"
                       onClick={() => toggleSelected(item.id)}
                       disabled={flushing}
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-ink-300 text-brand-600 transition hover:border-brand-400 dark:border-white/20 dark:text-brand-300"
+                      className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border border-ink-300 text-brand-600 transition hover:border-brand-400 dark:border-white/[0.2] dark:text-brand-300"
                       aria-label={isSelected ? '取消选择' : '选择'}
                     >
                       {isSelected && <CheckSquare size={14} />}
@@ -1015,14 +1014,14 @@ export default function Admin() {
 
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="truncate text-sm font-semibold text-ink-900 dark:text-white">
+                        <span className="truncate text-[13px] font-medium text-ink-900 dark:text-white">
                           {item.title}
                         </span>
-                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${meta.tone}`}>
+                        <span className="shrink-0 rounded-full border border-ink-200/80 px-1.5 py-px text-[10.5px] font-medium text-ink-500 dark:border-white/[0.1] dark:text-ink-400">
                           {meta.label}
                         </span>
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-ink-400">
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[10.5px] text-ink-400 dark:text-ink-500">
                         <span className="truncate">
                           {item.kind === 'post-publish' || item.kind === 'post-delete' || item.kind === 'post-pr' || item.kind === 'version-name'
                             ? `/${item.target}`
@@ -1035,7 +1034,7 @@ export default function Admin() {
                         </span>
                       </div>
                       {itemError && (
-                        <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">
+                        <p className="mt-1 text-[11px] text-rose-600 dark:text-rose-400">
                           上次更新失败：{itemError}
                         </p>
                       )}
@@ -1045,7 +1044,7 @@ export default function Admin() {
                       <button
                         onClick={() => setDiffItem(item)}
                         disabled={flushing}
-                        className="btn-ghost h-8 px-2 text-xs"
+                        className="btn-ghost h-8 px-2 text-[11.5px]"
                         title="查看这条更新请求的 diff"
                       >
                         <Eye size={14} />
@@ -1058,7 +1057,7 @@ export default function Admin() {
                             : runFlush([item])
                         }
                         disabled={flushing}
-                        className="btn-ghost h-8 px-2 text-xs text-brand-600 dark:text-brand-300"
+                        className="btn-ghost h-8 px-2 text-[11.5px] text-brand-600 dark:text-brand-300"
                         title="立即更新这一项"
                       >
                         {flushing ? (
@@ -1086,7 +1085,7 @@ export default function Admin() {
             )}
           </div>
 
-          <p className="mb-16 text-xs leading-relaxed text-ink-400">
+          <p className="mb-16 text-[11px] leading-relaxed text-ink-400 dark:text-ink-500">
             更新时文件类更改（文章、图片、账号偏好、版本名称）会合并为一次 Git 提交并触发一次部署；发表申请会逐个创建 PR。失败的条目会保留在队列中，可稍后重试。
             点击任意一条更新请求（或右侧的「diff」）可查看它相对仓库当前文件的差异。
           </p>
@@ -1104,13 +1103,13 @@ function OnlineBundleImport({ onImported }: { onImported: () => void }) {
   return (
     <div className="space-y-4" data-yield-list>
       <section className="card p-5">
-        <h2 className="flex items-center gap-2 font-serif text-lg font-bold">
-          <Archive size={17} />
+        <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-tight text-ink-900 dark:text-white">
+          <Archive size={15} className="text-brand-500" />
           导入离线文章包
         </h2>
-        <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-ink-500">
+        <p className="mt-2 max-w-3xl text-[12.5px] leading-[1.8] text-ink-500 dark:text-ink-400">
           离线单文件版（那个可以直接带走的 HTML）不会联网，也不能替你提交仓库：它只能导出一个
-          <code className="mx-1 rounded bg-ink-100 px-1 text-[13px] dark:bg-white/10">.starlog-import.json</code>
+          <code className="mx-1 rounded bg-ink-900/[.06] px-1 font-mono text-[11.5px] dark:bg-white/[.08]">.starlog-import.json</code>
           文章包。在这里选择它，文章会写进<strong>本站点的本地文章列表</strong>，
           然后照常走「待更新队列 → 统一更新」：一次提交、一次部署，线上文章列表里就有了。
         </p>

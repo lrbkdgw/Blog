@@ -68,15 +68,25 @@ function ThemeToggle() {
 
 function Logo() {
   return (
-    <Link to="/" className="group flex shrink-0 items-center" aria-label="回到首页">
+    <Link to="/" className="group flex shrink-0 items-center gap-2.5" aria-label="回到首页">
       <img
         src={logoVenti}
         alt="温迪"
-        width={40}
-        height={40}
+        width={30}
+        height={30}
         fetchPriority="high"
-        className="h-10 w-10 rounded-xl object-cover shadow-md shadow-brand-600/20 ring-1 ring-black/5 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105 dark:ring-white/15 dark:shadow-black/50"
+        className="h-[30px] w-[30px] rounded-full object-cover ring-1 ring-ink-900/[0.08] transition duration-300 ease-smooth group-hover:ring-brand-400/60 dark:ring-white/[0.12]"
       />
+      <span className="hidden flex-col leading-none sm:flex">
+        <span className="text-[14px] font-semibold tracking-tight text-ink-900 dark:text-white">
+          {siteConfig.title}
+        </span>
+        {siteConfig.titleEn ? (
+          <span className="mt-[3px] font-mono text-[10px] uppercase tracking-[0.14em] text-ink-400 dark:text-ink-500">
+            {siteConfig.titleEn}
+          </span>
+        ) : null}
+      </span>
     </Link>
   )
 }
@@ -107,7 +117,7 @@ function UserMenu() {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-ink-200 bg-gradient-to-br from-brand-400 to-indigo-600 text-xs font-bold text-white transition hover:ring-4 hover:ring-brand-500/15 dark:border-white/15"
+        className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-ink-200 bg-ink-900 text-[11px] font-semibold text-white transition duration-200 hover:ring-[3px] hover:ring-ink-900/[0.08] dark:border-white/[0.12] dark:bg-white/[0.12] dark:hover:ring-white/[0.1]"
         aria-label="账户菜单"
       >
         {ghUser?.avatar_url ? (
@@ -118,8 +128,8 @@ function UserMenu() {
       </button>
 
       {open && (
-        <div className="card absolute right-0 top-11 w-56 animate-scale-in overflow-hidden p-1.5 !bg-white/95 dark:!bg-ink-900/95">
-          <div className="border-b border-ink-200/70 px-3 py-2.5 dark:border-white/10">
+        <div className="card-pop absolute right-0 top-10 w-56 animate-scale-in overflow-hidden p-1.5">
+          <div className="border-b border-ink-200/70 px-3 py-2.5 dark:border-white/[0.08]">
             <p className="truncate text-sm font-medium text-ink-900 dark:text-white">
               {ghUser?.name || ghUser?.login || siteConfig.author.name}
             </p>
@@ -136,7 +146,7 @@ function UserMenu() {
               key={item.to}
               to={item.to}
               onClick={() => setOpen(false)}
-              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-600 transition hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-white/5"
+              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] text-ink-600 transition duration-150 hover:bg-ink-900/[.045] hover:text-ink-900 dark:text-ink-300 dark:hover:bg-white/[.06] dark:hover:text-white"
             >
               <item.icon size={15} />
               {item.label}
@@ -147,7 +157,7 @@ function UserMenu() {
               logout()
               setOpen(false)
             }}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-rose-600 transition hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
+            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] text-rose-600 transition duration-150 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
           >
             <LogOut size={15} />
             退出登录
@@ -167,53 +177,62 @@ function Header({ onSearch }: { onSearch: () => void }) {
 
   return (
     <header className="site-header no-print sticky top-0 z-50">
-      <div className="container-page flex h-16 items-center gap-3">
+      <div className="container-page flex h-[4.25rem] items-center gap-2">
         <Logo />
 
-        <nav className="ml-3 hidden items-center gap-1 md:flex">
+        {/* 主导航：居中偏左的纯文字标签，选中态只用一条下划线，不加底色块 */}
+        <nav className="ml-4 hidden items-center gap-0.5 md:flex" aria-label="主导航">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.end}
               className={({ isActive }) =>
-                `relative rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                `relative rounded-lg px-2.5 py-1.5 text-[13.5px] transition duration-200 ${
                   isActive
-                    ? 'text-brand-600 dark:text-brand-300 dark:[text-shadow:0_1px_12px_rgba(0,0,0,0.65)]'
-                    : 'text-ink-500 hover:text-ink-900 dark:text-ink-200/95 dark:hover:text-white dark:[text-shadow:0_1px_12px_rgba(0,0,0,0.65)]'
+                    ? 'font-medium text-ink-900 dark:text-white'
+                    : 'text-ink-500 hover:text-ink-900 dark:text-ink-400 dark:hover:text-white'
                 }`
               }
             >
               {({ isActive }) => (
                 <>
                   {item.label}
-                  {isActive && (
-                    <span className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-brand-400 to-indigo-500" />
-                  )}
+                  <span
+                    className={`absolute inset-x-2.5 -bottom-0.5 h-[1.5px] rounded-full bg-brand-500 transition-all duration-300 ease-smooth ${
+                      isActive ? 'opacity-100' : 'scale-x-0 opacity-0'
+                    }`}
+                  />
                 </>
               )}
             </NavLink>
           ))}
         </nav>
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex items-center gap-1">
+          {/* 搜索：宽屏是一条带快捷键提示的胶囊，窄屏收成图标 */}
           <button
             onClick={onSearch}
-            className="btn-ghost group hidden h-9 gap-2 !px-3 text-ink-500 sm:inline-flex dark:text-ink-300"
+            className="group hidden h-8 items-center gap-2 rounded-full border border-ink-200/80 bg-white/60 pl-2.5 pr-1.5 text-[12.5px] text-ink-400 transition duration-200 hover:border-ink-300 hover:text-ink-700 sm:inline-flex dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-ink-500 dark:hover:border-white/[0.16] dark:hover:text-ink-200"
             aria-label="搜索"
           >
-            <Search size={16} />
-            <span className="hidden text-xs lg:inline">搜索</span>
-            <kbd className="hidden rounded border border-ink-200 px-1.5 font-mono text-[10px] lg:inline dark:border-white/15">
+            <Search size={14} />
+            <span className="hidden lg:inline">搜索</span>
+            <kbd className="ml-1 rounded-[5px] border border-ink-200/80 bg-ink-50 px-1.5 pb-[1px] font-mono text-[10px] leading-4 text-ink-400 dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-ink-500">
               ⌘K
             </kbd>
           </button>
-          <button onClick={onSearch} className="btn-ghost h-9 w-9 !px-0 sm:hidden" aria-label="搜索">
+          <button onClick={onSearch} className="btn-ghost h-8 w-8 !px-0 sm:hidden" aria-label="搜索">
             <Search size={17} />
           </button>
 
-          <Link to="/settings" className="btn-ghost h-9 w-9 !px-0 text-ink-500 hover:text-brand-600 dark:text-ink-300 dark:hover:text-brand-300" title="设置" aria-label="设置">
-            <Settings size={18} />
+          <Link
+            to="/settings"
+            className="btn-ghost h-8 w-8 !px-0"
+            title="设置"
+            aria-label="设置"
+          >
+            <Settings size={16} />
           </Link>
 
           <OfflineBadge />
@@ -222,8 +241,8 @@ function Header({ onSearch }: { onSearch: () => void }) {
 
           <ThemeToggle />
 
-          <Link to="/admin/new" className="btn-primary hidden h-9 sm:inline-flex">
-            <PenLine size={15} />
+          <Link to="/admin/new" className="btn-primary ml-1 hidden h-8 sm:inline-flex">
+            <PenLine size={14} />
             写文章
           </Link>
 
@@ -232,7 +251,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
 
           <button
             onClick={() => setMobileOpen((v) => !v)}
-            className="btn-ghost h-9 w-9 !px-0 md:hidden"
+            className="btn-ghost h-8 w-8 !px-0 md:hidden"
             aria-label="菜单"
           >
             {mobileOpen ? <X size={18} /> : <Menu size={18} />}
@@ -242,22 +261,24 @@ function Header({ onSearch }: { onSearch: () => void }) {
 
       {mobileOpen && (
         <div className="site-header-panel animate-fade-in md:hidden">
-          <nav className="container-page flex flex-col py-3">
+          <nav className="container-page flex flex-col py-3" aria-label="移动端导航">
             {NAV.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 end={item.end}
                 className={({ isActive }) =>
-                  `rounded-lg px-3 py-2.5 text-sm font-medium transition ${
-                    isActive ? 'bg-brand-500/10 text-brand-600 dark:text-brand-300' : 'text-ink-600 dark:text-ink-300'
+                  `rounded-lg px-3 py-2.5 text-[14px] transition ${
+                    isActive
+                      ? 'bg-brand-500/[0.08] font-medium text-ink-900 dark:text-white'
+                      : 'text-ink-600 hover:bg-ink-900/[.04] dark:text-ink-300 dark:hover:bg-white/[.05]'
                   }`
                 }
               >
                 {item.label}
               </NavLink>
             ))}
-            <div className="mt-2 flex gap-2 border-t border-ink-200/60 pt-3 dark:border-white/10">
+            <div className="mt-2 flex gap-2 border-t border-ink-200/60 pt-3 dark:border-white/[0.08]">
               <Link to="/settings" className="btn-outline">
                 <Settings size={15} />
                 设置
@@ -317,27 +338,32 @@ function Footer() {
 
   return (
     <footer className="no-print mt-24" data-yield-list>
-      <div className="container-page flex flex-col items-center justify-between gap-5 border-t border-ink-200/60 py-10 sm:flex-row dark:border-white/[0.08]">
-        <div className="text-center sm:text-left">
-          <p className="text-xs text-ink-400">
-            © {new Date().getFullYear()} {siteConfig.author.name}
-            {siteConfig.footerNote ? ` · ${siteConfig.footerNote}` : ''} ·{' '}
-            {OFFLINE ? '离线单文件版（不联网）' : '由 React + Vite 驱动，托管于 GitHub Pages'}
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {links.map((l) => (
-            <a
-              key={l.label}
-              href={l.href}
-              target="_blank"
-              rel="noreferrer"
-              aria-label={l.label}
-              className="btn-ghost h-9 w-9 !px-0"
-            >
-              <l.icon size={17} />
-            </a>
-          ))}
+      <div className="container-page">
+        <div className="hairline" />
+        <div className="flex flex-col items-center justify-between gap-6 py-10 sm:flex-row">
+          <div className="flex flex-col items-center gap-1 sm:items-start">
+            <p className="text-[12.5px] font-medium text-ink-600 dark:text-ink-300">
+              © {new Date().getFullYear()} {siteConfig.author.name}
+              {siteConfig.footerNote ? ` · ${siteConfig.footerNote}` : ''}
+            </p>
+            <p className="text-[11.5px] text-ink-400 dark:text-ink-500">
+              {OFFLINE ? '离线单文件版 · 全程不联网' : 'Markdown + KaTeX · React + Vite · GitHub Pages'}
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
+            {links.map((l) => (
+              <a
+                key={l.label}
+                href={l.href}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={l.label}
+                className="btn-ghost h-8 w-8 !px-0"
+              >
+                <l.icon size={16} />
+              </a>
+            ))}
+          </div>
         </div>
       </div>
     </footer>
@@ -380,7 +406,7 @@ function OfflineBadge() {
     <Link
       to="/admin?tab=export"
       title={`离线版：本站不发起任何网络请求。本机已写 ${count} 篇${local && local.images > 0 ? `、暂存 ${local.images} 张图片` : ''}；点这里导出文章包后在线上站点导入`}
-      className="btn-ghost h-9 gap-1.5 !px-2.5 text-xs"
+      className="btn-ghost h-8 gap-1.5 !px-2 text-[12px]"
     >
       <HardDrive size={15} />
       <span className="hidden lg:inline">离线版</span>

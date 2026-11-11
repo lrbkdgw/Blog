@@ -31,6 +31,7 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 🕸️ **图论画布** | `::begin_ui-graph[<附加项>] … ::end_ui-graph` 延续直角坐标系同款视觉与拖拽平移/滚轮缩放交互，支持 `dag` 有向边、可选边权与坐标、未声明端点自动创建，并在站内编辑器中支持**「调整模式」**可视化拖拽节点并直接写回 Markdown 源码保存（issue #83） |
 | 📄 **文章排版指令** | 文首 `::set-font` / `::set-code-font` / `::set-background` 强制本文的字体与动态背景，仅在阅读本文时生效 |
 | 📱 **响应式** | 手机 / 平板 / 桌面均已适配，支持打印样式 |
+| 🎛️ **统一设计系统** | 中性墨色阶 + 发丝描边 + 一套字阶与圆角：卡片只有 1px 细描边、投影只留给浮层，标题统一无衬线，10 套配色主题只改品牌色与氛围光；详见「🎛️ 视觉与设计系统」 |
 | 🧭 **全透明页头 + 全站防冲突让路** | 页头不铺底色、不加毛玻璃、不描边、不投影，背景原样透出；**全站所有页面**滚进顶栏前在页头下沿下方提前沿多控制点 Hermite S 曲线柔和消融（`src/lib/headerYield.ts`，含深色模式感知明度伽马补偿），字不与导航打架、背景一像素不动（issue #53 / #63 / #71 / #78） |
 | 📴 **离线单文件版** | 整站打包成一个 HTML，**完全不联网**也能阅读与写作（含加密文章、本机版本历史）；要回线上用「文章包」导入（见「📴 离线版」） |
 
@@ -144,6 +145,38 @@ export const oauthConfig = {
 Pages 项目 **Settings → Environment variables** 中新增 `VITE_GITHUB_CLIENT_ID`。
 
 ---
+
+## 🎛️ 视觉与设计系统
+
+界面遵循「现代 / 高级 / 简约」三条原则：**中性色打底**（所有页面底色都是近白或近黑，品牌色只出现在按钮、链接、选中态与氛围光上）、**发丝描边代替阴影**（卡片默认只有 1px 细描边，投影只留给真正浮起的浮层）、**一套字阶与圆角**（正文 13–13.5px、标题 2rem、面板圆角最大 10px）。
+
+### 设计令牌
+
+| 令牌 | 位置 | 说明 |
+| --- | --- | --- |
+| `ink-50` … `ink-950` | `tailwind.config.js` | 中性墨色阶，正文 / 次要文字 / 描边 / 分隔线全部取自这一套 |
+| `brand-50` … `brand-950` | `tailwind.config.js` → `styles/index.css` | `rgb(var(--brand-N) / <alpha-value>)`，10 套配色主题只改这组变量 |
+| `--font-display` | `styles/index.css` | 标题字体，`h1`–`h6` 与展示型标题统一引用 |
+| `--radius-xs/sm/md/lg/xl` | `styles/index.css` | 6 / 8 / 10 / 14 / 18px，面板最大 10px，卡片不用更大的圆角 |
+| `--hairline` | `styles/index.css` | 浅色 = 墨色 8%，深色 = 白色 8% 的细描边 |
+| `ease-smooth` / `shadow-card` / `shadow-lift` / `shadow-pop` | `tailwind.config.js` | 三档阴影只在卡片、悬浮、浮层三种层级使用 |
+
+### 组件类
+
+样式集中在 `src/styles/index.css` 的 `@layer components`，页面里不再各写一套：
+
+- `.card` / `.card-hover` / `.card-pop`：白纸卡片、可交互卡片、浮层（下拉 / 搜索 / 弹窗）。
+- `.btn` + `.btn-primary` / `.btn-outline` / `.btn-ghost` / `.btn-danger`：统一 36px 高、10px 圆角、13.5px 字。
+- `.segmented` / `.segmented-item` / `.segmented-item-active`：明暗模式、对比视图等分段开关。
+- `.label` / `.chip` / `.chip-solid` / `.hairline` / `.site-header-panel` / `.link-underline`：表单标签、标签胶囊、分隔线、移动端菜单面板、正文链接下划线。
+
+### 排版与无障碍
+
+- 页眉统一为「英文小标（11.5px，字距 0.16em）+ 2rem 无衬线标题」，面板标题 14–15px，正文 11.5–13.5px。
+- 全站 `:focus-visible` 统一焦点环；`prefers-reduced-motion: reduce` 时关闭所有装饰动效（含回声洞逐字浮现）。
+- 正文 prose 保留原有 `data-yield` 顶栏消融、打印样式与 KaTeX / 代码高亮样式；`body` 的四层 `radial-gradient` 背景未改，动态背景与配色主题照旧叠加。
+
+新增组件时请优先复用上面的类，不要再引入新的圆角、阴影或彩色底色；确需新样式时先在 `tailwind.config.js` 里加令牌。
 
 ## 🎨 配色主题与动态背景
 
@@ -542,7 +575,7 @@ $\texttt{吃}$！
 │   │   ├── latexSymbols.ts        # LaTeX 符号目录（别名搜索，编辑器与 VS Code 插件共用）
 │   │   └── fontStacks.ts          # 默认字体栈（字体偏好与文章指令共用）
 │   ├── pages/                     # 首页 / 文章 / 归档 / 标签 / 关于 / 登录 / 后台 / 编辑器
-│   ├── styles/index.css           # Tailwind + 代码高亮 + 排版细节
+│   ├── styles/index.css           # 设计令牌与组件类（.card / .btn / .segmented）+ 代码高亮 + 排版细节
 │   ├── App.tsx                    # 路由
 │   └── main.tsx                   # 入口
 ├── vscode_extensions/v1/         # Markdown 语法拓展插件与可安装 VSIX

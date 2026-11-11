@@ -115,7 +115,7 @@ export default function GithubConnect({ onToken, label = '使用 GitHub 登录',
 
   if (missing.length > 0) {
     return (
-      <div className="rounded-xl border border-amber-200/80 bg-amber-50/60 p-4 text-xs leading-relaxed text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/[0.08] dark:text-amber-300">
+      <div className="rounded-[10px] border border-amber-300/50 bg-amber-50/60 p-4 text-[11.5px] leading-relaxed text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/[0.08] dark:text-amber-300">
         <p className="flex items-center gap-1.5 font-medium">
           <AlertTriangle size={14} />
           站长尚未完成 OAuth 配置
@@ -136,15 +136,15 @@ export default function GithubConnect({ onToken, label = '使用 GitHub 登录',
   return (
     <div className="space-y-3">
       {phase === 'waiting' && flow ? (
-        <div className="animate-fade-up rounded-xl border border-brand-200/80 bg-brand-50/60 p-4 text-center dark:border-brand-400/25 dark:bg-brand-500/[0.08]">
-          <p className="text-xs text-ink-500 dark:text-ink-300">
+        <div className="animate-fade-up rounded-[10px] border border-ink-200/80 bg-ink-50/60 p-4 text-center dark:border-white/[0.09] dark:bg-white/[0.03]">
+          <p className="text-[11.5px] text-ink-500 dark:text-ink-300">
             {copied ? '✅ 验证码已自动复制！请在 GitHub 页面粘贴授权：' : '在 GitHub 验证页面输入下面的验证码：'}
           </p>
           <button
             type="button"
             onClick={() => copyCode(flow.userCode)}
             title="点击复制"
-            className="group mx-auto mt-2 flex items-center gap-2 rounded-lg bg-white/80 px-4 py-2 font-mono text-2xl font-bold tracking-[0.18em] text-ink-900 shadow-sm ring-1 ring-ink-900/5 transition hover:ring-brand-400/50 dark:bg-white/10 dark:text-white dark:ring-white/10"
+            className="group mx-auto mt-2 flex items-center gap-2 rounded-[10px] border border-ink-200/80 bg-ink-50/60 px-4 py-2 font-mono text-[1.35rem] font-semibold tracking-[0.18em] text-ink-900 transition hover:border-ink-300 dark:border-white/[0.09] dark:bg-white/[0.04] dark:text-white dark:hover:border-white/[0.2]"
           >
             {flow.userCode}
             {copied ? (
@@ -153,7 +153,7 @@ export default function GithubConnect({ onToken, label = '使用 GitHub 登录',
               <ClipboardCopy size={16} className="text-ink-300 transition group-hover:text-brand-500" />
             )}
           </button>
-          <p className="mt-2 flex items-center justify-center gap-1.5 text-xs text-ink-400">
+          <p className="mt-2 flex items-center justify-center gap-1.5 text-[10.5px] text-ink-400 dark:text-ink-500">
             <Timer size={12} />
             {remaining > 0 ? `验证码 ${mm}:${ss} 后过期` : '验证码已过期'}
             <span className="mx-1">·</span>
@@ -165,12 +165,12 @@ export default function GithubConnect({ onToken, label = '使用 GitHub 登录',
               href={flow.verificationUri}
               target="_blank"
               rel="noreferrer"
-              className="btn-primary h-9 px-4 text-sm"
+              className="btn-primary h-8 px-3.5 text-[12px]"
             >
               <ExternalLink size={14} />
               打开 GitHub 验证
             </a>
-            <button type="button" onClick={reset} className="btn-ghost h-9 px-3 text-sm">
+            <button type="button" onClick={reset} className="btn-ghost h-8 px-3 text-[12px]">
               <X size={14} />
               取消
             </button>
@@ -184,7 +184,7 @@ export default function GithubConnect({ onToken, label = '使用 GitHub 登录',
       )}
 
       {error && (
-        <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-400">
+        <p className="rounded-[10px] border border-rose-300/50 bg-rose-50/70 px-3 py-2 text-[11.5px] text-rose-600 dark:border-rose-500/25 dark:bg-rose-500/[0.08] dark:text-rose-400">
           {error}
         </p>
       )}

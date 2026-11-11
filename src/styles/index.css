@@ -18,7 +18,22 @@
     --font-sans: "Google Sans", "Noto Sans CJK SC", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     --font-serif: Georgia, "Songti SC", STSong, SimSun, "Noto Serif SC", serif;
     --font-mono: "Cascadia Code", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+    /* 标题字体：默认跟随正文字体，只有用户显式设置衬线标题时才会不同。 */
+    --font-display: var(--font-serif);
     --site-font-size: 100%;
+
+    /* ------------------------------------------------------------------ */
+    /*  版式与节奏                                                         */
+    /*  全站的字号层级、行高、圆角与留白都从这里取，组件里不再散落魔数。       */
+    /* ------------------------------------------------------------------ */
+    --radius-xs: 6px;
+    --radius-sm: 8px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 18px;
+    /* 细描边：浅色用墨色 8%，深色用白色 8%，比 Tailwind 默认更轻 */
+    --hairline: rgba(16, 24, 40, 0.08);
+    --hairline-strong: rgba(16, 24, 40, 0.12);
 
     /* ------------------------------------------------------------------ */
     /*  配色主题 · 默认「星野蓝」                                           */
@@ -43,12 +58,12 @@
     --theme-accent: #3563f6;
     --theme-accent-soft: #5a8bff;
     /* 页面底色与两团氛围光：主题各自带一套，深浅色各一份 */
-    --theme-surface-light: #fbfbfd;
-    --theme-surface-dark: #0d1017;
-    --theme-glow-primary-light: rgba(90, 139, 255, 0.2);
-    --theme-glow-secondary-light: rgba(129, 140, 248, 0.15);
-    --theme-glow-primary-dark: rgba(53, 99, 246, 0.15);
-    --theme-glow-secondary-dark: rgba(99, 102, 241, 0.15);
+    --theme-surface-light: #fcfcfd;
+    --theme-surface-dark: #08090c;
+    --theme-glow-primary-light: rgba(90, 139, 255, 0.13);
+    --theme-glow-secondary-light: rgba(129, 140, 248, 0.1);
+    --theme-glow-primary-dark: rgba(53, 99, 246, 0.12);
+    --theme-glow-secondary-dark: rgba(99, 102, 241, 0.1);
 
     --site-background: var(--theme-surface-light);
     --site-background-dark: var(--theme-surface-dark);
@@ -69,8 +84,11 @@
     --site-background-gradient-stop-2: 70%;
   }
 
+
   /* ------------------------------------------------------------------ */
   /*  主题色卡：只覆盖上面的变量，不含任何布局或排版规则                   */
+  /*  重设计后所有主题的页面底色都收敛到同一档近白 / 近黑，氛围光更淡，       */
+  /*  让「配色主题」只改变品牌色，而不是把整页染成彩纸。                    */
   /* ------------------------------------------------------------------ */
   /* ocean 深海青 */
   [data-starlog-theme='ocean'] {
@@ -273,6 +291,8 @@
 
   .dark {
     color-scheme: dark;
+    --hairline: rgba(255, 255, 255, 0.08);
+    --hairline-strong: rgba(255, 255, 255, 0.14);
     --site-background-glow-primary: var(--theme-glow-primary-dark);
     --site-background-glow-secondary: var(--theme-glow-secondary-dark);
     --site-header-surface: var(--theme-surface-dark);
@@ -282,52 +302,88 @@
     -webkit-tap-highlight-color: transparent;
     /* 字号偏好在根节点统一缩放，因此正文、标题和 KaTeX 公式保持比例。 */
     font-size: var(--site-font-size);
+    scroll-padding-top: 5.5rem;
   }
 
   body {
-    @apply text-ink-800 antialiased dark:text-ink-200;
+    @apply text-ink-700 antialiased dark:text-ink-300;
     background-color: var(--site-background);
     background-image:
-      radial-gradient(var(--site-background-gradient-size-1) at -14% -18%, var(--site-background-tint-primary), transparent var(--site-background-gradient-stop-1)),
-      radial-gradient(var(--site-background-gradient-size-2) at 112% 28%, var(--site-background-tint-secondary), transparent var(--site-background-gradient-stop-2)),
-      radial-gradient(62rem 44rem at -14% -18%, var(--site-background-glow-primary), transparent 68%),
-      radial-gradient(54rem 42rem at 112% 28%, var(--site-background-glow-secondary), transparent 70%);
+      radial-gradient(var(--site-background-gradient-size-1) at -10% -14%, var(--site-background-tint-primary), transparent var(--site-background-gradient-stop-1)),
+      radial-gradient(var(--site-background-gradient-size-2) at 108% 24%, var(--site-background-tint-secondary), transparent var(--site-background-gradient-stop-2)),
+      radial-gradient(52rem 38rem at -10% -14%, var(--site-background-glow-primary), transparent 66%),
+      radial-gradient(46rem 36rem at 108% 24%, var(--site-background-glow-secondary), transparent 68%);
     background-attachment: fixed;
     background-repeat: no-repeat;
     background-size: cover;
+    /* 重新设计后的字距与字形特性：中文正文更松，拉丁字母更紧凑 */
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+    letter-spacing: -0.003em;
+    text-rendering: optimizeLegibility;
   }
   .dark body {
     background-color: var(--site-background-dark);
   }
 
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-ink-900 dark:text-white;
+    font-family: var(--font-display);
+    letter-spacing: -0.022em;
+    text-wrap: balance;
+  }
+
   ::selection {
-    @apply bg-brand-500/25;
+    @apply bg-brand-500/20;
+  }
+
+  /* 键盘聚焦：全站统一一圈细品牌色描边，不再依赖浏览器默认虚线框 */
+  :focus-visible {
+    outline: 2px solid rgb(var(--brand-500) / 0.55);
+    outline-offset: 2px;
   }
 
   /* 滚动条 */
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(120, 130, 155, 0.35) transparent;
+    scrollbar-color: rgba(120, 130, 155, 0.3) transparent;
   }
   *::-webkit-scrollbar {
     width: 10px;
     height: 10px;
   }
   *::-webkit-scrollbar-thumb {
-    @apply rounded-full border-4 border-solid border-transparent bg-ink-300/60 bg-clip-content dark:bg-ink-700/70;
+    @apply rounded-full border-[3px] border-solid border-transparent bg-ink-300/55 bg-clip-content dark:bg-ink-700/70;
   }
   *::-webkit-scrollbar-thumb:hover {
-    @apply bg-ink-400/70 dark:bg-ink-600;
+    @apply bg-ink-400/60 dark:bg-ink-600;
   }
   *::-webkit-scrollbar-track {
     background: transparent;
   }
+
+  /* 尊重「减少动态效果」的系统设置：入场动画一律关掉，只保留即时状态 */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-fade-up,
+    .animate-fade-in,
+    .animate-scale-in,
+    .animate-float {
+      animation: none !important;
+    }
+    html {
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
 @layer components {
+  /* ------------------------------------------------------------------ */
+  /*  版心：正文页 760px（阅读舒适宽度），列表页更宽，宽屏最多 1120px        */
+  /* ------------------------------------------------------------------ */
   .container-page {
-    @apply mx-auto w-full max-w-6xl px-5 sm:px-8;
+    @apply mx-auto w-full max-w-6xl px-5 sm:px-7;
+  }
+  .container-prose {
+    @apply mx-auto w-full max-w-[48rem] px-5 sm:px-7;
   }
 
   /* ------------------------------------------------------------------ */
@@ -417,15 +473,15 @@
   }
   /* 移动端展开的导航面板：独立的浮层底色（页头本身已经透明） */
   .site-header-panel {
-    @apply border-t border-ink-200/60 dark:border-white/10;
+    @apply border-t border-ink-200/60 dark:border-white/[0.07];
     background-color: rgba(255, 255, 255, 0.95);
-    background-color: color-mix(in srgb, var(--site-header-surface) 95%, transparent);
-    -webkit-backdrop-filter: blur(18px) saturate(1.5);
-    backdrop-filter: blur(18px) saturate(1.5);
+    background-color: color-mix(in srgb, var(--site-header-surface) 90%, transparent);
+    -webkit-backdrop-filter: blur(22px) saturate(1.6);
+    backdrop-filter: blur(22px) saturate(1.6);
   }
   .dark .site-header-panel {
-    background-color: rgba(13, 16, 23, 0.95);
-    background-color: color-mix(in srgb, var(--site-header-surface) 95%, transparent);
+    background-color: rgba(8, 9, 12, 0.95);
+    background-color: color-mix(in srgb, var(--site-header-surface) 90%, transparent);
   }
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .site-header-panel {
@@ -433,47 +489,106 @@
     }
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  卡片                                                               */
+  /*  重设计要点：白纸感（没有彩色玻璃）、1px 细描边、极浅的接触阴影，        */
+  /*  只在 hover 时抬起一层；不再默认 backdrop-blur（省掉大量合成层）。      */
+  /* ------------------------------------------------------------------ */
   .card {
-    @apply rounded-2xl border border-ink-200/70 bg-white/80 shadow-[0_1px_2px_rgba(16,24,40,.04),0_12px_32px_-12px_rgba(16,24,40,.12)] backdrop-blur
-           dark:border-white/10 dark:bg-white/[0.035] dark:shadow-[0_1px_2px_rgba(0,0,0,.4),0_18px_40px_-18px_rgba(0,0,0,.7)];
+    @apply rounded-2xl border border-ink-200/80 bg-white dark:border-white/[0.08];
+    box-shadow: 0 1px 2px rgb(16 24 40 / 0.04);
+  }
+  .dark .card {
+    @apply bg-white/[0.025];
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  }
+  /* 可交互卡片的统一悬浮行为 */
+  .card-hover {
+    @apply transition duration-300 ease-smooth hover:-translate-y-0.5 hover:border-ink-300/90 dark:hover:border-white/[0.14];
+  }
+  .dark .card-hover:hover {
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 22px 44px -30px rgb(0 0 0 / 0.9);
+  }
+  .card-hover:hover {
+    box-shadow: 0 1px 2px rgb(16 24 40 / 0.05), 0 22px 44px -30px rgb(16 24 40 / 0.4);
+  }
+  /* 浮层（下拉菜单 / 搜索面板 / 弹窗）：更实的底色 + 更深的投影 */
+  .card-pop {
+    @apply rounded-2xl border border-ink-200/80 bg-white dark:border-white/[0.09] dark:bg-ink-900;
+    box-shadow: 0 2px 6px rgb(16 24 40 / 0.06), 0 28px 60px -32px rgb(16 24 40 / 0.45);
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  按钮                                                               */
+  /*  统一 36px 高度、10px 圆角、无渐变。主按钮是实心品牌色，其余是描边 /    */
+  /*  幽灵按钮，权重靠明暗而不是靠颜色数量拉开。                            */
+  /* ------------------------------------------------------------------ */
   .btn {
-    @apply inline-flex select-none items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium
-           transition-all duration-150 active:scale-[.97] disabled:pointer-events-none disabled:opacity-50;
+    @apply inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-[10px] px-3.5 py-2 text-[13.5px] font-medium leading-none
+           transition duration-150 ease-smooth active:scale-[.985] disabled:pointer-events-none disabled:opacity-45;
   }
   .btn-primary {
-    @apply btn bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-lg shadow-brand-600/25
-           hover:from-brand-400 hover:to-brand-600 hover:shadow-brand-600/35;
+    @apply btn bg-brand-600 text-white shadow-[0_1px_2px_rgb(16_24_40/0.12)]
+           hover:bg-brand-500 dark:bg-brand-500 dark:hover:bg-brand-400 dark:hover:text-ink-950;
   }
   .btn-ghost {
-    @apply btn text-ink-600 hover:bg-ink-900/[.05] hover:text-ink-900 dark:text-ink-300 dark:hover:bg-white/10 dark:hover:text-white;
+    @apply btn text-ink-500 hover:bg-ink-900/[.045] hover:text-ink-900 dark:text-ink-400 dark:hover:bg-white/[.06] dark:hover:text-white;
   }
   .btn-outline {
-    @apply btn border border-ink-200 bg-white/60 text-ink-700 hover:border-brand-300 hover:text-brand-700
-           dark:border-white/12 dark:bg-white/5 dark:text-ink-200 dark:hover:border-brand-400/50 dark:hover:text-white;
+    @apply btn border border-ink-200 bg-white text-ink-700 hover:border-ink-300 hover:text-ink-900
+           dark:border-white/[0.1] dark:bg-white/[0.03] dark:text-ink-200 dark:hover:border-white/[0.18] dark:hover:bg-white/[0.06] dark:hover:text-white;
   }
   .btn-danger {
-    @apply btn border border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-400 dark:hover:bg-rose-500/10;
+    @apply btn border border-rose-200/80 text-rose-600 hover:border-rose-300 hover:bg-rose-50
+           dark:border-rose-500/25 dark:text-rose-400 dark:hover:border-rose-500/40 dark:hover:bg-rose-500/10;
+  }
+  /* 分段控件（视图切换、筛选、Tab）：一整块底色 + 内部一枚白色滑块 */
+  .segmented {
+    @apply inline-flex items-center gap-0.5 rounded-[10px] border border-ink-200/80 bg-ink-50 p-0.5 dark:border-white/[0.08] dark:bg-white/[0.04];
+  }
+  .segmented-item {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-[7px] px-2.5 py-1.5 text-[12.5px] font-medium text-ink-500 transition duration-150
+           hover:text-ink-800 dark:text-ink-400 dark:hover:text-white;
+  }
+  .segmented-item-active {
+    @apply bg-white text-ink-900 shadow-[0_1px_2px_rgb(16_24_40/0.1)] dark:bg-white/[0.1] dark:text-white;
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  表单控件                                                           */
+  /* ------------------------------------------------------------------ */
   .input {
-    @apply w-full rounded-xl border border-ink-200 bg-white px-3.5 py-2.5 text-sm text-ink-900 outline-none
-           transition placeholder:text-ink-400 focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12
-           dark:border-white/12 dark:bg-white/[0.04] dark:text-white dark:placeholder:text-ink-500 dark:focus:border-brand-400/60;
+    @apply w-full rounded-[10px] border border-ink-200 bg-white px-3 py-2 text-[13.5px] text-ink-900 outline-none
+           transition duration-150 placeholder:text-ink-400 hover:border-ink-300
+           focus:border-brand-400 focus:ring-[3px] focus:ring-brand-500/[0.12]
+           dark:border-white/[0.1] dark:bg-white/[0.03] dark:text-white dark:placeholder:text-ink-500
+           dark:hover:border-white/[0.16] dark:focus:border-brand-400/70;
+  }
+  .label {
+    @apply block text-[12px] font-medium tracking-wide text-ink-500 dark:text-ink-400;
   }
 
+  /* 标签 / 药丸：无底色、只有一层细描边，比色块更安静 */
   .chip {
-    @apply inline-flex items-center gap-1 rounded-full border border-ink-200/80 bg-white/70 px-2.5 py-0.5 text-xs font-medium
-           text-ink-600 transition hover:border-brand-300 hover:text-brand-700
-           dark:border-white/10 dark:bg-white/5 dark:text-ink-300 dark:hover:border-brand-400/40 dark:hover:text-brand-200;
+    @apply inline-flex items-center gap-1 rounded-full border border-ink-200/80 bg-transparent px-2.5 py-0.5 text-[12px] font-medium
+           text-ink-500 transition duration-150 hover:border-brand-300 hover:text-brand-700
+           dark:border-white/[0.1] dark:text-ink-400 dark:hover:border-brand-400/40 dark:hover:text-brand-200;
+  }
+  .chip-solid {
+    @apply inline-flex items-center gap-1 rounded-full bg-ink-900/[.05] px-2.5 py-0.5 text-[12px] font-medium text-ink-600
+           dark:bg-white/[0.07] dark:text-ink-300;
   }
 
   .link-underline {
-    @apply bg-gradient-to-r from-brand-500 to-brand-500 bg-[length:0%_1.5px] bg-left-bottom bg-no-repeat
-           transition-[background-size] duration-300 hover:bg-[length:100%_1.5px];
+    @apply bg-gradient-to-r from-brand-500 to-brand-500 bg-[length:0%_1px] bg-left-bottom bg-no-repeat
+           transition-[background-size] duration-300 hover:bg-[length:100%_1px];
   }
 
+  /* 页脚 / 页面分区的极细分隔线 */
+  .hairline {
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--hairline-strong), transparent);
+  }
   .site-background-glow-primary {
     background-color: var(--site-background-tint-primary);
   }
@@ -581,12 +696,26 @@
 }
 
 /* ---------- 文章排版细节 ---------- */
+/* h2 用一条通栏细线切成「章节」，比默认的粗重下划线更安静 */
 .prose h2 {
-  @apply mt-12 scroll-mt-24 border-b border-ink-200/70 pb-2 dark:border-white/10;
+  @apply mt-14 scroll-mt-24 border-b border-ink-200/70 pb-2.5 dark:border-white/[0.08];
+  font-size: 1.4em;
+  letter-spacing: -0.018em;
 }
-.prose h3,
+.prose h3 {
+  @apply mt-10 scroll-mt-24;
+  font-size: 1.16em;
+}
 .prose h4 {
   @apply scroll-mt-24;
+}
+.prose p,
+.prose li {
+  letter-spacing: 0.005em;
+}
+/* 正文里的行内代码：一层极浅的底色，不要描边 */
+.prose :where(code):not(pre code) {
+  @apply rounded-[5px] bg-ink-900/[.055] px-1.5 py-0.5 font-medium text-ink-800 dark:bg-white/[.08] dark:text-ink-100;
 }
 .prose blockquote {
   @apply rounded-r-xl border-l-[3px] border-brand-400 bg-brand-50/50 py-1 pr-4 not-italic dark:bg-brand-500/[0.07];
@@ -718,16 +847,28 @@
 /*                               折叠框 (Callouts)                             */
 /* -------------------------------------------------------------------------- */
 .prose details.callout {
-  @apply my-6 overflow-hidden rounded-xl border text-sm transition-all duration-200;
+  @apply my-6 overflow-hidden rounded-[12px] border text-sm transition-colors duration-200;
+  border-color: rgba(16, 24, 40, 0.09);
+  background: #fff;
+}
+.dark .prose details.callout {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
 }
 .prose details.callout summary.callout-summary {
-  @apply flex cursor-pointer list-none select-none items-center gap-2.5 px-4 py-3 font-semibold outline-none transition-colors;
+  @apply flex cursor-pointer list-none select-none items-center gap-2.5 px-4 py-3 text-[13.5px] font-medium tracking-tight outline-none transition-colors;
 }
 .prose details.callout summary::-webkit-details-marker {
   display: none;
 }
 .prose details.callout .callout-content {
-  @apply border-t px-4 py-3.5 text-[14.5px] leading-relaxed;
+  @apply border-t px-4 py-3.5 text-[13.5px] leading-[1.75];
+  border-color: rgba(16, 24, 40, 0.07);
+  color: #414753;
+}
+.dark .prose details.callout .callout-content {
+  border-color: rgba(255, 255, 255, 0.07);
+  color: #cfd4dc;
 }
 .prose details.callout .callout-content > :first-child {
   @apply mt-0;
@@ -746,51 +887,102 @@ details[open] .callout-chevron {
   transform: rotate(90deg) !important;
 }
 
-.prose details.callout-info {
-  @apply border-sky-200 bg-sky-50/50 text-sky-950 dark:border-sky-500/25 dark:bg-sky-500/[0.07] dark:text-sky-100;
-}
-.prose details.callout-info summary.callout-summary {
-  @apply text-sky-800 hover:bg-sky-100/50 dark:text-sky-300 dark:hover:bg-sky-500/10;
-}
-.prose details.callout-info .callout-content {
-  @apply border-sky-200/70 dark:border-sky-500/20 text-ink-700 dark:text-ink-200;
-}
-
-.prose details.callout-success {
-  @apply border-emerald-200 bg-emerald-50/50 text-emerald-950 dark:border-emerald-500/25 dark:bg-emerald-500/[0.07] dark:text-emerald-100;
-}
-.prose details.callout-success summary.callout-summary {
-  @apply text-emerald-800 hover:bg-emerald-100/50 dark:text-emerald-300 dark:hover:bg-emerald-500/10;
-}
-.prose details.callout-success .callout-content {
-  @apply border-emerald-200/70 dark:border-emerald-500/20 text-ink-700 dark:text-ink-200;
-}
-
-.prose details.callout-warning {
-  @apply border-amber-200 bg-amber-50/50 text-amber-950 dark:border-amber-500/25 dark:bg-amber-500/[0.07] dark:text-amber-100;
-}
-.prose details.callout-warning summary.callout-summary {
-  @apply text-amber-800 hover:bg-amber-100/50 dark:text-amber-300 dark:hover:bg-amber-500/10;
-}
-.prose details.callout-warning .callout-content {
-  @apply border-amber-200/70 dark:border-amber-500/20 text-ink-700 dark:text-ink-200;
-}
-
+/* 每种提示只染一个色相：边框极淡、图标 + 标题着色、表头铺一层极淡底色 */
+.prose details.callout-info { border-color: rgba(14, 165, 233, 0.22); }
+.dark .prose details.callout-info { border-color: rgba(14, 165, 233, 0.26); }
+.prose details.callout-success { border-color: rgba(16, 185, 129, 0.22); }
+.dark .prose details.callout-success { border-color: rgba(16, 185, 129, 0.26); }
+.prose details.callout-warning { border-color: rgba(245, 158, 11, 0.26); }
+.dark .prose details.callout-warning { border-color: rgba(245, 158, 11, 0.28); }
 .prose details.callout-error,
-.prose details.callout-danger {
-  @apply border-rose-200 bg-rose-50/50 text-rose-950 dark:border-rose-500/25 dark:bg-rose-500/[0.07] dark:text-rose-100;
+.prose details.callout-danger { border-color: rgba(244, 63, 94, 0.22); }
+.dark .prose details.callout-error,
+.dark .prose details.callout-danger { border-color: rgba(244, 63, 94, 0.26); }
+.prose details.callout-note,
+.prose details.callout-tip { border-color: rgba(14, 165, 233, 0.22); }
+.dark .prose details.callout-note,
+.dark .prose details.callout-tip { border-color: rgba(14, 165, 233, 0.26); }
+
+/* 每种提示只染一个色相：图标 + 标题 + 极淡的表头底色 */
+.prose details.callout-info summary.callout-summary {
+  color: #0369a1;
+  background: rgba(14, 165, 233, 0.045);
 }
+.prose details.callout-info summary.callout-summary:hover {
+  background: rgba(14, 165, 233, 0.08);
+}
+.dark .prose details.callout-info summary.callout-summary {
+  color: #7dd3fc;
+  background: rgba(14, 165, 233, 0.07);
+}
+.dark .prose details.callout-info summary.callout-summary:hover {
+  background: rgba(14, 165, 233, 0.12);
+}
+
+.prose details.callout-success summary.callout-summary {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.045);
+}
+.prose details.callout-success summary.callout-summary:hover {
+  background: rgba(16, 185, 129, 0.08);
+}
+.dark .prose details.callout-success summary.callout-summary {
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.07);
+}
+.dark .prose details.callout-success summary.callout-summary:hover {
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.prose details.callout-warning summary.callout-summary {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.055);
+}
+.prose details.callout-warning summary.callout-summary:hover {
+  background: rgba(245, 158, 11, 0.1);
+}
+.dark .prose details.callout-warning summary.callout-summary {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.07);
+}
+.dark .prose details.callout-warning summary.callout-summary:hover {
+  background: rgba(245, 158, 11, 0.12);
+}
+
 .prose details.callout-error summary.callout-summary,
 .prose details.callout-danger summary.callout-summary {
-  @apply text-rose-800 hover:bg-rose-100/50 dark:text-rose-300 dark:hover:bg-rose-500/10;
+  color: #be123c;
+  background: rgba(244, 63, 94, 0.045);
 }
-.prose details.callout-error .callout-content,
-.prose details.callout-danger .callout-content {
-  @apply border-rose-200/70 dark:border-rose-500/20 text-ink-700 dark:text-ink-200;
+.prose details.callout-error summary.callout-summary:hover,
+.prose details.callout-danger summary.callout-summary:hover {
+  background: rgba(244, 63, 94, 0.085);
+}
+.dark .prose details.callout-error summary.callout-summary,
+.dark .prose details.callout-danger summary.callout-summary {
+  color: #fda4af;
+  background: rgba(244, 63, 94, 0.07);
+}
+.dark .prose details.callout-error summary.callout-summary:hover,
+.dark .prose details.callout-danger summary.callout-summary:hover {
+  background: rgba(244, 63, 94, 0.12);
+}
+
+/* note / tip 与 info 共用一套中性蓝灰 */
+.prose details.callout-note summary.callout-summary,
+.prose details.callout-tip summary.callout-summary {
+  color: #0369a1;
+  background: rgba(14, 165, 233, 0.045);
+}
+.dark .prose details.callout-note summary.callout-summary,
+.dark .prose details.callout-tip summary.callout-summary {
+  color: #7dd3fc;
+  background: rgba(14, 165, 233, 0.07);
 }
 
 .prose img {
-  @apply mx-auto rounded-xl shadow-lg;
+  @apply mx-auto rounded-[12px];
+  box-shadow: 0 1px 2px rgb(16 24 40 / 0.05), 0 18px 40px -30px rgb(16 24 40 / 0.35);
 }
 .prose hr {
   @apply border-dashed dark:border-white/10;
@@ -819,7 +1011,8 @@ details[open] .callout-chevron {
 }
 .show-box .show-box-content > .prose {
   max-width: none;
-  font-size: 0.95rem;
+  font-size: 0.875rem;
+  line-height: 1.75;
 }
 .show-box .show-box-content > .prose > :first-child {
   margin-top: 0;
@@ -831,7 +1024,7 @@ details[open] .callout-chevron {
 /* ---------- 交互表单控件（issue #82）与图论画布（issue #83） ---------- */
 .ui-choose-card .prose,
 .ui-if-card .prose {
-  @apply max-w-none text-[14.5px] leading-relaxed;
+  @apply max-w-none text-[13.5px] leading-[1.75];
 }
 
 .ui-choose-card .prose p,
@@ -907,5 +1100,6 @@ details[open] .callout-chevron {
     animation: none;
   }
 }
+
 
 

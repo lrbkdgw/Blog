@@ -120,19 +120,19 @@ export function QueueDiffDialog({ item, onClose }: { item: QueueItem; onClose: (
 
   return (
     <div
-      className="no-print fixed inset-0 z-[97] flex items-center justify-center bg-ink-950/55 p-4 backdrop-blur-sm"
+      className="no-print fixed inset-0 z-[97] flex items-center justify-center bg-ink-950/40 p-4 backdrop-blur-[3px]"
       role="dialog"
       aria-modal="true"
       aria-label="待更新内容差异"
       onClick={onClose}
     >
       <div
-        className="card flex max-h-[min(46rem,calc(100vh-2rem))] w-full max-w-4xl flex-col overflow-hidden"
+        className="card-pop flex max-h-[min(46rem,calc(100vh-2rem))] w-full max-w-4xl flex-col overflow-hidden"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-ink-200/70 px-5 py-4 dark:border-white/10">
           <div className="min-w-0">
-            <h2 className="flex items-center gap-2 font-serif text-lg font-bold text-ink-900 dark:text-white">
+            <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-tight text-ink-900 dark:text-white">
               <FileText size={18} className="text-brand-500" />
               待更新内容差异
               <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] font-medium text-brand-600 dark:text-brand-300">

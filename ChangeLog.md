@@ -1,5 +1,44 @@
 # 更新日志 · ChangeLog
 
+## 2026-11-11 · 全站视觉重构：现代 / 高级 / 简约的整套设计系统（不改动任何功能）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+- 站点此前的界面是在多轮功能迭代中逐步堆出来的：同一层级的卡片有 `rounded-xl` / `rounded-2xl` / `!rounded-xl` 三种圆角，边框在 `ink-200/70`–`ink-200/95`、`white/10`–`white/22` 之间随机取值，标题大量使用衬线体（`font-serif`），按钮尺寸在 `h-7`–`h-11` 之间跳动，多处叠 `shadow-2xs` / `shadow-lg` / `shadow-sm`。整体显得热闹但不统一，缺少「高级感」所依赖的克制与比例。
+- 需求：**现代、高级、简约**，且**原有功能完全不变**——所有页面、交互、语法、离线版、VS Code 插件预览都必须保持行为一致。因此这次只动视觉层（设计令牌、组件类、间距与字阶），不删功能、不改数据流。
+
+### 调整
+
+- **设计令牌重写（`tailwind.config.js`、`src/styles/index.css`）**：
+  - 新增中性墨色阶 `ink-50 … ink-950`（`#f7f8fa` → `#0b0d11`），把正文、次要文字、描边、分隔线全部收进同一套色板；`brand-*` 仍走 `rgb(var(--brand-N) / <alpha-value>)`，10 套配色主题的色卡全部改为在近白 / 近黑中性底上取样，切主题时只换品牌色与氛围光，页面底色不再被主题染成彩色；
+  - 新增 `--font-display`（标题字体）、圆角阶梯 `--radius-xs/sm/md/lg/xl`（6/8/10/14/18px）、发丝描边 `--hairline`（浅色 = 墨色 8%，深色 = 白色 8%）；`ease-smooth` 缓动与 `card` / `lift` / `pop` 三档阴影。
+- **组件类统一（`@layer components`）**：
+  - `.card` / `.card-hover` / `.card-pop`：卡面 = 细描边 + 白纸底（深色为 2.5% 白），悬浮只做 0.5px 上浮 + 描边变深，浮层（下拉、搜索、弹窗）才允许更实的底色与更深的投影；
+  - `.btn` 统一 36px 高、`rounded-[10px]`、13.5px 字，`.btn-primary` / `.btn-outline` / `.btn-ghost` / `.btn-danger` 四态齐备；新增 `.segmented` / `.segmented-item(-active)` 作为明暗模式、对比视图等分段开关的统一实现；
+  - 新增 `.label`、`.chip` / `.chip-solid`、`.hairline`、`.site-header-panel`、`.link-underline`；`.container-prose` 收窄到 48rem，正文行长更接近印刷阅读版心。
+- **全局排版**：`h1`–`h6` 统一走 `var(--font-display)`；全站 `:focus-visible` 统一焦点环；`prefers-reduced-motion` 一键关掉所有装饰动效；`body` 保留原有四层 `radial-gradient` 背景与 `letter-spacing: -.003em`，保证动态背景与顶栏消融引擎（`headerYield.ts`）行为不变。
+- **逐页重排（`src/components/*`、`src/pages/*`）**：
+  - 页头：30px 头像 + 站点名 + 等宽小字英文名，导航改为纯文字 + 1.5px 品牌色下划线（不再用底色块），右侧控件统一 32px 高（搜索胶囊、设置、配色色卡、明暗、写文章、登录）；
+  - 首页 / 文章卡 / 归档 / 标签 / 百宝箱 / 关于 / 404：页眉统一为 11.5px 字距 0.16em 的英文小标 + 2rem 无衬线标题，卡片密度与留白重算；
+  - 文章页：标题、元信息、目录、上一篇 / 下一篇、回到顶部按钮全部改用新字阶；正文 prose 的 `h2` / `h3` / 行内代码 / 引用 / 表格 / 代码块重新对齐发丝描边体系；
+  - 折叠框（`.callout`）从整块彩底改为「白底 + 极淡色相描边 + 只给标题行着色」，浅深色各一套；`show-box` / `ui-choose` / `ui-if` 内正文与折叠框正文统一 13.5px / 1.75 行高；
+  - 编辑器、后台、设置页、评论区、全部弹窗（版本对比、队列对比、文章包导入、LaTeX 选择、GitHub 授权、离线导出）统一 `card-pop` 浮层 + `bg-ink-950/40 backdrop-blur-[3px]` 遮罩，分段开关改 `.segmented`，删掉残留的 `font-serif` 标题；
+  - 回声洞：句子改用 `--font-display` 的大字号排版，署名行改为 11.5px 字距 0.18em 的小字，底部输入框加占位提示并统一描边。
+- **VS Code 插件预览同步（`vscode_extensions/v1/out/*`）**：插件复用站点 `src/styles/index.css`，随本次重构重新构建，`test/styles.test.mjs` 的同款 CSS 断言继续逐条比对站点与插件两侧的每个声明。
+
+### 验证
+
+- `npm run build`（`tsc --noEmit && vite build`）通过；`npm run extension:build` 与 `npm --prefix vscode_extensions/v1 run typecheck` 通过。
+- `npm test` 全绿：Web 特性测试 71 项通过 / 4 项跳过，VS Code 插件 13 项全部通过（含「同款 CSS」逐声明比对、折叠框 / 表格 / 选择框排版一致性断言）。
+- `npm run build:offline` 自检通过（3.23 MB 单文件、内联 42 个 `data:` 资源、20 条 `@font-face`、16 篇内置文章全在文件内、零外链），并同步回写 `offline/index.html`。
+- 另外用无头 Chromium 对 `/`、`/archive`、`/tags`、`/about`、`/toolbox`、`/toolbox/echo`、`/posts/welcome`、`/posts/markdownkatex-语法测试`、`/settings`、`/admin/new`、404 页面在浅色 / 深色、1440px 与 390px 两种宽度下逐页截图核对，确认没有错位、溢出、破图或裸样式。
+
 ## 2026-10-23 · 修复全屏编辑冲突、美化历史版本渲染对比、首页下滑自动加载更多及 main 自动发布离线版 Release（#104 / #105 / #106）
 
 | 模型信息 | |

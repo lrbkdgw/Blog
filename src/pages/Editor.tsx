@@ -1198,9 +1198,9 @@ export default function Editor() {
       <div className="container-page flex min-h-[65vh] items-center justify-center py-10" data-yield-list>
         {restoringUnlock ? (
           <div className="card flex w-full max-w-md flex-col items-center p-7 text-center">
-            <Loader2 size={24} className="animate-spin text-brand-500" />
-            <h1 className="mt-4 font-serif text-xl font-bold text-ink-900 dark:text-white">{existing?.title}</h1>
-            <p className="mt-2 text-sm text-ink-500">正在读取此设备保存的解锁状态…</p>
+            <Loader2 size={20} className="animate-spin text-brand-500" />
+            <h1 className="mt-4 text-[1.15rem] font-semibold tracking-[-0.02em] text-ink-900 dark:text-white">{existing?.title}</h1>
+            <p className="mt-2 text-[13px] text-ink-500 dark:text-ink-400">正在读取此设备保存的解锁状态…</p>
           </div>
         ) : (
           <PasswordPrompt
@@ -1217,8 +1217,8 @@ export default function Editor() {
     <div
       className={
         fullscreen
-          ? 'fixed inset-0 z-[80] flex h-screen h-[100dvh] flex-col overflow-hidden bg-white dark:bg-ink-950'
-          : 'container-page pt-12'
+          ? 'fixed inset-0 z-[80] flex h-screen h-[100dvh] flex-col overflow-hidden bg-white dark:bg-[#08090c]'
+          : 'container-page pt-12 sm:pt-14'
       }
     >
       <div
@@ -1229,7 +1229,7 @@ export default function Editor() {
         <div
           className={
             fullscreen
-              ? 'flex shrink-0 flex-wrap items-center gap-3 border-b border-ink-200/70 px-4 py-2 dark:border-white/10'
+              ? 'flex shrink-0 flex-wrap items-center gap-3 border-b border-ink-200/70 px-4 py-2 dark:border-white/[0.07]'
               : 'mb-4 flex flex-wrap items-center justify-between gap-3'
           }
         >
@@ -1240,12 +1240,12 @@ export default function Editor() {
               markDirty()
             }}
             placeholder="输入文章标题…"
-            className="flex-1 min-w-[15rem] bg-transparent font-serif text-2xl font-bold outline-none text-ink-900 placeholder:text-ink-400 dark:text-white"
+            className="min-w-[15rem] flex-1 bg-transparent text-[1.4rem] font-semibold tracking-[-0.02em] text-ink-900 outline-none placeholder:text-ink-400 dark:text-white dark:placeholder:text-ink-600"
           />
 
           <div className="flex items-center gap-2">
             {/* 视图模式切换 */}
-            <div className="flex rounded-lg bg-ink-100 p-0.5 dark:bg-white/10">
+            <div className="segmented">
               {(
                 [
                   { id: 'edit', icon: Pencil, label: '仅编辑' },
@@ -1256,10 +1256,8 @@ export default function Editor() {
                 <button
                   key={v.id}
                   onClick={() => setView(v.id)}
-                  className={`rounded-md p-1.5 text-xs transition ${
-                    view === v.id
-                      ? 'bg-white text-ink-900 shadow-sm dark:bg-ink-800 dark:text-white'
-                      : 'text-ink-500 hover:text-ink-900 dark:text-ink-400'
+                  className={`segmented-item !px-2 !py-1.5 ${
+                    view === v.id ? 'segmented-item-active' : ''
                   }`}
                   title={v.label}
                 >
@@ -1350,20 +1348,20 @@ export default function Editor() {
         <div className="card mb-4 overflow-hidden">
           <button
             onClick={() => setMetaOpen((v) => !v)}
-            className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-ink-700 transition hover:bg-ink-50 dark:text-ink-200 dark:hover:bg-white/[.03]"
+            className="flex w-full items-center justify-between px-4 py-2.5 text-[13px] font-medium text-ink-700 transition-colors duration-150 hover:bg-ink-900/[.02] dark:text-ink-200 dark:hover:bg-white/[.03]"
           >
             <span className="flex items-center gap-2">
               文章信息
-              <span className="font-mono text-xs font-normal text-ink-400">
+              <span className="font-mono text-[10.5px] font-normal text-ink-400 dark:text-ink-500">
                 /posts/{effectiveSlug}
               </span>
               {draft && (
-                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+                <span className="rounded-full border border-amber-300/60 px-1.5 py-px text-[10.5px] text-amber-700 dark:border-amber-500/30 dark:text-amber-400">
                   草稿
                 </span>
               )}
               {!canPublish && (
-                <span className="rounded-full bg-ink-100 px-2 py-0.5 text-[11px] text-ink-600 dark:bg-white/10 dark:text-ink-300">
+                <span className="rounded-full border border-ink-200/80 px-1.5 py-px text-[10.5px] text-ink-500 dark:border-white/[0.1] dark:text-ink-400">
                   本地草稿模式
                 </span>
               )}
@@ -1375,9 +1373,9 @@ export default function Editor() {
           </button>
 
           {metaOpen && (
-            <div className="grid gap-4 border-t border-ink-200/70 p-4 sm:grid-cols-2 dark:border-white/10">
+            <div className="grid gap-4 border-t border-ink-200/70 p-4 sm:grid-cols-2 dark:border-white/[0.07]">
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-ink-500">
+                <label className="label mb-1.5">
                   URL 别名 (slug)
                 </label>
                 <input
@@ -1391,7 +1389,7 @@ export default function Editor() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-ink-500">发布日期</label>
+                <label className="label mb-1.5">发布日期</label>
                 <input
                   type="date"
                   value={date}
@@ -1403,7 +1401,7 @@ export default function Editor() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-ink-500">
+                <label className="label mb-1.5">
                   标签（逗号分隔）
                 </label>
                 <input
@@ -1417,7 +1415,7 @@ export default function Editor() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-ink-500">
+                <label className="label mb-1.5">
                   封面图 URL（可选）
                 </label>
                 <input
@@ -1431,7 +1429,7 @@ export default function Editor() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-ink-500">作者（可选）</label>
+                <label className="label mb-1.5">作者（可选）</label>
                 <input
                   value={author}
                   onChange={(e) => {
@@ -1443,7 +1441,7 @@ export default function Editor() {
                 />
               </div>
               <div className="sm:col-span-2">
-                <label className="mb-1.5 block text-xs font-medium text-ink-500">
+                <label className="label mb-1.5">
                   摘要（留空自动截取正文）
                 </label>
                 <textarea
@@ -1464,7 +1462,7 @@ export default function Editor() {
                 ].map((c) => (
                   <label
                     key={c.label}
-                    className="flex cursor-pointer items-center gap-2 text-sm text-ink-600 dark:text-ink-300"
+                    className="flex cursor-pointer items-center gap-2 text-[13px] text-ink-600 dark:text-ink-300"
                   >
                     <input
                       type="checkbox"
@@ -1479,8 +1477,8 @@ export default function Editor() {
                   </label>
                 ))}
                 {isRepoAdmin && (
-                  <div className="w-full rounded-xl border border-brand-200/70 bg-brand-50/40 p-3 dark:border-brand-500/20 dark:bg-brand-500/[0.06]">
-                    <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-ink-700 dark:text-ink-200">
+                  <div className="w-full rounded-[10px] border border-ink-200/80 bg-ink-50/50 p-3.5 dark:border-white/[0.08] dark:bg-white/[0.03]">
+                    <label className="flex cursor-pointer items-center gap-2 text-[13px] font-medium text-ink-700 dark:text-ink-200">
                       <input
                         type="checkbox"
                         checked={encryptOnPublish}
@@ -1513,13 +1511,13 @@ export default function Editor() {
                         />
                       </div>
                     )}
-                    <p className="mt-2 text-xs leading-relaxed text-ink-500 dark:text-ink-400">
+                    <p className="mt-2 text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
                       标题会公开显示；正文与其他文章信息使用浏览器 Web Crypto 加密后再提交。密码不会写入 GitHub 或本机，成功解锁后本设备会记住不可导出的解锁密钥。解锁编辑期间的修改会以明文保存在本浏览器的本地草稿中；重新发布加密版本后会自动清除该草稿，公开页面始终需要密码。
                     </p>
                   </div>
                 )}
                 {existing?.source === 'local' && (
-                  <button onClick={removeDraft} className="btn-danger ml-auto h-8 text-xs">
+                  <button onClick={removeDraft} className="btn-danger ml-auto h-8 text-[11.5px]">
                     <Trash2 size={13} />
                     删除草稿
                   </button>
@@ -1540,24 +1538,24 @@ export default function Editor() {
           }
         >
           {/* 工具栏 */}
-          <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-ink-200/70 px-2 py-1.5 dark:border-white/10">
+          <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-ink-200/70 px-2 py-1.5 dark:border-white/[0.07]">
             {tools.map((t) => (
               <button
                 key={t.title}
                 onClick={t.run}
                 title={t.title}
                 type="button"
-                className="rounded-md p-1.5 text-ink-500 transition hover:bg-ink-100 hover:text-brand-600 dark:text-ink-400 dark:hover:bg-white/10 dark:hover:text-brand-300"
+                className="rounded-md p-1.5 text-ink-500 transition-colors duration-150 hover:bg-ink-900/[.05] hover:text-ink-900 dark:text-ink-400 dark:hover:bg-white/[.07] dark:hover:text-white"
               >
                 <t.icon size={15} />
               </button>
             ))}
-            <span className="mx-1 h-4 w-px bg-ink-200 dark:bg-white/10" />
+            <span className="mx-1 h-3.5 w-px bg-ink-200 dark:bg-white/[0.1]" />
             <button
               onClick={() => fileRef.current?.click()}
               title="上传图片（加入待更新队列）"
               type="button"
-              className="rounded-md p-1.5 text-ink-500 transition hover:bg-ink-100 hover:text-brand-600 dark:text-ink-400 dark:hover:bg-white/10 dark:hover:text-brand-300"
+              className="rounded-md p-1.5 text-ink-500 transition-colors duration-150 hover:bg-ink-900/[.05] hover:text-ink-900 dark:text-ink-400 dark:hover:bg-white/[.07] dark:hover:text-white"
             >
               {uploading ? <Loader2 size={15} className="animate-spin" /> : <ImageIcon size={15} />}
             </button>
@@ -1573,7 +1571,7 @@ export default function Editor() {
               }}
             />
 
-            <div className="ml-auto flex items-center gap-3 pr-2 text-xs text-ink-400">
+            <div className="ml-auto flex items-center gap-3 pr-2 text-[11px] text-ink-400 dark:text-ink-500">
               <span className="hidden sm:inline">
                 {words} 字 · 约 {readingMinutes} 分钟
               </span>
@@ -1619,7 +1617,7 @@ export default function Editor() {
                   onScroll={handleEditorScroll}
                   spellCheck={false}
                   placeholder="在这里用 Markdown 写作…"
-                  className="editor-textarea h-full w-full resize-none bg-transparent p-5 font-mono text-[14px] text-ink-800 outline-none placeholder:text-ink-400 dark:text-ink-100"
+                  className="editor-textarea h-full w-full resize-none bg-transparent p-5 font-mono text-[13.5px] leading-[1.8] text-ink-800 outline-none placeholder:text-ink-400 dark:text-ink-200 dark:placeholder:text-ink-600"
                 />
                 {/* 滚动同步用的隐藏镜像层：与 textarea 同字体同宽度，用于测量每行的像素位置。 */}
                 {view === 'split' && scrollSync && (
@@ -1641,15 +1639,15 @@ export default function Editor() {
                 onTouchStart={() => markScrollDriver('preview')}
                 onKeyDown={() => markScrollDriver('preview')}
                 onScroll={handlePreviewScroll}
-                className={`h-full overflow-y-auto bg-ink-50/40 p-5 dark:bg-white/[.02] ${
+                className={`h-full overflow-y-auto bg-ink-50/50 p-5 dark:bg-white/[.02] ${
                   view === 'split'
-                    ? 'hidden border-l border-ink-200/70 md:block dark:border-white/10'
+                    ? 'hidden border-l border-ink-200/70 md:block dark:border-white/[0.07]'
                     : ''
                 }`}
               >
                 {/* 双栏视图不渲染文章标题，保证左右两侧的第一个内容块从同一高度开始，滚动时才能对齐。 */}
                 {view !== 'split' && (
-                  <h1 className="mb-6 font-serif text-2xl font-bold tracking-tight text-ink-900 dark:text-white">
+                  <h1 className="mb-6 text-[1.5rem] font-semibold tracking-[-0.025em] text-ink-900 dark:text-white">
                     {title || '未命名文章'}
                   </h1>
                 )}
@@ -1665,7 +1663,7 @@ export default function Editor() {
 
         {/* 提示栏（全屏时隐藏） */}
         {!fullscreen && (
-        <div className="mb-16 mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-400">
+        <div className="mb-16 mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-ink-400 dark:text-ink-500">
           {OFFLINE ? (
             <span className="flex items-center gap-1.5">
               <AlertCircle size={13} />

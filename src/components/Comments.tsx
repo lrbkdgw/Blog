@@ -326,10 +326,11 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
 
   return (
     <section className="no-print mt-16" data-yield-list>
-      <div className="mb-6 flex items-center justify-between gap-3 border-t border-ink-200/60 pt-10 dark:border-white/[0.08]">
-        <h2 className="flex items-center gap-2 font-serif text-xl font-bold tracking-tight text-ink-900 dark:text-white">
-          <MessageSquare size={20} className="text-brand-500" />
-          评论 ({comments.length})
+      <div className="mb-5 flex items-center justify-between gap-3 border-t border-ink-200/70 pt-9 dark:border-white/[0.07]">
+        <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-tight text-ink-900 dark:text-white">
+          <MessageSquare size={15} className="text-brand-500" />
+          评论
+          <span className="font-mono text-[12px] font-normal tabular-nums text-ink-400 dark:text-ink-500">{comments.length}</span>
         </h2>
         <div className="flex items-center gap-1">
           {isAuthed && !OFFLINE && (
@@ -359,7 +360,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
         </div>
       </div>
 
-      <div className="card mb-8 p-5">
+      <div className="card mb-6 p-5">
         {authLoading ? (
           <div className="flex items-center justify-center gap-2 py-8 text-sm text-ink-400">
             <Loader2 size={17} className="animate-spin" />
@@ -367,23 +368,23 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
           </div>
         ) : (OFFLINE || isAuthed) && currentAuthor ? (
           <form onSubmit={handleSubmit} className="space-y-3">
-            <div className="flex items-center justify-between border-b border-ink-200/60 pb-3 dark:border-white/10">
+            <div className="flex items-center justify-between border-b border-ink-200/60 pb-3 dark:border-white/[0.07]">
               <div className="flex items-center gap-2.5">
                 {currentAuthor.avatar_url ? (
                   <img src={currentAuthor.avatar_url} alt="" className="h-7 w-7 rounded-full object-cover" />
                 ) : (
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-500 text-xs font-bold text-white">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-ink-900 text-[11px] font-semibold text-white dark:bg-white/[0.14]">
                     {currentAuthor.name[0]?.toUpperCase() || 'U'}
                   </div>
                 )}
-                <span className="text-sm font-medium text-ink-900 dark:text-white">
+                <span className="text-[13px] font-medium text-ink-900 dark:text-white">
                   {currentAuthor.name}
                   {currentAuthor.login && (
-                    <span className="ml-1 text-xs text-ink-400">(@{currentAuthor.login})</span>
+                    <span className="ml-1 text-[11.5px] text-ink-400 dark:text-ink-500">(@{currentAuthor.login})</span>
                   )}
                 </span>
                 {currentAuthor.isOwner && (
-                  <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-[10px] font-semibold text-brand-600 dark:text-brand-300">
+                  <span className="rounded-full border border-ink-200/80 px-1.5 py-px text-[10px] font-medium text-ink-500 dark:border-white/[0.1] dark:text-ink-400">
                     站长
                   </span>
                 )}
@@ -394,7 +395,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
                   type="button"
                   onClick={openLatexPicker}
                   title="插入 LaTeX 符号 (Shift + ↑)"
-                  className="btn-ghost h-7 !px-2 text-xs"
+                  className="btn-ghost h-7 !px-2 text-[11.5px]"
                 >
                   <Omega size={13} />
                   <span className="hidden sm:inline">LaTeX 符号</span>
@@ -402,7 +403,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
                 <button
                   type="button"
                   onClick={() => setPreview((value) => !value)}
-                  className="btn-ghost h-7 !px-2 text-xs"
+                  className="btn-ghost h-7 !px-2 text-[11.5px]"
                 >
                   {preview ? <PenLine size={13} /> : <Eye size={13} />}
                   {preview ? '编辑' : '预览 Markdown'}
@@ -411,7 +412,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
             </div>
 
             {preview ? (
-              <div className="min-h-[6rem] rounded-xl border border-ink-200/70 bg-ink-50/40 p-4 dark:border-white/10 dark:bg-white/[0.02]">
+              <div className="min-h-[6rem] rounded-[10px] border border-ink-200/70 bg-ink-50/50 p-4 dark:border-white/[0.07] dark:bg-white/[0.02]">
                 {content.trim() ? (
                   <Markdown content={content} applyDirectives={false} />
                 ) : (
@@ -446,7 +447,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
             )}
 
             <div className="flex items-center justify-between gap-3 pt-1">
-              <span className="text-xs text-ink-400">
+              <span className="text-[11.5px] text-ink-400 dark:text-ink-500">
                 {OFFLINE
                   ? '这条内容只保存在这台设备的浏览器里；离线版不联网，任何评论都不会提交到远端'
                   : '评论将公开保存到 GitHub Discussions'}
@@ -456,7 +457,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
                 disabled={
                   submitting || (!OFFLINE && (remoteLoading || !repository)) || !content.trim()
                 }
-                className="btn-primary h-9 px-4 text-xs"
+                className="btn-primary h-8 px-3.5 text-[12px]"
               >
                 {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
                 {submitting ? '发送中…' : remoteLoading ? '加载中…' : '发表评论'}
@@ -465,16 +466,16 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
           </form>
         ) : (
           <div className="flex flex-col items-center justify-center gap-3 py-6 text-center">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-500/10 text-brand-600 dark:text-brand-300">
-              <User size={20} />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200/80 text-ink-500 dark:border-white/[0.09] dark:text-ink-400">
+              <User size={16} />
             </div>
             <div>
-              <p className="text-sm font-semibold text-ink-800 dark:text-ink-100">
+              <p className="text-[13.5px] font-semibold text-ink-800 dark:text-ink-100">
                 {OFFLINE ? '离线版不联网：下面的笔记只保存在这台设备上' : '登录后查看并参与公开讨论'}
               </p>
-              <p className="mt-1 text-xs text-ink-400">评论由 GitHub Discussions 跨设备保存</p>
+              <p className="mt-1 text-[11.5px] text-ink-400 dark:text-ink-500">评论由 GitHub Discussions 跨设备保存</p>
             </div>
-            <Link to="/login" className="btn-primary mt-2 h-8 px-4 text-xs">
+            <Link to="/login" className="btn-outline mt-2 h-8 px-3.5 text-[12px]">
               <Github size={13} />
               使用 GitHub 登录
             </Link>
@@ -483,7 +484,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
       </div>
 
       {legacyComments.length > 0 && (
-        <div className="mb-4 flex gap-2.5 rounded-xl border border-amber-300/50 bg-amber-50/70 p-3 text-xs leading-relaxed text-amber-800 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200">
+        <div className="mb-4 flex gap-2.5 rounded-[10px] border border-amber-300/50 bg-amber-50/60 p-3 text-[11.5px] leading-relaxed text-amber-800 dark:border-amber-400/20 dark:bg-amber-500/[0.08] dark:text-amber-200">
           <HardDrive size={15} className="mt-0.5 shrink-0" />
           <p>
             {OFFLINE
@@ -494,7 +495,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
       )}
 
       {isAuthed && remoteError && (
-        <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-rose-300/50 bg-rose-50/70 p-4 dark:border-rose-400/20 dark:bg-rose-500/10">
+        <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-[10px] border border-rose-300/50 bg-rose-50/60 p-4 dark:border-rose-400/20 dark:bg-rose-500/[0.08]">
           <div className="flex gap-2.5 text-sm text-rose-700 dark:text-rose-200">
             <AlertCircle size={17} className="mt-0.5 shrink-0" />
             <div>
@@ -511,14 +512,14 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
 
       <div className="space-y-4" data-yield-list>
         {isAuthed && remoteLoading && remoteComments.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 rounded-2xl border border-dashed border-ink-200/80 p-10 text-sm text-ink-400 dark:border-white/10">
+          <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-ink-200/80 p-10 text-[13px] text-ink-400 dark:border-white/[0.09] dark:text-ink-500">
             <Loader2 size={18} className="animate-spin" />
             正在从 GitHub Discussions 加载评论…
           </div>
         ) : comments.length === 0 && !remoteError ? (
-          <div className="rounded-2xl border border-dashed border-ink-200/80 p-10 text-center dark:border-white/10">
+          <div className="rounded-xl border border-dashed border-ink-200/80 p-10 text-center dark:border-white/[0.09]">
             <MessageSquare size={24} className="mx-auto text-ink-300 dark:text-ink-600" />
-            <p className="mt-2 text-sm text-ink-500">
+            <p className="mt-2 text-[13px] text-ink-500 dark:text-ink-400">
               {OFFLINE
                 ? '还没有本机备注。离线版的评论只写在这台设备上，方便给自己留观点与待办。'
                 : isAuthed
@@ -539,7 +540,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
             return (
               <div
                 key={`${comment.source}-${comment.id}`}
-                className="card group animate-fade-up p-4 transition-all hover:border-brand-200/80 dark:hover:border-white/20"
+                className="card animate-fade-up p-4 transition-colors duration-200 hover:border-ink-300/80 dark:hover:border-white/[0.14]"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2.5">
@@ -547,17 +548,17 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
                       <img
                         src={comment.author.avatar_url}
                         alt=""
-                        className="h-8 w-8 rounded-full object-cover ring-1 ring-ink-200/80 dark:ring-white/10"
+                        className="h-7 w-7 rounded-full object-cover ring-1 ring-ink-200/80 dark:ring-white/[0.1]"
                       />
                     ) : (
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-indigo-600 text-xs font-bold text-white shadow-sm">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-ink-900 text-[11px] font-semibold text-white dark:bg-white/[0.14]">
                         {comment.author.name[0]?.toUpperCase() || 'U'}
                       </div>
                     )}
                     <div>
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-sm font-semibold text-ink-900 dark:text-white">{comment.author.name}</span>
-                        {comment.author.login && <span className="text-xs text-ink-400">@{comment.author.login}</span>}
+                        <span className="text-[13px] font-semibold text-ink-900 dark:text-white">{comment.author.name}</span>
+                        {comment.author.login && <span className="text-[11.5px] text-ink-400 dark:text-ink-500">@{comment.author.login}</span>}
                         {comment.author.isOwner && (
                           <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-[10px] font-semibold text-brand-600 dark:text-brand-300">
                             站长
@@ -569,7 +570,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-ink-400">
+                      <p className="text-[10.5px] text-ink-400 dark:text-ink-500">
                         {formatDate(new Date(comment.createdAt).toISOString().slice(0, 10))} · {relativeTime(comment.createdAt)}
                       </p>
                     </div>
@@ -603,7 +604,7 @@ export function Comments({ postSlug, postTitle }: { postSlug: string; postTitle?
                   </div>
                 </div>
 
-                <div className="mt-3 text-[14.5px] leading-relaxed text-ink-700 dark:text-ink-200">
+                <div className="mt-3 text-[13.5px] leading-[1.75] text-ink-700 dark:text-ink-300">
                   <Markdown content={comment.content} applyDirectives={false} />
                 </div>
               </div>

@@ -35,11 +35,11 @@ export function Toc({ items }: { items: TocItem[] }) {
   return (
     <nav className="no-print hidden xl:block">
       <div className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto pr-2">
-        <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-400">
-          <List size={13} />
+        <p className="mb-3 flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.14em] text-ink-400 dark:text-ink-500">
+          <List size={12} />
           目录
         </p>
-        <ul className="space-y-0.5 border-l border-ink-200/80 dark:border-white/10">
+        <ul className="space-y-px border-l border-ink-200/70 dark:border-white/[0.08]">
           {items.map((item) => (
             <li key={item.id}>
               <a
@@ -53,12 +53,12 @@ export function Toc({ items }: { items: TocItem[] }) {
                     history.replaceState(null, '', `#${item.id}`)
                   }
                 }}
-                className={`-ml-px block border-l-2 py-1 text-[13px] leading-snug transition-all duration-200 ${
+                className={`-ml-px block border-l py-[5px] text-[12.5px] leading-snug transition-all duration-200 ${
                   activeId === item.id
-                    ? 'border-brand-500 font-medium text-brand-600 dark:text-brand-300'
-                    : 'border-transparent text-ink-400 hover:border-ink-300 hover:text-ink-700 dark:hover:text-ink-200'
+                    ? 'border-brand-500 font-medium text-ink-900 dark:border-brand-400 dark:text-white'
+                    : 'border-transparent text-ink-400 hover:border-ink-300 hover:text-ink-700 dark:text-ink-500 dark:hover:border-white/[0.16] dark:hover:text-ink-200'
                 }`}
-                style={{ paddingLeft: `${(item.level - 2) * 12 + 14}px` }}
+                style={{ paddingLeft: `${(item.level - 2) * 11 + 13}px` }}
               >
                 {item.text}
               </a>

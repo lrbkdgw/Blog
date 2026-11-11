@@ -7,9 +7,12 @@ export default {
       // 允许任意整数透明度修饰符，例如 bg-white/12、border-white/65
       opacity: Object.fromEntries(Array.from({ length: 101 }, (_, i) => [i, String(i / 100)])),
       // 字体栈由 FontProvider 写入 CSS 变量，管理员可在站内设置中即时切换。
+      // display 用于标题：默认跟随正文字体（--font-display 在 index.css 里指向 --font-sans），
+      // 于是用户自定义的正文字体会同时作用于标题，而被 `::set-font` 指定的文章字体也能一并跟随。
       fontFamily: {
         sans: ['var(--font-sans)'],
-        serif: ['var(--font-serif)'],
+        display: ['var(--font-display)'],
+        serif: ['var(--font-display)'],
         mono: ['var(--font-mono)'],
       },
       colors: {
@@ -31,23 +34,42 @@ export default {
           900: 'rgb(var(--brand-900) / <alpha-value>)',
           950: 'rgb(var(--brand-950) / <alpha-value>)',
         },
+        /**
+         * 中性色阶：偏冷的灰，承载全部界面文字、描边与底色。
+         * 重设计后整体更收敛——浅色端更接近纸白，深色端更接近墨黑，
+         * 灰阶之间的明度步长更均匀，小字号文本仍保持可读对比度。
+         */
         ink: {
-          50: '#f6f7f9',
-          100: '#eceef2',
-          200: '#d5d9e2',
-          300: '#b0b8c9',
-          400: '#8591ab',
-          500: '#667391',
-          600: '#525c78',
-          700: '#434b62',
-          800: '#3a4053',
-          900: '#191d2b',
-          950: '#0d1017',
+          50: '#f7f8fa',
+          100: '#f1f3f6',
+          200: '#e4e7ec',
+          300: '#cfd4dc',
+          400: '#98a0ae',
+          500: '#6b7280',
+          600: '#565d69',
+          700: '#414753',
+          800: '#2a2f38',
+          900: '#16191f',
+          950: '#0b0d11',
         },
+      },
+      borderRadius: {
+        '4xl': '1.75rem',
+      },
+      boxShadow: {
+        /** 卡片默认只有一层几乎看不见的接触阴影，悬浮时再用 .card-lift 抬起来 */
+        '2xs': '0 1px 2px 0 rgb(16 24 40 / 0.05)',
+        card: '0 1px 2px rgb(16 24 40 / 0.04)',
+        lift: '0 1px 2px rgb(16 24 40 / 0.05), 0 20px 40px -28px rgb(16 24 40 / 0.35)',
+        pop: '0 24px 64px -28px rgb(16 24 40 / 0.32), 0 2px 6px rgb(16 24 40 / 0.06)',
+      },
+      transitionTimingFunction: {
+        /** 页面上所有位移 / 淡入都走同一条缓动，观感统一 */
+        smooth: 'cubic-bezier(.22,1,.36,1)',
       },
       keyframes: {
         'fade-up': {
-          '0%': { opacity: '0', transform: 'translateY(12px)' },
+          '0%': { opacity: '0', transform: 'translateY(10px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
         'fade-in': {
@@ -55,8 +77,8 @@ export default {
           '100%': { opacity: '1' },
         },
         'scale-in': {
-          '0%': { opacity: '0', transform: 'scale(.96)' },
-          '100%': { opacity: '1', transform: 'scale(1)' },
+          '0%': { opacity: '0', transform: 'scale(.97) translateY(-2px)' },
+          '100%': { opacity: '1', transform: 'scale(1) translateY(0)' },
         },
         float: {
           '0%,100%': { transform: 'translateY(0)' },
@@ -64,29 +86,41 @@ export default {
         },
       },
       animation: {
-        'fade-up': 'fade-up .5s cubic-bezier(.22,1,.36,1) both',
+        'fade-up': 'fade-up .55s cubic-bezier(.22,1,.36,1) both',
         'fade-in': 'fade-in .4s ease both',
-        'scale-in': 'scale-in .25s cubic-bezier(.22,1,.36,1) both',
+        'scale-in': 'scale-in .2s cubic-bezier(.22,1,.36,1) both',
         float: 'float 9s ease-in-out infinite',
       },
       typography: () => ({
         DEFAULT: {
           css: {
-            '--tw-prose-body': '#434b62',
-            '--tw-prose-headings': '#191d2b',
+            '--tw-prose-body': '#414753',
+            '--tw-prose-headings': '#16191f',
+            '--tw-prose-lead': '#565d69',
             '--tw-prose-links': 'rgb(var(--brand-600))',
-            '--tw-prose-quotes': '#525c78',
+            '--tw-prose-bold': '#16191f',
+            '--tw-prose-counters': '#6b7280',
+            '--tw-prose-bullets': '#cfd4dc',
+            '--tw-prose-hr': '#e4e7ec',
+            '--tw-prose-quotes': '#414753',
+            '--tw-prose-quote-borders': 'rgb(var(--brand-300))',
+            '--tw-prose-captions': '#6b7280',
+            '--tw-prose-code': '#16191f',
+            '--tw-prose-th-borders': '#e4e7ec',
+            '--tw-prose-td-borders': '#e4e7ec',
             maxWidth: 'none',
+            fontSize: '1.0625rem',
+            lineHeight: '1.8',
             a: {
               textDecoration: 'none',
-              borderBottom: '1px solid rgb(var(--brand-300))',
+              borderBottom: '1px solid rgb(var(--brand-400) / 0.45)',
               fontWeight: '500',
-              transition: 'all .15s ease',
-              '&:hover': { borderBottomColor: 'rgb(var(--brand-500))', color: 'rgb(var(--brand-700))' },
+              transition: 'border-color .15s ease, color .15s ease',
+              '&:hover': { borderBottomColor: 'rgb(var(--brand-600))', color: 'rgb(var(--brand-700))' },
             },
             code: {
               fontWeight: '500',
-              background: '#eceef2',
+              background: '#f1f3f6',
               padding: '.15em .4em',
               borderRadius: '.35rem',
               fontSize: '.875em',
@@ -94,13 +128,26 @@ export default {
             'code::before': { content: '""' },
             'code::after': { content: '""' },
             'pre code': { background: 'transparent', padding: '0' },
+            blockquote: { fontStyle: 'normal', fontWeight: '400' },
           },
         },
         invert: {
           css: {
-            '--tw-prose-body': '#b0b8c9',
-            '--tw-prose-headings': '#f6f7f9',
+            '--tw-prose-body': '#a8b0bd',
+            '--tw-prose-headings': '#f4f6f9',
+            '--tw-prose-lead': '#98a0ae',
             '--tw-prose-links': 'rgb(var(--brand-300))',
+            '--tw-prose-bold': '#f4f6f9',
+            '--tw-prose-bullets': '#414753',
+            '--tw-prose-hr': 'rgba(255,255,255,.1)',
+            '--tw-prose-quotes': '#cfd4dc',
+            '--tw-prose-code': '#f4f6f9',
+            '--tw-prose-th-borders': 'rgba(255,255,255,.12)',
+            '--tw-prose-td-borders': 'rgba(255,255,255,.1)',
+            a: {
+              borderBottomColor: 'rgb(var(--brand-400) / 0.4)',
+              '&:hover': { borderBottomColor: 'rgb(var(--brand-300))', color: 'rgb(var(--brand-200))' },
+            },
             code: { background: 'rgba(255,255,255,.08)' },
           },
         },

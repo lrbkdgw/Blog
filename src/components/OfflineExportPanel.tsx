@@ -86,7 +86,7 @@ export default function OfflineExportPanel() {
   return (
     <div className="space-y-4" data-yield-list>
       <section className="card p-5">
-        <h2 className="flex items-center gap-2 font-serif text-lg font-bold">
+        <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-tight text-ink-900 dark:text-white">
           <Archive size={17} />
           带到线上站点
         </h2>

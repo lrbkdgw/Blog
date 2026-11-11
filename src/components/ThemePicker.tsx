@@ -41,9 +41,9 @@ export function ThemePicker() {
         aria-expanded={open}
         aria-label={`配色主题：${colorThemeMeta.name}`}
         title={`配色主题：${colorThemeMeta.name}`}
-        className="btn-ghost h-9 w-9 !px-0"
+        className="btn-ghost h-8 w-8 !px-0"
       >
-        <span className="flex h-5 w-5 overflow-hidden rounded-full ring-1 ring-black/10 transition-transform duration-300 hover:rotate-12 dark:ring-white/20">
+        <span className="flex h-[18px] w-[18px] overflow-hidden rounded-full ring-1 ring-ink-900/10 transition-transform duration-300 hover:rotate-12 dark:ring-white/20">
           {colorThemeMeta.swatch.map((color) => (
             <span key={color} className="h-full flex-1" style={{ backgroundColor: color }} />
           ))}
@@ -51,8 +51,8 @@ export function ThemePicker() {
       </button>
 
       {open && (
-        <div className="card absolute right-0 top-11 z-50 w-[16.5rem] animate-scale-in p-3 sm:w-[19rem] !bg-white/95 dark:!bg-ink-900/95">
-          <div className="mb-2 flex items-center gap-2 px-1">
+        <div className="card-pop absolute right-0 top-10 z-50 w-[16.5rem] animate-scale-in p-3 sm:w-[19rem]">
+          <div className="mb-2.5 flex items-center gap-2 px-1">
             <Palette size={14} className="text-brand-500 dark:text-brand-300" />
             <p className="text-xs font-medium text-ink-600 dark:text-ink-300">配色主题</p>
             <span className="ml-auto font-mono text-[10px] uppercase tracking-wide text-ink-400">
@@ -72,10 +72,10 @@ export function ThemePicker() {
                   aria-label={theme.name}
                   title={`${theme.name} · ${theme.desc}`}
                   onClick={() => setColorTheme(theme.id)}
-                  className={`group relative h-9 overflow-hidden rounded-lg ring-1 transition ${
+                  className={`group relative h-8 overflow-hidden rounded-[7px] ring-1 transition duration-150 ${
                     active
-                      ? 'ring-2 ring-brand-500 ring-offset-2 ring-offset-white dark:ring-offset-ink-900'
-                      : 'ring-black/10 hover:-translate-y-0.5 hover:ring-brand-400/60 dark:ring-white/15'
+                      ? 'ring-2 ring-ink-900 ring-offset-2 ring-offset-white dark:ring-white dark:ring-offset-ink-900'
+                      : 'ring-ink-900/10 hover:-translate-y-0.5 dark:ring-white/15'
                   }`}
                 >
                   <span className="flex h-full w-full">
@@ -84,7 +84,7 @@ export function ThemePicker() {
                     ))}
                   </span>
                   {active && (
-                    <span className="absolute inset-0 flex items-center justify-center bg-black/25">
+                    <span className="absolute inset-0 flex items-center justify-center bg-ink-950/25">
                       <Check size={14} className="text-white" />
                     </span>
                   )}
@@ -93,7 +93,7 @@ export function ThemePicker() {
             })}
           </div>
 
-          <div className="mt-3 flex items-center gap-1 border-t border-ink-200/70 pt-3 dark:border-white/10">
+          <div className="mt-3 flex items-center gap-1 border-t border-ink-200/70 pt-3 dark:border-white/[0.07]">
             {MODES.map((item) => {
               const Icon = item.icon
               const active = item.id === mode
@@ -106,8 +106,8 @@ export function ThemePicker() {
                   onClick={() => setMode(item.id)}
                   className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition ${
                     active
-                      ? 'bg-brand-500/12 text-brand-700 dark:text-brand-200'
-                      : 'text-ink-500 hover:bg-ink-900/[.05] hover:text-ink-900 dark:text-ink-400 dark:hover:bg-white/10 dark:hover:text-white'
+                      ? 'bg-ink-900/[.06] text-ink-900 dark:bg-white/[0.09] dark:text-white'
+                      : 'text-ink-500 hover:bg-ink-900/[.035] hover:text-ink-900 dark:text-ink-400 dark:hover:bg-white/[0.06] dark:hover:text-white'
                   }`}
                 >
                   <Icon size={13} />
@@ -120,7 +120,7 @@ export function ThemePicker() {
           <Link
             to="/settings"
             onClick={() => setOpen(false)}
-            className="btn-ghost mt-2 w-full justify-center text-xs"
+            className="btn-ghost mt-2 w-full justify-center text-[11.5px]"
           >
             <Settings2 size={13} />
             更多外观与特效设置

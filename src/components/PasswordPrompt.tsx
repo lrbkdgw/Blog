@@ -42,12 +42,12 @@ export function PasswordPrompt({
       onSubmit={submit}
       className={`card mx-auto flex max-w-md flex-col items-center p-7 text-center ${className}`}
     >
-      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-500/10 text-brand-600 dark:text-brand-300">
-        <LockKeyhole size={22} />
+      <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-ink-200/80 text-ink-500 dark:border-white/[0.09] dark:text-ink-400">
+        <LockKeyhole size={17} />
       </span>
-      <h2 className="mt-4 font-serif text-xl font-bold text-ink-900 dark:text-white">{title}</h2>
-      <p className="mt-2 text-sm leading-relaxed text-ink-500">{description}</p>
-      <label className="mt-5 w-full text-left text-xs font-medium text-ink-500" htmlFor="article-password">
+      <h2 className="mt-4 text-[1.15rem] font-semibold tracking-[-0.02em] text-ink-900 dark:text-white">{title}</h2>
+      <p className="mt-2 text-[13px] leading-relaxed text-ink-500 dark:text-ink-400">{description}</p>
+      <label className="mt-5 w-full text-left text-[11.5px] font-medium text-ink-500 dark:text-ink-400" htmlFor="article-password">
         文章密码
       </label>
       <input
@@ -60,12 +60,12 @@ export function PasswordPrompt({
         className="input mt-1.5"
         placeholder="输入密码"
       />
-      {error && <p role="alert" className="mt-2 w-full text-left text-xs text-rose-600 dark:text-rose-400">{error}</p>}
-      <button type="submit" disabled={busy} className="btn-primary mt-4 h-10 w-full">
+      {error && <p role="alert" className="mt-2 w-full text-left text-[11.5px] text-rose-600 dark:text-rose-400">{error}</p>}
+      <button type="submit" disabled={busy} className="btn-primary mt-4 h-9 w-full">
         {busy ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
         {busy ? '正在解锁…' : '解锁文章'}
       </button>
-      <p className="mt-3 text-[11px] leading-relaxed text-ink-400">
+      <p className="mt-3 text-[10.5px] leading-relaxed text-ink-400 dark:text-ink-500">
         密码不会上传或保存；成功后本设备仅记住不可导出的解锁密钥。
       </p>
     </form>

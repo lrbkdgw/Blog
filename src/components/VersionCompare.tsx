@@ -70,7 +70,7 @@ function UnchangedSection({
 
   return (
     <div className="my-3 flex items-center gap-3 py-1">
-      <div className="h-px flex-1 bg-gradient-to-r from-transparent via-ink-200 to-ink-200/70 dark:via-white/12 dark:to-white/10" />
+      <div className="h-px flex-1 bg-ink-200/70 dark:bg-white/[0.08]" />
       <button
         type="button"
         onClick={onExpand}
@@ -79,7 +79,7 @@ function UnchangedSection({
         <UnfoldVertical size={12} />
         展开此处未变更的 {blocks.length} 段内容
       </button>
-      <div className="h-px flex-1 bg-gradient-to-l from-transparent via-ink-200 to-ink-200/70 dark:via-white/12 dark:to-white/10" />
+      <div className="h-px flex-1 bg-ink-200/70 dark:bg-white/[0.08]" />
     </div>
   )
 }
@@ -215,7 +215,7 @@ export function VersionCompare({
 
   return (
     <div
-      className="no-print fixed inset-0 z-[95] flex items-center justify-center bg-ink-950/55 p-3 backdrop-blur-sm sm:p-5"
+      className="no-print fixed inset-0 z-[95] flex items-center justify-center bg-ink-950/40 p-3 backdrop-blur-[3px] sm:p-5"
       role="dialog"
       aria-modal="true"
       aria-label="版本对比"
@@ -223,15 +223,15 @@ export function VersionCompare({
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="card flex max-h-[min(54rem,calc(100dvh-1.5rem))] w-full max-w-6xl flex-col overflow-hidden shadow-2xl">
+      <div className="card-pop flex max-h-[min(54rem,calc(100dvh-1.5rem))] w-full max-w-6xl flex-col overflow-hidden">
         {/* 顶栏 */}
         <div className="flex items-start justify-between gap-3 border-b border-ink-200/70 px-5 py-3.5 dark:border-white/10">
           <div className="min-w-0">
-            <h2 className="flex items-center gap-2 font-serif text-lg font-bold text-ink-900 dark:text-white">
+            <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-tight text-ink-900 dark:text-white">
               <GitCompareArrows size={18} className="shrink-0 text-brand-500" />
               历史版本对比
             </h2>
-            <p className="mt-0.5 text-xs text-ink-400">
+            <p className="mt-1 text-[11px] leading-relaxed text-ink-400 dark:text-ink-500">
               支持完整的公式、折叠提示框、表格与代码块渲染对照，也可随时切换到逐行 Markdown 源码差异。
             </p>
           </div>
@@ -247,16 +247,16 @@ export function VersionCompare({
         </div>
 
         {/* 版本选择栏 */}
-        <div className="grid gap-2.5 border-b border-ink-200/70 bg-ink-50/40 px-5 py-3 dark:border-white/10 dark:bg-white/[0.02] sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-end">
+        <div className="grid gap-2.5 border-b border-ink-200/70 bg-ink-50/50 px-5 py-3 dark:border-white/[0.07] dark:bg-white/[0.02] sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-end">
           <label className="block min-w-0">
-            <span className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-ink-500">
+            <span className="mb-1 flex items-center gap-1.5 text-[10.5px] font-medium text-ink-500 dark:text-ink-400">
               <span className="h-2 w-2 rounded-full bg-rose-400/80" />
               基准版本（旧）
             </span>
             <select
               value={baseSha}
               onChange={(event) => setBaseSha(event.target.value)}
-              className="input truncate !py-1.5 text-xs"
+              className="input h-8 truncate !py-1.5 text-[11.5px]"
             >
               {versions.map((version, index) => (
                 <option key={version.sha} value={version.sha}>
@@ -275,14 +275,14 @@ export function VersionCompare({
             <ArrowLeftRight size={15} />
           </button>
           <label className="block min-w-0">
-            <span className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-ink-500">
+            <span className="mb-1 flex items-center gap-1.5 text-[10.5px] font-medium text-ink-500 dark:text-ink-400">
               <span className="h-2 w-2 rounded-full bg-emerald-400/80" />
               目标版本（新）
             </span>
             <select
               value={targetSha}
               onChange={(event) => setTargetSha(event.target.value)}
-              className="input truncate !py-1.5 text-xs"
+              className="input h-8 truncate !py-1.5 text-[11.5px]"
             >
               {versions.map((version, index) => (
                 <option key={version.sha} value={version.sha}>
@@ -294,16 +294,12 @@ export function VersionCompare({
         </div>
 
         {/* 模式与视图工具栏 */}
-        <div className="flex flex-wrap items-center gap-2.5 border-b border-ink-200/70 px-5 py-2.5 text-xs dark:border-white/10">
-          <div className="flex gap-0.5 rounded-lg bg-ink-100/80 p-0.5 dark:bg-white/8">
+        <div className="flex flex-wrap items-center gap-2.5 border-b border-ink-200/70 px-5 py-2.5 text-[11.5px] dark:border-white/[0.07]">
+          <div className="segmented">
             <button
               type="button"
               onClick={() => setMode('render')}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium transition ${
-                mode === 'render'
-                  ? 'bg-white text-ink-900 shadow-sm dark:bg-ink-800 dark:text-white'
-                  : 'text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
-              }`}
+              className={`segmented-item ${mode === 'render' ? 'segmented-item-active' : ''}`}
             >
               <Eye size={13} />
               渲染对比
@@ -311,11 +307,7 @@ export function VersionCompare({
             <button
               type="button"
               onClick={() => setMode('source')}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium transition ${
-                mode === 'source'
-                  ? 'bg-white text-ink-900 shadow-sm dark:bg-ink-800 dark:text-white'
-                  : 'text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
-              }`}
+              className={`segmented-item ${mode === 'source' ? 'segmented-item-active' : ''}`}
             >
               <FileCode2 size={13} />
               源码对比
@@ -328,27 +320,27 @@ export function VersionCompare({
                 {mode === 'render' ? (
                   <>
                     {summary.modified > 0 && (
-                      <span className="rounded-full bg-amber-500/12 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-300">
+                      <span className="rounded-full border border-amber-300/60 px-1.5 py-px font-medium text-amber-700 dark:border-amber-500/25 dark:text-amber-300">
                         ~{summary.modified} 处修改
                       </span>
                     )}
                     {summary.inserted > 0 && (
-                      <span className="rounded-full bg-emerald-500/12 px-2 py-0.5 font-medium text-emerald-700 dark:text-emerald-300">
+                      <span className="rounded-full border border-emerald-300/60 px-1.5 py-px font-medium text-emerald-700 dark:border-emerald-500/25 dark:text-emerald-300">
                         +{summary.inserted} 处新增
                       </span>
                     )}
                     {summary.deleted > 0 && (
-                      <span className="rounded-full bg-rose-500/12 px-2 py-0.5 font-medium text-rose-700 dark:text-rose-300">
+                      <span className="rounded-full border border-rose-300/60 px-1.5 py-px font-medium text-rose-700 dark:border-rose-500/25 dark:text-rose-300">
                         −{summary.deleted} 处删除
                       </span>
                     )}
                   </>
                 ) : (
                   <>
-                    <span className="rounded-full bg-emerald-500/12 px-2 py-0.5 font-mono font-semibold text-emerald-700 dark:text-emerald-300">
+                    <span className="rounded-full border border-emerald-300/60 px-1.5 py-px font-mono font-semibold text-emerald-700 dark:border-emerald-500/25 dark:text-emerald-300">
                       +{stats.added}
                     </span>
-                    <span className="rounded-full bg-rose-500/12 px-2 py-0.5 font-mono font-semibold text-rose-700 dark:text-rose-300">
+                    <span className="rounded-full border border-rose-300/60 px-1.5 py-px font-mono font-semibold text-rose-700 dark:border-rose-500/25 dark:text-rose-300">
                       −{stats.removed}
                     </span>
                   </>
@@ -358,15 +350,11 @@ export function VersionCompare({
               {mode === 'render' ? (
                 <div className="ml-auto flex flex-wrap items-center gap-2">
                   {/* 分栏 / 上下布局切换 */}
-                  <div className="flex gap-0.5 rounded-lg bg-ink-100/80 p-0.5 dark:bg-white/8">
+                  <div className="segmented">
                     <button
                       type="button"
                       onClick={() => setRenderLayout('split')}
-                      className={`flex items-center gap-1 rounded-md px-2 py-1 transition ${
-                        renderLayout === 'split'
-                          ? 'bg-white font-medium text-ink-900 shadow-2xs dark:bg-ink-800 dark:text-white'
-                          : 'text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
-                      }`}
+                      className={`segmented-item !py-1 ${renderLayout === 'split' ? 'segmented-item-active' : ''}`}
                       title="修改段落左右并排对照（旧版在左，新版在右）"
                     >
                       <Columns2 size={12} />
@@ -375,11 +363,7 @@ export function VersionCompare({
                     <button
                       type="button"
                       onClick={() => setRenderLayout('unified')}
-                      className={`flex items-center gap-1 rounded-md px-2 py-1 transition ${
-                        renderLayout === 'unified'
-                          ? 'bg-white font-medium text-ink-900 shadow-2xs dark:bg-ink-800 dark:text-white'
-                          : 'text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
-                      }`}
+                      className={`segmented-item !py-1 ${renderLayout === 'unified' ? 'segmented-item-active' : ''}`}
                       title="单栏按阅读顺序上下展示修改前后"
                     >
                       <Rows2 size={12} />
@@ -395,10 +379,10 @@ export function VersionCompare({
                         setCollapseUnchanged((prev) => !prev)
                         setExpandedGaps({})
                       }}
-                      className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 transition ${
+                      className={`inline-flex items-center gap-1 rounded-[7px] border px-2 py-1 transition-colors duration-150 ${
                         collapseUnchanged
-                          ? 'border-brand-400/40 bg-brand-500/8 text-brand-700 dark:text-brand-300'
-                          : 'border-ink-200/80 bg-white text-ink-600 hover:text-ink-900 dark:border-white/10 dark:bg-white/5 dark:text-ink-300'
+                          ? 'border-ink-300 bg-ink-900/[.04] text-ink-800 dark:border-white/[0.2] dark:bg-white/[0.07] dark:text-white'
+                          : 'border-ink-200/80 text-ink-500 hover:text-ink-900 dark:border-white/[0.09] dark:text-ink-400 dark:hover:text-white'
                       }`}
                     >
                       {collapseUnchanged ? <UnfoldVertical size={12} /> : <FoldVertical size={12} />}
@@ -451,22 +435,22 @@ export function VersionCompare({
         {/* 主体滚动区（单一滚动容器，彻底消除嵌套双滚动条） */}
         <div
           ref={scrollContainerRef}
-          className="min-h-32 flex-1 overflow-y-auto bg-ink-50/50 dark:bg-black/20"
+          className="min-h-32 flex-1 overflow-y-auto bg-ink-50/50 dark:bg-black/25"
         >
           {loading ? (
-            <div className="flex items-center justify-center gap-2 py-16 text-sm text-ink-500">
+            <div className="flex items-center justify-center gap-2 py-16 text-[13px] text-ink-500 dark:text-ink-400">
               <Loader2 size={16} className="animate-spin" /> 正在读取两个版本…
             </div>
           ) : error ? (
-            <p className="p-5 text-sm text-rose-600 dark:text-rose-400">{error}</p>
+            <p className="p-5 text-[13px] text-rose-600 dark:text-rose-400">{error}</p>
           ) : baseSha === targetSha ? (
-            <p className="p-10 text-center text-sm text-ink-500">请选择两个不同的版本进行对比。</p>
+            <p className="p-10 text-center text-[13px] text-ink-500 dark:text-ink-400">请选择两个不同的版本进行对比。</p>
           ) : identical ? (
-            <p className="p-10 text-center text-sm text-ink-500">这两个版本的内容完全相同。</p>
+            <p className="p-10 text-center text-[13px] text-ink-500 dark:text-ink-400">这两个版本的内容完全相同。</p>
           ) : mode === 'render' ? (
             <div className="mx-auto max-w-5xl space-y-4 p-4 sm:p-6">
               {/* 版本头部信息条 */}
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-ink-200/70 bg-white/90 px-4 py-2.5 text-xs dark:border-white/10 dark:bg-ink-900/70">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] border border-ink-200/70 bg-white px-4 py-2.5 text-[11px] dark:border-white/[0.08] dark:bg-ink-900/70">
                 <div className="flex min-w-0 flex-wrap items-center gap-2 text-ink-500 dark:text-ink-300">
                   <span className="truncate font-mono text-[11px] text-rose-600/90 dark:text-rose-300">
                     {baseIndex >= 0

@@ -71,7 +71,7 @@ const EchoSentence = memo(function EchoSentence({ item, shown }: EchoSentencePro
       data-echo-sentence
       className="pointer-events-none flex max-w-2xl flex-col items-center text-center"
     >
-      <p className="font-serif text-lg leading-loose tracking-wide text-ink-800 sm:text-2xl dark:text-ink-100">
+      <p className="font-display text-[1.35rem] leading-[1.95] tracking-[0.01em] text-ink-800 sm:text-[1.75rem] dark:text-ink-100">
         {graphemes.map((ch, idx) => (
           <span
             key={idx}
@@ -87,7 +87,7 @@ const EchoSentence = memo(function EchoSentence({ item, shown }: EchoSentencePro
         <p
           data-from-shown={allRevealed ? 'true' : 'false'}
           style={{ animationDelay: `${graphemes.length * stepMs + 80}ms` }}
-          className="echo-from mt-4 text-xs tracking-wider text-ink-400/75 dark:text-ink-500"
+          className="echo-from mt-5 text-[11.5px] tracking-[0.18em] text-ink-400 dark:text-ink-500"
         >
           {fromGraphemes.map((ch, idx) => (
             <span key={idx} data-from-char className="inline">
@@ -483,7 +483,8 @@ export default function EchoCave() {
           maxLength={200}
           aria-label="在回声洞输入内容"
           onChange={(e) => setDraft(e.target.value)}
-          className="min-w-0 flex-1 border-0 border-b border-ink-400/25 bg-transparent py-1 text-sm text-ink-800 outline-none transition-colors focus:border-ink-600/55 dark:border-white/15 dark:text-ink-100 dark:focus:border-white/40"
+          placeholder="说点什么，回车留在这里…"
+          className="min-w-0 flex-1 border-0 border-b border-ink-300/70 bg-transparent py-1.5 text-[13.5px] text-ink-800 outline-none transition-colors placeholder:text-ink-300 focus:border-ink-500 dark:border-white/[0.14] dark:text-ink-100 dark:placeholder:text-ink-600 dark:focus:border-white/35"
         />
         <button
           type="submit"

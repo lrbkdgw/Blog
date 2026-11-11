@@ -1494,8 +1494,8 @@ export const Markdown = memo(function Markdown({
       <div
         className={
           compact
-            ? 'prose prose-sm max-w-none dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight'
-            : 'prose prose-base dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight'
+            ? 'prose prose-sm max-w-none dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight prose-a:font-medium'
+            : 'prose prose-base max-w-none dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight prose-a:font-medium'
         }
         style={applyDirectives ? articleFontStyle(processed.directives) : undefined}
       >

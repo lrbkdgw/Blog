@@ -185,8 +185,8 @@ export function LatexPicker({
 
   const dialog = (
     <div className="fixed inset-0 z-[95] flex items-start justify-center px-4 pt-[10vh]" role="dialog" aria-modal aria-label="插入 LaTeX 符号">
-      <div className="absolute inset-0 animate-fade-in bg-ink-950/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="card relative flex max-h-[78vh] w-full max-w-2xl animate-scale-in flex-col overflow-hidden !bg-white/95 dark:!bg-ink-900/95">
+      <div className="absolute inset-0 animate-fade-in bg-ink-950/35 backdrop-blur-[3px]" onClick={onClose} />
+      <div className="card-pop relative flex max-h-[78vh] w-full max-w-2xl animate-scale-in flex-col overflow-hidden">
         <div className="flex items-center gap-3 border-b border-ink-200/70 px-4 dark:border-white/10">
           <Search size={18} className="shrink-0 text-ink-400" />
           <input
