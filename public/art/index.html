@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>骑自行车的鹈鹕 · 飞机降落</title>
+<meta name="description" content="两个自包含的动画作品：纯 SVG 的鹈鹕骑自行车，以及 three.js 的飞机降落 3D 动画。">
+<link rel="icon" href="../favicon-venti.png">
+<style>
+  :root{
+    --ink:#141821;
+    --muted:#6b7484;
+    --line:rgba(20,24,33,.10);
+    --card:rgba(255,255,255,.72);
+    --brand:#1f7fbf;
+    --page:linear-gradient(180deg,#f7f4ee 0%,#eef2f7 100%);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ink:#e8ecf3; --muted:#9aa3b2; --line:rgba(255,255,255,.12);
+      --card:rgba(22,26,36,.72); --brand:#6ab7e6;
+      --page:linear-gradient(180deg,#0d1016 0%,#121722 100%);
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink); background:var(--page); min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:clamp(24px,5vw,64px) clamp(16px,4vw,32px) 80px}
+  header.top{margin-bottom:clamp(24px,4vw,44px)}
+  .eyebrow{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+  h1{font-size:clamp(26px,4vw,42px);line-height:1.2;margin:0 0 12px;letter-spacing:-.01em}
+  .lede{margin:0;max-width:62ch;color:var(--muted)}
+  .lede strong{color:var(--ink);font-weight:600}
+  section{display:grid;gap:14px;margin-top:clamp(28px,5vw,52px)}
+  .row{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  h2{font-size:clamp(18px,2.2vw,22px);margin:0}
+  .tag{font-size:12px;color:var(--brand);border:1px solid currentColor;border-radius:999px;padding:2px 9px;opacity:.85}
+  .note{margin:0;color:var(--muted);font-size:14px}
+  .frame{
+    position:relative;border-radius:18px;overflow:hidden;
+    background:#141821;border:1px solid var(--line);
+    box-shadow:0 18px 50px -28px rgba(15,25,45,.55), 0 2px 6px rgba(15,25,45,.06);
+  }
+  .frame.wide{aspect-ratio:1200/540}
+  .frame.stage{aspect-ratio:16/9;min-height:320px}
+  .frame svg,.frame canvas{display:block;width:100%;height:100%}
+  .frame.stage{background:#0b0e14}
+  /* 3D 场景 HUD */
+  .hud{position:absolute;inset:auto 0 0 0;display:flex;align-items:center;gap:14px;
+       padding:14px 16px;background:linear-gradient(180deg,transparent,rgba(6,10,18,.72) 45%);
+       color:#eef3fb;font-size:13px;letter-spacing:.01em}
+  .hud .phase{font-weight:600;white-space:nowrap}
+  .hud .meta{font-variant-numeric:tabular-nums;color:#c9d5e6;white-space:nowrap}
+  .hud .bar{position:relative;flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.22);overflow:hidden;min-width:60px}
+  .hud .bar i{position:absolute;inset:0 auto 0 0;width:0;background:linear-gradient(90deg,#ffb877,#ffe6bd);border-radius:2px}
+  .hud button{
+    font:inherit;font-size:12px;color:#0f1520;background:#f0f4fa;border:0;border-radius:999px;
+    padding:5px 12px;cursor:pointer;transition:transform .15s ease,background .15s ease
+  }
+  .hud button:hover{background:#fff;transform:translateY(-1px)}
+  .hud button:focus-visible{outline:2px solid #ffd9a8;outline-offset:2px}
+  .hint{font-size:13px;color:var(--muted);margin:0}
+  .cards{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-top:10px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+  .card h3{margin:0 0 6px;font-size:14px;letter-spacing:.02em}
+  .card p{margin:0;font-size:13.5px;color:var(--muted)}
+  code{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:rgba(127,127,127,.14);
+       padding:1px 5px;border-radius:5px}
+  footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+  footer a{color:inherit}
+  @media (max-width:640px){ .hud{flex-wrap:wrap} .hud .bar{order:3;flex-basis:100%} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <p class="eyebrow">Animation · SVG + three.js</p>
+    <h1>骑自行车的鹈鹕与降落的飞机</h1>
+    <p class="lede">
+      两件可以直接拿走用的动画：左边这幅<strong>纯 SVG</strong>（零脚本、零依赖，存成文件就能用），
+      以及下方<strong>three.js</strong> 实时渲染的 3D 降落过程——进近、放起落架、拉平、接地、反推减速。
+    </p>
+  </header>
+
+  <section>
+    <div class="row"><h2>01 · 骑自行车的鹈鹕</h2><span class="tag">纯 SVG · SMIL</span></div>
+    <p class="note">车轮与曲柄同步转动，双腿按两段 IK 跟着踏板踩踏，围巾分三段飘动；海面、云、棕榈与海鸥各自以不同速度漂移，形成视差。</p>
+    <div class="frame wide">
+      <img src="pelican-bike.svg" width="1200" height="540"
+           alt="黄昏海边，一只系红围巾的鹈鹕骑着青绿色自行车沿海岸前行，车轮与踏板不停转动。"
+           style="display:block;width:100%;height:100%;object-fit:cover">
+    </div>
+    <p class="hint">单文件 <code>public/art/pelican-bike.svg</code> · 约 57 KB · 不含 JavaScript，可直接当 <code>&lt;img&gt;</code> 或 CSS 背景使用。</p>
+  </section>
+
+  <section>
+    <div class="row"><h2>02 · 飞机降落</h2><span class="tag">three.js · 实时 3D</span></div>
+    <p class="note">黄昏机场的五边进近：远处高空压坡度转弯 → 对正跑道下降、放起落架与襟翼 → 拉平接地冒烟 → 反推减速停稳。镜头从跟拍切到跑道旁的低机位。</p>
+
+    <div class="frame stage" id="airplane-landing">
+      <div class="hud">
+        <span class="phase" data-air-phase>巡航 · 进近移交</span>
+        <span class="meta" data-air-status>高度 236 m · 268 km/h</span>
+        <span class="bar"><i data-air-progress></i></span>
+        <button type="button" data-air-toggle aria-label="暂停或继续动画">暂停</button>
+        <button type="button" data-air-replay aria-label="重新播放动画">重播</button>
+      </div>
+    </div>
+    <p class="hint">拖拽旋转视角 · 滚轮缩放 · <kbd>空格</kbd> 暂停/继续 · <kbd>R</kbd> 重播。系统开启「减少动态效果」时停在接地瞬间，可手动播放。</p>
+
+    <div class="cards">
+      <div class="card">
+        <h3>机模全部用几何体拼</h3>
+        <p>机身是 LatheGeometry 车削轮廓，机翼/垂尾用 Shape 挤出并带上反角与后掠，起落架可收放，襟翼按阶段下偏。</p>
+      </div>
+      <div class="card">
+        <h3>时间轴驱动</h3>
+        <p>位置、俯仰、横滚、航向、速度、起落架与襟翼都是关键帧轨道，接地瞬间触发轮胎烟与机身抖动。</p>
+      </div>
+      <div class="card">
+        <h3>性能与可访问性</h3>
+        <p>像素比上限 2、阴影贴图 2048、离屏自动暂停；尊重 <code>prefers-reduced-motion</code>，并提供暂停/重播按钮。</p>
+      </div>
+    </div>
+    <p class="hint">文件：<code>public/art/airplane-landing.js</code> + <code>public/art/three.min.js</code>（r149，MIT）。</p>
+  </section>
+
+  <footer>
+    页面自身不依赖构建工具。两个动画都可以单独使用：
+    SVG 直接嵌入 <code>&lt;img src="pelican-bike.svg"&gt;</code>；
+    3D 场景把 <code>three.min.js</code> 与 <code>airplane-landing.js</code> 引入，放一个 <code>id="airplane-landing"</code> 的容器即可。
+    源码与生成脚本见仓库 <code>public/art/</code>。
+  </footer>
+</div>
+
+<script src="three.min.js"></script>
+<script src="airplane-landing.js"></script>
+</body>
+</html>

@@ -32,6 +32,7 @@ React 19 + TypeScript + Vite + Tailwind CSS + react-markdown + KaTeX
 | 📄 **文章排版指令** | 文首 `::set-font` / `::set-code-font` / `::set-background` 强制本文的字体与动态背景，仅在阅读本文时生效 |
 | 📱 **响应式** | 手机 / 平板 / 桌面均已适配，支持打印样式 |
 | 🧭 **全透明页头 + 全站防冲突让路** | 页头不铺底色、不加毛玻璃、不描边、不投影，背景原样透出；**全站所有页面**滚进顶栏前在页头下沿下方提前沿多控制点 Hermite S 曲线柔和消融（`src/lib/headerYield.ts`，含深色模式感知明度伽马补偿），字不与导航打架、背景一像素不动（issue #53 / #63 / #71 / #78） |
+| 🎬 **动画作品** | `public/art/` 内含两个自包含动画：SMIL 纯 SVG 的「骑自行车的鹈鹕」与 three.js 的「飞机降落」，展示页 `<站点地址>/art/index.html` 可直接观看（见「🎬 动画作品」） |
 | 📴 **离线单文件版** | 整站打包成一个 HTML，**完全不联网**也能阅读与写作（含加密文章、本机版本历史）；要回线上用「文章包」导入（见「📴 离线版」） |
 
 ---
@@ -507,6 +508,30 @@ $\texttt{吃}$！
 
 ---
 
+---
+
+## 🎬 动画作品（纯前端，自包含）
+
+`public/art/` 下放着两个可以直接双击打开的动画小品，都不依赖构建步骤，可直接当静态文件托管
+（线上地址：`<站点地址>/art/index.html`）。
+
+| | 作品 | 文件 | 技术 |
+| --- | --- | --- | --- |
+| ① | **骑自行车的鹈鹕** | [`public/art/pelican-bike.svg`](public/art/pelican-bike.svg) | 纯 SVG + SMIL 声明式动画，零 JS、零外部资源（约 57 KB） |
+| ② | **飞机降落** | [`public/art/airplane-landing.js`](public/art/airplane-landing.js) + [`public/art/three.min.js`](public/art/three.min.js) | three.js r149（UMD，本地内置）+ Canvas 手写时间线 |
+
+- **展示页**：[`public/art/index.html`](public/art/index.html)，深色模式自适应，含阶段 HUD（滑降 / 拉平 / 接地 / 滑跑）、进度条、暂停与重播按钮；
+- **鹈鹕**：脚踏曲柄与两条腿用 IK 反解出关键帧（踝关节贴合踏板圆轨迹，误差 < 2 px），车轮旋转、
+  海面波光、沙粒滚动、棕榈与海鸥全部由 SMIL 完成；直接内嵌 `<img src="art/pelican-bike.svg">` 即可播放；
+- **飞机**：跑道 / 进近灯 / 塔台 / 机库 / 云层组成黄昏场景，26 秒从巡航下滑、放起落架与襟翼、拉平、接地到滑跑减速，
+  相机在接地瞬间切到跑道侧低位视角；尊重 `prefers-reduced-motion`，支持拖拽环视与滚轮缩放；
+- **重新生成鹈鹕**：`python3 scripts/art/build-pelican-svg.py`（脚本内置 XML 与 `<g>` 标签配平断言）；
+  `--pose N` 冻结第 N 帧（24 帧一圈）便于逐帧校对，默认另存为 `pelican-bike.poseN.svg`，加 `--out <路径>` 可指定位置，不会覆盖作品本身；
+- 两个作品都有自动化回归测试（`npm test`）：检查 SMIL 动画结构与 IK 踩踏对齐、three.js 场景可构建、
+  关键帧时间严格递增、接地高度正确。
+
+---
+
 ## 📁 目录结构
 
 ```
@@ -515,6 +540,7 @@ $\texttt{吃}$！
 ├── .github/workflows/offline.yml  # 离线单文件版构建（自检后提交到 offline/，并发布 Rolling Release）
 ├── offline/index.html             # 离线单文件版产物（自动生成，请勿手工编辑，见 offline/README.md）
 ├── vite.offline.config.ts         # 离线构建配置（内联一切，`__STARLOG_OFFLINE__ = true`）
+├── scripts/art/build-pelican-svg.py     # 骑自行车鹈鹕 SVG 生成器（含标签配平断言）
 ├── scripts/vite-plugin-single-html.mjs  # 单文件内联插件（含构建期硬校验）
 ├── scripts/verify-offline.mjs           # 构建后自检：缺字体 / 缺文章 / 残留外链 / 语法破坏 → 失败
 ├── functions/login/[[path]].ts    # OAuth 同源中转（Cloudflare Pages，路线 A）
@@ -522,6 +548,7 @@ $\texttt{吃}$！
 ├── content/
 │   ├── about.md                   # 「关于」页内容
 │   └── posts/                     # 所有文章（*.md）与历史版本名称（*.versions.json）
+├── public/art/                    # 动画作品：鹈鹕 SVG、飞机 three.js 场景与展示页 index.html
 ├── public/_redirects              # Cloudflare Pages 的 SPA 路由兜底
 ├── src/
 │   ├── components/                # Layout / Markdown / 搜索 / 目录 / Toast / GitHub 授权

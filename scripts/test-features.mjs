@@ -2844,3 +2844,138 @@ test('issue #106 & offline CI：首页下滑自动加载更多 + main 更新自�
 
 
 
+/* ───────────────────────────── 动画作品：鹈鹕骑自行车 / 飞机降落 ───────────────────────────── */
+
+test('动画作品 ①「骑自行车的鹈鹕」：SMIL 动画结构、IK 踩踏对齐与自包含性', () => {
+  const svg = readFileSync(join(root, 'public/art/pelican-bike.svg'), 'utf8')
+
+  // 必须自包含：不引脚本、不外链资源
+  assert.ok(!/<script/i.test(svg), 'SVG 不应包含 <script>，作为 <img> 使用时也必须能动')
+  assert.ok(!/(xlink:)?href="(?!#)/i.test(svg), 'SVG 不应引用外部资源')
+
+  // 只用 SMIL：动画元素必须声明 attributeName/type/values，避免浏览器静默失效
+  const animTags = svg.match(/<animate(Transform)?\b[^>]*>/g) || []
+  assert.ok(animTags.length >= 20, `应包含足量的动画（当前 ${animTags.length}）`)
+  for (const tag of animTags) {
+    assert.ok(/attributeName="/.test(tag), `动画缺少 attributeName：${tag.slice(0, 80)}`)
+    assert.ok(/values="/.test(tag) || /from="/.test(tag), `动画缺少取值：${tag.slice(0, 80)}`)
+    if (tag.startsWith('<animateTransform')) assert.ok(/type="(rotate|translate|scale)"/.test(tag), 'animateTransform 必须声明 type')
+  }
+  // 旋转动画只传角度时绕元素自身原点旋转，因此不得依赖 CSS transform-origin
+  assert.ok(!/transform-origin/.test(svg), '不应依赖 CSS transform-origin')
+
+  // 结构：<g> 必须严格配对（很多渲染器对不闭合的组会整体丢弃动画）
+  let depth = 0
+  for (const m of svg.matchAll(/<(\/?)g\b[^>]*?(\/?)>/g)) {
+    if (m[2] === '/') continue
+    depth += m[1] ? -1 : 1
+    assert.ok(depth >= 0, '<g> 出现多余的闭合标签')
+  }
+  assert.equal(depth, 0, '<g> 标签未配平')
+
+  // 关键部件存在
+  for (const id of ['birdBody', 'wingNear', 'beak', 'pouch', 'frame']) {
+    assert.ok(svg.includes(`id="${id}"`), `缺少渐变 #${id}`)
+  }
+  for (const label of ['骑自行车的鹈鹕', '车轮', '曲柄']) {
+    assert.ok(svg.includes(label), `画面描述应包含「${label}」`)
+  }
+
+  // 踩踏的 IK 校验：踝关节（髋→膝→踝）必须落在脚踏板圆轨迹上
+  const rotSets = [...svg.matchAll(/type="rotate"[^>]*values="([^"]+)"/g)].map((m) => m[1].split(';').map(Number))
+  const legRotations = rotSets.filter((set) => set.length === 25)
+  assert.equal(legRotations.length, 6, `应有 6 组踩踏关键帧（左右腿各 3 段），当前 ${legRotations.length}`)
+  // 文档顺序：远侧腿先绘制（车架之后），近侧腿后绘制；两腿相位相差 180°
+  const legs = [
+    { hip: [442, 333], thigh: legRotations[0], calf: legRotations[1], foot: legRotations[2], phase: 180 },
+    { hip: [450, 338], thigh: legRotations[3], calf: legRotations[4], foot: legRotations[5], phase: 0 },
+  ]
+  const toRad = (d) => (d * Math.PI) / 180
+  const thighLen = 86, calfLen = 88, bb = [476, 466], crank = 27
+  for (const leg of legs) {
+    let worst = 0
+    for (let i = 0; i < 24; i++) {
+      const knee = [leg.hip[0] + thighLen * Math.cos(toRad(leg.thigh[i])), leg.hip[1] + thighLen * Math.sin(toRad(leg.thigh[i]))]
+      const ankleAngle = leg.thigh[i] + leg.calf[i]
+      const ankle = [knee[0] + calfLen * Math.cos(toRad(ankleAngle)), knee[1] + calfLen * Math.sin(toRad(ankleAngle))]
+      const pedalAngle = leg.phase + i * 15
+      const pedal = [bb[0] + crank * Math.cos(toRad(pedalAngle)), bb[1] + crank * Math.sin(toRad(pedalAngle))]
+      worst = Math.max(worst, Math.hypot(ankle[0] - pedal[0], ankle[1] - pedal[1]))
+      // 脚掌保持水平：三段旋转（含踏板反向补偿）之和应抵消
+      assert.ok(Math.abs(leg.thigh[i] + leg.calf[i] + leg.foot[i]) < 4.5, `第 ${i} 帧脚掌未保持水平`)
+    }
+    assert.ok(worst < 3, `脚踝应贴在脚踏板轨迹上（最大偏差 ${worst.toFixed(2)}px）`)
+  }
+})
+
+test('动画作品 ②「飞机降落」：three.js 场景可构建、关键帧时间线单调、接地高度正确', () => {
+  const offline = readFileSync(join(root, 'public/art/airplane-landing.js'), 'utf8')
+  const three = readFileSync(join(root, 'public/art/three.min.js'), 'utf8')
+
+  // 依赖与页面
+  assert.ok(/MIT/.test(three.slice(0, 400)), '应随附 three.js（MIT）构建文件')
+  const html = readFileSync(join(root, 'public/art/index.html'), 'utf8')
+  assert.ok(html.includes('id="airplane-landing"'), '展示页需要 3D 容器')
+  assert.ok(html.includes('pelican-bike.svg'), '展示页需要嵌入鹈鹕 SVG')
+  assert.ok(html.includes('three.min.js') && html.includes('airplane-landing.js'), '展示页需要加载 3D 脚本')
+
+  // 关键帧轨道必须按时间升序
+  const NAMED_T = { TOUCHDOWN: Number(offline.match(/const TOUCHDOWN = ([0-9.]+)/)[1]) }
+  const timeOf = (tok) => (/^[0-9.]+$/.test(tok) ? Number(tok) : NAMED_T[tok])
+  // 有的轨道写在同一行（例如 FLAPS），有的多行，这里统一按「从 = [ 到匹配的 ]」截取
+  const trackBlocks = [...offline.matchAll(/const (POS|YAW|PITCH|ROLL|GEAR|FLAPS|SPEED|CAM_OFF) = (\[[^\n]*(?:\n\s{4}\{[^\n]*)*\n  \])/g)]
+    .map((m) => ({ name: m[1], body: m[2] }))
+  for (const m of trackBlocks) {
+    const times = [...m.body.matchAll(/\{\s*t:\s*([-0-9.]+|[A-Z_]+)/g)].map((x) => timeOf(x[1]))
+    assert.ok(times.length >= 2, `${m.name} 至少需要两个关键帧`)
+    for (let i = 1; i < times.length; i++) {
+      assert.ok(times[i] > times[i - 1], `${m.name} 关键帧时间必须严格递增（第 ${i} 个：${times[i - 1]} → ${times[i]}）`)
+    }
+  }
+  // 可访问性与性能保护
+  assert.ok(offline.includes('prefers-reduced-motion'), '应尊重减少动态效果偏好')
+  assert.ok(offline.includes('IntersectionObserver'), '离屏时应暂停渲染')
+  assert.ok(/Math\.min\(window\.devicePixelRatio \|\| 1, 2\)/.test(offline), '像素比应设上限')
+
+  // 时间轴几何校验：用轨道插值复算接地瞬间的轮胎高度
+  const track = (keys, t) => {
+    if (t <= keys[0].t) return keys[0].v
+    for (let i = 1; i < keys.length; i++) {
+      if (t <= keys[i].t) {
+        const a = keys[i - 1], b = keys[i]
+        const k = (t - a.t) / (b.t - a.t || 1)
+        return a.v.map((va, j) => va + (b.v[j] - va) * k)
+      }
+    }
+    return keys[keys.length - 1].v
+  }
+  const parse = (name) => {
+    const start = offline.indexOf('const ' + name + ' = [')
+    const end = offline.indexOf('\n  ]', start)
+    const body = offline.slice(start, end)
+    const out = []
+    for (const km of body.matchAll(/\{\s*t:\s*([-0-9.A-Za-z_]+),\s*v:\s*\[([^\]]+)\]/g)) {
+      const t = /^[0-9.]+$/.test(km[1]) ? Number(km[1]) : NAMED_T[km[1]]
+      out.push({ t, v: km[2].split(',').map((x) => Number(x.trim())) })
+    }
+    return out
+  }
+  const groundY = Number(offline.match(/const GROUND_Y = ([0-9.]+)/)[1])
+  const gearTop = Number(offline.match(/const GEAR_TOP = (-?[0-9.]+)/)[1])
+  const rTyre = Number(offline.match(/const R_TYRE = ([0-9.]+)/)[1])
+  const gearLen = Number(offline.match(/gearLeg\(-2\.55, 1\.8, ([0-9.]+)\)/)[1])
+  const tyreBottom = groundY + gearTop - (gearLen + 2 * rTyre)
+  assert.ok(Math.abs(tyreBottom) < 0.06, `落地时轮胎应正好贴住跑道（当前 ${tyreBottom.toFixed(3)}）`)
+
+  const pos = parse('POS')
+  const touchdown = Number(offline.match(/const TOUCHDOWN = ([0-9.]+)/)[1])
+  assert.ok(Math.abs(track(pos, touchdown)[1]) < 0.05, '接地时刻的离地高度应为 0')
+  assert.ok(track(pos, 0)[1] > 150, '开场应在高空')
+  assert.ok(track(pos, 26)[2] > 300, '结束时已沿跑道滑跑一段距离')
+  const flaps = parse('FLAPS')
+  assert.equal(track(flaps, 0)[0], 0, '初始襟翼收起')
+  assert.equal(track(flaps, 12)[0], 1, '接地前襟翼已放满')
+  const gear = parse('GEAR')
+  assert.equal(track(gear, 0)[0], 0, '初始起落架收起')
+  assert.equal(track(gear, 12)[0], 1, '接地前起落架已放下')
+})
