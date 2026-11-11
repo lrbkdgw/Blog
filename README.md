@@ -507,6 +507,20 @@ $\texttt{吃}$！
 
 ---
 
+## 🎬 动画作品（public/showcase）
+
+两件独立的动效作品，**纯 SVG / CSS 实现，不含 JavaScript、不请求任何外部资源**，可离线直接打开：
+
+| 文件 | 说明 |
+| --- | --- |
+| `public/showcase/pelican-bike.svg` | 鹈鹕骑自行车。夜间公路场景；车轮、曲柄与双脚同步转动（腿部用 2 骨 IK 预烘焙成关键帧，脚掌始终踩在踏板上）；围巾飘带、尾羽、冠羽、眨眼、尘土与速度线均带独立动画；支持 `prefers-reduced-motion` |
+| `public/showcase/plane-landing-3d.html` | 飞机降落 **3D** 动画。CSS `perspective` + `preserve-3d` 搭建真实透视的跑道平面与空中航迹；按「五边进近 → 拉平 → 接地 → 减速滑跑 → 滑行停靠」循环，含接地弹跳与镜头轻震、跑道标线随速度衰减的透视滚动、跑道边灯与进近灯排、贴地投影随高度扩散变淡 |
+| `public/showcase/index.html` | 两件作品的展示页（内嵌 SVG 与 iframe 预览） |
+
+访问 `/showcase/` 即可查看。两个文件均可单独拷走使用：SVG 可直接 `<img src>` 或内联，3D 动画是一个自包含的 HTML。
+
+---
+
 ## 📁 目录结构
 
 ```
@@ -523,6 +537,7 @@ $\texttt{吃}$！
 │   ├── about.md                   # 「关于」页内容
 │   └── posts/                     # 所有文章（*.md）与历史版本名称（*.versions.json）
 ├── public/_redirects              # Cloudflare Pages 的 SPA 路由兜底
+├── public/showcase/               # 纯 SVG / CSS 动画作品（鹈鹕骑自行车、飞机降落 3D），可直接访问
 ├── src/
 │   ├── components/                # Layout / Markdown / 搜索 / 目录 / Toast / GitHub 授权
 │   │   ├── AnimatedBackdrop.tsx   # 动态背景生命周期、樱花与粒子星链
