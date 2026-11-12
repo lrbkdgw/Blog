@@ -5,6 +5,26 @@
  */
 const proseScaled = (size) => `calc(${size} * var(--prose-font-scale))`
 
+/**
+ * 标题行（h1–h6）不参与缩放，保持原始字号。
+ * 标题字号是相对所在正文字号的 em，正文缩放后会跟着变小，所以这里把缩放系数除回去；
+ * 无论标题写在正文、引用、列表还是折叠框里，算出来都是缩放前的大小。
+ * 标题的行高与上下间距相对的是标题自身字号，标题里的行内代码、公式也是，因此都一并保持原样。
+ * 展示框、选择框 / 是否框等 not-prose 容器里的标题不归 typography 管，
+ * 由 src/styles/index.css「文章排版细节」里的一条规则按同样的写法处理。
+ */
+const proseUnscaled = (size) => `calc(${size} / var(--prose-font-scale))`
+const headingFontSizes = (sizes) =>
+  Object.fromEntries(Object.entries(sizes).map(([tag, size]) => [tag, { fontSize: proseUnscaled(size) }]))
+/**
+ * 各级标题相对「未缩放的正文字号」的倍数，即 @tailwindcss/typography 的默认值。
+ * h4–h6 在插件里没有单独的字号（等于正文），同样要写出来，否则会跟着正文变小。
+ */
+const HEADING_EM = {
+  base: { h1: '2.25em', h2: '1.5em', h3: '1.25em', h4: '1em', h5: '1em', h6: '1em' },
+  sm: { h1: '2.1428571em', h2: '1.4285714em', h3: '1.2857143em', h4: '1em', h5: '1em', h6: '1em' },
+}
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: 'class',
@@ -89,8 +109,9 @@ export default {
       typography: () => ({
         DEFAULT: {
           css: {
-            // 正文根字号：标题、列表、引用、行内代码、公式与段间距都按 em 跟随它。
+            // 正文根字号：列表、引用、行内代码、公式与段间距都按 em 跟随它；标题行除外（保持原始字号）。
             fontSize: proseScaled('1rem'),
+            ...headingFontSizes(HEADING_EM.base),
             '--tw-prose-body': '#434b62',
             '--tw-prose-headings': '#191d2b',
             '--tw-prose-links': 'rgb(var(--brand-600))',
@@ -115,9 +136,9 @@ export default {
             'pre code': { background: 'transparent', padding: '0' },
           },
         },
-        // .prose-base / .prose-sm 会再声明一次根字号，同样要乘以缩放系数。
-        base: { css: { fontSize: proseScaled('1rem') } },
-        sm: { css: { fontSize: proseScaled('0.875rem') } },
+        // .prose-base / .prose-sm 会再声明一次根字号与标题字号，同样要分别乘以、除以缩放系数。
+        base: { css: { fontSize: proseScaled('1rem'), ...headingFontSizes(HEADING_EM.base) } },
+        sm: { css: { fontSize: proseScaled('0.875rem'), ...headingFontSizes(HEADING_EM.sm) } },
         invert: {
           css: {
             '--tw-prose-body': '#b0b8c9',

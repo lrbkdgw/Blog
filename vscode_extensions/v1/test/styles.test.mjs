@@ -124,9 +124,10 @@ test('选择框与是否框内正文排版与折叠框 .callout-content 字号�
   assert.equal(uiIf['line-height'], callout['line-height'])
 })
 
+// 去掉空白与小数的前导 0，避免压缩器写法不同（0.95rem / .95rem）影响比较。
+const compact = (value) => String(value).replace(/\s+/g, '').replace(/(^|[^\d.])0+(?=\.\d)/g, '$1')
+
 test('正文字号缩放：正文根字号与表格、折叠框、展示框、表单控件统一乘以 --prose-font-scale，代码块不参与', () => {
-  // 去掉空白与小数的前导 0，避免压缩器写法不同（0.95rem / .95rem）影响比较。
-  const compact = (value) => String(value).replace(/\s+/g, '').replace(/(^|[^\d.])0+(?=\.\d)/g, '$1')
   const scaled = (size) => compact(`calc(${size} * var(--prose-font-scale))`)
   // 选择器 → 缩放前的原始字号。新增带固定字号的正文元素时，在这里补一行。
   const original = {
@@ -166,6 +167,39 @@ test('正文字号缩放：正文根字号与表格、折叠框、展示框、�
   assert.match(widgets, /\btext-callout(?![\w-])/)
   assert.match(widgets, /\btext-callout-label(?![\w-])/)
   assert.doesNotMatch(widgets, /text-\[14\.5px\]|\btext-sm\b/, 'UiWidgets.tsx 不应写死折叠框字号')
+})
+
+test('标题行不参与正文字号缩放：h1–h6 的字号把 --prose-font-scale 除回去，保持原始大小', () => {
+  // 标题字号是相对所在正文的 em；正文乘了系数，标题就得写成 calc(原倍数 / var(--prose-font-scale)) 才能保持原样。
+  const unscaled = (size) => compact(`calc(${size} / var(--prose-font-scale))`)
+  // 各级标题相对「未缩放正文字号」的倍数：@tailwindcss/typography 的默认值，h4–h6 与正文同字号。
+  const base = { h1: '2.25em', h2: '1.5em', h3: '1.25em', h4: '1em', h5: '1em', h6: '1em' }
+  const original = {
+    '.prose': base,
+    '.prose-base': base,
+    '.prose-sm': { h1: '2.1428571em', h2: '1.4285714em', h3: '1.2857143em', h4: '1em', h5: '1em', h6: '1em' },
+  }
+  // 不同压缩器对引号、逗号后空格的写法不一样，比较前统一掉。
+  const normalize = (selector) => selector.replace(/["']/g, '').replace(/\s*,\s*/g, ',').replace(/\s+/g, ' ').trim()
+  const fontSize = (tree, selector) => {
+    let value
+    tree.walkRules((rule) => {
+      if (!rule.selectors.some((item) => normalize(item) === normalize(selector))) return
+      rule.walkDecls('font-size', (decl) => { value = decl.value })
+    })
+    return value === undefined ? undefined : compact(value)
+  }
+  // typography 的标题规则只作用于不在 not-prose 容器里的标题；其余的（展示框、选择框 / 是否框里的正文，
+  // 以及手写的 not-prose 容器）在里面与所在正文同字号，由 index.css 用正好互补的选择器把系数除回去。
+  const notProse = ':where([class~=not-prose],[class~=not-prose] *)'
+  for (const [tree, scope, label] of [[reference, '', '博客'], [extension, '.markdown-extension-preview ', '插件']]) {
+    for (const [variant, sizes] of Object.entries(original)) {
+      for (const [tag, size] of Object.entries(sizes)) {
+        assert.equal(fontSize(tree, `${scope}${variant} :where(${tag}):not(${notProse})`), unscaled(size), `${label}：${variant} 里 ${tag} 的字号`)
+      }
+    }
+    assert.equal(fontSize(tree, `${scope}.prose :where(h1,h2,h3,h4,h5,h6)${notProse}`), unscaled('1em'), `${label}：not-prose 容器内标题的字号`)
+  }
 })
 
 test('Settings 暴露默认关闭的渐变背景开关，并保留共享背景而不是重新定义渐变', () => {

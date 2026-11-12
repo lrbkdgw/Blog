@@ -23,13 +23,17 @@
     /*  正文字号缩放系数（1 = 原始大小；当前为原字号的 95%）                 */
     /*  Markdown 正文（文章、帮助页、编辑器预览、版本对比、评论与 VS Code     */
     /*  预览）里的正文字号统一乘以它，彼此比例不变：                          */
-    /*    · 正文根字号在 tailwind.config.js 的 typography 里相乘，标题、      */
-    /*      列表、引用、行内代码、公式与段间距按 em 自动跟随；                */
+    /*    · 正文根字号在 tailwind.config.js 的 typography 里相乘，列表、      */
+    /*      引用、行内代码、公式与段间距按 em 自动跟随；                      */
     /*    · 表格、折叠框、展示框与表单控件有各自的固定字号，在本文件与        */
     /*      tailwind.config.js 的 text-callout* 里逐个相乘。                  */
-    /*  不参与缩放：代码块（属于「代码字体」，沿用 .prose pre 的固定字号）、  */
-    /*  12px 及以下的角标 / 提示、坐标系与图论画布里的标注，以及正文之外的    */
-    /*  页面标题、导航等界面文字。                                            */
+    /*  不参与缩放：                                                          */
+    /*    · 标题行（h1–h6）保持原始字号。标题字号按 em 跟随正文，所以要把     */
+    /*      系数除回去：见 tailwind.config.js 的 HEADING_EM，以及本文件       */
+    /*      「文章排版细节」里针对 not-prose 容器的那条标题规则；             */
+    /*    · 代码块（属于「代码字体」，沿用 .prose pre 的固定字号）；          */
+    /*    · 12px 及以下的角标 / 提示、坐标系与图论画布里的标注；              */
+    /*    · 正文之外的页面标题、导航等界面文字。                              */
     /*  它与访客的「全站字体大小」（--site-font-size）相互独立、效果相乘。    */
     /*  新增带固定字号的正文元素时，记得同样乘上它。                          */
     /* ------------------------------------------------------------------ */
@@ -602,6 +606,19 @@
 .prose h3,
 .prose h4 {
   @apply scroll-mt-24;
+}
+/*
+ * 标题行（h1–h6）不参与正文字号缩放，保持原始字号。
+ * 普通正文与折叠框里的标题由 tailwind.config.js 的 typography 处理（把缩放系数除回去）。
+ * typography 的标题规则不作用于 not-prose 容器里的标题：展示框、选择框 / 是否框里的正文，
+ * 以及作者手写的 not-prose 容器。那里的标题本来就与所在正文同字号（1em），在这里按同样的写法补上。
+ * 选择器的后半段正好是 typography 排除掉的那部分，两边不重叠；放在 components 层并用 :where()
+ * 压低优先级，是为了与 typography 自己的标题规则同层、同优先级，不会盖过工具类。
+ */
+@layer components {
+  .prose :where(h1, h2, h3, h4, h5, h6):where([class~='not-prose'], [class~='not-prose'] *) {
+    font-size: calc(1em / var(--prose-font-scale));
+  }
 }
 .prose blockquote {
   @apply rounded-r-xl border-l-[3px] border-brand-400 bg-brand-50/50 py-1 pr-4 not-italic dark:bg-brand-500/[0.07];
