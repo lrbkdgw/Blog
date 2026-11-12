@@ -13,8 +13,9 @@
 - 或把本目录的 `index.html` 拷到本地（U 盘、网盘、邮件附件都行）。
 
 用 Chrome / Edge / Firefox 正常窗口打开即可（`file://`，无需服务器）。**这个文件不会发起任何网络请求**：
-没有在线登录，不请求云端字体，也不加载远程图片。打开后顶部有「离线版」徽标，
-点进去是「管理 → 离线文章包」：导出文章包给线上站点，或把别的设备导出的包导进来。
+没有在线登录，不请求云端字体，也不加载远程图片。唯一例外是「本机管理 → 开始协作」或「设置 → 局域网协作」里主动点
+「开始协作」/「加入协作」后，才会连到用户自己启动的局域网中继（`npm run lan`，只需房间号）。
+打开后顶部有「离线版」徽标，点进去是「管理 → 离线文章包」：导出文章包给线上站点，或把别的设备导出的包导进来。
 
 ## 内容如何带到线上站点
 
@@ -59,5 +60,8 @@ cp dist-offline/index.html offline/index.html
 | `src/components/OfflineExportPanel.tsx` | 离线版「管理 → 离线文章包」：勾选并导出、查看本机内容 |
 | `src/components/BundleImportDialog.tsx` | 「导入离线文章包」对话框（线上站点与离线版本都用它） |
 | `src/components/StorageGuard.tsx` | 存储不可用时拦住页面，绝不假装保存成功 |
+| `scripts/lan-collab-server.mjs` | 局域网协作中继（零依赖 WebSocket），同时把本文件通过邀请链接分发给其他设备 |
+| `src/lib/lanDiscovery.ts` / `src/lib/collab.ts` | 只填房间号即可自动发现中继；原生 WebSocket 客户端 |
+| `src/components/LanCollabCard.tsx` | 设置页「局域网协作」卡片（房间号、进度、邀请链接、高级手动地址） |
 
 功能范围与限制见仓库根目录 README 的「📴 离线版」一节。

@@ -1,5 +1,95 @@
 # 更新日志 · ChangeLog
 
+## 2026-11-11（补充）· 局域网协作改为「只填房间号」+ 明确的「开始协作」按钮，并把编译好的离线单文件随 PR 交付（#112）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+- 首版 #112 需要用户手工填写 `ws://192.168.1.5:8787` 这样的中继地址，与「局域网内共同编辑」应有的零配置体验不符；用户明确要求「尽量改为输入房间号即可」。
+- `file://` 打开的离线单文件受浏览器沙箱限制，没有 mDNS / UDP 广播能力，也不能内置任何公网地址，因此纯客户端无法凭空知道中继在哪；需要在不破坏「平时不联网」原则的前提下绕开这个限制。
+- 另外用户希望 PR 内直接带上编译好的离线单文件，便于检查界面与功能。
+
+### 调整
+
+- **新增 `src/lib/lanDiscovery.ts`（自动发现）**：点「连接」后按优先级探测中继，全部只在用户点击后发生、可随时取消并显示进度：
+  1. 上次成功连接过的中继（本机记忆）；
+  2. 若离线 HTML 由中继自己提供（`http://IP:8787/`），用 `location.host` **零探测直连**；
+  3. 本机 `localhost`、WebRTC host candidate 暴露的局域网 IP（含 mDNS `.local` 域名）与该网段网关；
+  4. 常见私网网段的 8787 端口并发扫描（`192.168.0/1`、`10.0.0/1` 全 /24，其余网段试常见 DHCP 主机号）。
+  探测不是只看端口通不通：必须发 `hello` 并收到同房间的 `welcome` 才确认是 Starlog 中继，避免误连别的 WebSocket 服务。
+- **中继兼顾静态页面服务器**：`scripts/lan-collab-server.mjs` 现在把编译好的 `offline/index.html`（或 `--html` 指定文件）通过 `http://IP:8787/` 分发，启动时打印带 `?room=` 的邀请链接；从这个链接打开页面时房间号已带好且零探测直连。新增 `/health` 探针与 `probe:true` 的 hello（只回 welcome、不加入房间，避免自动发现期间在线设备数暴涨）。
+- **设置页卡片改为「房间号优先」**：`src/components/LanCollabCard.tsx` 主输入只剩房间号；本机名字与手动地址收进「高级设置（一般不用填）」；新增自动发现进度、取消查找、「复制邀请链接」、邀请链接 `?room=` 预填、上次中继地址记忆。
+- **补回显式的「开始协作」入口**（review 反馈「开始协作的按钮被你吃了？」）：原本只有语义偏「连接」的按钮，现在卡片里有醒目的主按钮 **「开始协作」**（房间号留空自动生成、一键发起并显示邀请链接与在线设备数）与次按钮 **「加入协作」**（填伙伴给的房间号加入），连接后为 **「结束协作」**；页头「本机管理」下拉也新增「开始协作」直达项（`?collab=1` 自动滚到协作卡片）。连接成功后面板直接展示可复制的邀请链接。
+- **交付编译产物**：按用户要求把 `npm run build:offline` 生成的 `dist-offline/index.html` 同步到仓库的 `offline/index.html` 一并放进 PR（仍由 `.github/workflows/offline.yml` 在合入 main 后校验/覆盖，不在 PR 里手工编辑内容）。
+
+### 验证
+
+- `scripts/test-features.mjs` 新增第 17、18 组回归：① 私网地址判定、`relayUrlFromLocation` 零探测路径、候选地址排序/去重/不含公网端点、真实拉起中继后用「多个错误地址 + 正确地址」的混合候选验证自动发现、取消信号、探针不计入在线设备、HTTP 邀请页面与 `/health` / 404 行为；② **把 PR 里附带的 `offline/index.html` 真正用 jsdom 跑起来**，断言设置页渲染出「开始协作」「加入协作」按钮与协作卡片（避免「代码里有字符串、产物里却没按钮」）。
+- 顺带把 #105 历史版本渲染对比的瞬时断言改为带上限轮询，并修正 #93 回声洞测试「等待 25ms 后受控输入框被重置为空」的根因（改为写入后同步点击发送），连续多次全量测试全绿。
+- `npm test`（Web **18/18** + VS Code 插件 71 pass / 4 skipped）、`npx tsc --noEmit`、扩展 typecheck、`npm run build`、`npm run build:offline` + `verify-offline` 全部通过。
+
+## 2026-11-11 · 修复离线版目录跳转失效、编辑器引用/列表交互与嵌套标记，开放离线免登录写作并新增局域网协作（#110 / #111 / #112 / #113）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+> 说明：本条目在 PR #117（已合入后被 PR #118 Revert）的基础上重新实现。PR #117 的 #110 / #111 / #113 修复因 Revert 已不在 main 上，本次在当前 main 上重新落地，并修正了 PR #117 的三处问题（见下文「与 PR #117 的差异」），同时补齐了 PR #117 明确未做的 #112。
+
+### 背景
+
+- **Issue #110（文章界面点击目录无法跳转到对应部分）**：
+  1. 离线单文件版在 `file://` 下只能使用 `HashRouter`，**整条路由就放在 URL hash 里**（形如 `index.html#/posts/slug`）；而目录点击处理执行 `history.replaceState(null, '', '#标题id')`，会把路由 hash 整个覆盖成 `#标题id` 并触发 `hashchange`，HashRouter 随即将其解析为不存在的路径，当前文章页直接卸载，跳转自然失败；
+  2. 标题上的「锚点链接」小图标（`<a href="#id">`）使用浏览器默认 fragment 跳转，在 HashRouter 下同样会覆盖文章路由。
+- **Issue #111（文章编辑修复）**：
+  1. 在引用块（`> `）内按回车不会自动补上 `>` 续行，换行即退出引用格式；空引用行也没有「回车结束引用」的收敛行为；
+  2. 光标位于**没有正文的空列表项**（如 `- `、`1. `）时按 Tab，只是在标记后插入两个空格，无法把整项缩进为子列表，Shift+Tab 也不能反缩进；
+  3. Tailwind Preflight 把所有 `ul / ol` 重置为 `list-style: none`，typography 插件又把任意层级的 `.prose ul` 统一恢复成 `disc`、`.prose ol` 统一恢复成 `decimal`，浏览器默认的 disc → circle → square 层级被抹平，一级、二级列表的点看起来完全一样。
+- **Issue #113（离线版应可以不登录就编辑文章或进入文章管理界面）**：
+  - 离线版按设计完全不联网，不存在可用的 GitHub 登录，但首页空状态「写下第一篇」与文章页「编辑」按钮都把未登录用户导向 `/login`，写作入口被人为切断；桌面端页头在离线版也缺少直接的内容管理入口（移动端导航与 `Admin` / `Editor` 页面本身其实已经做好离线适配）。
+- **Issue #112（离线版局域网内的合作文档）**：
+  - 局域网内的设备可以共同编辑同一文档，仅在离线版中支持。离线单文件版没有服务器、平时不联网，因此需要一台用户显式运行的局域网中继作为同步枢纽（见下文）。
+
+### 调整
+
+- **修复 HashRouter 下的锚点跳转（`src/lib/scrollAnchor.ts`（新增）、`src/components/Toc.tsx`、`src/components/Markdown.tsx`、`src/pages/PostPage.tsx`，#110）**：
+  - 抽出统一的 `scrollToHeading(id)`：平滑滚动到标题（保留 100px 顶部净空），**仅在线上版（BrowserRouter）把锚点同步进 URL hash**；离线版只滚动、绝不改写承载路由的 hash；
+  - 目录项与标题锚点图标统一改走该 helper，并对锚点图标 `preventDefault()` 拦住浏览器默认 fragment 导航；
+  - PostPage 的「打开带 `#id` 链接自动定位」effect 在离线版直接跳过（此时 `location.hash` 是路由而非锚点），线上版深链行为不变。
+- **编辑器按键与列表渲染修复（`src/lib/editor.ts`、`src/styles/index.css`，#111）**：
+  - 引用块内回车自动插入带原缩进的 `> ` 续行；在空引用行（`>` / `> `）回车则删除空标记、退出引用，与列表现有的「空项回车结束列表」交互对齐；
+  - 重写 Tab 处理：光标落在任意列表项（无序 / 有序 / 任务列表，含空项）时，Tab 把**整项**右移两格成为子列表、Shift+Tab 左移两格反缩进（已顶格则无操作），有选区时仍按原逻辑对每一行整体切换缩进，普通行的 Tab 插空格 / Shift+Tab 行为保持不变；
+  - `.prose` 内显式补回嵌套标记分级：`ul ul` 用 `circle`、`ul ul ul` 用 `square`，`ol ol` 用 `lower-alpha`、`ol ol ol` 用 `lower-roman`，明暗主题与紧凑排版同时生效。
+- **开放离线版免登录写作入口（`src/components/Layout.tsx`、`src/pages/Home.tsx`、`src/pages/PostPage.tsx`，#113）**：
+  - 桌面端页头在离线版改为「本机管理」下拉菜单，直接提供内容管理 / 写新文章 / 设置三个入口，不再出现必然不可用的登录按钮（移动端导航本就有离线入口，保持不变）；
+  - 首页空状态「写下第一篇」与文章页「编辑」按钮在离线版不再要求登录；离线登录说明页保留「去管理本机文章」出口，`Admin` / `Editor` 的本机存储读写逻辑无需改动即全部可达。
+- **新增离线版局域网协作（预览能力，`scripts/lan-collab-server.mjs`（新增）、`src/lib/collab.ts`（新增）、`src/components/LanCollabCard.tsx`（新增）、`src/pages/SettingsPage.tsx`、`src/lib/posts.ts`、`package.json`，#112）**：
+  - 零依赖中继 `scripts/lan-collab-server.mjs`（`npm run lan`）：手写 RFC 6455 WebSocket 服务端，按房间号隔离、内存保存每房间最新文章、广播给同房间其他设备；启动时打印本机局域网 IP 供填写；
+  - 客户端 `src/lib/collab.ts`：仅依赖浏览器原生 WebSocket，地址由用户显式填写（`http(s)` 自动换成 `ws(s)`，非 ws 协议拒绝），只有点「连接」才建连；
+  - 设置页「局域网协作」卡片（仅离线版）：主输入为房间号（后续 2026-11-12 条目已改为自动发现中继、地址收进「高级设置」）；本机保存的文章自动推送给房间，房间里的文章写入本机（覆盖前自动存「本机版本」快照）；删除不广播，避免误删扩散；同时编辑同一篇时以最后保存为准；
+  - 同步的是**原始 Markdown**（含 frontmatter 与加密字段），不是重新序列化的 Post 对象，加密文章不会在往返中损坏；`src/lib/posts.ts` 新增 `listLocalPostRaws` / `getLocalPostRaw` 供推送与比对。
+
+### 与 PR #117 的差异（本次修正）
+
+- **页头入口真正接通**：PR #117 把「本机管理」下拉写进了 `UserMenu` 的离线分支，但页头在离线版根本不渲染 `UserMenu`（`{!OFFLINE && <UserMenu />}`），那段代码是死代码，桌面端离线版依然没有内容管理入口。本次抽出独立的 `OfflineMenu` 并在页头按 `OFFLINE` 渲染，入口真正可达；
+- **行中回车不再误退出**：PR #117 按「光标左侧」判断空项，行中回车（如光标在 `- ` 之后、正文之前）会误退出列表/引用。本次按**整行**判断空项，行中回车只拆分；
+- **补齐嵌套引用与引用内列表**：PR #117 只处理单层 `> `；本次支持 `> > ` 嵌套引用（续行保留层级、空行逐级退出）与 `> - ` 引用内列表（回车同时续引用与列表标记、空项先退列表再退引用）；
+- **锚点同步保留 Router 状态**：`scrollToHeading` 改用 `history.replaceState(history.state, …)`，不再用 `null` 清掉 React Router 的 navigate state；
+- **新增 #112**：PR #117 明确未做 #112，本次以「中继 + 文档级同步」的预览能力补齐（非逐字 OT 实时光标同步，见卡片说明）。
+
+### 验证
+
+- `scripts/test-features.mjs` 新增 3 组回归测试：① 引用续行 / 空引用退出、列表项 Tab 整项缩进与 Shift+Tab 反缩进（含嵌套引用、引用内列表、行中拆分）；② 用 esbuild 分别以 `__STARLOG_OFFLINE__` 开 / 关打包 `scrollAnchor`，在 jsdom 中断言离线版点击目录只滚动且 hash 路由原样保留、线上版正常写入锚点；③ 协作地址规范化 + 真实拉起中继进程做多客户端往返（推送广播、新加入者拿到房间文章、非法房间号被拒）；
+- 通过 `npm test`（Web 16 组测试 + VS Code 插件 71 项测试，0 失败）、`npm --prefix vscode_extensions/v1 run typecheck`、`npx tsc --noEmit`、`npm run build`、`npm run build:offline` 及 `node scripts/verify-offline.mjs` 离线自检；离线单文件 `offline/index.html` 由 `.github/workflows/offline.yml` 在合入 main 后自动构建同步（后续按 PR 检查需要已随 PR 附带，见 2026-11-12 条目）；
+- 顺带把 #93 回声洞测试改为「写入输入后同步点击发送」+ 带上限轮询（原测试等待 25ms 后 React 受控输入框可能被重置为空、发送被跳过），并重写 #112 协作测试的消息等待器（先缓存再等待，消除消息先到的竞态），连续多次 `npm test` 全部通过。
+
 ## 2026-10-23 · 修复全屏编辑冲突、美化历史版本渲染对比、首页下滑自动加载更多及 main 自动发布离线版 Release（#104 / #105 / #106）
 
 | 模型信息 | |

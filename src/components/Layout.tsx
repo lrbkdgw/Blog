@@ -10,6 +10,7 @@ import {
   Menu,
   Moon,
   PenLine,
+  Rocket,
   Rss,
   Search,
   Settings,
@@ -78,6 +79,60 @@ function Logo() {
         className="h-10 w-10 rounded-xl object-cover shadow-md shadow-brand-600/20 ring-1 ring-black/5 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105 dark:ring-white/15 dark:shadow-black/50"
       />
     </Link>
+  )
+}
+
+/**
+ * 离线版「本机管理」下拉（issue #113）。
+ *
+ * 离线版没有账号体系且不联网：页头不渲染 UserMenu（那需要联网登录），
+ * 这里直接给出本机内容管理入口，不把用户导向必然不可用的登录页。
+ * 桌面端与移动端都可达：移动端导航另有「管理 / 写文章」按钮，这里是桌面端的对应入口。
+ */
+function OfflineMenu() {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="btn-outline hidden h-9 sm:inline-flex"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <HardDrive size={15} />
+        本机管理
+      </button>
+      {open && (
+        <div className="card absolute right-0 top-11 w-56 animate-scale-in overflow-hidden p-1.5 !bg-white/95 dark:!bg-ink-900/95">
+          {[
+            { to: '/admin', icon: LayoutDashboard, label: '内容管理' },
+            { to: '/admin/new', icon: PenLine, label: '写新文章' },
+            { to: '/admin/settings?collab=1', icon: Rocket, label: '开始协作' },
+            { to: '/admin/settings', icon: Settings, label: '设置' },
+          ].map((item) => (
+            <Link
+              key={item.to}
+              to={item.to}
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-600 transition hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-white/5"
+            >
+              <item.icon size={15} />
+              {item.label}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -227,8 +282,8 @@ function Header({ onSearch }: { onSearch: () => void }) {
             写文章
           </Link>
 
-          {/* 离线版没有账号体系：不登录、也不能登录（那需要联网） */}
-          {!OFFLINE && <UserMenu />}
+          {/* 离线版没有账号体系：不登录、也不能登录（那需要联网），直接给本机管理入口（issue #113） */}
+          {OFFLINE ? <OfflineMenu /> : <UserMenu />}
 
           <button
             onClick={() => setMobileOpen((v) => !v)}

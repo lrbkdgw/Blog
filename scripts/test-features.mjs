@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,7 +9,7 @@ import { build } from 'esbuild'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = resolve(__dirname, '..')
 const requireExt = createRequire(join(root, 'vscode_extensions/v1/package.json'))
-const { JSDOM } = requireExt('jsdom')
+const { JSDOM, VirtualConsole } = requireExt('jsdom')
 
 async function importTsModule(entryPath) {
   const result = await build({
@@ -37,6 +37,10 @@ const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
 const echoCaveMod = await importTsModule('src/lib/echoCave.ts')
 const echoAshMod = await importTsModule('src/lib/echoAsh.ts')
+const editorMod = await importTsModule('src/lib/editor.ts')
+const collabMod = await importTsModule('src/lib/collab.ts')
+const lanDiscoveryMod = await importTsModule('src/lib/lanDiscovery.ts')
+const lanServerMod = await import('./lan-collab-server.mjs')
 
 function makeMock2dContext(strokeSink, drawSink) {
   const stack = []
@@ -1555,23 +1559,36 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       dom.window.HTMLInputElement.prototype,
       'value',
     ).set
-    allInputs[0]._valueTracker?.setValue('')
-    nativeInputValueSetter.call(allInputs[0], '今晚的风很轻')
-    allInputs[0].dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-    allInputs[0].dispatchEvent(new dom.window.Event('change', { bubbles: true }))
-    await new Promise((r) => setTimeout(r, 25))
-
+    const typeEcho = () => {
+      allInputs[0]._valueTracker?.setValue('')
+      nativeInputValueSetter.call(allInputs[0], '今晚的风很轻')
+      allInputs[0].dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      allInputs[0].dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    }
+    // CI 高负载时 25ms 可能不够让 React 把 onChange 写进受控 state：
+    // 那样输入框会被受控 value 重置为空，sendMessage 读到空草稿直接 return，
+    // 后续断言就会误判。这里等 React 落定，并在被重置时重新输入。
+    // 立刻点击（不等定时器）：sendMessage() 优先读 inputRef.current.value，
+    // 此时 DOM 里就是刚写入的文本；若先等 25–100ms，React 受控 input 在 CI 高负载下
+    // 可能先按尚未落定的 draft 把输入框重置为空，导致发送被跳过、后续断言误判。
+    typeEcho()
+    assert.equal(allInputs[0].value, '今晚的风很轻', '发送前输入框应保留输入内容')
     allButtons[0].click()
     await new Promise((r) => setTimeout(r, 60))
 
     assert.equal(allInputs[0].value, '', '发送成功后底部横线应清空')
     assert.equal(ashCanvas.dataset.ashActive, 'true', '发送新回声时上一句同样应先化灰消散退场')
     await new Promise((r) => setTimeout(r, echoAshMod.ASH_EXIT_STAGE_MS + 40))
-    assert.equal(
-      fullscreenRoot.querySelector('p')?.textContent?.trim(),
-      '今晚的风很轻',
-      '上一句化灰下场后应显示刚写入 Discussions 的回声',
-    )
+    // 化灰退场是 rAF + 定时器驱动的动画，CI 负载高时可能晚几十毫秒才切换新句；
+    // 用带上限的轮询代替瞬时断言，避免这条旧测试偶发假失败。
+    const deadline = Date.now() + 2000
+    let shown = ''
+    while (Date.now() < deadline) {
+      shown = fullscreenRoot.querySelector('p')?.textContent?.trim() ?? ''
+      if (shown === '今晚的风很轻') break
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    assert.equal(shown, '今晚的风很轻', '上一句化灰下场后应显示刚写入 Discussions 的回声')
     assert.equal(
       container.querySelectorAll('button').length,
       1,
@@ -2693,6 +2710,16 @@ test('issue #105：历史版本渲染对比保持多行容器块完整并支持�
       }),
     )
     await new Promise((r) => setTimeout(r, 90))
+    // React 首次渲染 + KaTeX 排版在 CI 高负载时可能超过 90ms，轮询等待语义卡片出现，
+    // 避免偶发「渲染还没完成就断言」的假失败。
+    const compareDeadline = Date.now() + 2000
+    const compareReady = () =>
+      rootEl.textContent.includes('修改段落') &&
+      rootEl.querySelectorAll('details.callout').length >= 2 &&
+      rootEl.querySelectorAll('.katex').length >= 2
+    while (Date.now() < compareDeadline && !compareReady()) {
+      await new Promise((r) => setTimeout(r, 20))
+    }
 
     assert.equal(
       rootEl.querySelectorAll('.overflow-y-auto').length,
@@ -2844,3 +2871,493 @@ test('issue #106 & offline CI：首页下滑自动加载更多 + main 更新自�
 
 
 
+
+test('issue #111：引用框回车自动续行 / 空引用回车结束引用，列表项 Tab 整体缩进与反缩进', () => {
+  const fire = (key, { value, start, end = start, shiftKey = false }) => {
+    let prevented = false
+    const event = {
+      key,
+      shiftKey,
+      preventDefault() { prevented = true },
+      currentTarget: { value, selectionStart: start, selectionEnd: end },
+    }
+    const action = editorMod.handleEditorKey(event)
+    return { action, prevented }
+  }
+
+  // —— 引用框：回车自动补 `> ` 续行 ——
+  let r = fire('Enter', { value: '> 引用内容', start: 6 })
+  assert.equal(r.action.value, '> 引用内容\n> ')
+  assert.equal(r.action.selectionStart, 9)
+  assert.equal(r.prevented, true)
+
+  // 多行文档里只处理当前行
+  r = fire('Enter', { value: '前文\n> 引用', start: 8 })
+  assert.equal(r.action.value, '前文\n> 引用\n> ')
+
+  // 空引用行回车：结束引用（删掉空的 > 标记）
+  r = fire('Enter', { value: '> ', start: 2 })
+  assert.equal(r.action.value, '')
+  assert.equal(r.action.selectionStart, 0)
+
+  // 只有一个 > 的空行同样结束引用
+  r = fire('Enter', { value: '>', start: 1 })
+  assert.equal(r.action.value, '')
+
+  // —— Tab：空列表项整体缩进为子列表（而非在标记后插空格） ——
+  r = fire('Tab', { value: '- ', start: 2 })
+  assert.equal(r.action.value, '  - ')
+  assert.equal(r.action.selectionStart, 4)
+
+  r = fire('Tab', { value: '1. ', start: 3 })
+  assert.equal(r.action.value, '  1. ')
+  assert.equal(r.action.selectionStart, 5)
+
+  r = fire('Tab', { value: '- [ ] ', start: 6 })
+  assert.equal(r.action.value, '  - [ ] ')
+  assert.equal(r.action.selectionStart, 8)
+
+  // 已有正文的列表项同样整体缩进
+  r = fire('Tab', { value: '- foo', start: 5 })
+  assert.equal(r.action.value, '  - foo')
+  assert.equal(r.action.selectionStart, 7)
+
+  // 嵌套项继续缩进
+  r = fire('Tab', { value: '  - ', start: 4 })
+  assert.equal(r.action.value, '    - ')
+  assert.equal(r.action.selectionStart, 6)
+
+  // Shift+Tab 反缩进，光标跟随左移
+  r = fire('Tab', { value: '  - foo', start: 7, shiftKey: true })
+  assert.equal(r.action.value, '- foo')
+  assert.equal(r.action.selectionStart, 5)
+
+  // 已顶格时 Shift+Tab 不产生改动（返回 null）
+  r = fire('Tab', { value: '- foo', start: 5, shiftKey: true })
+  assert.equal(r.action, null)
+
+  // 普通行 Tab 仍在光标处插空格（保持原行为）
+  r = fire('Tab', { value: 'abc', start: 3 })
+  assert.equal(r.action.value, 'abc  ')
+  assert.equal(r.action.selectionStart, 5)
+
+  // —— 回归：列表回车续行 / 空列表项回车结束列表 ——
+  r = fire('Enter', { value: '- foo', start: 5 })
+  assert.equal(r.action.value, '- foo\n- ')
+  r = fire('Enter', { value: '- ', start: 2 })
+  assert.equal(r.action.value, '')
+
+  // —— 嵌套引用：续行保留全部层级，空行只退一层 ——
+  r = fire('Enter', { value: '> > 引用', start: 8 })
+  assert.equal(r.action.value, '> > 引用\n> > ')
+  r = fire('Enter', { value: '> > ', start: 4 })
+  assert.equal(r.action.value, '> ')
+  assert.equal(r.action.selectionStart, 2)
+
+  // —— 引用内列表：回车同时续引用与列表标记 ——
+  r = fire('Enter', { value: '> - foo', start: 7 })
+  assert.equal(r.action.value, '> - foo\n> - ')
+  r = fire('Enter', { value: '> 1. foo', start: 8 })
+  assert.equal(r.action.value, '> 1. foo\n> 2. ')
+  // 空的引用列表项：先退列表、保留引用
+  r = fire('Enter', { value: '> - ', start: 4 })
+  assert.equal(r.action.value, '> ')
+  assert.equal(r.action.selectionStart, 2)
+
+  // —— 行中回车只拆分，不误退出（按整行判断空项）——
+  r = fire('Enter', { value: '> abc', start: 2 })
+  assert.equal(r.action.value, '> \n> abc')
+  r = fire('Enter', { value: '- foo', start: 2 })
+  assert.equal(r.action.value, '- \n- foo')
+
+  // —— 渲染样式：嵌套列表标记分级 + 任务列表不重复出现 disc 圆点 ——
+  const css = readFileSync(join(root, 'src/styles/index.css'), 'utf8')
+  assert.match(css, /\.prose ul ul\s*\{\s*list-style-type:\s*circle/, '二级无序列表应使用 circle 标记')
+  assert.match(css, /\.prose ul ul ul\s*\{\s*list-style-type:\s*square/, '三级无序列表应使用 square 标记')
+  assert.match(css, /\.prose ol ol\s*\{\s*list-style-type:\s*lower-alpha/, '二级有序列表应使用 lower-alpha 标记')
+  assert.match(
+    css,
+    /\.prose ul\.contains-task-list,\s*\.prose ol\.contains-task-list\s*\{[^}]*list-style-type:\s*none/,
+    'GFM 任务列表应去掉 disc 标记，避免 checkbox 旁多出圆点',
+  )
+  assert.match(css, /\.prose li\.task-list-item::marker\s*\{\s*content:\s*''/, '任务列表项应清空 ::marker')
+})
+
+test('issue #110：目录锚点在 HashRouter（离线版）下只滚动不破坏路由 hash，线上版同步锚点', async () => {
+  const bundleAnchor = async (offline) => {
+    const result = await build({
+      entryPoints: [join(root, 'src/lib/scrollAnchor.ts')],
+      bundle: true,
+      write: false,
+      format: 'esm',
+      platform: 'browser',
+      target: 'es2022',
+      define: { __STARLOG_OFFLINE__: String(offline) },
+    })
+    const tmp = join(root, 'scripts/tmp-anchor-bundle.mjs')
+    writeFileSync(tmp, result.outputFiles[0].text)
+    try {
+      return (await import(`file://${tmp}?v=${offline}-${Date.now()}`)).scrollToHeading
+    } finally {
+      rmSync(tmp)
+    }
+  }
+
+  // 离线版：HashRouter 场景，URL hash 承载路由，点击目录后必须原样保留
+  {
+    const dom = new JSDOM('<!doctype html><html><body><h2 id="sec-a">A</h2></body></html>', {
+      url: 'file:///x/index.html#/posts/hello',
+    })
+    const scrolls = []
+    dom.window.scrollTo = (opts) => scrolls.push(opts)
+    const prevWindow = globalThis.window
+    const prevDocument = globalThis.document
+    const prevHistory = globalThis.history
+    globalThis.window = dom.window
+    globalThis.document = dom.window.document
+    globalThis.history = dom.window.history
+    try {
+      const scrollToHeading = await bundleAnchor(true)
+      scrollToHeading('sec-a')
+      assert.equal(scrolls.length, 1, '离线版点击目录仍应平滑滚动')
+      assert.equal(dom.window.location.hash, '#/posts/hello', '离线版不得改写承载路由的 hash')
+      scrollToHeading('missing-id')
+      assert.equal(scrolls.length, 1, '找不到标题时不应触发滚动')
+    } finally {
+      globalThis.window = prevWindow
+      globalThis.document = prevDocument
+      globalThis.history = prevHistory
+    }
+  }
+
+  // 线上版：BrowserRouter，锚点正常写入 URL hash
+  {
+    const dom = new JSDOM('<!doctype html><html><body><h2 id="sec-b">B</h2></body></html>', {
+      url: 'http://localhost/posts/hello',
+    })
+    const scrolls = []
+    dom.window.scrollTo = (opts) => scrolls.push(opts)
+    const prevWindow = globalThis.window
+    const prevDocument = globalThis.document
+    const prevHistory = globalThis.history
+    globalThis.window = dom.window
+    globalThis.document = dom.window.document
+    globalThis.history = dom.window.history
+    try {
+      const scrollToHeading = await bundleAnchor(false)
+      scrollToHeading('sec-b')
+      assert.equal(scrolls.length, 1)
+      assert.equal(dom.window.location.hash, '#sec-b', '线上版应把锚点同步到 URL')
+    } finally {
+      globalThis.window = prevWindow
+      globalThis.document = prevDocument
+      globalThis.history = prevHistory
+    }
+  }
+})
+
+test('issue #112：局域网协作客户端地址规范化与中继房间同步（真实 WebSocket 往返）', async () => {
+  // —— 纯函数：地址规范化与房间号校验 ——
+  assert.equal(collabMod.normalizeServerUrl('http://192.168.1.5:8787'), 'ws://192.168.1.5:8787/')
+  assert.equal(collabMod.normalizeServerUrl('https://192.168.1.5:8787/path?x=1'), 'wss://192.168.1.5:8787/')
+  assert.equal(collabMod.normalizeServerUrl('ws://192.168.1.5:8787'), 'ws://192.168.1.5:8787/')
+  assert.equal(collabMod.normalizeServerUrl('ftp://192.168.1.5:8787'), null)
+  assert.equal(collabMod.normalizeServerUrl('not a url'), null)
+  assert.equal(collabMod.normalizeServerUrl(''), null)
+  assert.equal(collabMod.isValidRoomCode('1234'), true)
+  assert.equal(collabMod.isValidRoomCode('my-room_1'), true)
+  assert.equal(collabMod.isValidRoomCode('bad room!'), false)
+  assert.equal(collabMod.isValidRoomCode(''), false)
+  assert.equal(collabMod.defaultServerUrl(), `ws://localhost:${collabMod.LAN_COLLAB_DEFAULT_PORT}`)
+
+  // —— 中继纯函数：握手 Accept（RFC 6455 示例向量）、帧编解码与房间号校验 ——
+  assert.equal(lanServerMod.websocketAccept('dGhlIHNhbXBsZSBub25jZQ=='), 's3pPLMBiTxaQ9kYGzzhZRbK+xOo=')
+  assert.equal(lanServerMod.isValidRoomCode('1234'), true)
+  assert.equal(lanServerMod.isValidRoomCode('bad room!'), false)
+  assert.ok(Array.isArray(lanServerMod.listLanAddresses()))
+  {
+    const mask = Buffer.from([1, 2, 3, 4])
+    const text = '{"kind":"ping"}'
+    const payload = Buffer.from(text, 'utf8')
+    const masked = Buffer.from(payload.map((byte, i) => byte ^ mask[i % 4]))
+    const frame = Buffer.concat([Buffer.from([0x81, 0x80 | payload.length]), mask, masked])
+    const decoded = lanServerMod.decodeClientFrame(frame)
+    assert.equal(decoded.fin, true)
+    assert.equal(decoded.opcode, 0x1)
+    assert.equal(decoded.payload.toString('utf8'), text)
+    assert.equal(decoded.consumed, frame.length)
+    assert.equal(lanServerMod.decodeClientFrame(frame.subarray(0, 3)), null, '数据不足时应等待更多字节')
+    const unmasked = Buffer.from([0x81, payload.length])
+    assert.throws(() => lanServerMod.decodeClientFrame(unmasked), /未加掩码/)
+    assert.equal(lanServerMod.encodeTextFrame(text)[0], 0x81, '服务端帧 FIN+text，且不加掩码')
+  }
+
+  // —— 真实往返：两个客户端经中继互相同步，新加入者拿到房间已有文章 ——
+  const { server, close } = lanServerMod.createLanCollabServer({ port: 0, host: '127.0.0.1' })
+  await new Promise((resolveListen) => server.listen(0, '127.0.0.1', resolveListen))
+  const port = server.address().port
+  const url = `ws://127.0.0.1:${port}`
+
+  // 每个 socket 从建立开始就缓存所有收到的消息，waitFor 先查缓存再挂等待器，
+  // 避免「消息先到、监听后挂」的竞态（CI 上偶发时序差异会让断言拿到空值）。
+  const openSocket = () =>
+    new Promise((resolveOpen, rejectOpen) => {
+      const socket = new WebSocket(url)
+      const seen = []
+      const waiters = new Set()
+      socket.addEventListener('message', (event) => {
+        let msg
+        try {
+          msg = JSON.parse(String(event.data))
+        } catch {
+          return
+        }
+        for (const waiter of [...waiters]) {
+          if (waiter.predicate(msg)) {
+            waiters.delete(waiter)
+            clearTimeout(waiter.timer)
+            waiter.resolve(msg)
+          }
+        }
+        seen.push(msg)
+      })
+      socket.waitFor = (predicate, timeoutMs = 5000) =>
+        new Promise((resolveWait, rejectWait) => {
+          const found = seen.find(predicate)
+          if (found) {
+            resolveWait(found)
+            return
+          }
+          const waiter = { predicate, resolve: resolveWait, timer: null }
+          waiter.timer = setTimeout(() => {
+            waiters.delete(waiter)
+            rejectWait(new Error('等待协作消息超时'))
+          }, timeoutMs)
+          waiters.add(waiter)
+        })
+      socket.addEventListener('open', () => resolveOpen(socket), { once: true })
+      socket.addEventListener('error', () => rejectOpen(new Error('WebSocket 连接失败')), { once: true })
+    })
+
+  const clientA = await openSocket()
+  const clientB = await openSocket()
+  try {
+    clientA.send(JSON.stringify({ kind: 'hello', room: 'test-room', name: 'A' }))
+    const welcomeA = await clientA.waitFor((m) => m.kind === 'welcome')
+    assert.equal(welcomeA.room, 'test-room')
+    assert.equal(welcomeA.peers, 1)
+    assert.deepEqual(welcomeA.posts, [])
+
+    clientB.send(JSON.stringify({ kind: 'hello', room: 'test-room', name: 'B' }))
+    const welcomeB = await clientB.waitFor((m) => m.kind === 'welcome')
+    assert.equal(welcomeB.peers, 2)
+
+    // A 推送文章，B 应收到 update（且 A 自己不收到回声）
+    const raw = '---\ntitle: 协作测试\ndate: 2026-11-11\n---\n\n正文内容'
+    const updatePromise = clientB.waitFor((m) => m.kind === 'update')
+    clientA.send(JSON.stringify({ kind: 'post', room: 'test-room', slug: 'hello', raw, nonce: 'n1' }))
+    const update = await updatePromise
+    assert.equal(update.slug, 'hello')
+    assert.equal(update.raw, raw)
+    assert.equal(update.from, 'A')
+
+    // 新加入的 C 应在 welcome 里拿到房间已有文章
+    const clientC = await openSocket()
+    try {
+      clientC.send(JSON.stringify({ kind: 'hello', room: 'test-room', name: 'C' }))
+      const welcomeC = await clientC.waitFor((m) => m.kind === 'welcome')
+      assert.equal(welcomeC.posts.length, 1)
+      assert.equal(welcomeC.posts[0].slug, 'hello')
+      assert.equal(welcomeC.posts[0].raw, raw)
+    } finally {
+      clientC.close()
+    }
+
+    // 非法房间号应被拒绝
+    const clientD = await openSocket()
+    try {
+      clientD.send(JSON.stringify({ kind: 'hello', room: 'bad room!', name: 'D' }))
+      const err = await clientD.waitFor((m) => m.kind === 'error')
+      assert.match(err.message, /房间号/)
+    } finally {
+      clientD.close()
+    }
+  } finally {
+    clientA.close()
+    clientB.close()
+    await close()
+  }
+})
+
+test('issue #112：只填房间号即可连接 —— 中继自动发现、邀请链接页面与探针不占位', async () => {
+  // —— 纯函数：私网判定、从页面地址直接认出中继、候选排序与去重 ——
+  assert.equal(lanDiscoveryMod.isPrivateIPv4('192.168.1.23'), true)
+  assert.equal(lanDiscoveryMod.isPrivateIPv4('10.0.0.5'), true)
+  assert.equal(lanDiscoveryMod.isPrivateIPv4('172.20.4.5'), true)
+  assert.equal(lanDiscoveryMod.isPrivateIPv4('8.8.8.8'), false)
+  assert.equal(lanDiscoveryMod.isPrivateIPv4('127.0.0.1'), false)
+
+  assert.equal(
+    lanDiscoveryMod.relayUrlFromLocation({
+      protocol: 'http:',
+      hostname: '192.168.1.5',
+      host: '192.168.1.5:8787',
+    }),
+    'ws://192.168.1.5:8787/',
+    '从中继提供的页面打开时应零探测直连',
+  )
+  assert.equal(
+    lanDiscoveryMod.relayUrlFromLocation({
+      protocol: 'http:',
+      hostname: '192.168.1.5',
+      host: '192.168.1.5:5180',
+    }),
+    'ws://192.168.1.5:8787/',
+  )
+  assert.equal(lanDiscoveryMod.relayUrlFromLocation({ protocol: 'file:', hostname: '', host: '' }), null)
+
+  const candidates = lanDiscoveryMod.buildCandidateUrls({
+    room: '1234',
+    locationLike: { protocol: 'http:', hostname: '192.168.1.5', host: '192.168.1.5:8787' },
+    lastUrl: 'ws://10.0.0.9:8787',
+    addressHints: ['192.168.7.23'],
+  })
+  assert.equal(candidates[0], 'ws://10.0.0.9:8787/', '上次成功的中继应优先探测')
+  assert.equal(candidates[1], 'ws://192.168.1.5:8787/', '中继提供的页面应紧跟其后')
+  assert.equal(new Set(candidates).size, candidates.length, '候选地址不应重复')
+  assert.ok(candidates.every((u) => u.startsWith('ws://')), '不应产生任何公网 / https 端点')
+  assert.ok(candidates.includes('ws://localhost:8787/'))
+  assert.ok(candidates.includes('ws://192.168.7.1:8787/'), '应包含提示 IP 所在网段的网关')
+  assert.ok(candidates.includes('ws://192.168.7.23:8787/'))
+  assert.ok(!candidates.includes('ws://8.8.8.8:8787/'))
+
+  // —— 真实往返：自动发现能从若干错误地址里找出中继 ——
+  const tmpHtml = join(root, 'scripts/tmp-lan-invite.html')
+  writeFileSync(tmpHtml, '<!doctype html><html><body>starlog-invite-page-marker</body></html>', 'utf8')
+  const { server, close } = lanServerMod.createLanCollabServer({
+    port: 0,
+    host: '127.0.0.1',
+    htmlPath: tmpHtml,
+  })
+  await new Promise((resolveListen) => server.listen(0, '127.0.0.1', resolveListen))
+  const port = server.address().port
+  const goodUrl = `ws://127.0.0.1:${port}/`
+  try {
+    const progressEvents = []
+    const found = await lanDiscoveryMod.discoverLanRelay({
+      room: 'discover-room',
+      candidates: ['ws://127.0.0.1:1/', goodUrl, 'ws://127.0.0.1:2/'],
+      skipLocalHints: true,
+      probeTimeoutMs: 500,
+      concurrency: 3,
+      WebSocketImpl: WebSocket,
+      onProgress: (p) => progressEvents.push(p),
+    })
+    assert.equal(found, goodUrl, '应在候选里找到真正能响应 hello 的中继')
+    assert.ok(progressEvents.length > 0, '自动发现应上报进度')
+    assert.equal(progressEvents[0].total, 3)
+
+    // 已取消的发现不应再发起连接
+    const aborted = new AbortController()
+    aborted.abort()
+    assert.equal(
+      await lanDiscoveryMod.discoverLanRelay({
+        room: 'discover-room',
+        candidates: [goodUrl],
+        skipLocalHints: true,
+        signal: aborted.signal,
+        WebSocketImpl: WebSocket,
+      }),
+      null,
+    )
+
+    // 探针不能算作房间里的在线设备（否则 presence 会瞬间暴涨）
+    const realClient = new WebSocket(goodUrl)
+    try {
+      await new Promise((resolveOpen, rejectOpen) => {
+        realClient.addEventListener('open', () => resolveOpen(), { once: true })
+        realClient.addEventListener('error', () => rejectOpen(new Error('WebSocket 连接失败')), { once: true })
+      })
+      const welcome = await new Promise((resolveWelcome) => {
+        realClient.addEventListener('message', (event) => {
+          const msg = JSON.parse(String(event.data))
+          if (msg.kind === 'welcome') resolveWelcome(msg)
+        })
+        realClient.send(JSON.stringify({ kind: 'hello', room: 'discover-room', name: 'real' }))
+      })
+      assert.equal(welcome.peers, 1, '自动发现探针不应被计入在线设备')
+    } finally {
+      realClient.close()
+    }
+
+    // 中继把编译好的离线单文件提供给其他设备（邀请链接）
+    const page = await fetch(`http://127.0.0.1:${port}/?room=1234`)
+    assert.equal(page.status, 200)
+    assert.match(page.headers.get('content-type') ?? '', /text\/html/)
+    assert.match(await page.text(), /starlog-invite-page-marker/)
+    const health = await fetch(`http://127.0.0.1:${port}/health`)
+    assert.match(await health.text(), /starlog-lan-collab-ok/)
+    assert.equal((await fetch(`http://127.0.0.1:${port}/nope`)).status, 404)
+  } finally {
+    await close()
+    rmSync(tmpHtml, { force: true })
+  }
+})
+
+test('issue #112：离线版必须有「开始协作」按钮（页头入口 + 设置页卡片 + 编译产物真实渲染）', async () => {
+  // 源码层面：卡片里两个动作 + 页头「本机管理」里的直达入口
+  const card = readFileSync(join(root, 'src/components/LanCollabCard.tsx'), 'utf8')
+  assert.match(card, /开始协作/, '设置页卡片必须有「开始协作」主按钮')
+  assert.match(card, /加入协作/, '设置页卡片必须有「加入协作」按钮')
+  assert.match(card, /结束协作/, '连接后必须能结束协作')
+  const layout = readFileSync(join(root, 'src/components/Layout.tsx'), 'utf8')
+  assert.match(layout, /label: '开始协作'/, '页头「本机管理」下拉必须有「开始协作」入口')
+  assert.match(layout, /collab=1/, '入口应跳到设置页并自动定位协作卡片')
+
+  // 编译产物层面：把 PR 里附带的 offline/index.html 真正用 jsdom 跑起来，
+  // 确认用户打开后能在设置页看到「开始协作」按钮（而不只是字符串存在于代码里）。
+  const html = readFileSync(join(root, 'offline/index.html'), 'utf8')
+  assert.ok(html.length > 1024 * 1024, '编译产物应为完整的单文件离线版')
+  const virtualConsole = new VirtualConsole()
+  const dom = new JSDOM(html, {
+    url: 'http://localhost:8787/?room=1234#/admin/settings',
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    virtualConsole,
+    beforeParse(w) {
+      w.matchMedia = () => ({
+        matches: false,
+        media: '',
+        addListener() {},
+        removeListener() {},
+        addEventListener() {},
+        removeEventListener() {},
+      })
+      w.ResizeObserver = class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+      w.IntersectionObserver = class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+      w.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 16)
+      w.cancelAnimationFrame = (id) => clearTimeout(id)
+      w.scrollTo = () => {}
+      w.HTMLCanvasElement.prototype.getContext = () => null
+    },
+  })
+  try {
+    await new Promise((r) => setTimeout(r, 1800))
+    const rootEl = dom.window.document.getElementById('root')
+    assert.ok(rootEl && rootEl.children.length > 0, '离线单文件应能正常挂载 React 应用')
+    const labels = [...rootEl.querySelectorAll('button')].map((b) => (b.textContent || '').trim())
+    assert.ok(labels.includes('开始协作'), '设置页应渲染「开始协作」按钮')
+    assert.ok(labels.includes('加入协作'), '设置页应渲染「加入协作」按钮')
+    assert.ok(rootEl.textContent.includes('局域网协作'), '设置页应显示局域网协作卡片')
+  } finally {
+    dom.window.close()
+  }
+})
