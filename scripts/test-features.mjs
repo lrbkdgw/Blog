@@ -40,6 +40,7 @@ const echoAshMod = await importTsModule('src/lib/echoAsh.ts')
 const editorMod = await importTsModule('src/lib/editor.ts')
 const collabMod = await importTsModule('src/lib/collab.ts')
 const lanDiscoveryMod = await importTsModule('src/lib/lanDiscovery.ts')
+const lanWebrtcMod = await importTsModule('src/lib/lanWebrtc.ts')
 const lanServerMod = await import('./lan-collab-server.mjs')
 
 function makeMock2dContext(strokeSink, drawSink) {
@@ -3360,4 +3361,129 @@ test('issue #112：离线版必须有「开始协作」按钮（页头入口 + �
   } finally {
     dom.window.close()
   }
+})
+
+test('issue #112：免命令协作（WebRTC 点对点）——连接码编解码与两端握手/文章同步', async () => {
+  // —— 连接码：gzip 压缩往返、损坏与无效房间号要给出可读错误 ——
+  const offer = { v: 1, t: 'offer', room: 'room-1', name: 'A', sdp: 'v=0\r\na=candidate:1 1 udp 1 192.168.1.5 54321 typ host\r\n' }
+  const code = await lanWebrtcMod.encodeHandshake(offer)
+  assert.match(code, /^SL1[01]\./, '连接码应带版本/压缩标记前缀')
+  assert.deepEqual(await lanWebrtcMod.decodeHandshake(code), offer)
+  assert.deepEqual(await lanWebrtcMod.decodeHandshake(`  ${code}  `), offer, '允许粘贴时带空白')
+  await assert.rejects(() => lanWebrtcMod.decodeHandshake('不是连接码'), /不是 Starlog 协作连接码/)
+  await assert.rejects(() => lanWebrtcMod.decodeHandshake('SL11.AAAA'), /损坏|无法解析|无法解析|不是有效/)
+  await assert.rejects(
+    () => lanWebrtcMod.encodeHandshake({ ...offer, room: 'bad room!' }).then(lanWebrtcMod.decodeHandshake),
+    /不是有效/,
+  )
+
+  // —— 用一对假的 RTCPeerConnection / DataChannel 走完整握手 ——
+  let pair = null
+  class FakeChannel {
+    constructor() {
+      this.readyState = 'connecting'
+      this.onopen = null
+      this.onmessage = null
+      this.onclose = null
+      this.onerror = null
+    }
+    link(other) { this.peer = other }
+    open() {
+      this.readyState = 'open'
+      this.onopen?.()
+    }
+    send(data) {
+      const peer = this.peer
+      if (peer) queueMicrotask(() => peer.onmessage?.({ data }))
+    }
+    close() {
+      this.readyState = 'closed'
+      this.onclose?.()
+    }
+  }
+  class FakePC {
+    constructor() {
+      this.iceGatheringState = 'complete'
+      this.localDescription = null
+      this.remoteDescription = null
+      this.ondatachannel = null
+    }
+    createDataChannel() {
+      const a = new FakeChannel()
+      const b = new FakeChannel()
+      a.link(b)
+      b.link(a)
+      pair = { a, b }
+      return a
+    }
+    async createOffer() { return { type: 'offer', sdp: 'v=0\r\nFAKE-OFFER\r\n' } }
+    async createAnswer() { return { type: 'answer', sdp: 'v=0\r\nFAKE-ANSWER\r\n' } }
+    async setLocalDescription(desc) {
+      this.localDescription = {
+        type: desc.type,
+        sdp: `${desc.sdp}a=candidate:1 1 udp 1 192.168.1.5 54321 typ host\r\n`,
+      }
+    }
+    async setRemoteDescription(desc) {
+      this.remoteDescription = desc
+      if (desc.type === 'offer') this.ondatachannel?.({ channel: pair.b })
+      if (desc.type === 'answer') queueMicrotask(() => { pair.a.open(); pair.b.open() })
+    }
+    addEventListener() {}
+    removeEventListener() {}
+    close() {}
+  }
+
+  const hostStatus = []
+  const guestStatus = []
+  const hostGot = []
+  const guestGot = []
+  const host = await lanWebrtcMod.createWebrtcHost({
+    room: '1234',
+    name: 'A',
+    RTCPeerConnectionImpl: FakePC,
+    onStatus: (s) => hostStatus.push(s),
+    onRemotePost: (slug, raw, from) => hostGot.push([slug, raw, from]),
+  })
+  assert.equal(host.collab.status, 'connecting', '发起方生成邀请码后应处于连接中')
+  assert.match(host.offerCode, /^SL1/)
+
+  const guest = await lanWebrtcMod.createWebrtcGuest(host.offerCode, {
+    room: '',
+    name: 'B',
+    RTCPeerConnectionImpl: FakePC,
+    onStatus: (s) => guestStatus.push(s),
+    onRemotePost: (slug, raw, from) => guestGot.push([slug, raw, from]),
+  })
+  assert.equal(guest.room, '1234', '房间号由邀请码带过来')
+  assert.match(guest.answerCode, /^SL1/)
+  assert.equal((await lanWebrtcMod.decodeHandshake(guest.answerCode)).t, 'answer')
+
+  // 错把邀请码当回应码、错把回应码当邀请码都要拦住
+  await assert.rejects(() => host.applyAnswer(host.offerCode), /回应码/)
+  await assert.rejects(
+    () => lanWebrtcMod.createWebrtcGuest(guest.answerCode, { room: '', RTCPeerConnectionImpl: FakePC }),
+    /邀请码/,
+  )
+
+  await host.applyAnswer(guest.answerCode)
+  await new Promise((r) => setTimeout(r, 20))
+  assert.equal(host.collab.status, 'connected')
+  assert.equal(guest.collab.status, 'connected')
+  assert.ok(hostStatus.includes('connected') && guestStatus.includes('connected'))
+
+  // 双向同步原始 Markdown（含 frontmatter）
+  const rawA = '---\ntitle: 来自 A\ndate: 2026-11-11\n---\n\n正文 A'
+  const rawB = '---\ntitle: 来自 B\nencrypted: true\n---\n\n密文 B'
+  assert.equal(host.collab.sendPost('post-a', rawA), true)
+  assert.equal(guest.collab.sendPost('post-b', rawB), true)
+  await new Promise((r) => setTimeout(r, 20))
+  assert.deepEqual(guestGot, [['post-a', rawA, 'A']])
+  assert.deepEqual(hostGot, [['post-b', rawB, 'B']])
+
+  // 断开后不再发送
+  host.collab.dispose()
+  assert.equal(host.collab.sendPost('post-c', 'x'), false)
+  assert.equal(host.collab.status, 'idle')
+  guest.collab.dispose()
 })

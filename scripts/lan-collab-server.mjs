@@ -1,10 +1,10 @@
 /**
  * 局域网协作中继（issue #112，仅离线版使用）。
  *
- * 离线单文件版本身不联网、没有服务器，所以局域网协作需要一台「中继」：
- * 在局域网里任意一台设备上运行本脚本（`npm run lan`），其他设备只需**填房间号**：
- * 页面会自动在局域网里找到中继（src/lib/lanDiscovery.ts）；中继同时也把编译好的
- * offline/index.html 通过 http://IP:8787/ 提供给其他设备，从这个地址打开时零探测直连。
+ * 离线单文件版的**默认**协作通道是零命令的 WebRTC 点对点直连（src/lib/lanWebrtc.ts），
+ * 不需要任何服务器。本脚本是**可选的高级兜底**：在同一 LAN 里跑 `npm run lan` 后，
+ * 其他设备可只填房间号连到中继（src/lib/lanDiscovery.ts 自动发现），适合跨网段 /
+ * 不想交换握手码的场景；中继同时也把编译好的 offline/index.html 通过 http://IP:8787/ 分发。
  *
  * 设计约束（与离线版「完全不联网」原则的边界）：
  *   - 本脚本只在用户显式运行时才监听；离线版平时一个包都不发，
@@ -406,9 +406,10 @@ if (isMain) {
   server.listen(port, host, () => {
     const lan = listLanAddresses()
     console.log(`\nStarlog 局域网协作中继已启动（端口 ${port}）`)
-    console.log('其他设备只需填房间号：页面会自动在局域网里找到这台中继。\n')
+    console.log('注意：这是可选的高级通道。默认协作不需要运行任何命令（WebRTC 点对点直连）。')
+    console.log('用中继时，在离线版「高级设置」里填下面这个地址，即可只填房间号加入。\n')
     if (htmlPath && existsSync(htmlPath)) {
-      console.log('最省事的方式：把下面这个邀请链接发给协作伙伴直接打开（房间号已带好）：')
+      console.log('也可以把下面这个邀请链接发给协作伙伴直接打开（房间号已带好）：')
       if (lan.length > 0) {
         for (const ip of lan) console.log(`  http://${ip}:${port}/?room=1234`)
       } else {

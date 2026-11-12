@@ -1,5 +1,31 @@
 # 更新日志 · ChangeLog
 
+## 2026-11-11 · 局域网协作改为「不需要提前运行任何命令」（#112）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+- 上一版虽然做到了「只填房间号」，但前提是**必须先在局域网里跑 `npm run lan` 中继**；用户明确要求「修改使得不需要提前运行指令」。
+- 浏览器不能监听 TCP 端口、不能接受别的设备主动发起的连接，也不允许离线单文件内置任何公网信令服务；因此「零命令 + 零服务端」只能用浏览器原生 WebRTC DataChannel，代价是需要两台设备互相交换一次握手码（SDP offer / answer）。这是浏览器沙箱的硬限制，不是配置问题。
+
+### 调整
+
+- **新增 `src/lib/lanWebrtc.ts`（默认通道）**：`iceServers: []` 的 `RTCPeerConnection` + `RTCDataChannel`，只用局域网 host candidate，不连公网、不需要任何服务器或预跑命令。发起方生成压缩后的**邀请码**（offer），加入方生成**回应码**（answer），双方粘贴一次即完成 DTLS/ICE 握手；连接码支持 gzip（`CompressionStream`）+ base64url，损坏 / 类型不符 / 房间号非法都给出可读错误。
+- **传输协议与中继通道一致**（JSON `hello` / `post`），`LanCollabCard` 用统一的 `Transport` 抽象切换两种通道，上层「推送本机文章 / 接收文章自动存快照 / 删除不广播」逻辑不用改。
+- **设置页卡片改为零命令流程**：「开始协作」（房间号留空自动生成 → 邀请码 → 粘贴伙伴回应码 → 完成连接）、「加入协作」（粘贴邀请码 → 回应码发回）、「结束协作」；新增「连接码」输入框与 `?offer=` 预填、`?room=` 预填。发起/加入/连接后都有对应面板与一键复制。
+- **中继降级为可选高级兜底**：`npm run lan`、`src/lib/lanDiscovery.ts` 自动发现、`src/lib/collab.ts` 客户端全部保留；只有在「高级设置」里手填 `ws://IP:8787`（或没填连接码时快速探测已有中继）才会使用，找不到中继时错误信息明确引导「无需任何命令」的邀请码流程。默认路径不再要求运行任何命令。
+- 同步更新 README、offline/README 与编译产物 `offline/index.html`。
+
+### 验证
+
+- `scripts/test-features.mjs` 新增第 19 组：连接码 gzip 编解码往返 / 空白容错 / 损坏与非法房间号报错；用一对假的 `RTCPeerConnection` + `DataChannel` 走完整「邀请码 → 回应码 → 完成连接」，断言两端状态为 connected、错把邀请码当回应码（反之）被拦下、原始 Markdown（含 frontmatter 与 encrypted 字段）双向同步、断开后不再发送；第 18 组仍用 jsdom 真实跑 `offline/index.html` 校验按钮渲染。
+- `npm test`（Web **19/19** + VS Code 插件 71 pass / 4 skipped）、`npx tsc --noEmit`、扩展 typecheck、`npm run build`、`npm run build:offline` + `verify-offline` 全部通过。
+
 ## 2026-11-11（补充）· 局域网协作改为「只填房间号」+ 明确的「开始协作」按钮，并把编译好的离线单文件随 PR 交付（#112）
 
 | 模型信息 | |
