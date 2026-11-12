@@ -135,6 +135,13 @@ export function preserveOptionLineBreaks(markdown: string): string {
   return result.join('\n')
 }
 
+/*
+ * 字号约定：控件与折叠框共用 tailwind.config.js 里的两档字号——
+ * `text-callout`（内容，14.5px）与 `text-callout-label`（标题 / 标签，0.875rem）。
+ * 两档都乘以正文字号缩放系数 --prose-font-scale，所以这里不要再写死 `text-[14.5px]` / `text-sm`，
+ * 否则正文缩放后控件就和折叠框、周围正文对不齐了。12px 的角标与提示（text-xs）不参与缩放。
+ */
+
 /* -------------------------------------------------------------------------- */
 /*              1. 选择框组件（与折叠框 callout 完全一致的 14.5px 字号与行高）   */
 /* -------------------------------------------------------------------------- */
@@ -190,7 +197,7 @@ export function UiChooseCard({
       {(def.name || rangeHint) && (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-200/60 bg-ink-50/50 px-4 py-2.5 dark:border-white/[0.07] dark:bg-white/[0.02]">
           {def.name ? (
-            <span className="text-sm font-semibold text-ink-800 dark:text-ink-100">
+            <span className="text-callout-label font-semibold text-ink-800 dark:text-ink-100">
               <InlineMathText text={def.name} />
             </span>
           ) : (
@@ -248,7 +255,7 @@ export function UiChooseCard({
               >
                 <InlineMathText text={opt.label} />
               </span>
-              <div className="min-w-0 flex-1 text-[14.5px] leading-relaxed text-ink-800 dark:text-ink-200 [&_.katex-display]:my-2">
+              <div className="min-w-0 flex-1 text-callout leading-relaxed text-ink-800 dark:text-ink-200 [&_.katex-display]:my-2">
                 {ctx ? ctx.renderMarkdownBlock(formatted) : formatted}
               </div>
             </div>
@@ -370,7 +377,7 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜索…"
-            className="w-full bg-transparent text-sm text-ink-900 outline-none placeholder:text-ink-400 dark:text-white"
+            className="w-full bg-transparent text-callout-label text-ink-900 outline-none placeholder:text-ink-400 dark:text-white"
           />
         </div>
       )}
@@ -381,7 +388,7 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
       )}
       <div className="max-h-56 overflow-y-auto p-1">
         {filteredOptions.length === 0 ? (
-          <div className="px-3 py-2 text-center text-sm text-ink-400">无匹配选项</div>
+          <div className="px-3 py-2 text-center text-callout-label text-ink-400">无匹配选项</div>
         ) : (
           filteredOptions.map((opt) => {
             const active = selected.includes(opt.index)
@@ -392,7 +399,7 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
                 type="button"
                 disabled={disabledByCap}
                 onClick={() => toggleItem(opt.index)}
-                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[14.5px] leading-relaxed transition-colors ${
+                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-callout leading-relaxed transition-colors ${
                   active
                     ? 'bg-brand-500/10 font-medium text-brand-700 dark:bg-brand-400/15 dark:text-brand-200'
                     : disabledByCap
@@ -420,7 +427,7 @@ export function UiSelectInline({ def }: { def: UiSelectWidgetDef }) {
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className={`inline-flex h-[27px] items-center gap-1.5 rounded-lg border px-2.5 text-[14.5px] leading-relaxed font-medium shadow-2xs transition duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/20 ${
+        className={`inline-flex h-[27px] items-center gap-1.5 rounded-lg border px-2.5 text-callout leading-relaxed font-medium shadow-2xs transition duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/20 ${
           summaryLabels.length > 0
             ? 'border-brand-500/45 bg-brand-500/[0.05] text-ink-900 hover:border-brand-500 dark:border-brand-400/40 dark:bg-brand-400/10 dark:text-ink-100'
             : 'border-ink-200/90 bg-white/95 text-ink-500 hover:border-ink-300 hover:text-ink-800 dark:border-white/15 dark:bg-white/[0.05] dark:text-ink-400 dark:hover:border-white/25 dark:hover:text-ink-200'
@@ -508,7 +515,7 @@ export function UiIfCard({
               />
             </span>
             <div
-              className={`ui-if-content min-w-0 flex-1 text-[14.5px] leading-relaxed transition-opacity duration-250 [&_.katex-display]:my-2 ${
+              className={`ui-if-content min-w-0 flex-1 text-callout leading-relaxed transition-opacity duration-250 [&_.katex-display]:my-2 ${
                 def.lined ? 'ui-if-lined' : ''
               } ${
                 on && def.lined
@@ -583,7 +590,7 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
           onBlur={normalizeOnBlur}
           style={{ width: `${widthCh}ch` }}
           aria-label={def.name || def.id}
-          className="h-[27px] rounded-md border border-ink-200/90 bg-white/95 px-2 text-center font-mono text-[14.5px] leading-relaxed text-ink-900 shadow-2xs outline-none transition duration-150 hover:border-brand-400/75 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 dark:border-white/15 dark:bg-white/[0.05] dark:text-ink-100"
+          className="h-[27px] rounded-md border border-ink-200/90 bg-white/95 px-2 text-center font-mono text-callout leading-relaxed text-ink-900 shadow-2xs outline-none transition duration-150 hover:border-brand-400/75 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 dark:border-white/15 dark:bg-white/[0.05] dark:text-ink-100"
         />
       </span>
     )
@@ -611,7 +618,7 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
       {(def.name || invalidHint) && (
         <div className="flex items-center justify-between gap-2">
           {def.name ? (
-            <label htmlFor={inputId} className="text-sm font-medium text-ink-700 leading-relaxed dark:text-ink-200">
+            <label htmlFor={inputId} className="text-callout-label font-medium text-ink-700 leading-relaxed dark:text-ink-200">
               <InlineMathText text={def.name} />
             </label>
           ) : (
@@ -646,7 +653,7 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
             onChange={(e) => updateValue(e.target.value)}
             onBlur={normalizeOnBlur}
             aria-label={`${def.name || def.id} 数值输入`}
-            className="h-[30px] w-16 shrink-0 rounded-lg border border-ink-200/90 bg-white/95 px-2 text-center font-mono text-[14.5px] leading-relaxed text-ink-900 shadow-2xs outline-none transition duration-150 hover:border-ink-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 dark:border-white/12 dark:bg-white/[0.04] dark:text-ink-100"
+            className="h-[30px] w-16 shrink-0 rounded-lg border border-ink-200/90 bg-white/95 px-2 text-center font-mono text-callout leading-relaxed text-ink-900 shadow-2xs outline-none transition duration-150 hover:border-ink-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 dark:border-white/12 dark:bg-white/[0.04] dark:text-ink-100"
           />
         </div>
       ) : (
@@ -667,7 +674,7 @@ export function UiWriteField({ def }: { def: UiWriteWidgetDef }) {
                 ? `${def.real.down} ~ ${def.real.up}`
                 : '请输入…'
           }
-          className={`h-[34px] w-full rounded-lg border bg-white/95 px-3 text-[14.5px] leading-relaxed text-ink-900 shadow-2xs outline-none transition duration-150 placeholder:text-[13.5px] placeholder:text-ink-400 dark:bg-white/[0.04] dark:text-ink-100 dark:placeholder:text-ink-500 ${
+          className={`h-[34px] w-full rounded-lg border bg-white/95 px-3 text-callout leading-relaxed text-ink-900 shadow-2xs outline-none transition duration-150 placeholder:text-[calc(13.5px*var(--prose-font-scale))] placeholder:text-ink-400 dark:bg-white/[0.04] dark:text-ink-100 dark:placeholder:text-ink-500 ${
             invalidHint
               ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/15 dark:border-rose-400/80'
               : 'border-ink-200/90 hover:border-ink-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 dark:border-white/12 dark:hover:border-white/20 dark:focus:border-brand-400'
