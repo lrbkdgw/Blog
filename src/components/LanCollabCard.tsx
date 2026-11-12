@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Copy, Link2, Plug, PlugZap, Radar, UsersRound } from 'lucide-react'
+import { AlertTriangle, Copy, Link2, Plug, Radar, Rocket, UserPlus, UsersRound } from 'lucide-react'
 import { useToast } from './Toast'
 import { OFFLINE } from '../lib/runtime'
 import {
@@ -114,6 +114,7 @@ export function LanCollabCard() {
   const [foundUrl, setFoundUrl] = useState('')
   const collabRef = useRef<(LanCollab & { dispose(): void }) | null>(null)
   const discoveryRef = useRef<AbortController | null>(null)
+  const sectionRef = useRef<HTMLElement | null>(null)
   const lastSentRef = useRef(new Map<string, string>())
   // welcome 会一次性回放房间里所有文章，合并成一条提示而不是刷屏
   const welcomePostsRef = useRef<string[]>([])
@@ -182,6 +183,21 @@ export function LanCollabCard() {
     return () => window.removeEventListener('starlog:posts-changed', onPostsChanged)
   }, [pushAllLocal])
 
+  // 从页头「本机管理 → 开始协作」跳过来时（?collab=1），把卡片滚到视口中间
+  useEffect(() => {
+    try {
+      const query = new URLSearchParams(window.location.search)
+      const hashQuery = new URLSearchParams(window.location.hash.split('?')[1] ?? '')
+      if (query.get('collab') !== '1' && hashQuery.get('collab') !== '1') return
+    } catch {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      sectionRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+    }, 120)
+    return () => window.clearTimeout(timer)
+  }, [])
+
   useEffect(
     () => () => {
       discoveryRef.current?.abort()
@@ -198,9 +214,12 @@ export function LanCollabCard() {
   if (!OFFLINE) return null
 
   const supported = isLanCollabSupported()
-  const roomValid = isValidRoomCode(settings.room.trim())
   const busy = status === 'discovering' || status === 'connecting'
   const connected = status === 'connected' || busy
+  const invite = inviteLink(
+    foundUrl || settings.lastUrl || settings.manualUrl || relayUrlFromLocation() || '',
+    settings.room.trim(),
+  )
 
   const resetConnection = () => {
     collabRef.current?.dispose()
@@ -241,16 +260,29 @@ export function LanCollabCard() {
     collab.connect(target)
   }
 
-  const connect = async () => {
+  /**
+   * 发起 / 加入协作：两者都只需要房间号。
+   * 「开始协作」在房间号为空时自动生成一个，方便直接当发起方；
+   * 「加入协作」使用伙伴给的房间号。底层都是自动发现中继 + 连接同一个房间。
+   */
+  const connect = async ({ generateRoom = false }: { generateRoom?: boolean } = {}) => {
     if (!supported) {
       setStatus('error')
       setErrorMsg('当前浏览器不支持 WebSocket，无法使用局域网协作')
       return
     }
-    const room = settings.room.trim()
-    if (!roomValid) {
+    let room = settings.room.trim()
+    if (!room && generateRoom) {
+      room = randomRoomCode()
+      setSettings((s) => ({ ...s, room }))
+    }
+    if (!isValidRoomCode(room)) {
       setStatus('error')
-      setErrorMsg('房间号无效（1–32 位字母、数字、-、_，与协作伙伴约定同一个）')
+      setErrorMsg(
+        generateRoom
+          ? '房间号无效（1–32 位字母、数字、-、_）'
+          : '请先填写房间号（与伙伴约定同一个），或点「开始协作」自动生成一个',
+      )
       return
     }
     setErrorMsg('')
@@ -308,27 +340,20 @@ export function LanCollabCard() {
   }
 
   const copyInvite = async () => {
-    const known =
-      foundUrl ||
-      settings.lastUrl ||
-      settings.manualUrl ||
-      relayUrlFromLocation() ||
-      ''
-    const link = inviteLink(known, settings.room.trim())
-    if (!link) {
-      toast('还没有可用的中继地址', 'info')
+    if (!invite) {
+      toast('还没有可用的中继地址：先点「开始协作」连上中继', 'info')
       return
     }
     try {
-      await navigator.clipboard.writeText(link)
+      await navigator.clipboard.writeText(invite)
       toast('邀请链接已复制，发给协作伙伴打开即可（房间号已带好）', 'success')
     } catch {
-      toast(`邀请链接：${link}`, 'info')
+      toast(`邀请链接：${invite}`, 'info')
     }
   }
 
   return (
-    <section className="card animate-fade-up p-6">
+    <section ref={sectionRef} id="lan-collab" className="card animate-fade-up p-6">
       <div className="mb-5 flex items-start gap-3">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-500/10 text-brand-600 dark:text-brand-300">
           <UsersRound size={17} />
@@ -336,8 +361,8 @@ export function LanCollabCard() {
         <div>
           <h2 className="font-medium text-ink-900 dark:text-white">局域网协作（预览）</h2>
           <p className="mt-0.5 text-xs leading-relaxed text-ink-400">
-            <strong className="font-medium text-ink-600 dark:text-ink-200">只需填房间号</strong>
-            ：点「连接」会自动在局域网里找到中继并同步本机文章库。
+            <strong className="font-medium text-ink-600 dark:text-ink-200">点「开始协作」就能发起</strong>
+            ：房间号留空会自动生成，点「加入协作」则填伙伴给的房间号；两者都自动找到中继并同步本机文章库。
             只有连接时才联网，平时不联网；删除不广播，覆盖前自动存快照。
           </p>
         </div>
@@ -366,26 +391,41 @@ export function LanCollabCard() {
         </label>
 
         <div className="flex flex-wrap items-center gap-2">
-          {status === 'discovering' ? (
+          {status === 'discovering' || status === 'connecting' ? (
             <button type="button" onClick={disconnect} className="btn-outline h-9">
               <Plug size={15} />
-              取消查找
+              取消
             </button>
           ) : status === 'connected' ? (
             <button type="button" onClick={disconnect} className="btn-outline h-9">
               <Plug size={15} />
-              断开连接
+              结束协作
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={() => void connect()}
-              disabled={!supported || status === 'connecting'}
-              className="btn-primary h-9"
-            >
-              <PlugZap size={15} />
-              连接协作房间
-            </button>
+            <>
+              {/* 发起方：房间号留空也行，点一下自动生成房间并开始协作 */}
+              <button
+                type="button"
+                onClick={() => void connect({ generateRoom: true })}
+                disabled={!supported}
+                className="btn-primary h-9"
+                title="生成房间号（若已填写则使用你填的），自动找到局域网中继并开始协作"
+              >
+                <Rocket size={15} />
+                开始协作
+              </button>
+              {/* 其他设备：填伙伴给的房间号加入同一个房间 */}
+              <button
+                type="button"
+                onClick={() => void connect()}
+                disabled={!supported}
+                className="btn-outline h-9"
+                title="用填写的房间号加入协作"
+              >
+                <UserPlus size={15} />
+                加入协作
+              </button>
+            </>
           )}
           <button type="button" onClick={() => void copyInvite()} className="btn-ghost h-9">
             <Copy size={15} />
@@ -421,6 +461,32 @@ export function LanCollabCard() {
         )}
         {foundUrl && status !== 'idle' && (
           <p className="truncate font-mono text-[11px] text-ink-400">中继：{foundUrl}</p>
+        )}
+
+        {status === 'connected' && (
+          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] px-3 py-2.5 text-xs leading-relaxed text-emerald-800 dark:text-emerald-200">
+            <p className="flex flex-wrap items-center gap-1.5 font-medium">
+              <Rocket size={13} className="shrink-0" />
+              协作已开始 · 房间号
+              <code className="rounded bg-white/60 px-1 font-mono dark:bg-white/10">{settings.room.trim()}</code>
+              {peers > 0 ? `· ${peers} 台设备在线` : ''}
+            </p>
+            {invite ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded-lg bg-white/70 px-2 py-1 font-mono text-[11px] dark:bg-white/10">
+                  {invite}
+                </code>
+                <button type="button" onClick={() => void copyInvite()} className="btn-outline h-8 shrink-0 text-xs">
+                  <Copy size={13} />
+                  复制邀请链接
+                </button>
+              </div>
+            ) : null}
+            <p className="mt-1.5 text-emerald-700/80 dark:text-emerald-300/80">
+              把上面的链接发给伙伴（打开就是离线版，房间号已带好），或让对方填同一个房间号点「加入协作」。
+              现在任意一台设备保存文章，房间里都会同步。
+            </p>
+          </div>
         )}
 
         {errorMsg && (
@@ -473,10 +539,10 @@ export function LanCollabCard() {
           <ol className="mt-1.5 list-decimal space-y-1 pl-4">
             <li>局域网里任意一台电脑运行中继：<code className="rounded bg-ink-100 px-1 font-mono dark:bg-white/10">npm run lan</code>（仓库根目录，需要 Node.js）。</li>
             <li>
-              其他设备<strong className="font-medium text-ink-700 dark:text-ink-200">打开中继启动时打印的 <code className="rounded bg-ink-100 px-1 font-mono dark:bg-white/10">http://…:8787/?room=房间号</code> 链接</strong>：页面会自动认出中继、房间号也已带好；
-              也可以直接双击自己的离线 HTML —— 填房间号后会自动在局域网里寻找中继。
+              发起方点<strong className="font-medium text-ink-700 dark:text-ink-200">「开始协作」</strong>：房间号留空会自动生成；连上后把显示的邀请链接发给伙伴。
+              伙伴打开链接（<code className="rounded bg-ink-100 px-1 font-mono dark:bg-white/10">http://…:8787/?room=房间号</code>，房间号已带好），或填同一个房间号点「加入协作」。
             </li>
-            <li>各设备点「连接」：本机文章推给房间，房间里的文章写入本机（覆盖前自动存快照）。</li>
+            <li>连接后：本机文章推给房间，房间里的文章写入本机（覆盖前自动存快照）；不想用了点「结束协作」。</li>
           </ol>
           <p className="mt-2 text-ink-400">
             只在可信局域网（家庭 / 办公室 / 课堂）里使用：房间号不是密码，不要把中继端口暴露到公网。

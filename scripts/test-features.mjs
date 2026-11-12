@@ -9,7 +9,7 @@ import { build } from 'esbuild'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = resolve(__dirname, '..')
 const requireExt = createRequire(join(root, 'vscode_extensions/v1/package.json'))
-const { JSDOM } = requireExt('jsdom')
+const { JSDOM, VirtualConsole } = requireExt('jsdom')
 
 async function importTsModule(entryPath) {
   const result = await build({
@@ -3301,5 +3301,63 @@ test('issue #112：只填房间号即可连接 —— 中继自动发现、邀�
   } finally {
     await close()
     rmSync(tmpHtml, { force: true })
+  }
+})
+
+test('issue #112：离线版必须有「开始协作」按钮（页头入口 + 设置页卡片 + 编译产物真实渲染）', async () => {
+  // 源码层面：卡片里两个动作 + 页头「本机管理」里的直达入口
+  const card = readFileSync(join(root, 'src/components/LanCollabCard.tsx'), 'utf8')
+  assert.match(card, /开始协作/, '设置页卡片必须有「开始协作」主按钮')
+  assert.match(card, /加入协作/, '设置页卡片必须有「加入协作」按钮')
+  assert.match(card, /结束协作/, '连接后必须能结束协作')
+  const layout = readFileSync(join(root, 'src/components/Layout.tsx'), 'utf8')
+  assert.match(layout, /label: '开始协作'/, '页头「本机管理」下拉必须有「开始协作」入口')
+  assert.match(layout, /collab=1/, '入口应跳到设置页并自动定位协作卡片')
+
+  // 编译产物层面：把 PR 里附带的 offline/index.html 真正用 jsdom 跑起来，
+  // 确认用户打开后能在设置页看到「开始协作」按钮（而不只是字符串存在于代码里）。
+  const html = readFileSync(join(root, 'offline/index.html'), 'utf8')
+  assert.ok(html.length > 1024 * 1024, '编译产物应为完整的单文件离线版')
+  const virtualConsole = new VirtualConsole()
+  const dom = new JSDOM(html, {
+    url: 'http://localhost:8787/?room=1234#/admin/settings',
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    virtualConsole,
+    beforeParse(w) {
+      w.matchMedia = () => ({
+        matches: false,
+        media: '',
+        addListener() {},
+        removeListener() {},
+        addEventListener() {},
+        removeEventListener() {},
+      })
+      w.ResizeObserver = class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+      w.IntersectionObserver = class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+      w.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 16)
+      w.cancelAnimationFrame = (id) => clearTimeout(id)
+      w.scrollTo = () => {}
+      w.HTMLCanvasElement.prototype.getContext = () => null
+    },
+  })
+  try {
+    await new Promise((r) => setTimeout(r, 1800))
+    const rootEl = dom.window.document.getElementById('root')
+    assert.ok(rootEl && rootEl.children.length > 0, '离线单文件应能正常挂载 React 应用')
+    const labels = [...rootEl.querySelectorAll('button')].map((b) => (b.textContent || '').trim())
+    assert.ok(labels.includes('开始协作'), '设置页应渲染「开始协作」按钮')
+    assert.ok(labels.includes('加入协作'), '设置页应渲染「加入协作」按钮')
+    assert.ok(rootEl.textContent.includes('局域网协作'), '设置页应显示局域网协作卡片')
+  } finally {
+    dom.window.close()
   }
 })

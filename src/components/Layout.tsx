@@ -10,6 +10,7 @@ import {
   Menu,
   Moon,
   PenLine,
+  Rocket,
   Rss,
   Search,
   Settings,
@@ -116,6 +117,7 @@ function OfflineMenu() {
           {[
             { to: '/admin', icon: LayoutDashboard, label: '内容管理' },
             { to: '/admin/new', icon: PenLine, label: '写新文章' },
+            { to: '/admin/settings?collab=1', icon: Rocket, label: '开始协作' },
             { to: '/admin/settings', icon: Settings, label: '设置' },
           ].map((item) => (
             <Link
