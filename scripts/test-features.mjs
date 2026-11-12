@@ -39,6 +39,7 @@ const echoCaveMod = await importTsModule('src/lib/echoCave.ts')
 const echoAshMod = await importTsModule('src/lib/echoAsh.ts')
 const editorMod = await importTsModule('src/lib/editor.ts')
 const collabMod = await importTsModule('src/lib/collab.ts')
+const lanDiscoveryMod = await importTsModule('src/lib/lanDiscovery.ts')
 const lanServerMod = await import('./lan-collab-server.mjs')
 
 function makeMock2dContext(strokeSink, drawSink) {
@@ -1558,12 +1559,20 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       dom.window.HTMLInputElement.prototype,
       'value',
     ).set
-    allInputs[0]._valueTracker?.setValue('')
-    nativeInputValueSetter.call(allInputs[0], '今晚的风很轻')
-    allInputs[0].dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-    allInputs[0].dispatchEvent(new dom.window.Event('change', { bubbles: true }))
-    await new Promise((r) => setTimeout(r, 25))
-
+    const typeEcho = () => {
+      allInputs[0]._valueTracker?.setValue('')
+      nativeInputValueSetter.call(allInputs[0], '今晚的风很轻')
+      allInputs[0].dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      allInputs[0].dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    }
+    // CI 高负载时 25ms 可能不够让 React 把 onChange 写进受控 state：
+    // 那样输入框会被受控 value 重置为空，sendMessage 读到空草稿直接 return，
+    // 后续断言就会误判。这里等 React 落定，并在被重置时重新输入。
+    // 立刻点击（不等定时器）：sendMessage() 优先读 inputRef.current.value，
+    // 此时 DOM 里就是刚写入的文本；若先等 25–100ms，React 受控 input 在 CI 高负载下
+    // 可能先按尚未落定的 draft 把输入框重置为空，导致发送被跳过、后续断言误判。
+    typeEcho()
+    assert.equal(allInputs[0].value, '今晚的风很轻', '发送前输入框应保留输入内容')
     allButtons[0].click()
     await new Promise((r) => setTimeout(r, 60))
 
@@ -2701,6 +2710,16 @@ test('issue #105：历史版本渲染对比保持多行容器块完整并支持�
       }),
     )
     await new Promise((r) => setTimeout(r, 90))
+    // React 首次渲染 + KaTeX 排版在 CI 高负载时可能超过 90ms，轮询等待语义卡片出现，
+    // 避免偶发「渲染还没完成就断言」的假失败。
+    const compareDeadline = Date.now() + 2000
+    const compareReady = () =>
+      rootEl.textContent.includes('修改段落') &&
+      rootEl.querySelectorAll('details.callout').length >= 2 &&
+      rootEl.querySelectorAll('.katex').length >= 2
+    while (Date.now() < compareDeadline && !compareReady()) {
+      await new Promise((r) => setTimeout(r, 20))
+    }
 
     assert.equal(
       rootEl.querySelectorAll('.overflow-y-auto').length,
@@ -3167,5 +3186,120 @@ test('issue #112：局域网协作客户端地址规范化与中继房间同步�
     clientA.close()
     clientB.close()
     await close()
+  }
+})
+
+test('issue #112：只填房间号即可连接 —— 中继自动发现、邀请链接页面与探针不占位', async () => {
+  // —— 纯函数：私网判定、从页面地址直接认出中继、候选排序与去重 ——
+  assert.equal(lanDiscoveryMod.isPrivateIPv4('192.168.1.23'), true)
+  assert.equal(lanDiscoveryMod.isPrivateIPv4('10.0.0.5'), true)
+  assert.equal(lanDiscoveryMod.isPrivateIPv4('172.20.4.5'), true)
+  assert.equal(lanDiscoveryMod.isPrivateIPv4('8.8.8.8'), false)
+  assert.equal(lanDiscoveryMod.isPrivateIPv4('127.0.0.1'), false)
+
+  assert.equal(
+    lanDiscoveryMod.relayUrlFromLocation({
+      protocol: 'http:',
+      hostname: '192.168.1.5',
+      host: '192.168.1.5:8787',
+    }),
+    'ws://192.168.1.5:8787/',
+    '从中继提供的页面打开时应零探测直连',
+  )
+  assert.equal(
+    lanDiscoveryMod.relayUrlFromLocation({
+      protocol: 'http:',
+      hostname: '192.168.1.5',
+      host: '192.168.1.5:5180',
+    }),
+    'ws://192.168.1.5:8787/',
+  )
+  assert.equal(lanDiscoveryMod.relayUrlFromLocation({ protocol: 'file:', hostname: '', host: '' }), null)
+
+  const candidates = lanDiscoveryMod.buildCandidateUrls({
+    room: '1234',
+    locationLike: { protocol: 'http:', hostname: '192.168.1.5', host: '192.168.1.5:8787' },
+    lastUrl: 'ws://10.0.0.9:8787',
+    addressHints: ['192.168.7.23'],
+  })
+  assert.equal(candidates[0], 'ws://10.0.0.9:8787/', '上次成功的中继应优先探测')
+  assert.equal(candidates[1], 'ws://192.168.1.5:8787/', '中继提供的页面应紧跟其后')
+  assert.equal(new Set(candidates).size, candidates.length, '候选地址不应重复')
+  assert.ok(candidates.every((u) => u.startsWith('ws://')), '不应产生任何公网 / https 端点')
+  assert.ok(candidates.includes('ws://localhost:8787/'))
+  assert.ok(candidates.includes('ws://192.168.7.1:8787/'), '应包含提示 IP 所在网段的网关')
+  assert.ok(candidates.includes('ws://192.168.7.23:8787/'))
+  assert.ok(!candidates.includes('ws://8.8.8.8:8787/'))
+
+  // —— 真实往返：自动发现能从若干错误地址里找出中继 ——
+  const tmpHtml = join(root, 'scripts/tmp-lan-invite.html')
+  writeFileSync(tmpHtml, '<!doctype html><html><body>starlog-invite-page-marker</body></html>', 'utf8')
+  const { server, close } = lanServerMod.createLanCollabServer({
+    port: 0,
+    host: '127.0.0.1',
+    htmlPath: tmpHtml,
+  })
+  await new Promise((resolveListen) => server.listen(0, '127.0.0.1', resolveListen))
+  const port = server.address().port
+  const goodUrl = `ws://127.0.0.1:${port}/`
+  try {
+    const progressEvents = []
+    const found = await lanDiscoveryMod.discoverLanRelay({
+      room: 'discover-room',
+      candidates: ['ws://127.0.0.1:1/', goodUrl, 'ws://127.0.0.1:2/'],
+      skipLocalHints: true,
+      probeTimeoutMs: 500,
+      concurrency: 3,
+      WebSocketImpl: WebSocket,
+      onProgress: (p) => progressEvents.push(p),
+    })
+    assert.equal(found, goodUrl, '应在候选里找到真正能响应 hello 的中继')
+    assert.ok(progressEvents.length > 0, '自动发现应上报进度')
+    assert.equal(progressEvents[0].total, 3)
+
+    // 已取消的发现不应再发起连接
+    const aborted = new AbortController()
+    aborted.abort()
+    assert.equal(
+      await lanDiscoveryMod.discoverLanRelay({
+        room: 'discover-room',
+        candidates: [goodUrl],
+        skipLocalHints: true,
+        signal: aborted.signal,
+        WebSocketImpl: WebSocket,
+      }),
+      null,
+    )
+
+    // 探针不能算作房间里的在线设备（否则 presence 会瞬间暴涨）
+    const realClient = new WebSocket(goodUrl)
+    try {
+      await new Promise((resolveOpen, rejectOpen) => {
+        realClient.addEventListener('open', () => resolveOpen(), { once: true })
+        realClient.addEventListener('error', () => rejectOpen(new Error('WebSocket 连接失败')), { once: true })
+      })
+      const welcome = await new Promise((resolveWelcome) => {
+        realClient.addEventListener('message', (event) => {
+          const msg = JSON.parse(String(event.data))
+          if (msg.kind === 'welcome') resolveWelcome(msg)
+        })
+        realClient.send(JSON.stringify({ kind: 'hello', room: 'discover-room', name: 'real' }))
+      })
+      assert.equal(welcome.peers, 1, '自动发现探针不应被计入在线设备')
+    } finally {
+      realClient.close()
+    }
+
+    // 中继把编译好的离线单文件提供给其他设备（邀请链接）
+    const page = await fetch(`http://127.0.0.1:${port}/?room=1234`)
+    assert.equal(page.status, 200)
+    assert.match(page.headers.get('content-type') ?? '', /text\/html/)
+    assert.match(await page.text(), /starlog-invite-page-marker/)
+    const health = await fetch(`http://127.0.0.1:${port}/health`)
+    assert.match(await health.text(), /starlog-lan-collab-ok/)
+    assert.equal((await fetch(`http://127.0.0.1:${port}/nope`)).status, 404)
+  } finally {
+    await close()
+    rmSync(tmpHtml, { force: true })
   }
 })

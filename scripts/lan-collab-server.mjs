@@ -2,8 +2,9 @@
  * 局域网协作中继（issue #112，仅离线版使用）。
  *
  * 离线单文件版本身不联网、没有服务器，所以局域网协作需要一台「中继」：
- * 在局域网里任意一台设备上运行本脚本（`npm run lan`），其他设备打开离线版，
- * 在「设置 → 局域网协作」里填入这台设备的局域网 IP 与房间号即可共同编辑。
+ * 在局域网里任意一台设备上运行本脚本（`npm run lan`），其他设备只需**填房间号**：
+ * 页面会自动在局域网里找到中继（src/lib/lanDiscovery.ts）；中继同时也把编译好的
+ * offline/index.html 通过 http://IP:8787/ 提供给其他设备，从这个地址打开时零探测直连。
  *
  * 设计约束（与离线版「完全不联网」原则的边界）：
  *   - 本脚本只在用户显式运行时才监听；离线版平时一个包都不发，
@@ -17,6 +18,7 @@
  * 协议（JSON 文本帧，客户端见 src/lib/collab.ts）：
  *   客户端 → 服务端：
  *     {kind:'hello', room, name}            加入房间（连接后第一条）
+ *     {kind:'hello', room, probe:true}      自动发现探针：只回 welcome、不加入房间
  *     {kind:'post', room, slug, raw, nonce} 推送一篇文章的原始 Markdown
  *     {kind:'ping'}                          心跳
  *   服务端 → 客户端：
@@ -26,14 +28,15 @@
  *     {kind:'pong'} / {kind:'error', message}
  *
  * 用法：
- *   npm run lan [--port 8787] [--host 0.0.0.0]
+ *   npm run lan [--port 8787] [--host 0.0.0.0] [--html offline/index.html]
  *   node scripts/lan-collab-server.mjs --port 8787
  */
 import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
 import { networkInterfaces } from 'node:os'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 const DEFAULT_PORT = 8787
@@ -122,10 +125,29 @@ export function listLanAddresses() {
 }
 
 /**
+ * 默认提供给局域网其他设备的离线单文件：优先仓库里编译好的 offline/index.html，
+ * 其次本地刚构建的 dist-offline/index.html；都没有时退回纯文本说明页。
+ */
+export function defaultHtmlPath() {
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+  for (const candidate of [
+    resolve(repoRoot, 'offline/index.html'),
+    resolve(repoRoot, 'dist-offline/index.html'),
+  ]) {
+    if (existsSync(candidate)) return candidate
+  }
+  return null
+}
+
+/**
  * 创建协作中继服务器（供 CLI 与测试共用）。
  * 返回 {server, close, rooms}，rooms 仅供测试断言。
  */
-export function createLanCollabServer({ port = DEFAULT_PORT, host = '0.0.0.0' } = {}) {
+export function createLanCollabServer({
+  port = DEFAULT_PORT,
+  host = '0.0.0.0',
+  htmlPath = defaultHtmlPath(),
+} = {}) {
   /** room -> {clients:Set<socket>, posts:Map<slug,{raw,from}>, names:Map<socket,string>} */
   const rooms = new Map()
   /** 所有已升级的 socket（含还没加入房间的），关闭服务器时逐一断开 */
@@ -184,6 +206,16 @@ export function createLanCollabServer({ port = DEFAULT_PORT, host = '0.0.0.0' } 
         send(socket, { kind: 'error', message: '房间号无效（1–32 位字母、数字、-、_）' })
         return
       }
+      // 自动发现探针（src/lib/lanDiscovery.ts）：只回 welcome 确认「这里确实是中继」，
+      // 不加入房间、不广播 presence，避免探测期间房间里凭空多出几十台设备。
+      if (msg.probe === true) {
+        const existing = rooms.get(roomCode)
+        const posts = existing
+          ? [...existing.posts.entries()].map(([slug, entry]) => ({ slug, raw: entry.raw }))
+          : []
+        send(socket, { kind: 'welcome', room: roomCode, peers: existing?.clients.size ?? 0, posts })
+        return
+      }
       // 换房间：先离开旧房间
       if (state.room && state.room !== roomCode) {
         const old = rooms.get(state.room)
@@ -229,10 +261,39 @@ export function createLanCollabServer({ port = DEFAULT_PORT, host = '0.0.0.0' } 
     send(socket, { kind: 'error', message: `未知消息类型：${String(msg.kind)}` })
   }
 
+  // 把编译好的离线单文件直接提供给局域网里的其他设备：
+  // 从这个地址打开页面时，客户端能用 location.host 认出中继，做到「只填房间号」。
+  let htmlBuffer = null
+  if (htmlPath && existsSync(htmlPath)) {
+    try {
+      htmlBuffer = readFileSync(htmlPath)
+    } catch {
+      htmlBuffer = null
+    }
+  }
+
   const server = createServer((req, res) => {
-    // 普通 HTTP 请求：给一句说明（方便用户在浏览器里确认中继已启动）
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' })
-    res.end('Starlog 局域网协作中继已启动。在离线版「设置 → 局域网协作」里填入本机局域网 IP 与房间号即可连接。\n')
+    const pathname = String(req.url ?? '/').split('?')[0]
+    if (htmlBuffer && (pathname === '/' || pathname === '/index.html')) {
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Length': htmlBuffer.length,
+        'Cache-Control': 'no-store',
+      })
+      res.end(req.method === 'HEAD' ? undefined : htmlBuffer)
+      return
+    }
+    if (htmlBuffer && pathname === '/health') {
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' })
+      res.end('starlog-lan-collab-ok\n')
+      return
+    }
+    res.writeHead(htmlBuffer ? 404 : 200, { 'Content-Type': 'text/plain; charset=utf-8' })
+    res.end(
+      htmlBuffer
+        ? 'Not found\n'
+        : 'Starlog 局域网协作中继已启动（未找到 offline/index.html，请先运行 npm run build:offline）。\n',
+    )
   })
 
   server.on('upgrade', (req, socket, head) => {
@@ -326,12 +387,13 @@ export function createLanCollabServer({ port = DEFAULT_PORT, host = '0.0.0.0' } 
   return { server, close, rooms, port, host }
 }
 
-/** 命令行入口：`npm run lan [--port 8787] [--host 0.0.0.0]` */
+/** 命令行入口：`npm run lan [--port 8787] [--host 0.0.0.0] [--html <path>]` */
 function parseArgs(argv) {
-  const args = { port: DEFAULT_PORT, host: '0.0.0.0' }
+  const args = { port: DEFAULT_PORT, host: '0.0.0.0', htmlPath: defaultHtmlPath() }
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--port' && argv[i + 1]) args.port = Number(argv[++i])
     else if (argv[i] === '--host' && argv[i + 1]) args.host = argv[++i]
+    else if (argv[i] === '--html' && argv[i + 1]) args.htmlPath = resolve(argv[++i])
   }
   if (!Number.isInteger(args.port) || args.port < 1 || args.port > 65535) args.port = DEFAULT_PORT
   return args
@@ -339,19 +401,26 @@ function parseArgs(argv) {
 
 const isMain = resolve(process.argv[1] ?? '') === resolve(fileURLToPath(import.meta.url))
 if (isMain) {
-  const { port, host } = parseArgs(process.argv.slice(2))
-  const { server } = createLanCollabServer({ port, host })
+  const { port, host, htmlPath } = parseArgs(process.argv.slice(2))
+  const { server } = createLanCollabServer({ port, host, htmlPath })
   server.listen(port, host, () => {
     const lan = listLanAddresses()
     console.log(`\nStarlog 局域网协作中继已启动（端口 ${port}）`)
-    console.log('在其他设备的离线版「设置 → 局域网协作」里填入：')
-    if (lan.length > 0) {
-      for (const ip of lan) console.log(`  服务器地址：ws://${ip}:${port}`)
+    console.log('其他设备只需填房间号：页面会自动在局域网里找到这台中继。\n')
+    if (htmlPath && existsSync(htmlPath)) {
+      console.log('最省事的方式：把下面这个邀请链接发给协作伙伴直接打开（房间号已带好）：')
+      if (lan.length > 0) {
+        for (const ip of lan) console.log(`  http://${ip}:${port}/?room=1234`)
+      } else {
+        console.log(`  http://<本机局域网 IP>:${port}/?room=1234`)
+      }
+      console.log('  （把 1234 换成你们约定的房间号；从这个地址打开页面时会零探测直连）')
     } else {
-      console.log(`  服务器地址：ws://<本机局域网 IP>:${port}（未检测到局域网地址，请在系统网络设置里查看）`)
+      console.log('未找到 offline/index.html：其他设备仍可用自己的离线 HTML + 房间号自动发现中继；')
+      console.log('若想用邀请链接，请先运行 npm run build:offline 或用 --html 指定文件路径。')
     }
-    console.log('  房间号：与协作伙伴约定同一个房间号（例如 1234）')
-    console.log('\n只在可信局域网内使用，不要把此端口暴露到公网。按 Ctrl+C 停止。\n')
+    console.log(`\n本机调试地址：ws://localhost:${port}`)
+    console.log('只在可信局域网内使用，不要把此端口暴露到公网。按 Ctrl+C 停止。\n')
   })
   const shutdown = () => {
     server.close(() => process.exit(0))

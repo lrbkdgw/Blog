@@ -1,5 +1,37 @@
 # 更新日志 · ChangeLog
 
+## 2026-11-12 · 局域网协作改为「只填房间号」，并把编译好的离线单文件随 PR 交付（#112）
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+- 首版 #112 需要用户手工填写 `ws://192.168.1.5:8787` 这样的中继地址，与「局域网内共同编辑」应有的零配置体验不符；用户明确要求「尽量改为输入房间号即可」。
+- `file://` 打开的离线单文件受浏览器沙箱限制，没有 mDNS / UDP 广播能力，也不能内置任何公网地址，因此纯客户端无法凭空知道中继在哪；需要在不破坏「平时不联网」原则的前提下绕开这个限制。
+- 另外用户希望 PR 内直接带上编译好的离线单文件，便于检查界面与功能。
+
+### 调整
+
+- **新增 `src/lib/lanDiscovery.ts`（自动发现）**：点「连接」后按优先级探测中继，全部只在用户点击后发生、可随时取消并显示进度：
+  1. 上次成功连接过的中继（本机记忆）；
+  2. 若离线 HTML 由中继自己提供（`http://IP:8787/`），用 `location.host` **零探测直连**；
+  3. 本机 `localhost`、WebRTC host candidate 暴露的局域网 IP（含 mDNS `.local` 域名）与该网段网关；
+  4. 常见私网网段的 8787 端口并发扫描（`192.168.0/1`、`10.0.0/1` 全 /24，其余网段试常见 DHCP 主机号）。
+  探测不是只看端口通不通：必须发 `hello` 并收到同房间的 `welcome` 才确认是 Starlog 中继，避免误连别的 WebSocket 服务。
+- **中继兼顾静态页面服务器**：`scripts/lan-collab-server.mjs` 现在把编译好的 `offline/index.html`（或 `--html` 指定文件）通过 `http://IP:8787/` 分发，启动时打印带 `?room=` 的邀请链接；从这个链接打开页面时房间号已带好且零探测直连。新增 `/health` 探针与 `probe:true` 的 hello（只回 welcome、不加入房间，避免自动发现期间在线设备数暴涨）。
+- **设置页卡片改为「房间号优先」**：`src/components/LanCollabCard.tsx` 主输入只剩房间号 + 「连接」；本机名字与手动地址收进「高级设置（一般不用填）」；新增自动发现进度、取消查找、「复制邀请链接」、邀请链接 `?room=` 预填、上次中继地址记忆。
+- **交付编译产物**：按用户要求把 `npm run build:offline` 生成的 `dist-offline/index.html` 同步到仓库的 `offline/index.html` 一并放进 PR（仍由 `.github/workflows/offline.yml` 在合入 main 后校验/覆盖，不在 PR 里手工编辑内容）。
+
+### 验证
+
+- `scripts/test-features.mjs` 新增第 17 组回归：私网地址判定、`relayUrlFromLocation` 零探测路径、候选地址排序/去重/不含公网端点、真实拉起中继后用「多个错误地址 + 正确地址」的混合候选验证自动发现、取消信号、探针不计入在线设备、HTTP 邀请页面与 `/health` / 404 行为。
+- 顺带把 #105 历史版本渲染对比的瞬时断言改为带上限轮询，并修正 #93 回声洞测试「等待 25ms 后受控输入框被重置为空」的根因（改为写入后同步点击发送），连续多次全量测试全绿。
+- `npm test`（Web **17/17** + VS Code 插件 71 pass / 4 skipped）、`npx tsc --noEmit`、扩展 typecheck、`npm run build`、`npm run build:offline` + `verify-offline` 全部通过。
+
 ## 2026-11-11 · 修复离线版目录跳转失效、编辑器引用/列表交互与嵌套标记，开放离线免登录写作并新增局域网协作（#110 / #111 / #112 / #113）
 
 | 模型信息 | |
@@ -40,7 +72,7 @@
 - **新增离线版局域网协作（预览能力，`scripts/lan-collab-server.mjs`（新增）、`src/lib/collab.ts`（新增）、`src/components/LanCollabCard.tsx`（新增）、`src/pages/SettingsPage.tsx`、`src/lib/posts.ts`、`package.json`，#112）**：
   - 零依赖中继 `scripts/lan-collab-server.mjs`（`npm run lan`）：手写 RFC 6455 WebSocket 服务端，按房间号隔离、内存保存每房间最新文章、广播给同房间其他设备；启动时打印本机局域网 IP 供填写；
   - 客户端 `src/lib/collab.ts`：仅依赖浏览器原生 WebSocket，地址由用户显式填写（`http(s)` 自动换成 `ws(s)`，非 ws 协议拒绝），只有点「连接」才建连；
-  - 设置页「局域网协作」卡片（仅离线版）：填中继地址 + 房间号 + 本机名字即可连接；本机保存的文章自动推送给房间，房间里的文章写入本机（覆盖前自动存「本机版本」快照）；删除不广播，避免误删扩散；同时编辑同一篇时以最后保存为准；
+  - 设置页「局域网协作」卡片（仅离线版）：主输入为房间号（后续 2026-11-12 条目已改为自动发现中继、地址收进「高级设置」）；本机保存的文章自动推送给房间，房间里的文章写入本机（覆盖前自动存「本机版本」快照）；删除不广播，避免误删扩散；同时编辑同一篇时以最后保存为准；
   - 同步的是**原始 Markdown**（含 frontmatter 与加密字段），不是重新序列化的 Post 对象，加密文章不会在往返中损坏；`src/lib/posts.ts` 新增 `listLocalPostRaws` / `getLocalPostRaw` 供推送与比对。
 
 ### 与 PR #117 的差异（本次修正）
@@ -54,8 +86,8 @@
 ### 验证
 
 - `scripts/test-features.mjs` 新增 3 组回归测试：① 引用续行 / 空引用退出、列表项 Tab 整项缩进与 Shift+Tab 反缩进（含嵌套引用、引用内列表、行中拆分）；② 用 esbuild 分别以 `__STARLOG_OFFLINE__` 开 / 关打包 `scrollAnchor`，在 jsdom 中断言离线版点击目录只滚动且 hash 路由原样保留、线上版正常写入锚点；③ 协作地址规范化 + 真实拉起中继进程做多客户端往返（推送广播、新加入者拿到房间文章、非法房间号被拒）；
-- 通过 `npm test`（Web 16 组测试 + VS Code 插件 71 项测试，0 失败）、`npm --prefix vscode_extensions/v1 run typecheck`、`npx tsc --noEmit`、`npm run build`、`npm run build:offline` 及 `node scripts/verify-offline.mjs` 离线自检；离线单文件 `offline/index.html` 由 `.github/workflows/offline.yml` 在合入 main 后自动构建同步；
-- 顺带把 #93 回声洞动画的瞬时断言改为带上限的轮询（CI 高负载时动画定时器可能晚几十毫秒），并重写 #112 协作测试的消息等待器（先缓存再等待，消除消息先到的竞态），连续多次 `npm test` 全部通过。
+- 通过 `npm test`（Web 16 组测试 + VS Code 插件 71 项测试，0 失败）、`npm --prefix vscode_extensions/v1 run typecheck`、`npx tsc --noEmit`、`npm run build`、`npm run build:offline` 及 `node scripts/verify-offline.mjs` 离线自检；离线单文件 `offline/index.html` 由 `.github/workflows/offline.yml` 在合入 main 后自动构建同步（后续按 PR 检查需要已随 PR 附带，见 2026-11-12 条目）；
+- 顺带把 #93 回声洞测试改为「写入输入后同步点击发送」+ 带上限轮询（原测试等待 25ms 后 React 受控输入框可能被重置为空、发送被跳过），并重写 #112 协作测试的消息等待器（先缓存再等待，消除消息先到的竞态），连续多次 `npm test` 全部通过。
 
 ## 2026-10-23 · 修复全屏编辑冲突、美化历史版本渲染对比、首页下滑自动加载更多及 main 自动发布离线版 Release（#104 / #105 / #106）
 

@@ -20,8 +20,8 @@
  *                   / {kind:'presence', room, peers} / {kind:'pong'} / {kind:'error', message}
  */
 
-/** 协作连接状态 */
-export type CollabStatus = 'idle' | 'connecting' | 'connected' | 'closed' | 'error'
+/** 协作连接状态（discovering = 只填了房间号，正在局域网里自动寻找中继） */
+export type CollabStatus = 'idle' | 'discovering' | 'connecting' | 'connected' | 'closed' | 'error'
 
 export interface LanCollabOptions {
   /** 房间号：同一房间的设备互相同步（1–32 位字母、数字、-、_） */
