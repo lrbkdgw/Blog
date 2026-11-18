@@ -34,8 +34,8 @@ export default function Toolbox() {
         <Link to="/toolbox/genshin" className="card group relative flex flex-col justify-between p-6 transition hover:-translate-y-0.5 hover:border-brand-300 dark:hover:border-brand-400/30">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="font-serif text-xl font-semibold tracking-tight text-ink-900 transition group-hover:text-brand-600 dark:text-white dark:group-hover:text-brand-300">原神数据</h2>
-              <p className="mt-2 text-sm leading-relaxed text-ink-500 dark:text-ink-400">收录至 7.2 正式服的角色与武器资料，查阅天赋、命座、故事和养成材料，支持离线阅读。</p>
+              <h2 className="font-serif text-xl font-semibold tracking-tight text-ink-900 transition group-hover:text-brand-600 dark:text-white dark:group-hover:text-brand-300">原神图鉴</h2>
+              <p className="mt-2 text-sm leading-relaxed text-ink-500 dark:text-ink-400">收录至 7.2 正式服的角色技能、天赋、命座、星级与武器特效，界面只展示可观资料，支持离线阅读。</p>
             </div>
             <ArrowUpRight size={18} className="mt-1 shrink-0 text-ink-400 group-hover:text-brand-500" />
           </div>

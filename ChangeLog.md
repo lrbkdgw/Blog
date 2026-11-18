@@ -1,5 +1,45 @@
 # 更新日志 · ChangeLog
 
+## 2026-11-18 · 原神角色详情页改版：只留技能、天赋、星级等可观资料
+
+| 模型信息 | |
+| --- | --- |
+| 模型名称 | Arena.ai Agent Mode（平台多模型动态调度，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen、Kimi 等） |
+| 模型版本号 | 未公开（由 Arena.ai 平台调度，不提供具体底层模型版本） |
+| 知识库截止时间 | 未公开（依所调度的底层模型而定，平台未公开统一口径） |
+
+### 背景
+
+- 原详情页把源站返回的整份 JSON 按字段铺开：内部 ID、原始参数、等级属性表、养成材料 ID、装扮、故事、语音文本、战斗参数等都能展开，也能下载单条 / 全量 JSON。信息虽全，但角色技能与天赋被埋在大量调试字段里。
+- 需求是「美化原神角色技能页面，只保留角色技能、天赋和星级等可观信息」：把读者真正会看的内容做成图鉴式页面，不再暴露内部字段。
+
+### 新增
+
+- `src/pages/GenshinData.tsx` 重写详情页：元素配色的角色头图、星级、元素 / 武器 / 档案徽章，按「战斗天赋 / 固有天赋 / 命之座」分区。
+- 战斗天赋卡片带本地技能图标、游戏文本着色 / 斜体强调、天赋等级切换（默认 Lv.10）和单等级倍率表；需要逐等级对照时展开「查看全部等级」。
+- 固有天赋与命之座改为图文卡片；武器详情页只展示描述、满级属性与精炼特效。
+- 图鉴卡片、筛选区与分页沿用原搜索能力，页面底部改为一行数据来源脚注，不再有原始 JSON 导出入口。
+
+### 调整
+
+- 页面不再读取或展示 `ascension` / `costumes` / `envisagedEcho` / `icons` / `hyperlinks` / `stories` / `quotes` / `energy` / `attacks` / `endure` / `params` / `attributes` 等内部字段；原始 JSON 与 gzip 快照仍完整保存在 `src/data/genshin/`，供数据校验使用。
+- 移除 `downloadGenshinJSON()` 及「下载原始 JSON / 导出全部数据」按钮；`src/lib/genshin.ts` 只保留页面需要的按需加载与图标查询。
+- `src/styles/genshin.css` 重写为多段可读样式：元素主题色、卡片、标签页、等级选择器、倍率表与响应式断点；`src/pages/Toolbox.tsx` 入口文案同步改为「原神图鉴」。
+- README 的「百宝箱 · 原神数据」章节改写为「原神图鉴」，说明只展示可观资料、原始快照仍用于校验。
+
+### 修复
+
+- `scripts/test-features.mjs` 的三处 esbuild 测试打包器补上 Vite `?raw` 相对路径解析、`raw-file` 文本加载与 `.css: empty` loader；此前整站打包测试会因 `src/lib/genshin.ts` 的 `../data/*.json?raw` 与 `genshin.css` 导入直接失败。
+- 新增静态回归用例，断言详情页保留技能 / 天赋 / 星级组件且不再出现原始 JSON 下载与数据树组件。
+
+### 验证
+
+- `npx tsc --noEmit`、`npm run build` 通过。
+- `npm test` 通过：站点 14 项全过（含新增原神用例）；插件 77 项中 73 过、4 项真实 Chromium 对照按默认跳过。
+- `npm --prefix vscode_extensions/v1 run typecheck`、`npm run genshin:verify` 通过（7.2.0、138 份角色详情、257 份武器详情、1,821 个图标）。
+- `npm run build:offline` + `scripts/verify-offline.mjs` 通过：单文件 21.44 MB、16 篇内置文章、20 个 `@font-face`；`dist-offline/index.html` 已同步到 `offline/index.html`。
+
+
 ## 2026-11-16 · 百宝箱新增原神 7.2 正式服角色与武器资料
 
 | 模型信息 | |

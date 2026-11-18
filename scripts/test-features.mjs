@@ -976,8 +976,19 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       {
         name: 'vite-raw-md',
         setup(b) {
-          b.onResolve({ filter: /\?raw$/ }, (args) => ({
-            path: join(root, args.path.replace(/^\//, '').replace(/\?raw$/, '')),
+          b.onResolve({ filter: /\?raw$/ }, (args) => {
+            // Vite 的 ?raw：绝对路径按仓库根解析，相对路径按导入方目录解析。
+            // 只按仓库根拼接会把 src/lib/genshin.ts 里的 ../data/… 指到仓库外面。
+            const clean = args.path.replace(/\?raw$/, '')
+            return {
+              path: clean.startsWith('/') ? join(root, clean) : resolve(args.resolveDir || root, clean),
+              namespace: 'raw-file',
+            }
+          })
+          // ?raw 一律按纯文本读入，不能让 esbuild 先把 .json 解析成对象。
+          b.onLoad({ filter: /.*/, namespace: 'raw-file' }, (args) => ({
+            contents: readFileSync(args.path, 'utf8'),
+            loader: 'text',
           }))
         },
       },
@@ -987,6 +998,7 @@ test('百宝箱与全屏极简回声洞（#93）：顶栏页签、用户背景�
       '.png': 'dataurl',
       '.svg': 'dataurl',
       '.md': 'text',
+      '.css': 'empty',
     },
     define: {
       'process.env.NODE_ENV': '"production"',
@@ -1660,8 +1672,19 @@ test('双栏编辑器滚动同步引擎（#101）：全层级源码行区间标�
       {
         name: 'vite-raw-md',
         setup(b) {
-          b.onResolve({ filter: /\?raw$/ }, (args) => ({
-            path: join(root, args.path.replace(/^\//, '').replace(/\?raw$/, '')),
+          b.onResolve({ filter: /\?raw$/ }, (args) => {
+            // Vite 的 ?raw：绝对路径按仓库根解析，相对路径按导入方目录解析。
+            // 只按仓库根拼接会把 src/lib/genshin.ts 里的 ../data/… 指到仓库外面。
+            const clean = args.path.replace(/\?raw$/, '')
+            return {
+              path: clean.startsWith('/') ? join(root, clean) : resolve(args.resolveDir || root, clean),
+              namespace: 'raw-file',
+            }
+          })
+          // ?raw 一律按纯文本读入，不能让 esbuild 先把 .json 解析成对象。
+          b.onLoad({ filter: /.*/, namespace: 'raw-file' }, (args) => ({
+            contents: readFileSync(args.path, 'utf8'),
+            loader: 'text',
           }))
         },
       },
@@ -1671,6 +1694,7 @@ test('双栏编辑器滚动同步引擎（#101）：全层级源码行区间标�
       '.png': 'dataurl',
       '.svg': 'dataurl',
       '.md': 'text',
+      '.css': 'empty',
     },
     define: {
       'process.env.NODE_ENV': '"production"',
@@ -1920,8 +1944,19 @@ test('双栏编辑器真实 DOM 双向联动交互（#101）：浏览右侧同�
       {
         name: 'vite-raw-md',
         setup(b) {
-          b.onResolve({ filter: /\?raw$/ }, (args) => ({
-            path: join(root, args.path.replace(/^\//, '').replace(/\?raw$/, '')),
+          b.onResolve({ filter: /\?raw$/ }, (args) => {
+            // Vite 的 ?raw：绝对路径按仓库根解析，相对路径按导入方目录解析。
+            // 只按仓库根拼接会把 src/lib/genshin.ts 里的 ../data/… 指到仓库外面。
+            const clean = args.path.replace(/\?raw$/, '')
+            return {
+              path: clean.startsWith('/') ? join(root, clean) : resolve(args.resolveDir || root, clean),
+              namespace: 'raw-file',
+            }
+          })
+          // ?raw 一律按纯文本读入，不能让 esbuild 先把 .json 解析成对象。
+          b.onLoad({ filter: /.*/, namespace: 'raw-file' }, (args) => ({
+            contents: readFileSync(args.path, 'utf8'),
+            loader: 'text',
           }))
         },
       },
@@ -1931,6 +1966,7 @@ test('双栏编辑器真实 DOM 双向联动交互（#101）：浏览右侧同�
       '.png': 'dataurl',
       '.svg': 'dataurl',
       '.md': 'text',
+      '.css': 'empty',
     },
     define: {
       'process.env.NODE_ENV': '"production"',
@@ -2844,3 +2880,20 @@ test('issue #106 & offline CI：首页下滑自动加载更多 + main 更新自�
 
 
 
+
+test('原神详情页只保留技能、天赋、星级等可观资料', () => {
+  const page = readFileSync(join(root, 'src/pages/GenshinData.tsx'), 'utf8')
+  const css = readFileSync(join(root, 'src/styles/genshin.css'), 'utf8')
+  const lib = readFileSync(join(root, 'src/lib/genshin.ts'), 'utf8')
+
+  for (const token of ['战斗天赋', '固有天赋', '命之座', 'gi-stars', 'LevelPicker', 'MultiplierTable', 'GameText']) {
+    assert.ok(page.includes(token), `详情页应保留可观资料组件：${token}`)
+  }
+  for (const token of ['downloadGenshinJSON', '导出全部数据', '下载原始 JSON', 'DataTree', 'DataTable', 'source-lists.json?raw']) {
+    assert.ok(!page.includes(token), `详情页不应再出现原始资料入口：${token}`)
+  }
+  assert.ok(!lib.includes('downloadGenshinJSON'), '原始 JSON 下载工具应一并移除')
+  for (const token of ['.gi-hero', '.gi-tabs', '.gi-skill-card', '.gi-talent-card', '.gi-profile']) {
+    assert.ok(css.includes(token), `样式表应包含新的详情版式：${token}`)
+  }
+})
