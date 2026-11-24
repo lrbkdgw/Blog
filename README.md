@@ -610,9 +610,9 @@ $\texttt{吃}$！
 | <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>S</kbd> | 保存草稿 |
 | <kbd>⌘</kbd> + <kbd>B</kbd> / <kbd>I</kbd> | 粗体 / 斜体 |
 | <kbd>⌘</kbd> + <kbd>K</kbd> | 插入链接 |
-| <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | 缩进 / 反缩进 |
+| <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | 缩进 / 反缩进；在列表项内移动整项，空的有序和无序列表项也可调整层级 |
 | <kbd>Shift</kbd> + <kbd>↑</kbd> | 打开 **LaTeX 符号选择框**：按命令或别名搜索（「正负」→ `\pm`、「异或」→ `\oplus`），方向键选择、Enter 插入到光标处，插入后光标落在第一个空参数内；插入过程不会把页面拽到文末（先恢复光标再以 `preventScroll` 聚焦，见 `src/lib/caret.ts`，issue #70）；最近用过的符号会记住（评论输入框同样支持，符号目录 `src/lib/latexSymbols.ts`，与 VS Code 插件共用） |
-| <kbd>Enter</kbd> | 列表内自动续行（空项自动结束列表） |
+| <kbd>Enter</kbd> | 列表或引用内自动续行；在空项上按回车结束列表，或退出一层引用 |
 
 全站快捷键：<kbd>⌘</kbd>+<kbd>K</kbd> 或 <kbd>/</kbd> 打开搜索。
 
@@ -769,6 +769,9 @@ node scripts/offline-hub.mjs --room 机房协作   # 指定房间名（码仍然
 node scripts/offline-hub.mjs --code 483902    # 指定一个好念的房间码
 npm run hub -- --open                        # 等价的快捷命令
 ```
+
+使用 Release 附件时，把 `starlog-offline-hub.mjs` 和 `starlog-offline-latest.html` 放在同一目录，运行
+`node starlog-offline-hub.mjs --open`。中心会自动找到旁边的 HTML；自定义文件名可用 `--file` 指定。
 
 每个房间都有一个 **6 位房间码**（终端与界面里都写成 `483-902`），启动时终端会打印：
 

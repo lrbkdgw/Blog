@@ -675,6 +675,17 @@
   content: '';
 }
 
+/* Typography defaults every unordered list to disc; restore the depth markers. */
+.prose :is(ul, ol) ul {
+  list-style-type: circle;
+}
+.prose :is(ul, ol) :is(ul, ol) ul {
+  list-style-type: square;
+}
+.prose li.task-list-item::marker {
+  content: '';
+}
+
 /* -------------------------------------------------------------------------- */
 /*              1. 标准表格 & 合并表格（靠左、浅淡边框、表头无底色）                 */
 /* -------------------------------------------------------------------------- */

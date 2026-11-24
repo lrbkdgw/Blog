@@ -55,39 +55,116 @@ export function insertBlock(value: string, start: number, end: number, text: str
   return { value: next, selectionStart: start + body.length, selectionEnd: start + body.length }
 }
 
-/** 编辑器内的 Tab / 列表自动续行等按键处理 */
+const QUOTE_PREFIX = /^(?:[ \t]{0,3}>[ \t]?)+/
+const LIST_MARKER = /^([ \t]*)([-+*]|\d{1,9}[.)])(?:([ \t]+)(\[[ xX]\](?=[ \t]|$)[ \t]*)?|$)/
+
+function readListItem(line: string) {
+  const match = LIST_MARKER.exec(line)
+  if (!match) return null
+  const [prefix, indent, marker, gap = '', task] = match
+  // 子项对齐父项正文；任务复选框不计入标记宽度。
+  const contentOffset = marker.length + (gap.length >= 1 && gap.length <= 4 ? gap.length : 1)
+  return { prefix, indent, marker, task, contentOffset }
+}
+
+function listIndentChange(
+  value: string,
+  lineStart: number,
+  quote: string,
+  item: NonNullable<ReturnType<typeof readListItem>>,
+  outdent: boolean,
+) {
+  const deeper = new Map<number, string>()
+  const depth = quote.split('>').length
+  for (let end = lineStart - 1; end >= 0;) {
+    const start = end === 0 ? 0 : value.lastIndexOf('\n', end - 1) + 1
+    const line = value.slice(start, end)
+    const prefix = QUOTE_PREFIX.exec(line)?.[0] ?? ''
+    if (prefix.split('>').length !== depth) break
+    const body = line.slice(prefix.length)
+    const previous = readListItem(body)
+    const indent = (previous?.indent ?? /^[ \t]*/.exec(body)![0]).length
+    if (previous && indent > item.indent.length && !deeper.has(indent)) deeper.set(indent, previous.marker)
+    if (body.trim() && indent <= item.indent.length) {
+      if (outdent ? indent < item.indent.length : indent === item.indent.length) {
+        if (previous) return outdent
+          ? { size: item.indent.length - indent, previousMarker: previous.marker }
+          : { size: previous.contentOffset, previousMarker: deeper.get(indent + previous.contentOffset) ?? '' }
+        break
+      }
+      if (!outdent || !previous) break
+    }
+    end = start - 1
+  }
+  return { size: outdent ? Math.min(item.indent.length, item.contentOffset) : item.contentOffset }
+}
+
+function nextListMarker(marker: string, previous: string): string {
+  const number = /^(\d+)([.)])$/.exec(marker)
+  if (!number) return marker
+  const preceding = /^(\d+)([.)])$/.exec(previous)
+  const next = preceding?.[2] === number[2] ? Math.min(Number(preceding[1]) + 1, 999999999) : 1
+  return String(next) + number[2]
+}
+
+/** 编辑器内的 Tab、列表与引用续行 */
 export function handleEditorKey(
   e: React.KeyboardEvent<HTMLTextAreaElement>,
 ): EditAction | null {
-  const ta = e.currentTarget
-  const { value, selectionStart: start, selectionEnd: end } = ta
+  if (e.nativeEvent?.isComposing || e.altKey || e.ctrlKey || e.metaKey) return null
+  const { value, selectionStart: start, selectionEnd: end } = e.currentTarget
+  if (e.key !== 'Tab' && !(e.key === 'Enter' && !e.shiftKey && start === end)) return null
 
-  if (e.key === 'Tab') {
+  const lineStart = start === 0 ? 0 : value.lastIndexOf('\n', start - 1) + 1
+  const nextNewline = value.indexOf('\n', start)
+  const lineEnd = nextNewline === -1 ? value.length : nextNewline
+  const line = value.slice(lineStart, lineEnd)
+  const quote = QUOTE_PREFIX.exec(line)?.[0] ?? ''
+  const itemStart = lineStart + quote.length
+  const body = line.slice(quote.length)
+  const item = readListItem(body)
+
+  function replace(from: number, to: number, text: string, cursor = from + text.length): EditAction {
     e.preventDefault()
-    if (start !== end || e.shiftKey) {
-      return toggleLinePrefix(value, start, end, '  ')
-    }
-    return { value: value.slice(0, start) + '  ' + value.slice(end), selectionStart: start + 2, selectionEnd: start + 2 }
+    return { value: value.slice(0, from) + text + value.slice(to), selectionStart: cursor, selectionEnd: cursor }
   }
 
-  if (e.key === 'Enter' && !e.shiftKey && start === end) {
-    const lineStart = value.lastIndexOf('\n', start - 1) + 1
-    const line = value.slice(lineStart, start)
-    const m = line.match(/^(\s*)([-*+]\s\[[ x]\]\s|[-*+]\s|(\d+)\.\s)/)
-    if (m) {
-      const [, indent, marker, num] = m
-      // 空列表项 → 结束列表
-      if (line.trim() === marker.trim()) {
-        const next = value.slice(0, lineStart) + value.slice(start)
-        return { value: next, selectionStart: lineStart, selectionEnd: lineStart }
+  if (e.key === 'Tab') {
+    if (start === end && item) {
+      const { size, previousMarker } = listIndentChange(value, lineStart, quote, item, e.shiftKey)
+      if (!size) {
+        e.preventDefault()
+        return null
       }
-      e.preventDefault()
-      const nextMarker = num ? `${Number(num) + 1}. ` : marker.replace('[x]', '[ ]')
-      const insert = `\n${indent}${nextMarker}`
-      const next = value.slice(0, start) + insert + value.slice(end)
-      const pos = start + insert.length
-      return { value: next, selectionStart: pos, selectionEnd: pos }
+      const indent = e.shiftKey ? item.indent.slice(size) : item.indent + ' '.repeat(size)
+      // 新有序子列表从 1 开始，才能直接接在父项正文后面。
+      const marker = previousMarker === undefined ? item.marker : nextListMarker(item.marker, previousMarker)
+      const oldMarkerEnd = itemStart + item.indent.length + item.marker.length
+      const newMarkerEnd = itemStart + indent.length + marker.length
+      const cursor = start < itemStart ? start : Math.max(itemStart, newMarkerEnd + start - oldMarkerEnd)
+      return replace(itemStart, oldMarkerEnd, indent + marker, cursor)
     }
+    if (start !== end || e.shiftKey) {
+      e.preventDefault()
+      return toggleLinePrefix(value, start, end, '  ')
+    }
+    return replace(start, end, '  ')
+  }
+
+  const quotePrefix = quote && !/[ \t]$/.test(quote) ? quote + ' ' : quote
+  if (item && start >= itemStart + item.prefix.trimEnd().length) {
+    if (!body.slice(item.prefix.length).trim()) return replace(lineStart, lineEnd, quotePrefix)
+    if (start < itemStart + item.prefix.length) return null
+    const marker = nextListMarker(item.marker, item.marker)
+    return replace(start, end, '\n' + quotePrefix + item.indent + marker + (item.task ? ' [ ] ' : ' '))
+  }
+
+  if (quote && start >= lineStart + quote.trimEnd().length) {
+    if (!body.trim()) {
+      const outer = quote.slice(0, quote.lastIndexOf('>'))
+      return replace(lineStart, lineEnd, outer.includes('>') ? outer : '')
+    }
+    if (start >= itemStart) return replace(start, end, '\n' + quotePrefix)
   }
 
   return null

@@ -55,6 +55,46 @@ const postsMod = await importTsModule('src/lib/posts.ts')
 const mdSourceMod = await importTsModule('src/lib/markdownSource.ts')
 const echoCaveMod = await importTsModule('src/lib/echoCave.ts')
 const echoAshMod = await importTsModule('src/lib/echoAsh.ts')
+const editorMod = await importTsModule('src/lib/editor.ts')
+
+test('issue #111: Enter continues quotes and Tab nests whole list items', async () => {
+  const { unified } = await import('unified')
+  const { default: remarkParse } = await import('remark-parse')
+  const parse = (value) => unified().use(remarkParse).parse(value)
+  const press = (source, key, shiftKey = false) => {
+    const caret = source.indexOf('|')
+    let prevented = false
+    const action = editorMod.handleEditorKey({
+      key,
+      shiftKey,
+      currentTarget: { value: source.replace('|', ''), selectionStart: caret, selectionEnd: caret },
+      preventDefault() { prevented = true },
+    })
+    assert.ok(prevented && action, source)
+    assert.equal(action.selectionStart, action.selectionEnd)
+    return action.value.slice(0, action.selectionStart) + '|' + action.value.slice(action.selectionEnd)
+  }
+
+  assert.equal(press('> First|', 'Enter'), '> First\n> |')
+  assert.equal(press('> > First\n> > |', 'Enter'), '> > First\n> |')
+  assert.equal(press('> > 9) First|', 'Enter'), '> > 9) First\n> > 10) |')
+  assert.equal(press('> - [X] First|', 'Enter'), '> - [X] First\n> - [ ] |')
+  assert.equal(press('> - |First', 'Enter'), '> - \n> - |First')
+  assert.equal(press('> - First\n> - |', 'Enter'), '> - First\n> |')
+  assert.equal(press('- First\n- |', 'Enter'), '- First\n|')
+
+  const unordered = press('- Parent\n- |', 'Tab')
+  assert.equal(unordered, '- Parent\n  - |')
+  assert.equal(parse(unordered.replace('|', 'Child')).children[0].children[0].children[1].type, 'list')
+
+  const ordered = press('9. Parent\n10. |', 'Tab')
+  assert.equal(ordered, '9. Parent\n   1. |')
+  const nested = parse(ordered.replace('|', 'Child')).children[0].children[0].children[1]
+  assert.equal(nested.type, 'list')
+  assert.equal(nested.start, 1)
+  assert.equal(press(ordered, 'Tab', true), '9. Parent\n10. |')
+  assert.equal(press('> 10) Parent\n> 11) |', 'Tab'), '> 10) Parent\n>     1) |')
+})
 
 function makeMock2dContext(strokeSink, drawSink) {
   const stack = []
