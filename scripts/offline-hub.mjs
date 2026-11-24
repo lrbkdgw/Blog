@@ -43,8 +43,16 @@ import { createReadStream, existsSync, statSync } from 'node:fs'
 import { hostname, networkInterfaces } from 'node:os'
 import { spawn } from 'node:child_process'
 import { extname, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 /* --------------------------------- 参数 --------------------------------- */
+
+function defaultOfflineFile() {
+  const candidates = [
+    './starlog-offline-latest.html', './starlog.html', '../offline/index.html', '../dist-offline/index.html',
+  ].map((path) => fileURLToPath(new URL(path, import.meta.url)))
+  return candidates.find((path) => existsSync(path)) ?? candidates[0]
+}
 
 function parseArgs(argv) {
   const out = {
@@ -52,7 +60,7 @@ function parseArgs(argv) {
     host: '0.0.0.0',
     room: '',
     code: '',
-    file: 'offline/index.html',
+    file: defaultOfflineFile(),
     readOnly: false,
     open: false,
     withHub: false,
@@ -597,7 +605,7 @@ function localAddresses(port) {
   return lines
 }
 
-const isMain = process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname)
+const isMain = process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url
 
 if (isMain) {
   let options
@@ -618,7 +626,7 @@ if (isMain) {
         '  --code <6 位数字> 指定房间码，例如 483902（界面里显示成 483-902）',
         '  --open            用默认浏览器直接打开带房间码的加入链接（发起者一步都不用填）',
         '  --with-hub        加入链接里同时写上中心地址（给从别的地址打开页面的人用）',
-        '  --file <路径>     要作为站点发出的离线单文件（默认 offline/index.html）',
+        '  --file <路径>     要作为站点发出的离线单文件（默认查找 Release 附件或仓库的离线版）',
         '  --read-only       只读模式：只能看别人的改动，不接受写入（默认允许写入）',
         '  --quiet           不打印日志',
         '',
